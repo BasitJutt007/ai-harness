@@ -1,0 +1,11 @@
+{
+  "pluginDirs": ["plugins"],
+  "disabled": [],
+  "protectedBranches": ["main", "master", "develop", "trunk", "release/*", "production"],
+  "worktreeDir": ".harness/worktrees",
+  "runsDir": "runs",
+  "tokensDir": "tokens",
+  "templatesDir": "templates",
+  "history": { "keepRecentTurns": 2 },
+  "limits": { "maxReadLines": 160, "maxListEntries": 200, "maxSearchHits": 40 }
+}
