@@ -1,0 +1,48 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "n/a",
+      "summary": "not applicable to greenfield tasks"
+    },
+    {
+      "gate": "observed-red",
+      "status": "fail",
+      "summary": "no observed red in this run",
+      "details": [
+        "Write a test for the behaviour, run it with run_tests and see it fail before changing source."
+      ]
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "0 changed files, all in scope"
+    },
+    {
+      "gate": "standards",
+      "status": "unproven",
+      "summary": "verdict UNPROVEN (a rule was skipped or had nothing to check)",
+      "details": [
+        "rest-conventions  unproven  (none)                           0/0 routes",
+        "zod-boundary      unproven  (none)                           0/0 handlers",
+        "────────────────────────────────────────────────────────────",
+        "problem-json      pass    17/17 error paths",
+        "rest-conventions  unproven 0/0 routes",
+        "tsc-strict        pass     0 errors",
+        "zod-boundary      unproven 0/0 handlers",
+        "verdict           UNPROVEN → not proven: rest-conventions (0 units), zod-boundary (0 units)"
+      ]
+    },
+    {
+      "gate": "tests-green",
+      "status": "pass",
+      "summary": "27/27 tests passed in 4 files",
+      "details": [
+        "tests: 0 failed, 27 passed (27) in 4 files"
+      ],
+      "logPath": "runs/users-api-scripted-20261002-200822/logs/006-vitest.txt"
+    }
+  ]
+}

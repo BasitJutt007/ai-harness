@@ -1,0 +1,35 @@
+{
+  "phase": "finish",
+  "ok": true,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "n/a",
+      "summary": "not applicable to greenfield tasks"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "1 red observations (1 test files); 4 changed source files covered"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "5 changed files, all in scope"
+    },
+    {
+      "gate": "standards",
+      "status": "pass",
+      "summary": "verdict 100% (4 rules)"
+    },
+    {
+      "gate": "tests-green",
+      "status": "pass",
+      "summary": "54/54 tests passed in 5 files",
+      "details": [
+        "tests: 0 failed, 54 passed (54) in 5 files"
+      ],
+      "logPath": "runs/users-api-scripted-20261002-200743/logs/012-vitest.txt"
+    }
+  ]
+}

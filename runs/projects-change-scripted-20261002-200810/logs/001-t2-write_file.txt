@@ -1,0 +1,97 @@
+--- a/test/projects.test.ts
++++ b/test/projects.test.ts
+@@ -37,8 +37,8 @@
+   return ProjectBody.parse(res.body);
+ }
+ 
+-async function listAll(query: Record<string, string>) {
+-  const ids: string[] = [];
++async function listAllProjects(query: Record<string, string>) {
++  const projects: Array<z.infer<typeof ProjectBody>> = [];
+   let cursor: string | null = null;
+   do {
+     const res = await request(app)
+@@ -46,12 +46,16 @@
+       .query(cursor === null ? query : { ...query, cursor });
+     expect(res.status).toBe(200);
+     const page = PageBody.parse(res.body);
+-    ids.push(...page.data.map((p) => p.id));
++    projects.push(...page.data);
+     cursor = page.nextCursor;
+   } while (cursor !== null);
+-  return ids;
++  return projects;
+ }
+ 
++async function listAll(query: Record<string, string>) {
++  return (await listAllProjects(query)).map((p) => p.id);
++}
++
+ describe('POST /v1/projects', () => {
+   it('creates a project: 201, Location header, status defaults to active', async () => {
+     const res = await request(app).post('/v1/projects').send({ name: 'Apollo', description: 'moon' });
+@@ -173,5 +177,64 @@
+     expect(first.status).toBe(200);
+     expect(second.headers['idempotent-replayed']).toBe('true');
+     expect(second.body).toEqual(first.body);
++  });
++});
++
++describe('GET /v1/projects?status=', () => {
++  it('returns only projects with the given status, still cursor-paginated', async () => {
++    const active = await createProject();
++    const archived = [await createProject({ status: 'archived' }), await createProject({ status: 'archived' })];
++    const listed = await listAllProjects({ status: 'archived', limit: '1' });
++    expect(listed.length).toBeGreaterThanOrEqual(2);
++    expect(listed.every((p) => p.status === 'archived')).toBe(true);
++    const ids = listed.map((p) => p.id);
++    expect(new Set(ids).size).toBe(ids.length);
++    for (const project of archived) expect(ids).toContain(project.id);
++    expect(ids).not.toContain(active.id);
++  });
++
++  it('returns only active projects for status=active', async () => {
++    const active = await createProject();
++    const archived = await createProject({ status: 'archived' });
++    const ids = (await listAllProjects({ status: 'active', limit: '100' })).map((p) => p.id);
++    expect(ids).toContain(active.id);
++    expect(ids).not.toContain(archived.id);
++  });
++
++  it('returns every project when no status is given', async () => {
++    const active = await createProject();
++    const archived = await createProject({ status: 'archived' });
++    const ids = await listAll({ limit: '100' });
++    expect(ids).toEqual(expect.arrayContaining([active.id, archived.id]));
++  });
++
++  it('rejects an unknown status with a 422 problem', async () => {
++    expectProblem(await request(app).get('/v1/projects').query({ status: 'deleted' }), 422);
++  });
++});
++
++describe('DELETE /v1/projects/:projectId', () => {
++  it('deletes the project: 204 with no body, then 404', async () => {
++    const project = await createProject();
++    const res = await request(app).delete(`/v1/projects/${project.id}`);
++    expect(res.status).toBe(204);
++    expect(res.text).toBe('');
++    expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
++    expect(await listAll({ limit: '100' })).not.toContain(project.id);
++  });
++
++  it('answers a second delete of the same project with a 404 problem', async () => {
++    const project = await createProject();
++    await request(app).delete(`/v1/projects/${project.id}`).expect(204);
++    expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('answers an unknown id with a 404 problem', async () => {
++    const problem = expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
++    expect(problem.instance).toBe(`/v1/projects/${UNKNOWN_ID}`);
++  });
++
++  it('answers a malformed id with a 422 problem', async () => {
++    expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
+   });
+ });

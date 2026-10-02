@@ -1,0 +1,3 @@
+$ tsc --noEmit -p tsconfig.json --strict --noUncheckedIndexedAccess
+exit=0
+
