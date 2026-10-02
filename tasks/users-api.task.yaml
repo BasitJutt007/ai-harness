@@ -1,0 +1,41 @@
+# Greenfield: build a Users REST API from the express-zod scaffold.
+# Provider-neutral: choose the model with `harness run ... --driver <name> [--model <id>]`.
+kind: greenfield
+id: users-api
+title: Users API
+output: generated/users-api
+template: express-zod
+basePath: /v1
+resources:
+  - name: user
+    plural: users
+    fields:
+      - name: email
+        type: email
+        required: true
+        unique: true
+        description: Login email address; unique across all users.
+      - name: name
+        type: string
+        required: true
+        min: 1
+        max: 100
+        description: Display name.
+      - name: role
+        type: enum
+        values: [admin, member]
+        default: member
+        description: Access role; new users are members unless stated otherwise.
+    operations: [list, get, create, update, delete]
+behaviours:
+  - "POST /v1/users creates a user and returns 201 with a Location header pointing at /v1/users/{userId}; role defaults to member when omitted."
+  - "Creating a user whose email already exists returns 409 application/problem+json; so does changing a user's email (PATCH) to one another user already has."
+  - "GET /v1/users is cursor-paginated: query parameters limit (default 20, max 100) and cursor; the response is { data: User[], nextCursor: string | null } and following nextCursor visits every user exactly once."
+  - "GET, PATCH and DELETE on /v1/users/{userId} with an id that does not exist return 404 application/problem+json."
+  - "An invalid request body, query or path parameter returns 422 application/problem+json whose detail names each failing field; a malformed JSON body returns 400 application/problem+json."
+  - "POST /v1/users honours the Idempotency-Key header: repeating the same key with the same body replays the original response (Idempotent-Replayed: true) without creating a second user; reusing the key with a different body returns 422."
+  - "PATCH /v1/users/{userId} updates only the fields given and returns 200 with the updated user; an empty patch returns 422."
+  - "DELETE /v1/users/{userId} returns 204 with no body; the user is then gone (GET returns 404)."
+limits:
+  maxTurns: 60
+  maxOutputTokens: 16000

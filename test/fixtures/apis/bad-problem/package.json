@@ -1,0 +1,6 @@
+{
+  "name": "fixture-bad-problem",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit", "start": "tsx src/server.ts" }
+}

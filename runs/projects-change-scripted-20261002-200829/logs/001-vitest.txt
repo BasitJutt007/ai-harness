@@ -1,0 +1,230 @@
+$ vitest run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api --reporter=default --reporter=json --outputFile.json=/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/vitest-1790971709983-6c3a1489/report.json test/projects.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api
+
+ ❯ test/projects.test.ts (18 tests | 8 failed) 79ms
+   ❯ POST /v1/projects (6)
+     × creates a project: 201, Location header, status defaults to active 23ms
+     ✓ rejects an invalid body with a 422 problem 4ms
+     ✓ rejects unknown properties with a 422 problem 1ms
+     ✓ rejects malformed JSON with a 400 problem 3ms
+     × honours Idempotency-Key: same key and body replays the first response 6ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 3ms
+   ❯ GET /v1/projects (4)
+     × pages through every project with an opaque cursor 4ms
+     × returns at most `limit` items and a nextCursor while more remain 3ms
+     × defaults to 20 items per page 16ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 3ms
+   ❯ GET /v1/projects/:projectId (3)
+     × returns the project 1ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ❯ PATCH /v1/projects/:projectId (4)
+     × updates the given fields only 1ms
+     ✓ rejects an empty or invalid patch with a 422 problem 3ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 3ms
+   ❯ description is internal (1)
+     × is accepted on create but never returned by GET 1ms
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 10 passed (18)
+   Start at  01:08:30
+   Duration  296ms (import 43%, tests 36%, transform 20%, worker 1%)
+
+JSON report written to /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/vitest-1790971709983-6c3a1489/report.json
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > POST /v1/projects > creates a project: 201, Location header, status defaults to active
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "description"
+    ],
+    "path": [],
+    "message": "Unrecognized key: \"description\""
+  }
+]
+ ❯ test/projects.test.ts:58:33
+     56|     const res = await request(app).post('/v1/projects').send({ name: '…
+     57|     expect(res.status).toBe(201);
+     58|     const project = ProjectBody.parse(res.body);
+       |                                 ^
+     59|     expect(res.headers['location']).toBe(`/v1/projects/${project.id}`);
+     60|     expect(project).toMatchObject({ name: 'Apollo', status: 'active' }…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  test/projects.test.ts > POST /v1/projects > honours Idempotency-Key: same key and body replays the first response
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "description"
+    ],
+    "path": [
+      "data",
+      0
+    ],
+    "message": "Unrecognized key: \"description\""
+  }
+]
+ ❯ listAll test/projects.test.ts:47:27
+     45|       .query(cursor === null ? query : { ...query, cursor });
+     46|     expect(res.status).toBe(200);
+     47|     const page = PageBody.parse(res.body);
+       |                           ^
+     48|     ids.push(...page.data.map((p) => p.id));
+     49|     cursor = page.nextCursor;
+ ❯ test/projects.test.ts:88:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  test/projects.test.ts > GET /v1/projects > pages through every project with an opaque cursor
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "description"
+    ],
+    "path": [
+      "data",
+      0
+    ],
+    "message": "Unrecognized key: \"description\""
+  }
+]
+ ❯ listAll test/projects.test.ts:47:27
+     45|       .query(cursor === null ? query : { ...query, cursor });
+     46|     expect(res.status).toBe(200);
+     47|     const page = PageBody.parse(res.body);
+       |                           ^
+     48|     ids.push(...page.data.map((p) => p.id));
+     49|     cursor = page.nextCursor;
+ ❯ test/projects.test.ts:102:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  test/projects.test.ts > GET /v1/projects > returns at most `limit` items and a nextCursor while more remain
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "description"
+    ],
+    "path": [
+      "data",
+      0
+    ],
+    "message": "Unrecognized key: \"description\""
+  }
+]
+ ❯ test/projects.test.ts:111:27
+    109|     await createProject();
+    110|     const res = await request(app).get('/v1/projects').query({ limit: …
+    111|     const page = PageBody.parse(res.body);
+       |                           ^
+    112|     expect(page.data).toHaveLength(1);
+    113|     expect(page.nextCursor).not.toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  test/projects.test.ts > GET /v1/projects > defaults to 20 items per page
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "description"
+    ],
+    "path": [
+      "data",
+      0
+    ],
+    "message": "Unrecognized key: \"description\""
+  }
+]
+ ❯ test/projects.test.ts:118:27
+    116|   it('defaults to 20 items per page', async () => {
+    117|     for (let i = 0; i < 21; i += 1) await createProject();
+    118|     const page = PageBody.parse((await request(app).get('/v1/projects'…
+       |                           ^
+    119|     expect(page.data).toHaveLength(20);
+    120|     expect(page.nextCursor).not.toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  test/projects.test.ts > GET /v1/projects/:projectId > returns the project
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "description"
+    ],
+    "path": [],
+    "message": "Unrecognized key: \"description\""
+  }
+]
+ ❯ createProject test/projects.test.ts:36:22
+     34|     .send({ name: `project ${randomUUID()}`, ...body });
+     35|   expect(res.status).toBe(201);
+     36|   return ProjectBody.parse(res.body);
+       |                      ^
+     37| }
+     38|
+ ❯ test/projects.test.ts:132:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  test/projects.test.ts > PATCH /v1/projects/:projectId > updates the given fields only
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "description"
+    ],
+    "path": [],
+    "message": "Unrecognized key: \"description\""
+  }
+]
+ ❯ createProject test/projects.test.ts:36:22
+     34|     .send({ name: `project ${randomUUID()}`, ...body });
+     35|   expect(res.status).toBe(201);
+     36|   return ProjectBody.parse(res.body);
+       |                      ^
+     37| }
+     38|
+ ❯ test/projects.test.ts:150:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  test/projects.test.ts > description is internal > is accepted on create but never returned by GET
+ZodError: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "description"
+    ],
+    "path": [],
+    "message": "Unrecognized key: \"description\""
+  }
+]
+ ❯ createProject test/projects.test.ts:36:22
+     34|     .send({ name: `project ${randomUUID()}`, ...body });
+     35|   expect(res.status).toBe(201);
+     36|   return ProjectBody.parse(res.body);
+       |                      ^
+     37| }
+     38|
+ ❯ test/projects.test.ts:181:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+--- json ---
+{"numTotalTestSuites":6,"numPassedTestSuites":0,"numFailedTestSuites":6,"numPendingTestSuites":0,"numTotalTests":18,"numPassedTests":10,"numFailedTests":8,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1790971710160,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects creates a project: 201, Location header, status defaults to active","status":"failed","title":"creates a project: 201, Location header, status defaults to active","duration":23.052583,"failureMessages":["ZodError: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"description\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"description\\\"\"\n  }\n]\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:58:33\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects an invalid body with a 422 problem","status":"passed","title":"rejects an invalid body with a 422 problem","duration":4.433917000000008,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects unknown properties with a 422 problem","status":"passed","title":"rejects unknown properties with a 422 problem","duration":1.474375000000009,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects malformed JSON with a 400 problem","status":"passed","title":"rejects malformed JSON with a 400 problem","duration":2.5194170000000042,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects honours Idempotency-Key: same key and body replays the first response","status":"failed","title":"honours Idempotency-Key: same key and body replays the first response","duration":5.802541999999988,"failureMessages":["ZodError: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"description\"\n    ],\n    \"path\": [\n      \"data\",\n      0\n    ],\n    \"message\": \"Unrecognized key: \\\"description\\\"\"\n  }\n]\n    at listAll (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:47:27)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:88:17\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects reuse of an Idempotency-Key with a different body (422)","status":"passed","title":"rejects reuse of an Idempotency-Key with a different body (422)","duration":3.043542000000002,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects pages through every project with an opaque cursor","status":"failed","title":"pages through every project with an opaque cursor","duration":3.837124999999986,"failureMessages":["ZodError: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"description\"\n    ],\n    \"path\": [\n      \"data\",\n      0\n    ],\n    \"message\": \"Unrecognized key: \\\"description\\\"\"\n  }\n]\n    at listAll (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:47:27)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:102:17\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects returns at most `limit` items and a nextCursor while more remain","status":"failed","title":"returns at most `limit` items and a nextCursor while more remain","duration":3.1624999999999943,"failureMessages":["ZodError: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"description\"\n    ],\n    \"path\": [\n      \"data\",\n      0\n    ],\n    \"message\": \"Unrecognized key: \\\"description\\\"\"\n  }\n]\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:111:27\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects defaults to 20 items per page","status":"failed","title":"defaults to 20 items per page","duration":16.40629199999998,"failureMessages":["ZodError: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"description\"\n    ],\n    \"path\": [\n      \"data\",\n      0\n    ],\n    \"message\": \"Unrecognized key: \\\"description\\\"\"\n  }\n]\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:118:27\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects rejects limit outside 1..100 and foreign cursors with a 422 problem","status":"passed","title":"rejects limit outside 1..100 and foreign cursors with a 422 problem","duration":2.5532079999999837,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId returns the project","status":"failed","title":"returns the project","duration":0.9010830000000283,"failureMessages":["ZodError: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"description\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"description\\\"\"\n  }\n]\n    at createProject (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:36:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:132:21\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":0.9787079999999833,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId answers a malformed id with a 422 problem","status":"passed","title":"answers a malformed id with a 422 problem","duration":0.8424999999999727,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId updates the given fields only","status":"failed","title":"updates the given fields only","duration":0.9307499999999891,"failureMessages":["ZodError: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"description\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"description\\\"\"\n  }\n]\n    at createProject (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:36:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:150:21\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId rejects an empty or invalid patch with a 422 problem","status":"passed","title":"rejects an empty or invalid patch with a 422 problem","duration":3.2771659999999656,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":0.7994160000000079,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId honours Idempotency-Key on PATCH","status":"passed","title":"honours Idempotency-Key on PATCH","duration":2.821875000000034,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["description is internal"],"fullName":"description is internal is accepted on create but never returned by GET","status":"failed","title":"is accepted on create but never returned by GET","duration":1.1477080000000228,"failureMessages":["ZodError: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"description\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"description\\\"\"\n  }\n]\n    at createProject (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:36:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts:181:21\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1790971710372,"endTime":1790971710451.1477,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-scripted-20261002-200829/samples/existing-api/test/projects.test.ts"}]}

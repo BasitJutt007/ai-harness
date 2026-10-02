@@ -1,0 +1,78 @@
+{
+  "description": "Reference greenfield TDD run for tasks/users-api.task.yaml on the express-zod scaffold: plan, write the users test, observe red, mount the router, implement routes, schemas and store, observe green, check standards, finish.",
+  "turns": [
+    {
+      "text": "Plan first, then look at the scaffold's route registry and problem helpers.",
+      "calls": [
+        {
+          "name": "plan",
+          "input": {
+            "steps": [
+              "Write test/users.test.ts with supertest against createApp() covering every behaviour (201 + Location, role default, 409 duplicate email, 422 invalid body, 400 malformed JSON, Idempotency-Key replay and reuse, cursor pagination with default 20 and max 100, 404 unknown id, PATCH, DELETE 204)",
+              "Run the test and observe it fail (routes do not exist yet)",
+              "Mount usersRouter in src/routes/index.ts",
+              "Implement src/routes/users.ts with every request part parsed by Zod and every 2xx body parsed by a schema",
+              "Add src/schemas/user.ts (Zod schemas, types via z.infer) and src/store/users.ts (in-memory, unique email -> conflict)",
+              "Run the tests until green, then check_standards, then finish"
+            ]
+          }
+        },
+        { "name": "read_file", "input": { "path": "src/routes/index.ts" } },
+        { "name": "outline", "input": { "path": "src/lib/problem.ts" } }
+      ]
+    },
+    {
+      "text": "Write the behaviour tests before any source.",
+      "calls": [
+        { "name": "write_file", "input": { "path": "test/users.test.ts" }, "contentFile": "users-api/test/users.test.ts" }
+      ]
+    },
+    {
+      "text": "Run the new test to observe red.",
+      "calls": [
+        { "name": "run_tests", "input": { "files": ["test/users.test.ts"] } }
+      ]
+    },
+    {
+      "text": "Red observed. Mount the users router (src/routes/index.ts is reached from the test through src/app.ts).",
+      "calls": [
+        { "name": "write_file", "input": { "path": "src/routes/index.ts" }, "contentFile": "users-api/src/routes/index.ts" }
+      ]
+    },
+    {
+      "text": "Implement the routes.",
+      "calls": [
+        { "name": "write_file", "input": { "path": "src/routes/users.ts" }, "contentFile": "users-api/src/routes/users.ts" }
+      ]
+    },
+    {
+      "text": "Add the Zod schemas and the store the routes import.",
+      "calls": [
+        { "name": "write_file", "input": { "path": "src/schemas/user.ts" }, "contentFile": "users-api/src/schemas/user.ts" },
+        { "name": "write_file", "input": { "path": "src/store/users.ts" }, "contentFile": "users-api/src/store/users.ts" }
+      ]
+    },
+    {
+      "text": "Run the whole suite.",
+      "calls": [
+        { "name": "run_tests", "input": {} }
+      ]
+    },
+    {
+      "text": "Green. Check the API standards.",
+      "calls": [
+        { "name": "check_standards", "input": {} }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "name": "finish",
+          "input": {
+            "summary": "Users API: list (cursor-paginated, limit default 20, max 100), get, create (201 + Location, Idempotency-Key, 409 on duplicate email), update (PATCH, 409 on email clash), delete (204). Every request part and 2xx body is parsed by Zod; every error is application/problem+json."
+          }
+        }
+      ]
+    }
+  ]
+}

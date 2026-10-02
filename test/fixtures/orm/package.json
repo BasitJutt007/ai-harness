@@ -1,0 +1,6 @@
+{
+  "name": "fixture-orm",
+  "private": true,
+  "type": "module",
+  "description": "Parse-only fixture for the example orm-explicit-columns and no-console checks (drizzle-orm / @prisma/client are NOT installed; nothing here runs)."
+}

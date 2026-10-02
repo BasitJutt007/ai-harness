@@ -1,0 +1,34 @@
+# Brownfield: change the existing Projects API in samples/existing-api.
+# Provider-neutral: choose the model with `harness run ... --driver <name> [--model <id>]`.
+kind: brownfield
+id: projects-change
+title: Delete projects and filter the project list by status
+target: samples/existing-api
+change: |
+  Add two capabilities to the existing Projects API without breaking any current client:
+
+  1. DELETE /v1/projects/{projectId} removes a project. It returns 204 with no body,
+     and 404 application/problem+json when the project does not exist.
+  2. GET /v1/projects accepts an optional `status` query parameter (active | archived)
+     that returns only projects with that status. The list stays cursor-paginated
+     (cursor + limit, response { data, nextCursor }) and the filter is applied before
+     paginating, so following nextCursor walks the filtered set.
+
+  Existing routes, request schemas and response schemas must keep working exactly as
+  they do today; both changes are additive.
+behaviours:
+  - "DELETE /v1/projects/{projectId} returns 204 with an empty body, after which GET /v1/projects/{projectId} returns 404."
+  - "DELETE /v1/projects/{projectId} for an id that does not exist (including a second delete of the same project) returns 404 application/problem+json."
+  - "DELETE /v1/projects/{projectId} with a malformed id returns 422 application/problem+json."
+  - "GET /v1/projects?status=archived returns only archived projects and GET /v1/projects?status=active only active ones."
+  - "GET /v1/projects with a status filter is still cursor-paginated: limit and cursor work as before and following nextCursor visits every matching project exactly once."
+  - "GET /v1/projects without status returns projects of every status, as before."
+  - "GET /v1/projects with an unknown status value returns 422 application/problem+json."
+  - "All existing tests keep passing and the public contract only gains (never loses or narrows) routes and properties."
+scope:
+  allow: ["src/**/*.ts", "test/**/*.ts"]
+  deny: ["src/lib/**", "src/server.ts"]
+allowBreaking: false
+limits:
+  maxTurns: 40
+  maxOutputTokens: 16000
