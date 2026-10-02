@@ -1,0 +1,115 @@
+{
+  "description": "Reference brownfield run for tasks/projects-change.task.yaml on samples/existing-api: read and outline, extend the projects test with failing DELETE and status-filter cases, observe red, edit schema, store and routes, observe green, check standards, finish.",
+  "turns": [
+    {
+      "text": "Map the existing module and its tests before changing anything.",
+      "calls": [
+        {
+          "name": "plan",
+          "input": {
+            "steps": [
+              "Read the projects module (schema, store, routes) and test/projects.test.ts",
+              "Add failing tests: DELETE /v1/projects/:projectId (204, then 404; unknown id 404; malformed id 422) and GET /v1/projects?status= (filters, keeps cursor pagination, unknown status 422)",
+              "Run the tests and observe red",
+              "Extend ListProjectsQuerySchema with an optional status, filter in the store, add removeProject and the DELETE route",
+              "Run the tests until green, check_standards, finish"
+            ]
+          }
+        },
+        { "name": "test_map", "input": { "path": "src/modules/projects/routes.ts" } },
+        { "name": "outline", "input": { "path": "src/modules/projects/routes.ts" } },
+        { "name": "read_file", "input": { "path": "src/modules/projects/schema.ts" } },
+        { "name": "read_file", "input": { "path": "src/modules/projects/store.ts" } }
+      ]
+    },
+    {
+      "text": "Extend the existing test file with the new acceptance criteria.",
+      "calls": [
+        { "name": "write_file", "input": { "path": "test/projects.test.ts" }, "contentFile": "projects-change/test/projects.test.ts" }
+      ]
+    },
+    {
+      "text": "Observe red.",
+      "calls": [
+        { "name": "run_tests", "input": { "files": ["test/projects.test.ts"] } }
+      ]
+    },
+    {
+      "text": "Red observed for the new cases. Add the optional status filter to the list query schema (additive change).",
+      "calls": [
+        {
+          "name": "edit_file",
+          "input": {
+            "path": "src/modules/projects/schema.ts",
+            "find": "export const ListProjectsQuerySchema = CursorQuerySchema;",
+            "replace": "export const ListProjectsQuerySchema = CursorQuerySchema.extend({\n  status: ProjectStatusSchema.optional(),\n});"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Filter before paginating so cursors stay consistent, and add removal to the store.",
+      "calls": [
+        {
+          "name": "edit_file",
+          "input": {
+            "path": "src/modules/projects/store.ts",
+            "find": "  return paginate([...projects.values()], query, sortKey);",
+            "replace": "  const matching = [...projects.values()].filter((project) => query.status === undefined || project.status === query.status);\n  return paginate(matching, query, sortKey);"
+          }
+        },
+        {
+          "name": "edit_file",
+          "input": {
+            "path": "src/modules/projects/store.ts",
+            "find": "export function updateProject(",
+            "replace": "export function removeProject(id: string): boolean {\n  return projects.delete(id);\n}\n\nexport function updateProject("
+          }
+        }
+      ]
+    },
+    {
+      "text": "Add the DELETE route.",
+      "calls": [
+        {
+          "name": "edit_file",
+          "input": {
+            "path": "src/modules/projects/routes.ts",
+            "find": "import { createProject, getProject, listProjects, updateProject } from './store.ts';",
+            "replace": "import { createProject, getProject, listProjects, removeProject, updateProject } from './store.ts';"
+          }
+        },
+        {
+          "name": "edit_file",
+          "input": {
+            "path": "src/modules/projects/routes.ts",
+            "find": "projectsRouter.patch('/v1/projects/:projectId', idempotency(), (req, res) => {",
+            "replace": "projectsRouter.delete('/v1/projects/:projectId', (req, res) => {\n  const { projectId } = ProjectParamsSchema.parse(req.params);\n  if (!removeProject(projectId)) throw notFound(`project ${projectId} not found`);\n  res.status(204).end();\n});\n\nprojectsRouter.patch('/v1/projects/:projectId', idempotency(), (req, res) => {"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Run the whole suite.",
+      "calls": [
+        { "name": "run_tests", "input": {} }
+      ]
+    },
+    {
+      "text": "Green. Check the API standards.",
+      "calls": [
+        { "name": "check_standards", "input": {} }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "name": "finish",
+          "input": {
+            "summary": "Added DELETE /v1/projects/:projectId (204; 404 when missing; 422 for a malformed id) and an optional status filter (active|archived) on GET /v1/projects that is applied before cursor pagination. Both changes are additive; existing routes and schemas are unchanged."
+          }
+        }
+      ]
+    }
+  ]
+}
