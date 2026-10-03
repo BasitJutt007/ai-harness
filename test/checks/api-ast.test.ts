@@ -48,7 +48,8 @@ describe('extractRoutes on the good fixture', () => {
     const { routes, checker } = await routesOf('good');
     const post = find(routes, 'post', '/v1/users');
     expect(post.unparsedReads).toEqual([]);
-    expect(post.parses).toHaveLength(1);
+    // the handler's own parse first, then the idempotency() middleware's parse of req.headers (chain parses count)
+    expect(post.parses.map((p) => p.target)).toEqual(['body', 'headers']);
     const [site] = post.parses;
     expect(site?.target).toBe('body');
     expect(site?.schema.text).toBe('CreateUserSchema');
@@ -99,7 +100,7 @@ describe('extractRoutes: mounts, route() chains and identifier handlers', () => 
     const post = find(routes, 'post', '/v1/gadgets');
     expect(post.handler).toBeDefined();
     expect(post.middleware.map((m) => m.getText())).toEqual(['idempotency()']);
-    expect(post.parses.map((p) => p.target)).toEqual(['body']);
+    expect(post.parses.map((p) => p.target)).toEqual(['body', 'headers']); // + the idempotency() middleware's header parse
     expect(post.responses.map((r) => r.status)).toEqual([201]);
     const get = find(routes, 'get', '/v1/gadgets');
     expect(get.parses.map((p) => p.target)).toEqual(['query']);

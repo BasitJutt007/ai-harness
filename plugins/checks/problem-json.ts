@@ -1,29 +1,36 @@
 /**
  * problem-json: every error leaves the API as RFC 9457 application/problem+json.
- * Static: no ad-hoc error bodies, error statuses only with problem bodies, problem
- * producers supply type/title/status, an error middleware and a final not-found
- * handler are registered. Runtime: probes against createApp (UNPROVEN if it cannot start).
+ * Static: no ad-hoc error bodies, error (or non-constant) statuses only with full problem
+ * bodies, problem producers judged by behaviour (an error class the error middleware turns
+ * into a problem, or an object with the problem members), an error middleware and a final
+ * not-found handler are registered (recognised by type and behaviour, factories included).
+ * Runtime: probes against createApp (UNPROVEN if it cannot start).
  */
 import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
 import {
+  PROBLEM_MEMBERS,
+  apiModel,
   calleeName,
-  extractRoutes,
+  constInitializer,
+  constString,
+  extractRouteTable,
+  isProblemDocument,
   isProblemShaped,
+  isReplay,
   location,
-  stringLiteralValue,
+  missingMembers,
+  numericValue,
   problemProducer,
-  programFile,
+  problemStatus,
   propName,
   responseChain,
   unwrap,
   useRegistrations,
   walk,
-  constInitializer,
-  numericValue,
 } from '../lib/api-ast.ts';
-import type { RouteInfo, UseRegistration } from '../lib/api-ast.ts';
+import type { ApiModel, Env, Producer, ResponseChain, RouteInfo, UseRegistration } from '../lib/api-ast.ts';
 import { runProbe, substituteParams } from '../lib/probe.ts';
 
 const RULE = 'problem-json';
@@ -34,12 +41,15 @@ const DOC = `problem-json (unit: error paths)
 Every error response is RFC 9457 application/problem+json: { type, title, status, detail, instance }.
 Static rules (per src file):
 - Never send ad-hoc error bodies (object literals with error / errors / message keys).
-- Never res.status(>=400).json/send(...) / sendStatus(>=400) unless the body comes from a problem helper
-  (or is a {type,title,status,...} literal sent with .type('application/problem+json')).
-  Prefer: throw notFound(detail) / conflict(detail) / new HttpProblem({...}) and let the error middleware send it.
-- Every problem producer (new HttpProblem(...), notFound(...), conflict(...), ...) yields type, title, status.
+- A response whose status is >= 400, or not a constant (res.status(code) with code: number), is an error path:
+  its body must be a full problem (a value typed with all five members, or a five-key literal sent with
+  .type('application/problem+json')). Replaying a recorded response (res.status(r.status).json(r.body)) is exempt.
+  Prefer: throw notFound(detail) / new HttpProblem({...}) and let the error middleware send it.
+- Problem producers: an error class the error middleware tests with instanceof (and its subclasses) is a
+  problem; any other producer yields type, title, status (an Error) or all five members (a plain object).
 - Handlers never throw / next() a non-problem error (new Error('not found') becomes a 500).
-- The app registers an error-handling middleware (err, req, res, next) and a final not-found handler.
+- The app registers an error-handling middleware (4 parameters, by type; factories followed) and a final
+  not-found handler (a path-less 2-3 parameter middleware that produces a 404).
 Runtime (src/app.ts exports createApp): probes must get Content-Type application/problem+json and a body
 with string type/title/detail/instance and integer status equal to the HTTP status:
   GET <base>/__harness_probe__/does-not-exist -> 404; POST/PUT/PATCH malformed JSON -> 400, invalid body -> 422;
@@ -101,23 +111,8 @@ function constValue(checker: ts.TypeChecker, expr: ts.Expression): ts.Expression
   return init === undefined ? undefined : unwrap(init);
 }
 
-function isProblemExpr(checker: ts.TypeChecker, body: ts.Expression): boolean {
-  const e = constValue(checker, body);
-  return e !== undefined && problemProducer(checker, e) !== undefined;
-}
-
-/** An object literal with type, title and status keys (a hand-assembled problem document). */
-function isProblemLiteral(checker: ts.TypeChecker, body: ts.Expression): boolean {
-  const e = constValue(checker, body);
-  if (e === undefined || !ts.isObjectLiteralExpression(e)) return false;
-  const keys = new Set(e.properties.map((p) => (p.name !== undefined ? propName(p.name) : undefined)));
-  return REQUIRED.every((k) => keys.has(k));
-}
-
 function mentionsProblemType(checker: ts.TypeChecker, arg: ts.Expression | undefined): boolean {
-  if (arg === undefined) return false;
-  const e = constValue(checker, arg);
-  const text = e !== undefined ? stringLiteralValue(e) : undefined;
+  const text = constString(checker, arg);
   return text !== undefined && /problem\+json/i.test(text);
 }
 
@@ -129,7 +124,7 @@ function chainSetsProblemType(checker: ts.TypeChecker, call: ts.CallExpression):
       const name = cur.expression.name.text;
       const [a0, a1] = cur.arguments;
       if ((name === 'type' || name === 'contentType') && mentionsProblemType(checker, a0)) return true;
-      if ((name === 'set' || name === 'header' || name === 'setHeader') && stringLiteralValue(a0)?.toLowerCase() === 'content-type' && mentionsProblemType(checker, a1)) {
+      if ((name === 'set' || name === 'header' || name === 'setHeader') && constString(checker, a0)?.toLowerCase() === 'content-type' && mentionsProblemType(checker, a1)) {
         return true;
       }
     }
@@ -138,8 +133,28 @@ function chainSetsProblemType(checker: ts.TypeChecker, call: ts.CallExpression):
   return false;
 }
 
+/**
+ * Members a sent error body lacks: an object literal needs all five problem keys and the problem content type;
+ * any other value needs a type with all five members (required).
+ */
+function problemBodyGaps(checker: ts.TypeChecker, chain: ResponseChain): string[] {
+  const body = chain.body;
+  if (body === undefined) return ['a body'];
+  const lit = constValue(checker, body);
+  if (lit !== undefined && ts.isObjectLiteralExpression(lit) && !lit.properties.some(ts.isSpreadAssignment)) {
+    const keys = new Set(lit.properties.map((p) => (p.name !== undefined ? propName(p.name) : undefined)));
+    const gaps: string[] = PROBLEM_MEMBERS.filter((k) => !keys.has(k));
+    if (!chainSetsProblemType(checker, chain.call)) gaps.push(".type('application/problem+json')");
+    return gaps;
+  }
+  const typed = isProblemDocument(checker, checker.getTypeAtLocation(body), body);
+  if (!typed) return missingMembers(checker, checker.getTypeAtLocation(body), body, PROBLEM_MEMBERS, true);
+  return lit !== undefined && ts.isObjectLiteralExpression(lit) && !chainSetsProblemType(checker, chain.call) ? [".type('application/problem+json')"] : [];
+}
+
 /** Errors constructed by a handler that are not problems: `throw new Error(...)`, `next(new Error(...))`. */
-function nonProblemErrors(checker: ts.TypeChecker, fn: ts.FunctionLikeDeclaration): ts.NewExpression[] {
+function nonProblemErrors(m: ApiModel, fn: ts.FunctionLikeDeclaration): ts.NewExpression[] {
+  const { checker } = m;
   const out: ts.NewExpression[] = [];
   if (fn.body === undefined) return out;
   const nextParam = fn.parameters[2];
@@ -150,7 +165,7 @@ function nonProblemErrors(checker: ts.TypeChecker, fn: ts.FunctionLikeDeclaratio
     else if (ts.isCallExpression(n) && nextName !== undefined && calleeName(n.expression) === nextName && ts.isIdentifier(n.expression)) created = n.arguments[0];
     const e = created !== undefined ? unwrap(created) : undefined;
     if (e === undefined || !ts.isNewExpression(e)) return;
-    if (problemProducer(checker, e) !== undefined || isProblemShaped(checker, checker.getTypeAtLocation(e))) return;
+    if (problemProducer(m, e) !== undefined || isProblemShaped(checker, checker.getTypeAtLocation(e))) return;
     if (/ZodError$/.test(calleeName(e.expression) ?? '')) return; // the error middleware maps it to 422
     out.push(e);
   });
@@ -165,25 +180,16 @@ function isResponseRoot(checker: ts.TypeChecker, root: ts.Expression, statusSet:
   return t.getProperty('json') !== undefined && t.getProperty('status') !== undefined && t.getProperty('sendStatus') !== undefined;
 }
 
-function isStringish(checker: ts.TypeChecker, t: ts.Type): boolean {
-  return (checker.getApparentType(t).flags & ts.TypeFlags.StringLike) !== 0 || (t.flags & ts.TypeFlags.StringLike) !== 0 || checker.typeToString(t) === 'String';
-}
-
-function isNumberish(checker: ts.TypeChecker, t: ts.Type): boolean {
-  return (t.flags & ts.TypeFlags.NumberLike) !== 0 || checker.typeToString(t) === 'Number';
-}
-
-/** Missing type/title/status of a problem producer (by its result type and any object-literal init). */
-function missingProblemFields(checker: ts.TypeChecker, node: ts.CallExpression | ts.NewExpression): string[] {
-  const missing = new Set<string>();
+/**
+ * Members a problem producer does not supply: none for an error class the error middleware handles;
+ * type/title/status for another Error; all five (required) for a plain problem object. An object literal
+ * argument must itself carry type/title/status (status may be a separate numeric argument).
+ */
+function missingProblemFields(m: ApiModel, node: ts.CallExpression | ts.NewExpression, producer: Producer): string[] {
+  if (producer.kind === 'handled') return [];
+  const { checker } = m;
   const type = checker.getTypeAtLocation(node);
-  const fieldOk = (name: string): boolean => {
-    const sym = checker.getApparentType(type).getProperty(name);
-    if (sym === undefined) return false;
-    const t = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(sym, node));
-    return name === 'status' ? isNumberish(checker, t) : isStringish(checker, t);
-  };
-  for (const f of REQUIRED) if (!fieldOk(f)) missing.add(f);
+  const missing = new Set(producer.kind === 'document' ? missingMembers(checker, type, node, PROBLEM_MEMBERS, true) : missingMembers(checker, type, node, REQUIRED, false));
   const args = node.arguments ?? [];
   const hasNumeric = args.some((a) => numericValue(checker, a) !== null);
   for (const a of args) {
@@ -192,60 +198,72 @@ function missingProblemFields(checker: ts.TypeChecker, node: ts.CallExpression |
     const keys = new Set(lit.properties.map((p) => (p.name !== undefined ? propName(p.name) : undefined)));
     for (const f of REQUIRED) if (!keys.has(f) && !(f === 'status' && hasNumeric)) missing.add(f);
   }
-  return [...missing];
+  const order: readonly string[] = PROBLEM_MEMBERS;
+  return [...missing].sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
 
-function staticUnits(ctx: CheckContext, program: ts.Program, map: Map<string, Tally>): void {
-  const checker = program.getTypeChecker();
-  for (const file of ctx.sourceFiles) {
-    const sf = programFile(program, ctx.root, file);
-    if (sf === undefined) continue;
+function statusText(chain: ResponseChain): string {
+  if (chain.statuses !== null) return chain.statuses.join('|');
+  return chain.statusExpr !== undefined ? chain.statusExpr.getText() : '(unknown)';
+}
+
+function staticUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): void {
+  const { checker } = m;
+  for (const { rel: file, sf } of m.sources) {
     walk(sf, (node) => {
       if (ts.isCallExpression(node)) {
         const chain = responseChain(checker, node);
         if (chain !== undefined && isResponseRoot(checker, unwrap(chain.root), chain.statusSet)) {
-          const errorStatus = chain.status !== null && chain.status >= 400;
+          // A status that is not a constant may be an error: it is judged as one (a replayed record excepted).
+          const unknown = chain.statuses === null;
+          const errorStatus = unknown ? !isReplay(checker, chain) : (chain.statuses ?? []).some((s) => s >= 400);
           const keys = adhocKeys(checker, chain.body);
           if (errorStatus || keys.length > 0) {
-            const problemBody =
-              chain.body !== undefined &&
-              (isProblemExpr(checker, chain.body) || (isProblemLiteral(checker, chain.body) && chainSetsProblemType(checker, node)));
-            const ok = keys.length === 0 && problemBody;
+            const gaps = errorStatus ? problemBodyGaps(checker, chain) : [];
             const why =
               keys.length > 0
                 ? `ad-hoc error body with ${keys.map((k) => `"${k}"`).join(', ')}; throw a problem (e.g. notFound(detail)) and let the error middleware send application/problem+json`
-                : `status ${String(chain.status)} is sent with a non-problem body; throw a problem helper (notFound/conflict/new HttpProblem) instead`;
-            unit(tally(map, file), ok, { location: location(ctx.root, node), message: why });
+                : unknown
+                  ? `status ${statusText(chain)} is not a constant, so this may be an error response, and its body is not a problem (missing ${gaps.join(', ')}); send a full problem or use a literal success status`
+                  : `status ${statusText(chain)} is sent with a non-problem body (missing ${gaps.join(', ')}); throw a problem helper (notFound/conflict/new HttpProblem) instead`;
+            unit(tally(map, file), keys.length === 0 && gaps.length === 0, { location: location(ctx.root, node), message: why });
           }
         }
       }
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-        const name = problemProducer(checker, node);
-        if (name === undefined || name.includes('.')) return;
-        const missing = missingProblemFields(checker, node);
+        const producer = problemProducer(m, node);
+        if (producer === undefined || producer.name.includes('.')) return;
+        const missing = missingProblemFields(m, node, producer);
         unit(tally(map, file), missing.length === 0, {
           location: location(ctx.root, node),
-          message: `${name}(...) does not supply ${missing.join(', ')}; a problem needs type, title and status`,
+          message: `${producer.name}(...) does not supply ${missing.join(', ')}; ${producer.kind === 'document' ? 'a problem object needs type, title, status, detail and instance' : 'a problem needs type, title and status'}`,
         });
       }
     });
   }
 }
 
-function mentionsNotFound(fn: ts.FunctionLikeDeclaration): boolean {
+/** Whether a middleware produces a 404: a constant 404 argument / literal, or a problem producer whose status is 404. */
+function producesNotFound(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env): boolean {
   let found = false;
-  walk(fn, (n) => {
-    if ((ts.isIdentifier(n) && n.text === 'notFound') || (ts.isNumericLiteral(n) && n.text === '404')) found = true;
+  if (fn.body === undefined) return false;
+  walk(fn.body, (n) => {
+    if (found) return;
+    if (ts.isNumericLiteral(n) && n.text === '404') found = true;
+    if (!ts.isCallExpression(n) && !ts.isNewExpression(n)) return;
+    if ((n.arguments ?? []).some((a) => numericValue(m.checker, a, env) === 404)) found = true;
+    const producer = problemProducer(m, n);
+    if (producer !== undefined && problemStatus(m, n, producer.name, env) === 404) found = true;
   });
   return found;
 }
 
-function appUnits(ctx: CheckContext, program: ts.Program, map: Map<string, Tally>): void {
-  const uses = useRegistrations(program, ctx.root, ctx.sourceFiles);
-  const errorRegs = uses.filter((u) => u.fn !== undefined && u.fn.parameters.length === 4);
+function appUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): void {
+  const uses = useRegistrations(m.program, ctx.root, ctx.sourceFiles);
+  const errorRegs = uses.filter((u) => u.params === 4);
   const notFoundRegs = uses.filter(
     (u): u is UseRegistration & { fn: ts.FunctionLikeDeclaration } =>
-      u.fn !== undefined && u.path === undefined && u.fn.parameters.length >= 2 && u.fn.parameters.length <= 3 && mentionsNotFound(u.fn),
+      u.fn !== undefined && u.path === undefined && u.fn.parameters.length >= 2 && u.fn.parameters.length <= 3 && producesNotFound(m, u.fn, u.env),
   );
   const anchor = errorRegs[0]?.call ?? notFoundRegs[0]?.call;
   const file = anchor !== undefined ? location(ctx.root, anchor).replace(/:\d+:\d+$/, '') : ctx.sourceFiles.includes('src/app.ts') ? 'src/app.ts' : (ctx.sourceFiles[0] ?? '(project)');
@@ -267,13 +285,12 @@ function appUnits(ctx: CheckContext, program: ts.Program, map: Map<string, Tally
   });
 }
 
-function handlerUnits(ctx: CheckContext, program: ts.Program, routes: RouteInfo[], map: Map<string, Tally>): void {
-  const checker = program.getTypeChecker();
+function handlerUnits(ctx: CheckContext, m: ApiModel, routes: RouteInfo[], map: Map<string, Tally>): void {
   const seen = new Set<ts.Node>();
   for (const r of routes) {
     if (r.handler === undefined || seen.has(r.handler)) continue;
     seen.add(r.handler);
-    for (const e of nonProblemErrors(checker, r.handler)) {
+    for (const e of nonProblemErrors(m, r.handler)) {
       const file = location(ctx.root, e).replace(/:\d+:\d+$/, '');
       unit(tally(map, file), false, {
         location: location(ctx.root, e),
@@ -310,18 +327,22 @@ async function runtimeFinding(ctx: CheckContext, routes: RouteInfo[]): Promise<C
   return { ...base, status: violations.length === 0 ? 'pass' : 'fail', units: { passed, total: run.outcomes.length }, violations };
 }
 
-async function run(ctx: CheckContext): Promise<CheckFinding[]> {
-  const program = ctx.program();
+/** The static findings (per file), without starting the app. */
+export function staticProblemFindings(ctx: CheckContext): CheckFinding[] {
+  const m = apiModel(ctx.program(), ctx.root, ctx.sourceFiles);
   const map = new Map<string, Tally>();
-  const routes = extractRoutes(program, ctx.root, ctx.sourceFiles);
-  staticUnits(ctx, program, map);
-  appUnits(ctx, program, map);
-  handlerUnits(ctx, program, routes, map);
-  const findings: CheckFinding[] = [...map.entries()]
+  staticUnits(ctx, m, map);
+  appUnits(ctx, m, map);
+  handlerUnits(ctx, m, extractRouteTable(m.program, ctx.root, ctx.sourceFiles).all, map);
+  return [...map.entries()]
     .filter(([, t]) => t.total > 0)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([file, t]) => ({ rule: RULE, file, status: t.violations.length === 0 ? 'pass' : 'fail', units: { passed: t.passed, total: t.total }, violations: t.violations }));
-  findings.push(await runtimeFinding(ctx, routes));
+}
+
+async function run(ctx: CheckContext): Promise<CheckFinding[]> {
+  const findings = staticProblemFindings(ctx);
+  findings.push(await runtimeFinding(ctx, extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).routes));
   return findings;
 }
 

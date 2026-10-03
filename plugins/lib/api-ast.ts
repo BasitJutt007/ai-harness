@@ -1,11 +1,17 @@
 /**
  * Shared Express route extraction for the standards checks and the contract lock.
  *
- * A route is `<x>.<get|post|put|patch|delete>(<path literal>, ...middleware, handler)`
- * (or `<x>.route(<path literal>).<method>(...handlers)`) where `<x>` is an Express
- * app/Router according to the type checker (falling back to conventional names
- * when express types are unavailable). Mount prefixes from `x.use('/prefix', router)`
- * are applied when they are statically determinable.
+ * Routes are recognised by value and type, not by one template's syntax:
+ * - a route is `<x>.<get|post|put|patch|delete>(path, ...handlers)` or `<x>.route(path).<method>(...handlers)`
+ *   where `<x>` is an Express app/Router by type (conventional names only when types are unresolved);
+ * - `path` is any expression with a constant string value: a literal, a const (across imports), a template
+ *   or `+` of constants, an `as const` object member, or a literal type. A path that cannot be determined
+ *   is reported as unresolved (`unresolvedPath`), never dropped;
+ * - `x.use([path,] ...children)` mounts children under `path` ('' when path-less); prefixes compose;
+ * - every handler argument (and arrays of them) forms the route's chain: middleware is analysed too, with
+ *   factory arguments bound from the call site (`validate({ body: S })`);
+ * - statuses come from literal types (enums, `as const` objects, library constants), unions as sets;
+ * - error classes are problems when the error middleware turns them into problem responses (`instanceof`).
  */
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
@@ -19,6 +25,8 @@ export interface SchemaRef {
   module?: string;
   exportName?: string;
   parsedType?: ts.Type;
+  /** Set when only this member of the schema's output is the request part (`S.parse({ body: req.body })`). */
+  member?: string;
 }
 export interface ParseSite {
   target: 'params' | 'query' | 'body' | 'headers';
@@ -27,9 +35,13 @@ export interface ParseSite {
 }
 export interface ResponseSite {
   call: ts.CallExpression;
+  /** The status when it is a single known value (200 when no status is set), else null. */
   status: number | null;
+  /** Every status the call can send (a union of literals is a set); null when unknown. */
+  statuses: number[] | null;
   hasBody: boolean;
   schema?: SchemaRef;
+  /** The body is a full problem document by type (type, title, status, detail, instance). */
   isProblem: boolean;
 }
 export interface RouteInfo {
@@ -43,7 +55,9 @@ export interface RouteInfo {
   middleware: ts.Expression[];
   reqName: string | undefined;
   resName: string | undefined;
+  /** Parses of the handler first, then of the middleware chain (in chain order). */
   parses: ParseSite[];
+  /** Raw request reads in the handler and its middleware chain that no parse covers. */
   unparsedReads: Array<{ target: string; node: ts.Node }>;
   responses: ResponseSite[];
   statusLiterals: Array<{ status: number; node: ts.Node }>;
@@ -60,9 +74,13 @@ export interface RouteInfo {
   calleeProblemSites: Array<{ name: string; status: number | null; node: ts.Node }>;
   /** Addition: middleware applied by `.use()` on the route's router (before it) or on a router/app it is mounted on. */
   scopeMiddleware: ts.Expression[];
+  /** Addition: some function of the chain (or a callee it passes `req` to) reads the Idempotency-Key header. */
+  readsIdempotencyKey: boolean;
+  /** Set when the full path cannot be determined statically; `path` is then only a display label. */
+  unresolvedPath?: { node: ts.Node; reason: string };
 }
 
-/** Problem helper names and the status they produce. */
+/** Problem helper names and the status they produce (fallback when the helper cannot be followed). */
 export const PROBLEM_HELPERS: Readonly<Record<string, number>> = {
   badRequest: 400,
   unauthorized: 401,
@@ -93,6 +111,12 @@ const RESPONSE_METHODS = new Set(['json', 'send', 'end', 'sendStatus', 'jsonp'])
 const RECEIVER_NAME = /^(app|api|server|router|\w*router)$/i;
 /** Names matching /problem/i that do not produce a problem (they send or test one). */
 const NON_PRODUCER = /^(send|is|has|write|handle|render|format|to|as|map|log)/i;
+/** The members of an RFC 9457 problem document, as every error response must carry them. */
+export const PROBLEM_MEMBERS = ['type', 'title', 'status', 'detail', 'instance'] as const;
+export const IDEMPOTENCY_HEADER = 'idempotency-key';
+
+const MAX_HANDLER_DEPTH = 3;
+const MAX_EVAL_DEPTH = 16;
 
 // ───────────────────────────── small helpers ─────────────────────────────
 
@@ -150,24 +174,15 @@ function isConstDeclaration(decl: ts.VariableDeclaration): boolean {
 
 /** Initializer of the `const` an identifier refers to (undefined when not a const with initializer). */
 export function constInitializer(checker: ts.TypeChecker, id: ts.Identifier): ts.Expression | undefined {
-  const sym = resolveSymbol(checker, id);
+  return constInitializerOf(resolveSymbol(checker, id));
+}
+
+function constInitializerOf(sym: ts.Symbol | undefined): ts.Expression | undefined {
   const decl = sym?.valueDeclaration;
   if (decl !== undefined && ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) && isConstDeclaration(decl)) {
     return decl.initializer;
   }
   return undefined;
-}
-
-/** A numeric literal, or a const identifier initialised with one. */
-export function numericValue(checker: ts.TypeChecker, expr: ts.Expression | undefined): number | null {
-  if (expr === undefined) return null;
-  const e = unwrap(expr);
-  if (ts.isNumericLiteral(e)) return Number(e.text);
-  if (ts.isIdentifier(e)) {
-    const init = constInitializer(checker, e);
-    if (init !== undefined && ts.isNumericLiteral(unwrap(init))) return Number(unwrap(init).getText());
-  }
-  return null;
 }
 
 function isFunctionLike(node: ts.Node): node is ts.FunctionLikeDeclaration {
@@ -206,33 +221,6 @@ export function returnedExpressions(fn: ts.FunctionLikeDeclaration): ts.Expressi
   return out;
 }
 
-const MAX_HANDLER_DEPTH = 3;
-
-/**
- * Route handler: like resolveFunction, plus
- *  - one level of wrapper whose last argument is the function (`asyncHandler(async (req, res) => …)`),
- *  - `fn.bind(thisArg)`,
- *  - a handler factory call (`getUser(service)`) whose returned expression is itself a handler.
- */
-function resolveHandler(checker: ts.TypeChecker, expr: ts.Expression, depth = 0): ts.FunctionLikeDeclaration | undefined {
-  const direct = resolveFunction(checker, expr);
-  if (direct !== undefined) return direct;
-  const e = unwrap(expr);
-  if (!ts.isCallExpression(e) || depth >= MAX_HANDLER_DEPTH) return undefined;
-  const callee = unwrap(e.expression);
-  if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'bind') return resolveHandler(checker, callee.expression, depth + 1);
-  const last = e.arguments[e.arguments.length - 1];
-  const wrapped = last !== undefined ? resolveFunction(checker, last) : undefined;
-  if (wrapped !== undefined && wrapped.parameters.length >= 2) return wrapped;
-  const factory = resolveFunction(checker, callee);
-  if (factory === undefined) return wrapped;
-  for (const ret of returnedExpressions(factory)) {
-    const h = resolveHandler(checker, ret, depth + 1);
-    if (h !== undefined) return h;
-  }
-  return wrapped;
-}
-
 /** Whether `expr` is an Express application or router. */
 export function isExpressReceiver(checker: ts.TypeChecker, expr: ts.Expression): boolean {
   const type = checker.getTypeAtLocation(expr);
@@ -260,6 +248,560 @@ function paramSymbol(checker: ts.TypeChecker, fn: ts.FunctionLikeDeclaration, i:
 function walk(node: ts.Node, visit: (n: ts.Node) => void): void {
   visit(node);
   ts.forEachChild(node, (c) => walk(c, visit));
+}
+
+export function propName(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name)) return name.text;
+  return undefined;
+}
+
+function isProgramNode(node: ts.Node): boolean {
+  return !node.getSourceFile().isDeclarationFile;
+}
+
+// ───────────────────────────── values ─────────────────────────────
+
+/** An argument bound to a parameter at one call site; `expr: undefined` = statically absent. */
+interface Bound {
+  expr: ts.Expression | undefined;
+  env: Env;
+  /** Member path into the argument, for destructured parameters (`({ body }) => …`). */
+  path?: string[];
+}
+
+/** Call-site bindings under which an expression is evaluated (a factory's arguments, a narrowed error). */
+export interface Env {
+  readonly params: ReadonlyMap<ts.Symbol, Bound>;
+  /** Identifiers known to hold an instance of a class (an error narrowed by `instanceof`). */
+  readonly instances: ReadonlyMap<ts.Symbol, Instance>;
+  /** `this` while evaluating a class member. */
+  readonly self?: Instance;
+}
+
+export const NO_ENV: Env = { params: new Map(), instances: new Map() };
+
+/** `new Cls(...args)` evaluated in `argEnv`. */
+export interface Instance {
+  cls: ts.ClassLikeDeclaration;
+  args: readonly ts.Expression[];
+  argEnv: Env;
+}
+
+type Resolved = { expr: ts.Expression; env: Env } | 'absent';
+
+/** Bind `fn`'s parameters to `args` (evaluated in `env`); missing arguments fall back to defaults or are absent. */
+export function bindCall(checker: ts.TypeChecker, fn: ts.SignatureDeclaration, args: readonly ts.Expression[], env: Env): Env {
+  const params = new Map<ts.Symbol, Bound>();
+  const out: Env = { params, instances: env.instances };
+  let spread = false;
+  fn.parameters.forEach((p, i) => {
+    if (p.dotDotDotToken !== undefined) return;
+    const arg = spread ? undefined : args[i];
+    if (arg !== undefined && ts.isSpreadElement(arg)) spread = true;
+    if (spread) return; // positions after a spread argument are unknown
+    const bound: Bound = arg !== undefined ? { expr: arg, env } : p.initializer !== undefined ? { expr: p.initializer, env: out } : { expr: undefined, env };
+    if (ts.isIdentifier(p.name)) {
+      const sym = checker.getSymbolAtLocation(p.name);
+      if (sym !== undefined) params.set(sym, bound);
+    } else if (ts.isObjectBindingPattern(p.name) && bound.expr !== undefined) {
+      for (const el of p.name.elements) {
+        if (el.dotDotDotToken !== undefined || !ts.isIdentifier(el.name)) continue;
+        const key = el.propertyName !== undefined ? propName(el.propertyName) : el.name.text;
+        const sym = checker.getSymbolAtLocation(el.name);
+        if (key !== undefined && sym !== undefined) params.set(sym, { ...bound, path: [...(bound.path ?? []), key] });
+      }
+    }
+  });
+  return out;
+}
+
+function boundOf(checker: ts.TypeChecker, id: ts.Identifier, env: Env): Bound | undefined {
+  if (env.params.size === 0) return undefined;
+  const sym = checker.getSymbolAtLocation(id);
+  return sym === undefined ? undefined : env.params.get(sym);
+}
+
+/** Property `name` of an object literal: the member, 'spread' when a spread may supply it, undefined when absent. */
+function objectMember(obj: ts.ObjectLiteralExpression, name: string): ts.ObjectLiteralElementLike | 'spread' | undefined {
+  let found: ts.ObjectLiteralElementLike | 'spread' | undefined;
+  for (const p of obj.properties) {
+    if (ts.isSpreadAssignment(p)) {
+      found = 'spread';
+      continue;
+    }
+    if (p.name !== undefined && propName(p.name) === name) found = p;
+  }
+  return found;
+}
+
+/**
+ * The expression that supplies `expr`'s value: follows parameter bindings, members of object literals and
+ * (with `consts`) const initializers across imports. Returns 'absent' when the value is statically missing
+ * (an omitted factory argument / object member).
+ */
+function resolveValue(checker: ts.TypeChecker, expr: ts.Expression, env: Env, consts: boolean, depth = 0): Resolved {
+  const e = unwrap(expr);
+  if (depth > MAX_EVAL_DEPTH) return { expr: e, env };
+  if (ts.isIdentifier(e)) {
+    const bound = boundOf(checker, e, env);
+    if (bound !== undefined) return resolveBound(checker, bound, consts, depth + 1);
+    if (consts) {
+      const init = constInitializer(checker, e);
+      if (init !== undefined) return resolveValue(checker, init, env, consts, depth + 1);
+    }
+    return { expr: e, env };
+  }
+  const key = memberKey(checker, e, env, depth);
+  if (key !== undefined && (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e))) {
+    const obj = resolveValue(checker, e.expression, env, true, depth + 1);
+    if (obj === 'absent') return 'absent';
+    if (ts.isObjectLiteralExpression(obj.expr)) return memberValue(checker, obj.expr, key, obj.env, consts, depth + 1) ?? { expr: e, env };
+  }
+  return { expr: e, env };
+}
+
+function resolveBound(checker: ts.TypeChecker, bound: Bound, consts: boolean, depth: number): Resolved {
+  if (bound.expr === undefined) return 'absent';
+  let cur = resolveValue(checker, bound.expr, bound.env, bound.path !== undefined ? true : consts, depth);
+  for (const key of bound.path ?? []) {
+    if (cur === 'absent') return 'absent';
+    if (!ts.isObjectLiteralExpression(cur.expr)) return { expr: bound.expr, env: bound.env };
+    const next = memberValue(checker, cur.expr, key, cur.env, consts, depth + 1);
+    if (next === undefined) return { expr: bound.expr, env: bound.env };
+    cur = next;
+  }
+  return cur;
+}
+
+function memberValue(checker: ts.TypeChecker, obj: ts.ObjectLiteralExpression, key: string, env: Env, consts: boolean, depth: number): Resolved | undefined {
+  const prop = objectMember(obj, key);
+  if (prop === undefined) return 'absent';
+  if (prop === 'spread') return undefined;
+  if (ts.isPropertyAssignment(prop)) return resolveValue(checker, prop.initializer, env, consts, depth);
+  if (ts.isShorthandPropertyAssignment(prop)) {
+    const sym = checker.getShorthandAssignmentValueSymbol(prop);
+    const bound = sym !== undefined ? env.params.get(sym) : undefined;
+    if (bound !== undefined) return resolveBound(checker, bound, consts, depth);
+    const target = sym !== undefined && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+    const init = consts ? constInitializerOf(target) : undefined;
+    return init !== undefined ? resolveValue(checker, init, env, consts, depth) : { expr: prop.name, env };
+  }
+  return undefined;
+}
+
+/** The constant member name of `o.p` / `o['p']` / `o[KEY]`. */
+function memberKey(checker: ts.TypeChecker, e: ts.Expression, env: Env, depth: number): string | undefined {
+  if (ts.isPropertyAccessExpression(e)) return ts.isIdentifier(e.name) ? e.name.text : undefined;
+  if (ts.isElementAccessExpression(e)) {
+    const v = evalConst(checker, e.argumentExpression, env, depth + 1);
+    return typeof v === 'string' || typeof v === 'number' ? String(v) : undefined;
+  }
+  return undefined;
+}
+
+export type ConstValue = string | number | boolean;
+
+function literalOfType(type: ts.Type): string | number | undefined {
+  if (type.isStringLiteral() || type.isNumberLiteral()) return type.value;
+  return undefined;
+}
+
+/** Whether an expression is statically missing (an omitted argument/member, `undefined` or `null`). */
+function isAbsent(checker: ts.TypeChecker, expr: ts.Expression, env: Env): boolean {
+  const r = resolveValue(checker, expr, env, true);
+  if (r === 'absent') return true;
+  return r.expr.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(r.expr) && r.expr.text === 'undefined');
+}
+
+/**
+ * The constant value of an expression, by value and type: literals, consts (across imports), parameter
+ * bindings, templates and `+` of constants, `??`/`||`/conditionals with known operands, members of
+ * (`as const`) object literals, enum members, members of known class instances, and literal types
+ * (e.g. a library's `declare const NOT_FOUND = 404`). Undefined when not determinable.
+ */
+export function evalConst(checker: ts.TypeChecker, expr: ts.Expression, env: Env = NO_ENV, depth = 0): ConstValue | undefined {
+  if (depth > MAX_EVAL_DEPTH) return undefined;
+  const r = resolveValue(checker, expr, env, true, depth);
+  if (r === 'absent') return undefined;
+  const e = r.expr;
+  const en = r.env;
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text;
+  if (ts.isNumericLiteral(e)) return Number(e.text);
+  if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (e.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.MinusToken) {
+    const v = evalConst(checker, e.operand, en, depth + 1);
+    return typeof v === 'number' ? -v : undefined;
+  }
+  if (ts.isTemplateExpression(e)) {
+    let s = e.head.text;
+    for (const span of e.templateSpans) {
+      const v = evalConst(checker, span.expression, en, depth + 1);
+      if (v === undefined) return undefined;
+      s += `${String(v)}${span.literal.text}`;
+    }
+    return s;
+  }
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind;
+    if (op === ts.SyntaxKind.PlusToken) {
+      const l = evalConst(checker, e.left, en, depth + 1);
+      const rv = evalConst(checker, e.right, en, depth + 1);
+      if (l === undefined || rv === undefined) return undefined;
+      if (typeof l === 'number' && typeof rv === 'number') return l + rv;
+      return typeof l === 'boolean' || typeof rv === 'boolean' ? undefined : `${String(l)}${String(rv)}`;
+    }
+    if (op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.BarBarToken) {
+      const l = evalConst(checker, e.left, en, depth + 1);
+      if (l !== undefined && (op === ts.SyntaxKind.QuestionQuestionToken || l !== false && l !== 0 && l !== '')) return l;
+      return l !== undefined || isAbsent(checker, e.left, en) ? evalConst(checker, e.right, en, depth + 1) : undefined;
+    }
+  }
+  if (ts.isConditionalExpression(e)) {
+    const c = evalConst(checker, e.condition, en, depth + 1);
+    if (typeof c === 'boolean') return evalConst(checker, c ? e.whenTrue : e.whenFalse, en, depth + 1);
+    const a = evalConst(checker, e.whenTrue, en, depth + 1);
+    return a !== undefined && a === evalConst(checker, e.whenFalse, en, depth + 1) ? a : undefined;
+  }
+  if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) {
+    const enumValue = checker.getConstantValue(e);
+    if (enumValue !== undefined) return enumValue;
+    const key = memberKey(checker, e, en, depth);
+    const inst = key !== undefined ? instanceOfExpr(checker, e.expression, en) : undefined;
+    if (inst !== undefined && key !== undefined) {
+      const v = evalMember(checker, inst, key, depth + 1);
+      if (v !== undefined) return v;
+    }
+  }
+  return literalOfType(checker.getTypeAtLocation(e));
+}
+
+/** A constant string value (route paths, mount prefixes, header names). */
+export function constString(checker: ts.TypeChecker, expr: ts.Expression | undefined, env: Env = NO_ENV): string | undefined {
+  if (expr === undefined) return undefined;
+  const v = evalConst(checker, expr, env);
+  return typeof v === 'string' ? v : undefined;
+}
+
+/** A constant number (status codes by value and type: literals, consts, enums, `as const` members). */
+export function numericValue(checker: ts.TypeChecker, expr: ts.Expression | undefined, env: Env = NO_ENV): number | null {
+  if (expr === undefined) return null;
+  const v = evalConst(checker, expr, env);
+  return typeof v === 'number' ? v : null;
+}
+
+/** Every status an expression can be (a literal, or a union of literals / both arms of a conditional); null when unknown. */
+export function statusValues(checker: ts.TypeChecker, expr: ts.Expression | undefined, env: Env = NO_ENV, depth = 0): number[] | null {
+  if (expr === undefined || depth > MAX_EVAL_DEPTH) return null;
+  const single = numericValue(checker, expr, env);
+  if (single !== null) return [single];
+  const r = resolveValue(checker, expr, env, true);
+  if (r === 'absent') return null;
+  if (ts.isConditionalExpression(r.expr)) {
+    const a = statusValues(checker, r.expr.whenTrue, r.env, depth + 1);
+    const b = statusValues(checker, r.expr.whenFalse, r.env, depth + 1);
+    return a !== null && b !== null ? [...new Set([...a, ...b])].sort((x, y) => x - y) : null;
+  }
+  const type = checker.getTypeAtLocation(r.expr);
+  const parts = type.isUnion() ? type.types : [type];
+  const values: number[] = [];
+  for (const p of parts) {
+    if (!p.isNumberLiteral()) return null;
+    values.push(p.value);
+  }
+  return values.length > 0 ? [...new Set(values)].sort((x, y) => x - y) : null;
+}
+
+// ───────────────────────────── classes ─────────────────────────────
+
+/** The class declaration an expression (a class name, possibly imported or aliased) denotes. */
+export function classOf(checker: ts.TypeChecker, expr: ts.Expression): ts.ClassLikeDeclaration | undefined {
+  const e = unwrap(expr);
+  const sym = resolveSymbol(checker, ts.isPropertyAccessExpression(e) ? e.name : e);
+  return classOfSymbol(sym);
+}
+
+function classOfSymbol(sym: ts.Symbol | undefined): ts.ClassLikeDeclaration | undefined {
+  for (const decl of sym?.declarations ?? []) {
+    if (ts.isClassDeclaration(decl) || ts.isClassExpression(decl)) return decl;
+    if (ts.isVariableDeclaration(decl) && decl.initializer !== undefined && ts.isClassExpression(unwrap(decl.initializer))) {
+      const init = unwrap(decl.initializer);
+      if (ts.isClassExpression(init)) return init;
+    }
+  }
+  return undefined;
+}
+
+function constructorOf(cls: ts.ClassLikeDeclaration): ts.ConstructorDeclaration | undefined {
+  return cls.members.find((m): m is ts.ConstructorDeclaration => ts.isConstructorDeclaration(m) && m.body !== undefined);
+}
+
+function baseClassExpr(cls: ts.ClassLikeDeclaration): ts.Expression | undefined {
+  for (const h of cls.heritageClauses ?? []) {
+    if (h.token === ts.SyntaxKind.ExtendsKeyword) return h.types[0]?.expression;
+  }
+  return undefined;
+}
+
+function superCall(ctor: ts.ConstructorDeclaration): ts.CallExpression | undefined {
+  let found: ts.CallExpression | undefined;
+  if (ctor.body !== undefined) {
+    walk(ctor.body, (n) => {
+      if (found === undefined && ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.SuperKeyword) found = n;
+    });
+  }
+  return found;
+}
+
+/** The instance an expression denotes: `new C(...)`, `this`, or an identifier narrowed to a known instance. */
+function instanceOfExpr(checker: ts.TypeChecker, expr: ts.Expression, env: Env): Instance | undefined {
+  const e = unwrap(expr);
+  if (e.kind === ts.SyntaxKind.ThisKeyword) return env.self;
+  if (ts.isIdentifier(e)) {
+    const sym = checker.getSymbolAtLocation(e);
+    const known = sym !== undefined ? env.instances.get(sym) : undefined;
+    if (known !== undefined) return known;
+  }
+  const r = resolveValue(checker, e, env, true);
+  if (r === 'absent' || !ts.isNewExpression(r.expr)) return undefined;
+  const cls = classOf(checker, r.expr.expression);
+  return cls !== undefined ? { cls, args: r.expr.arguments ?? [], argEnv: r.env } : undefined;
+}
+
+/**
+ * The constant value of member `name` on a class instance: a `this.name = …` assignment in a
+ * constructor, a field initializer, or a constructor parameter property — on the class or (through the
+ * arguments of `super(...)`) on its base classes.
+ */
+export function evalMember(checker: ts.TypeChecker, inst: Instance, name: string, depth = 0): ConstValue | undefined {
+  let cur: Instance | undefined = inst;
+  for (let level = 0; cur !== undefined && level < 8 && depth <= MAX_EVAL_DEPTH; level++) {
+    const ctor = constructorOf(cur.cls);
+    const ctorEnv: Env = { ...(ctor !== undefined ? bindCall(checker, ctor, cur.args, cur.argEnv) : cur.argEnv), self: inst };
+    if (ctor?.body !== undefined) {
+      let assigned: ts.Expression | undefined;
+      for (const st of ctor.body.statements) {
+        if (!ts.isExpressionStatement(st) || !ts.isBinaryExpression(st.expression) || st.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
+        const left = st.expression.left;
+        if (ts.isPropertyAccessExpression(left) && left.expression.kind === ts.SyntaxKind.ThisKeyword && left.name.text === name) assigned = st.expression.right;
+      }
+      if (assigned !== undefined) return evalConst(checker, assigned, ctorEnv, depth + 1);
+    }
+    for (const member of cur.cls.members) {
+      if (ts.isPropertyDeclaration(member) && member.name !== undefined && propName(member.name) === name && member.initializer !== undefined
+        && !(member.modifiers ?? []).some((m) => m.kind === ts.SyntaxKind.StaticKeyword)) {
+        return evalConst(checker, member.initializer, ctorEnv, depth + 1);
+      }
+    }
+    const paramProp = ctor?.parameters.find((p) => ts.isIdentifier(p.name) && p.name.text === name && ts.getModifiers(p) !== undefined && (ts.getModifiers(p) ?? []).length > 0);
+    if (paramProp !== undefined && ts.isIdentifier(paramProp.name)) return evalConst(checker, paramProp.name, ctorEnv, depth + 1);
+    const baseExpr = baseClassExpr(cur.cls);
+    const base = baseExpr !== undefined ? classOf(checker, baseExpr) : undefined;
+    if (base === undefined) return undefined;
+    const sup = ctor !== undefined ? superCall(ctor) : undefined;
+    cur = ctor !== undefined ? { cls: base, args: sup?.arguments ?? [], argEnv: ctorEnv } : { cls: base, args: cur.args, argEnv: cur.argEnv };
+  }
+  return undefined;
+}
+
+/** The class symbols of `cls` and its base classes (program classes; a library base ends the chain). */
+function classChain(checker: ts.TypeChecker, cls: ts.ClassLikeDeclaration): ts.Symbol[] {
+  const out: ts.Symbol[] = [];
+  let cur: ts.ClassLikeDeclaration | undefined = cls;
+  for (let i = 0; cur !== undefined && i < 10; i++) {
+    const sym = cur.name !== undefined ? checker.getSymbolAtLocation(cur.name) : undefined;
+    if (sym !== undefined) out.push(sym);
+    const baseExpr = baseClassExpr(cur);
+    if (baseExpr === undefined) break;
+    const baseSym = resolveSymbol(checker, ts.isPropertyAccessExpression(baseExpr) ? baseExpr.name : baseExpr);
+    if (baseSym !== undefined && !out.includes(baseSym)) out.push(baseSym);
+    cur = classOfSymbol(baseSym);
+  }
+  return out;
+}
+
+// ───────────────────────────── the program model ─────────────────────────────
+
+/** A branch of an error middleware that handles one error class (`if (err instanceof C) { … }`). */
+interface HandledBranch {
+  node: ts.Node;
+  err: ts.Symbol | undefined;
+}
+
+/** One `<express>.use(...)` call. */
+interface UseCall {
+  call: ts.CallExpression;
+  owner: ts.Symbol | undefined;
+  /** undefined: no path argument; null: a path argument that could not be resolved; else the prefixes. */
+  paths: string[] | null | undefined;
+  pathNode: ts.Expression | undefined;
+  /** The middleware / child arguments (arrays flattened). */
+  args: ts.Expression[];
+}
+
+export interface ApiModel {
+  program: ts.Program;
+  checker: ts.TypeChecker;
+  root: string;
+  sources: Array<{ rel: string; sf: ts.SourceFile }>;
+  uses: UseCall[];
+  /** Error classes (by symbol) that a registered error middleware tests with `instanceof`. */
+  handled: Map<ts.Symbol, HandledBranch[]>;
+  /** Whether an error-handling middleware is registered at all. */
+  hasErrorMiddleware: boolean;
+  /** Lazily computed: function symbols that some call in the sources invokes. */
+  called?: Set<ts.Symbol>;
+}
+
+const MODELS = new WeakMap<ts.Program, Map<string, ApiModel>>();
+
+/** The (cached) model of an API: its `.use` registrations and what its error middleware handles. */
+export function apiModel(program: ts.Program, root: string, files: string[]): ApiModel {
+  const key = `${root}\n${files.join('\n')}`;
+  let perProgram = MODELS.get(program);
+  if (perProgram === undefined) {
+    perProgram = new Map();
+    MODELS.set(program, perProgram);
+  }
+  const cached = perProgram.get(key);
+  if (cached !== undefined) return cached;
+  const checker = program.getTypeChecker();
+  const sources: ApiModel['sources'] = [];
+  for (const rel of files) {
+    const sf = programFile(program, root, rel);
+    if (sf !== undefined) sources.push({ rel: toPosix(rel), sf });
+  }
+  const m: ApiModel = { program, checker, root, sources, uses: [], handled: new Map(), hasErrorMiddleware: false };
+  m.uses = collectUses(m);
+  for (const u of useRegistrationsOf(m)) {
+    if (u.params !== 4) continue;
+    m.hasErrorMiddleware = true;
+    // Only an error middleware that responds turns errors into problems (one that only forwards does not).
+    if (u.fn !== undefined && responds(m, u.fn)) collectHandled(m, u.fn, paramSymbol(m.checker, u.fn, 3), 0, new Set());
+  }
+  perProgram.set(key, m);
+  return m;
+}
+
+/** Whether an error middleware sends a response: a call on its `res` parameter, or `res` passed to a helper. */
+function responds(m: ApiModel, fn: ts.FunctionLikeDeclaration): boolean {
+  const resSym = paramSymbol(m.checker, fn, 2);
+  let found = false;
+  if (fn.body === undefined || resSym === undefined) return false;
+  walk(fn.body, (n) => {
+    if (!found && ts.isIdentifier(n) && m.checker.getSymbolAtLocation(n) === resSym) {
+      const p = n.parent;
+      found = (ts.isPropertyAccessExpression(p) && p.expression === n && ts.isCallExpression(p.parent)) || (ts.isCallExpression(p) && p.arguments.includes(n));
+    }
+  });
+  return found;
+}
+
+/** A branch that only forwards the error (`return next(err)`): the class is not turned into a problem there. */
+function onlyForwards(branch: ts.Node, nextSym: ts.Symbol | undefined, checker: ts.TypeChecker): boolean {
+  if (nextSym === undefined) return false;
+  const statements = ts.isBlock(branch) ? [...branch.statements] : [branch];
+  const isNextCall = (e: ts.Node | undefined): boolean =>
+    e !== undefined && ts.isCallExpression(e) && ts.isIdentifier(e.expression) && checker.getSymbolAtLocation(e.expression) === nextSym;
+  return statements.length > 0 && statements.every((s) =>
+    (ts.isExpressionStatement(s) && isNextCall(s.expression)) || (ts.isReturnStatement(s) && (s.expression === undefined || isNextCall(s.expression))) || isNextCall(s));
+}
+
+/** Record the classes an error middleware (or a function it calls) tests with `instanceof` and handles. */
+function collectHandled(m: ApiModel, fn: ts.FunctionLikeDeclaration, nextSym: ts.Symbol | undefined, depth: number, seen: Set<ts.Node>): void {
+  if (fn.body === undefined || seen.has(fn)) return;
+  seen.add(fn);
+  walk(fn.body, (n) => {
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword) {
+      const right = unwrap(n.right);
+      const sym = resolveSymbol(m.checker, ts.isPropertyAccessExpression(right) ? right.name : right);
+      const branch = branchOf(n);
+      if (sym !== undefined && sym.flags & ts.SymbolFlags.Class && !onlyForwards(branch, nextSym, m.checker)) {
+        const left = unwrap(n.left);
+        const branches = m.handled.get(sym) ?? [];
+        branches.push({ node: branch, err: ts.isIdentifier(left) ? m.checker.getSymbolAtLocation(left) : undefined });
+        m.handled.set(sym, branches);
+      }
+    }
+    if (ts.isCallExpression(n) && depth < MAX_HANDLER_DEPTH) {
+      const callee = resolveFunction(m.checker, n.expression);
+      if (callee !== undefined) collectHandled(m, callee, nextSym, depth + 1, seen);
+    }
+  });
+}
+
+/**
+ * The code that runs when `test` holds: the then-branch of the if / the true arm of the conditional whose
+ * condition contains it (through parentheses, `&&` and `||`), else the right side of an `a instanceof C && …`.
+ */
+function branchOf(test: ts.Node): ts.Node {
+  let cur: ts.Node = test;
+  let andRight: ts.Node | undefined;
+  for (let i = 0; i < 8; i++) {
+    const p = cur.parent;
+    const logical = ts.isBinaryExpression(p) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken].includes(p.operatorToken.kind);
+    if (ts.isParenthesizedExpression(p) || logical) {
+      if (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken && p.left === cur) andRight ??= p.right;
+      cur = p;
+      continue;
+    }
+    if (ts.isIfStatement(p) && p.expression === cur) return p.thenStatement;
+    if (ts.isConditionalExpression(p) && p.condition === cur) return p.whenTrue;
+    break;
+  }
+  return andRight ?? test;
+}
+
+/** The handled ancestor (branches) of a class: the class itself or a base the error middleware tests. */
+function handledBranches(m: ApiModel, cls: ts.ClassLikeDeclaration): HandledBranch[] | undefined {
+  for (const sym of classChain(m.checker, cls)) {
+    const b = m.handled.get(sym);
+    if (b !== undefined) return b;
+  }
+  return undefined;
+}
+
+/** The class whose instances a type describes, when the error middleware turns them into problems. */
+function handledClassOfType(m: ApiModel, type: ts.Type): ts.ClassLikeDeclaration | undefined {
+  const t = m.checker.getNonNullableType(type);
+  const cls = classOfSymbol(t.getSymbol());
+  return cls !== undefined && handledBranches(m, cls) !== undefined ? cls : undefined;
+}
+
+/** Expressions inside an error-middleware branch that decide the response status. */
+function statusCandidates(branch: ts.Node): ts.Expression[] {
+  const out: ts.Expression[] = [];
+  const isStatusName = (n: string): boolean => /^(http)?status(code)?$/i.test(n);
+  walk(branch, (n) => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ['status', 'sendStatus'].includes(n.expression.name.text) && n.arguments[0] !== undefined) {
+      out.push(n.arguments[0]);
+    }
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && isStatusName(n.name.text) && n.initializer !== undefined) out.push(n.initializer);
+    if (ts.isPropertyAssignment(n) && propName(n.name) !== undefined && isStatusName(propName(n.name) ?? '')) out.push(n.initializer);
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const name = calleeName(n.left);
+      if (name !== undefined && isStatusName(name)) out.push(n.right);
+    }
+  });
+  return out;
+}
+
+/** HTTP status of an error instance: its `status`/`statusCode` member, else what the error middleware's branch maps it to. */
+function instanceStatus(m: ApiModel, inst: Instance): number | null {
+  for (const name of ['status', 'statusCode']) {
+    const v = evalMember(m.checker, inst, name);
+    if (typeof v === 'number' && v >= 100 && v <= 599) return v;
+  }
+  const values = new Set<number>();
+  for (const b of handledBranches(m, inst.cls) ?? []) {
+    const env: Env = b.err !== undefined ? { params: new Map(), instances: new Map([[b.err, inst]]) } : NO_ENV;
+    for (const c of statusCandidates(b.node)) {
+      const v = evalConst(m.checker, c, env);
+      if (typeof v === 'number' && v >= 100 && v <= 599) values.add(v);
+    }
+  }
+  const [only] = [...values];
+  return values.size === 1 && only !== undefined ? only : null;
 }
 
 // ───────────────────────────── schemas and parse calls ─────────────────────────────
@@ -297,6 +839,48 @@ function parsedTypeOf(checker: ts.TypeChecker, call: ts.CallExpression, method: 
   return undefined;
 }
 
+/** The output type of a Zod schema type (Zod 4 `_zod.output`, Zod 3 `_output`). */
+export function schemaOutputType(checker: ts.TypeChecker, schemaType: ts.Type, at: ts.Node): ts.Type | undefined {
+  const t = checker.getApparentType(checker.getNonNullableType(schemaType));
+  const internals = t.getProperty('_zod');
+  if (internals !== undefined) {
+    const out = checker.getApparentType(checker.getTypeOfSymbolAtLocation(internals, at)).getProperty('output');
+    if (out !== undefined) return checker.getTypeOfSymbolAtLocation(out, at);
+  }
+  const legacy = t.getProperty('_output');
+  return legacy !== undefined ? checker.getTypeOfSymbolAtLocation(legacy, at) : undefined;
+}
+
+/** `<schema>.<parse method>(…)`: its schema (bound through `env`), 'inactive' when the schema is statically absent. */
+function parseCallInfo(
+  checker: ts.TypeChecker,
+  root: string,
+  call: ts.CallExpression,
+  env: Env,
+  methods: ReadonlySet<string> = PARSE_METHODS,
+): SchemaRef | 'inactive' | undefined {
+  const callee = call.expression;
+  if (!ts.isPropertyAccessExpression(callee) || !methods.has(callee.name.text)) return undefined;
+  const written = callee.expression;
+  const r = resolveValue(checker, written, env, false);
+  if (r === 'absent') return 'inactive';
+  const schemaExpr = r.expr;
+  if (schemaExpr === unwrap(written)) {
+    if (!isZodSchemaType(checker, checker.getTypeAtLocation(written))) return undefined;
+    const ref: SchemaRef = { expr: written, text: written.getText(), ...schemaOrigin(checker, root, written) };
+    const parsedType = parsedTypeOf(checker, call, callee.name.text);
+    if (parsedType !== undefined) ref.parsedType = parsedType;
+    return ref;
+  }
+  // Bound at a factory call site (`validate({ body: CreateOrder })`): the call-site schema decides.
+  const type = checker.getTypeAtLocation(schemaExpr);
+  if (!isZodSchemaType(checker, type)) return undefined;
+  const ref: SchemaRef = { expr: schemaExpr, text: schemaExpr.getText(), ...schemaOrigin(checker, root, schemaExpr) };
+  const parsedType = schemaOutputType(checker, type, schemaExpr);
+  if (parsedType !== undefined) ref.parsedType = parsedType;
+  return ref;
+}
+
 /** If `call` is `<zod schema>.<parse method>(…)`, its SchemaRef. */
 export function parseCallSchema(
   checker: ts.TypeChecker,
@@ -304,14 +888,8 @@ export function parseCallSchema(
   call: ts.CallExpression,
   methods: ReadonlySet<string> = PARSE_METHODS,
 ): SchemaRef | undefined {
-  const callee = call.expression;
-  if (!ts.isPropertyAccessExpression(callee) || !methods.has(callee.name.text)) return undefined;
-  const schemaExpr = callee.expression;
-  if (!isZodSchemaType(checker, checker.getTypeAtLocation(schemaExpr))) return undefined;
-  const ref: SchemaRef = { expr: schemaExpr, text: schemaExpr.getText(), ...schemaOrigin(checker, root, schemaExpr) };
-  const parsedType = parsedTypeOf(checker, call, callee.name.text);
-  if (parsedType !== undefined) ref.parsedType = parsedType;
-  return ref;
+  const info = parseCallInfo(checker, root, call, NO_ENV, methods);
+  return info === 'inactive' ? undefined : info;
 }
 
 /**
@@ -340,9 +918,35 @@ export function bodySchema(checker: ts.TypeChecker, root: string, body: ts.Expre
   return first;
 }
 
+function isAnyOrUnknown(t: ts.Type): boolean {
+  return (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
+}
+
+/**
+ * Why a schema's output validates nothing about the data, or undefined: any/unknown output (z.any(),
+ * z.unknown(), z.custom() without a type), a record of unknown/any values, an object with no properties
+ * that passes unknown keys through (`z.object({}).passthrough()/.loose()`), or an array of those.
+ */
+export function permissiveReason(checker: ts.TypeChecker, type: ts.Type | undefined, depth = 0): string | undefined {
+  if (type === undefined || depth > 4) return undefined;
+  if (isAnyOrUnknown(type)) return 'its output is any/unknown';
+  const t = checker.getNonNullableType(type);
+  if (isAnyOrUnknown(t)) return 'its output is any/unknown';
+  if (checker.isArrayType(t)) {
+    const [el] = checker.getTypeArguments(t as ts.TypeReference);
+    const inner = permissiveReason(checker, el, depth + 1);
+    return inner !== undefined ? `its array elements are unchecked (${inner})` : undefined;
+  }
+  if (t.flags & ts.TypeFlags.Object && checker.getPropertiesOfType(t).length === 0) {
+    const index = checker.getIndexInfoOfType(t, ts.IndexKind.String);
+    if (index !== undefined && isAnyOrUnknown(index.type)) return 'it is a record/passthrough object of unknown values with no declared properties';
+  }
+  return undefined;
+}
+
 // ───────────────────────────── problems ─────────────────────────────
 
-/** Name of a call/new that produces a problem (helper, `problem(…)`, `new HttpProblem(…)`, `ProblemSchema.parse(…)`). */
+/** Name of a call/new that names a problem (helper, `problem(…)`, `new HttpProblem(…)`, `ProblemSchema.parse(…)`). */
 export function problemProducerName(node: ts.Node): string | undefined {
   if (!ts.isCallExpression(node) && !ts.isNewExpression(node)) return undefined;
   const callee = unwrap(node.expression);
@@ -361,22 +965,47 @@ const PRIMITIVE =
   ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.ESSymbolLike |
   ts.TypeFlags.Void | ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Never;
 
+/** A data object: not a primitive and not a function (a middleware factory named `problemHandler()` is not a producer). */
+function yieldsObject(type: ts.Type): boolean {
+  const parts = type.isUnion() ? type.types : [type];
+  return parts.some((p) => (p.flags & PRIMITIVE) === 0 && p.getCallSignatures().length === 0);
+}
+
+/** An Error value (has `name` and `message`). */
+export function isErrorLike(checker: ts.TypeChecker, type: ts.Type): boolean {
+  if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const t = checker.getApparentType(checker.getNonNullableType(type));
+  return t.getProperty('message') !== undefined && t.getProperty('name') !== undefined;
+}
+
+export interface Producer {
+  name: string;
+  /**
+   * handled: an error class the error middleware turns into a problem (it supplies the members);
+   * error: an Error that must itself carry type/title/status; document: a problem object that must carry all five members.
+   */
+  kind: 'handled' | 'error' | 'document';
+}
+
 /**
- * Type-aware problemProducerName: the call must also yield an object (so `problemType(slug)`
- * returning a string, or `sendProblem(res, p)` returning void, are not producers).
+ * A call/new that produces a problem, judged by behaviour: an instance of an error class the error middleware
+ * handles (and its subclasses), a problem-shaped `new X(...)`, or a problem-named helper that yields an object.
  */
-export function problemProducer(checker: ts.TypeChecker, node: ts.Node): string | undefined {
+export function problemProducer(m: ApiModel, node: ts.Node): Producer | undefined {
+  if (!ts.isCallExpression(node) && !ts.isNewExpression(node)) return undefined;
+  const { checker } = m;
+  const t = checker.getTypeAtLocation(node);
   const name = problemProducerName(node);
+  const label = name ?? calleeName(node.expression) ?? node.expression.getText();
+  if (!(t.flags & ts.TypeFlags.Any) && handledClassOfType(m, t) !== undefined) return { name: label, kind: 'handled' };
   if (name === undefined) {
     // `new UserNotFoundError(id)` where the class is problem-shaped (e.g. extends HttpProblem).
-    if (!ts.isNewExpression(node)) return undefined;
-    const ctor = calleeName(node.expression);
-    return ctor !== undefined && isProblemShaped(checker, checker.getTypeAtLocation(node)) ? ctor : undefined;
+    if (!ts.isNewExpression(node) || !isProblemShaped(checker, t)) return undefined;
+    return { name: label, kind: isErrorLike(checker, t) ? 'error' : 'document' };
   }
-  const t = checker.getTypeAtLocation(node);
-  if (t.flags & ts.TypeFlags.Any) return name; // unresolved types: trust the name
-  const parts = t.isUnion() ? t.types : [t];
-  return parts.some((p) => (p.flags & PRIMITIVE) === 0) ? name : undefined;
+  if (t.flags & ts.TypeFlags.Any) return { name, kind: 'document' }; // unresolved types: trust the name
+  if (!yieldsObject(t)) return undefined;
+  return { name, kind: isErrorLike(checker, t) ? 'error' : 'document' };
 }
 
 /** A type with `type`, `title` and `status` members (an HttpProblem, its subclasses, a Problem object). */
@@ -386,66 +1015,82 @@ export function isProblemShaped(checker: ts.TypeChecker, type: ts.Type): boolean
   return ['type', 'title', 'status'].every((k) => t.getProperty(k) !== undefined);
 }
 
-/** The `super(...)` call in the constructor of the class a `new X(...)` instantiates. */
-function superCallOf(checker: ts.TypeChecker, node: ts.NewExpression): ts.CallExpression | undefined {
-  const sym = resolveSymbol(checker, node.expression);
-  const decl = sym?.valueDeclaration;
-  if (decl === undefined || !ts.isClassDeclaration(decl)) return undefined;
-  for (const member of decl.members) {
-    if (!ts.isConstructorDeclaration(member) || member.body === undefined) continue;
-    let found: ts.CallExpression | undefined;
-    walk(member.body, (n) => {
-      if (found === undefined && ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.SuperKeyword) found = n;
-    });
-    return found;
-  }
-  return undefined;
+function isStringish(checker: ts.TypeChecker, t: ts.Type): boolean {
+  return (checker.getApparentType(t).flags & ts.TypeFlags.StringLike) !== 0 || (t.flags & ts.TypeFlags.StringLike) !== 0 || checker.typeToString(t) === 'String';
+}
+
+function isNumberish(checker: ts.TypeChecker, t: ts.Type): boolean {
+  return (t.flags & ts.TypeFlags.NumberLike) !== 0 || checker.typeToString(t) === 'Number';
 }
 
 /**
- * Status a problem producer creates: helper table, numeric literal argument, `{ status: n }` argument,
- * or (for `new SubclassOfHttpProblem(...)`) the status its constructor passes to super(...).
+ * Members of `fields` the type lacks (or has with the wrong primitive type). With `required`, an optional
+ * member counts as missing: a problem document must always carry it.
  */
-export function problemStatus(checker: ts.TypeChecker, node: ts.CallExpression | ts.NewExpression, name: string): number | null {
-  const fixed = PROBLEM_HELPERS[name];
-  if (fixed !== undefined) return fixed;
-  const own = literalStatus(checker, node);
-  if (own !== null || !ts.isNewExpression(node)) return own;
-  const sup = superCallOf(checker, node);
-  return sup !== undefined ? literalStatus(checker, sup) : null;
+export function missingMembers(checker: ts.TypeChecker, type: ts.Type, at: ts.Node, fields: readonly string[], required: boolean): string[] {
+  if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return [...fields];
+  const apparent = checker.getApparentType(checker.getNonNullableType(type));
+  return fields.filter((f) => {
+    const sym = apparent.getProperty(f);
+    if (sym === undefined || (required && sym.flags & ts.SymbolFlags.Optional)) return true;
+    const ft = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(sym, at));
+    return !(f === 'status' ? isNumberish(checker, ft) : isStringish(checker, ft));
+  });
 }
 
-function literalStatus(checker: ts.TypeChecker, node: ts.CallExpression | ts.NewExpression): number | null {
+/** Whether a value is a full problem document by type: type, title, status, detail and instance, all required. */
+export function isProblemDocument(checker: ts.TypeChecker, type: ts.Type, at: ts.Node): boolean {
+  return missingMembers(checker, type, at, PROBLEM_MEMBERS, true).length === 0;
+}
+
+/**
+ * Status a problem producer creates: for `new C(...)` the instance's status/statusCode member or what the
+ * error middleware maps the class to; for a helper call, what its returned producer creates (arguments
+ * bound); then a numeric argument / `{ status: n }` argument; then the helper-name table.
+ */
+export function problemStatus(m: ApiModel, node: ts.CallExpression | ts.NewExpression, name: string, env: Env = NO_ENV, depth = 0): number | null {
+  const { checker } = m;
+  if (ts.isNewExpression(node)) {
+    const cls = classOf(checker, node.expression);
+    if (cls !== undefined) {
+      const s = instanceStatus(m, { cls, args: node.arguments ?? [], argEnv: env });
+      if (s !== null) return s;
+    }
+  } else if (depth < MAX_HANDLER_DEPTH) {
+    const helper = resolveFunction(checker, node.expression);
+    if (helper !== undefined) {
+      const helperEnv = bindCall(checker, helper, node.arguments, env);
+      const found = new Set<number>();
+      for (const ret of returnedExpressions(helper)) {
+        const r = unwrap(ret);
+        if (!ts.isCallExpression(r) && !ts.isNewExpression(r)) continue;
+        const s = problemStatus(m, r, calleeName(r.expression) ?? '', helperEnv, depth + 1);
+        if (s !== null) found.add(s);
+      }
+      const [only] = [...found];
+      if (found.size === 1 && only !== undefined) return only;
+    }
+  }
+  const own = literalStatus(checker, node, env);
+  if (own !== null) return own;
+  return PROBLEM_HELPERS[name] ?? null;
+}
+
+function literalStatus(checker: ts.TypeChecker, node: ts.CallExpression | ts.NewExpression, env: Env): number | null {
   for (const arg of node.arguments ?? []) {
-    const n = numericValue(checker, arg);
-    if (n !== null) return n;
+    const n = numericValue(checker, arg, env);
+    if (n !== null && n >= 100 && n <= 599) return n;
     const a = unwrap(arg);
     if (ts.isObjectLiteralExpression(a)) {
       for (const p of a.properties) {
         if (ts.isPropertyAssignment(p) && propName(p.name) === 'status') {
-          const v = numericValue(checker, p.initializer);
+          const v = numericValue(checker, p.initializer, env);
           if (v !== null) return v;
         }
       }
     }
   }
   return null;
-}
-
-export function propName(name: ts.PropertyName): string | undefined {
-  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
-  return undefined;
-}
-
-/** Whether a body expression is produced by a problem helper (directly or via a const). */
-function isProblemBody(checker: ts.TypeChecker, body: ts.Expression): boolean {
-  let e = unwrap(body);
-  if (ts.isIdentifier(e)) {
-    const init = constInitializer(checker, e);
-    if (init === undefined) return false;
-    e = unwrap(init);
-  }
-  return problemProducer(checker, e) !== undefined;
 }
 
 // ───────────────────────────── response chains ─────────────────────────────
@@ -455,49 +1100,75 @@ export interface ResponseChain {
   method: string;
   /** Root expression of the chain (e.g. the `res` identifier). */
   root: ts.Expression;
+  /** The status when it is a single known value (200 when none is set), else null. */
   status: number | null;
+  /** Every status the chain can send; null when unknown. */
+  statuses: number[] | null;
   /** Whether a .status()/.sendStatus() appeared in the chain at all. */
   statusSet: boolean;
+  /** The status argument, when one was set. */
+  statusExpr: ts.Expression | undefined;
   statusNodes: Array<{ status: number; node: ts.Node }>;
   body: ts.Expression | undefined;
 }
 
 /** Decompose `x.status(n).location(u).json(body)` style calls. */
-export function responseChain(checker: ts.TypeChecker, call: ts.CallExpression): ResponseChain | undefined {
+export function responseChain(checker: ts.TypeChecker, call: ts.CallExpression, env: Env = NO_ENV): ResponseChain | undefined {
   const callee = call.expression;
   if (!ts.isPropertyAccessExpression(callee) || !RESPONSE_METHODS.has(callee.name.text)) return undefined;
   const method = callee.name.text;
-  let status: number | null = method === 'sendStatus' ? numericValue(checker, call.arguments[0]) : 200;
+  let statusExpr: ts.Expression | undefined = method === 'sendStatus' ? call.arguments[0] : undefined;
+  let statusNode: ts.Node | undefined = method === 'sendStatus' ? call : undefined;
   let statusSet = method === 'sendStatus';
-  const statusNodes: Array<{ status: number; node: ts.Node }> = [];
-  if (method === 'sendStatus' && status !== null) statusNodes.push({ status, node: call });
   let cur: ts.Expression = callee.expression;
   while (ts.isCallExpression(cur) && ts.isPropertyAccessExpression(cur.expression)) {
-    const name = cur.expression.name.text;
-    if (name === 'status' && !statusSet) {
+    if (cur.expression.name.text === 'status' && !statusSet) {
       statusSet = true;
-      status = numericValue(checker, cur.arguments[0]);
-      if (status !== null) statusNodes.push({ status, node: cur });
+      statusExpr = cur.arguments[0];
+      statusNode = cur;
     }
     cur = cur.expression.expression;
   }
+  const statuses = statusSet ? statusValues(checker, statusExpr, env) : [200];
+  const status = statuses !== null && statuses.length === 1 ? (statuses[0] ?? null) : null;
+  const statusNodes = statuses !== null && statusNode !== undefined ? statuses.map((s) => ({ status: s, node: statusNode })) : [];
   const body = method === 'sendStatus' ? undefined : call.arguments[0];
-  return { call, method, root: cur, status, statusSet, statusNodes, body };
+  return { call, method, root: cur, status, statuses, statusSet, statusExpr, statusNodes, body };
 }
 
-// ───────────────────────────── handler analysis ─────────────────────────────
+/**
+ * A replay of a recorded response: `res.status(r.status).json(r.body)` with both read from the same record
+ * and an opaque (unknown/any) body. The recorded response was itself checked where it was first sent.
+ */
+export function isReplay(checker: ts.TypeChecker, chain: ResponseChain): boolean {
+  if (chain.statusExpr === undefined || chain.body === undefined) return false;
+  const s = unwrap(chain.statusExpr);
+  const b = unwrap(chain.body);
+  if (!(ts.isPropertyAccessExpression(s) || ts.isElementAccessExpression(s)) || !(ts.isPropertyAccessExpression(b) || ts.isElementAccessExpression(b))) return false;
+  const sr = unwrap(s.expression);
+  const br = unwrap(b.expression);
+  if (!ts.isIdentifier(sr) || !ts.isIdentifier(br)) return false;
+  const sym = checker.getSymbolAtLocation(sr);
+  return sym !== undefined && sym === checker.getSymbolAtLocation(br) && isAnyOrUnknown(checker.getTypeAtLocation(b));
+}
 
-interface HandlerFacts {
+// ───────────────────────────── function analysis ─────────────────────────────
+
+interface FnFacts {
   parses: ParseSite[];
-  unparsedReads: Array<{ target: string; node: ts.Node }>;
+  /** Raw request reads, each with its position (for write-backs earlier in the same function). */
+  reads: Array<{ target: string; node: ts.Node }>;
+  /** `req.<part> = <parsed value>` (also defineProperty / Object.assign). */
+  writeBacks: Array<{ target: string; pos: number }>;
   responses: ResponseSite[];
   statusLiterals: Array<{ status: number; node: ts.Node }>;
   problemSites: Array<{ name: string; status: number | null; node: ts.Node }>;
   resEscapes: ts.Node[];
+  idempotencyKey: boolean;
 }
 
-function emptyFacts(): HandlerFacts {
-  return { parses: [], unparsedReads: [], responses: [], statusLiterals: [], problemSites: [], resEscapes: [] };
+function emptyFacts(): FnFacts {
+  return { parses: [], reads: [], writeBacks: [], responses: [], statusLiterals: [], problemSites: [], resEscapes: [], idempotencyKey: false };
 }
 
 /** `res` used other than as `res.<member>`: aliased, or passed to a non-problem helper. */
@@ -511,7 +1182,7 @@ function isResEscape(id: ts.Identifier): boolean {
   return true;
 }
 
-function reqRead(id: ts.Identifier): { target: string; node: ts.Node } {
+function reqRead(checker: ts.TypeChecker, id: ts.Identifier, env: Env): { target: string; node: ts.Node } {
   const parent = id.parent;
   if (ts.isPropertyAccessExpression(parent) && parent.expression === id) {
     const name = parent.name.text;
@@ -522,7 +1193,7 @@ function reqRead(id: ts.Identifier): { target: string; node: ts.Node } {
     return { target: '', node: parent }; // req.method, req.originalUrl, … are not client payload
   }
   if (ts.isElementAccessExpression(parent) && parent.expression === id) {
-    const key = stringLiteralValue(parent.argumentExpression);
+    const key = constString(checker, parent.argumentExpression, env);
     if (key !== undefined && !REQ_TARGETS.has(key) && !REQ_RAW_INPUTS.has(key)) return { target: '', node: parent };
     return { target: key ?? 'req[…]', node: parent };
   }
@@ -530,45 +1201,217 @@ function reqRead(id: ts.Identifier): { target: string; node: ts.Node } {
   return { target: 'req', node: id };
 }
 
-function analyseHandler(checker: ts.TypeChecker, root: string, fn: ts.FunctionLikeDeclaration): HandlerFacts {
+/** Whether `expr` is (a const holding) the data of an active parse: `S.parse(x)`, `await S.parseAsync(x)`, `S.safeParse(x).data`. */
+function isParseResult(m: ApiModel, expr: ts.Expression, env: Env, depth = 0): boolean {
+  let e = unwrap(expr);
+  if (ts.isIdentifier(e) && depth < 3) {
+    const init = constInitializer(m.checker, e);
+    return init !== undefined && isParseResult(m, init, env, depth + 1);
+  }
+  if (ts.isPropertyAccessExpression(e) && e.name.text === 'data') {
+    let recv = unwrap(e.expression);
+    if (ts.isIdentifier(recv)) recv = unwrap(constInitializer(m.checker, recv) ?? recv);
+    if (!ts.isCallExpression(recv)) return false;
+    e = recv;
+  }
+  if (!ts.isCallExpression(e)) return false;
+  const info = parseCallInfo(m.checker, m.root, e, env);
+  return info !== undefined && info !== 'inactive';
+}
+
+/** JSON.stringify of the standard library: it serialises a value without trusting its shape. */
+function isJsonStringify(checker: ts.TypeChecker, callee: ts.Expression): boolean {
+  const e = unwrap(callee);
+  if (!ts.isPropertyAccessExpression(e) || e.name.text !== 'stringify' || !ts.isIdentifier(e.expression) || e.expression.text !== 'JSON') return false;
+  const sym = resolveSymbol(checker, e.expression);
+  return (sym?.declarations ?? []).every((d) => d.getSourceFile().isDeclarationFile);
+}
+
+/**
+ * A raw read whose value is only serialised (JSON.stringify, a template string), directly or through a
+ * program function's `unknown` parameter used that way: hashing or logging input does not trust its shape.
+ */
+function isOpaqueUse(m: ApiModel, node: ts.Node, depth = 0): boolean {
+  let cur = node;
+  for (let i = 0; i < 12; i++) {
+    const p = cur.parent;
+    if (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isNonNullExpression(p) || ts.isSatisfiesExpression(p) || ts.isArrayLiteralExpression(p) || ts.isSpreadElement(p)) {
+      cur = p;
+    } else if (ts.isBinaryExpression(p) && [ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken].includes(p.operatorToken.kind)) {
+      cur = p;
+    } else if (ts.isPropertyAssignment(p) && p.initializer === cur && ts.isObjectLiteralExpression(p.parent)) {
+      cur = p.parent;
+    } else if (ts.isTemplateSpan(p)) {
+      return true;
+    } else {
+      break;
+    }
+  }
+  const call = cur.parent;
+  if (!ts.isCallExpression(call) || !call.arguments.includes(cur as ts.Expression)) return false;
+  if (isJsonStringify(m.checker, call.expression)) return true;
+  if (depth >= 2) return false;
+  const fn = resolveFunction(m.checker, call.expression);
+  const param = fn?.parameters[call.arguments.indexOf(cur as ts.Expression)];
+  if (fn?.body === undefined || param === undefined || !ts.isIdentifier(param.name) || param.type?.kind !== ts.SyntaxKind.UnknownKeyword) return false;
+  const sym = m.checker.getSymbolAtLocation(param.name);
+  let opaque = true;
+  walk(fn.body, (n) => {
+    if (opaque && ts.isIdentifier(n) && m.checker.getSymbolAtLocation(n) === sym && !isOpaqueUse(m, n, depth + 1)) opaque = false;
+  });
+  return opaque;
+}
+
+/** `req.<part>` / `req['part']` on the request symbol: the part name. */
+function reqMember(m: ApiModel, e: ts.Expression, isReq: (n: ts.Node) => boolean, env: Env): string | undefined {
+  const x = unwrap(e);
+  if (ts.isPropertyAccessExpression(x) && isReq(unwrap(x.expression))) return x.name.text;
+  if (ts.isElementAccessExpression(x) && isReq(unwrap(x.expression))) return constString(m.checker, x.argumentExpression, env);
+  return undefined;
+}
+
+/**
+ * Analyse one function of a route's chain. `reqIndex`/`resIndex` locate the request/response parameters
+ * (resIndex -1: responses are not tracked, e.g. for a callee that only receives `req`).
+ */
+function analyseFunction(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, reqIndex: number, resIndex: number, depth = 0): FnFacts {
+  const { checker, root } = m;
   const facts = emptyFacts();
   const body = fn.body;
   if (body === undefined) return facts;
-  const reqSym = paramSymbol(checker, fn, 0);
-  const resSym = paramSymbol(checker, fn, 1);
+  const reqParam = fn.parameters[reqIndex];
+  const reqSym = paramSymbol(checker, fn, reqIndex);
+  const resSym = resIndex >= 0 ? paramSymbol(checker, fn, resIndex) : undefined;
   const isSym = (n: ts.Node, s: ts.Symbol | undefined): boolean => s !== undefined && ts.isIdentifier(n) && checker.getSymbolAtLocation(n) === s;
+  const isReq = (n: ts.Node): boolean => isSym(n, reqSym);
+  const writes = new Set<ts.Node>();
+
+  // `({ body, params }, res) => …`: destructuring the request reads those parts raw.
+  if (reqParam !== undefined && ts.isObjectBindingPattern(reqParam.name)) {
+    for (const el of reqParam.name.elements) {
+      const key = el.dotDotDotToken !== undefined ? 'req' : el.propertyName !== undefined ? propName(el.propertyName) : ts.isIdentifier(el.name) ? el.name.text : undefined;
+      if (key !== undefined && (key === 'req' || REQ_TARGETS.has(key) || REQ_RAW_INPUTS.has(key))) facts.reads.push({ target: key, node: el });
+    }
+  }
+
+  const addParse = (target: string, call: ts.CallExpression, schema: SchemaRef): void => {
+    if (target === 'params' || target === 'query' || target === 'body' || target === 'headers') facts.parses.push({ target, call, schema });
+    if (target === 'headers' && schema.parsedType !== undefined) {
+      const props = checker.getApparentType(schema.parsedType).getProperties();
+      if (props.some((p) => p.name.toLowerCase() === IDEMPOTENCY_HEADER)) facts.idempotencyKey = true;
+    }
+  };
 
   walk(body, (node) => {
-    if (isSym(node, reqSym) && ts.isIdentifier(node)) {
-      const read = reqRead(node);
-      if (read.target === '') return;
+    // Write-backs: `req.body = S.parse(req.body)`, `Object.defineProperty(req, 'query', { value: S.parse(…) })`.
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const part = reqMember(m, node.left, isReq, env);
+      if (part !== undefined) {
+        writes.add(unwrap(node.left));
+        if (REQ_TARGETS.has(part) && isParseResult(m, node.right, env)) facts.writeBacks.push({ target: part, pos: node.getStart() });
+      }
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && calleeName(node.expression.expression) === 'Object' && node.arguments[0] !== undefined && isReq(unwrap(node.arguments[0]))) {
+      const how = node.expression.name.text;
+      writes.add(unwrap(node.arguments[0]));
+      const pairs: Array<[string | undefined, ts.Expression | undefined]> = [];
+      if (how === 'defineProperty') {
+        const desc = node.arguments[2] !== undefined ? unwrap(node.arguments[2]) : undefined;
+        const value = desc !== undefined && ts.isObjectLiteralExpression(desc) ? desc.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && propName(p.name) === 'value') : undefined;
+        pairs.push([constString(checker, node.arguments[1], env), value?.initializer]);
+      } else if (how === 'assign') {
+        for (const src of node.arguments.slice(1)) {
+          const o = unwrap(src);
+          if (ts.isObjectLiteralExpression(o)) for (const p of o.properties) if (ts.isPropertyAssignment(p)) pairs.push([propName(p.name), p.initializer]);
+        }
+      }
+      for (const [part, value] of pairs) {
+        if (part !== undefined && value !== undefined && REQ_TARGETS.has(part) && isParseResult(m, value, env)) facts.writeBacks.push({ target: part, pos: node.getStart() });
+      }
+    }
+
+    if (isReq(node) && ts.isIdentifier(node)) {
+      if (writes.has(node)) return;
+      const read = reqRead(checker, node, env);
+      if (read.target === '' || writes.has(read.node)) return;
+      if (read.target === 'req') {
+        const parent = node.parent;
+        if (ts.isCallExpression(parent) && parent.arguments[0] === node) {
+          const info = parseCallInfo(checker, root, parent, env);
+          if (info === 'inactive') return;
+          if (info !== undefined) {
+            // `S.parse(req)`: every request part the schema's output declares is parsed.
+            for (const part of REQ_TARGETS) {
+              const pt = info.parsedType !== undefined ? propertyType(checker, info.parsedType, part, parent) : undefined;
+              if (pt !== undefined) addParse(part, parent, { ...info, parsedType: pt, member: part, ...noOrigin });
+            }
+            return;
+          }
+        }
+        if (ts.isCallExpression(parent) && parent.arguments.includes(node) && depth < MAX_HANDLER_DEPTH) {
+          const callee = resolveFunction(checker, parent.expression);
+          if (callee !== undefined && isProgramNode(callee)) {
+            const sub = analyseFunction(m, callee, bindCall(checker, callee, parent.arguments, env), parent.arguments.indexOf(node), -1, depth + 1);
+            facts.parses.push(...sub.parses);
+            facts.reads.push(...sub.reads);
+            facts.writeBacks.push(...sub.writeBacks);
+            facts.idempotencyKey ||= sub.idempotencyKey;
+            return;
+          }
+        }
+        facts.reads.push(read);
+        return;
+      }
       // `IdSchema.parse(req.params.userId)` parses one field of the input: the argument is the member read.
       let arg: ts.Node = read.node;
       const up = arg.parent;
       if (REQ_TARGETS.has(read.target) && (ts.isPropertyAccessExpression(up) || ts.isElementAccessExpression(up)) && up.expression === arg) arg = up;
-      const parent = arg.parent;
-      const schema = ts.isCallExpression(parent) && parent.arguments[0] === arg ? parseCallSchema(checker, root, parent) : undefined;
-      if (schema !== undefined && ts.isCallExpression(parent)) {
-        if (read.target === 'params' || read.target === 'query' || read.target === 'body' || read.target === 'headers') {
-          facts.parses.push({ target: read.target, call: parent, schema });
-        }
-      } else {
-        facts.unparsedReads.push(read);
+      if (read.target === 'headers') {
+        const key = ts.isCallExpression(read.node) ? constString(checker, read.node.arguments[0], env) : ts.isElementAccessExpression(arg) ? constString(checker, arg.argumentExpression, env) : undefined;
+        if (key?.toLowerCase() === IDEMPOTENCY_HEADER) facts.idempotencyKey = true;
       }
+      const parent = arg.parent;
+      if (ts.isCallExpression(parent) && parent.arguments[0] === arg) {
+        const info = parseCallInfo(checker, root, parent, env);
+        if (info === 'inactive') return;
+        // `JSON.stringify(z.unknown().parse(req.body))`: a no-op parse of a value that is only serialised.
+        if (info !== undefined && permissiveReason(checker, info.parsedType) !== undefined && isOpaqueUse(m, parent)) return;
+        if (info !== undefined) {
+          addParse(read.target, parent, info);
+          return;
+        }
+      }
+      // `S.parse({ body: req.body, query: req.query })`: the member of the schema output is the part's schema.
+      if (ts.isPropertyAssignment(parent) && parent.initializer === arg && ts.isObjectLiteralExpression(parent.parent)) {
+        const call = parent.parent.parent;
+        const key = propName(parent.name);
+        if (ts.isCallExpression(call) && call.arguments[0] === parent.parent && key !== undefined) {
+          const info = parseCallInfo(checker, root, call, env);
+          if (info === 'inactive') return;
+          if (info !== undefined) {
+            const pt = info.parsedType !== undefined ? propertyType(checker, info.parsedType, key, call) : undefined;
+            addParse(read.target, call, { ...info, member: key, ...noOrigin, ...(pt !== undefined ? { parsedType: pt } : {}) });
+            return;
+          }
+        }
+      }
+      if (isOpaqueUse(m, arg)) return;
+      facts.reads.push(read);
       return;
     }
     if (isSym(node, resSym) && ts.isIdentifier(node)) {
       if (isResEscape(node)) facts.resEscapes.push(node);
       return;
     }
-    if (ts.isCallExpression(node)) {
-      const chain = responseChain(checker, node);
+    if (ts.isCallExpression(node) && resSym !== undefined) {
+      const chain = responseChain(checker, node, env);
       if (chain !== undefined && isSym(unwrap(chain.root), resSym)) {
         const site: ResponseSite = {
           call: node,
           status: chain.status,
+          statuses: chain.statuses,
           hasBody: chain.body !== undefined,
-          isProblem: chain.body !== undefined && isProblemBody(checker, chain.body),
+          isProblem: chain.body !== undefined && isProblemDocument(checker, checker.getTypeAtLocation(chain.body), chain.body),
         };
         const schema = chain.body !== undefined ? bodySchema(checker, root, chain.body) : undefined;
         if (schema !== undefined) site.schema = schema;
@@ -579,25 +1422,31 @@ function analyseHandler(checker: ts.TypeChecker, root: string, fn: ts.FunctionLi
       if (ts.isPropertyAccessExpression(callee) && (callee.name.text === 'status' || callee.name.text === 'sendStatus')) {
         let r: ts.Expression = callee.expression;
         while (ts.isCallExpression(r) && ts.isPropertyAccessExpression(r.expression)) r = r.expression.expression;
-        const n = numericValue(checker, node.arguments[0]);
-        if (isSym(unwrap(r), resSym) && n !== null) facts.statusLiterals.push({ status: n, node });
+        if (isSym(unwrap(r), resSym)) {
+          for (const n of statusValues(checker, node.arguments[0], env) ?? []) facts.statusLiterals.push({ status: n, node });
+        }
       }
     }
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-      const name = problemProducer(checker, node);
-      if (name !== undefined) {
-        const status = problemStatus(checker, node, name);
-        facts.problemSites.push({ name, status, node });
+      const producer = problemProducer(m, node);
+      if (producer !== undefined) {
+        const status = problemStatus(m, node, producer.name, env);
+        facts.problemSites.push({ name: producer.name, status, node });
         if (status !== null) facts.statusLiterals.push({ status, node });
       }
     }
   });
+  // Reads after a write-back of the same part in this function see the parsed value.
+  facts.reads = facts.reads.filter((r) => !facts.writeBacks.some((w) => w.target === r.target && w.pos < r.node.getStart()));
   return facts;
 }
 
+/** A sub-schema (one member of a request-wide schema) is not an exported schema of its own. */
+const noOrigin = { module: undefined, exportName: undefined } as const;
+
 /** Problem producers in the functions `fn` calls (transitively, program sources only, excluding `fn` itself). */
-function calleeProblems(checker: ts.TypeChecker, fn: ts.FunctionLikeDeclaration): HandlerFacts['problemSites'] {
-  const out: HandlerFacts['problemSites'] = [];
+function calleeProblems(m: ApiModel, fn: ts.FunctionLikeDeclaration): FnFacts['problemSites'] {
+  const out: FnFacts['problemSites'] = [];
   const seen = new Set<ts.Node>([fn]);
   let frontier: ts.FunctionLikeDeclaration[] = [fn];
   for (let depth = 0; depth < MAX_HANDLER_DEPTH && frontier.length > 0; depth++) {
@@ -606,15 +1455,15 @@ function calleeProblems(checker: ts.TypeChecker, fn: ts.FunctionLikeDeclaration)
       if (f.body === undefined) continue;
       walk(f.body, (n) => {
         if (!ts.isCallExpression(n)) return;
-        const target = resolveFunction(checker, n.expression);
+        const target = resolveFunction(m.checker, n.expression);
         if (target === undefined || seen.has(target)) return;
         seen.add(target);
         next.push(target);
         if (target.body === undefined) return;
-        walk(target.body, (m) => {
-          if (!ts.isCallExpression(m) && !ts.isNewExpression(m)) return;
-          const name = problemProducer(checker, m);
-          if (name !== undefined) out.push({ name, status: problemStatus(checker, m, name), node: m });
+        walk(target.body, (x) => {
+          if (!ts.isCallExpression(x) && !ts.isNewExpression(x)) return;
+          const producer = problemProducer(m, x);
+          if (producer !== undefined) out.push({ name: producer.name, status: problemStatus(m, x, producer.name), node: x });
         });
       });
     }
@@ -623,17 +1472,80 @@ function calleeProblems(checker: ts.TypeChecker, fn: ts.FunctionLikeDeclaration)
   return out;
 }
 
-// ───────────────────────────── mount prefixes ─────────────────────────────
+/** A callable resolved with the bindings it closes over. */
+interface Callable {
+  fn: ts.FunctionLikeDeclaration;
+  env: Env;
+}
+
+/**
+ * Route handler / middleware: like resolveFunction, plus
+ *  - a parameter bound at a factory call site,
+ *  - one level of wrapper whose last argument is the function (`asyncHandler(async (req, res) => …)`),
+ *  - `fn.bind(thisArg)`,
+ *  - a factory call (`validate({ body: S })`, `getUser(service)`) whose returned expression is itself a handler,
+ *    with the factory's parameters bound to the call's arguments.
+ */
+function resolveCallable(m: ApiModel, expr: ts.Expression, env: Env, depth = 0): Callable | undefined {
+  const { checker } = m;
+  const e = unwrap(expr);
+  if (ts.isIdentifier(e)) {
+    const bound = boundOf(checker, e, env);
+    if (bound !== undefined) return bound.expr !== undefined && depth < MAX_HANDLER_DEPTH ? resolveCallable(m, bound.expr, bound.env, depth + 1) : undefined;
+  }
+  const direct = resolveFunction(checker, e);
+  if (direct !== undefined) return { fn: direct, env };
+  if (ts.isIdentifier(e) && depth < MAX_HANDLER_DEPTH) {
+    // `const validateBody = validate({ body: S })`: the const holds a factory's result.
+    const init = constInitializer(checker, e);
+    if (init !== undefined && ts.isCallExpression(unwrap(init))) return resolveCallable(m, init, env, depth + 1);
+  }
+  if (!ts.isCallExpression(e) || depth >= MAX_HANDLER_DEPTH) return undefined;
+  const callee = unwrap(e.expression);
+  if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'bind') return resolveCallable(m, callee.expression, env, depth + 1);
+  const last = e.arguments[e.arguments.length - 1];
+  const wrapped = last !== undefined ? resolveCallable(m, last, env, depth + 1) : undefined;
+  if (wrapped !== undefined && wrapped.fn.parameters.length >= 2) return wrapped;
+  const factory = resolveFunction(checker, callee);
+  if (factory === undefined) return wrapped;
+  const factoryEnv = bindCall(checker, factory, e.arguments, env);
+  for (const ret of returnedExpressions(factory)) {
+    const h = resolveCallable(m, ret, factoryEnv, depth + 1);
+    if (h !== undefined) return h;
+  }
+  return wrapped;
+}
+
+/** Handler arguments with arrays (`[auth, validate(...)]`, or a const holding one) flattened. */
+function flattenArgs(checker: ts.TypeChecker, args: readonly ts.Expression[]): ts.Expression[] {
+  const out: ts.Expression[] = [];
+  for (const a of args) {
+    let e = unwrap(a);
+    if (ts.isIdentifier(e)) {
+      const init = constInitializer(checker, e);
+      if (init !== undefined && ts.isArrayLiteralExpression(unwrap(init))) e = unwrap(init);
+    }
+    if (ts.isArrayLiteralExpression(e)) out.push(...flattenArgs(checker, e.elements));
+    else out.push(a);
+  }
+  return out;
+}
+
+// ───────────────────────────── mounts and scope ─────────────────────────────
 
 interface Mount {
   child: ts.Symbol;
   parent: ts.Symbol | undefined;
-  prefix: string;
+  /** null: the prefix could not be resolved. */
+  prefixes: string[] | null;
+  call: ts.CallExpression;
+  pathNode: ts.Expression | undefined;
 }
 
 function rootSymbol(checker: ts.TypeChecker, expr: ts.Expression): ts.Symbol | undefined {
   const e = unwrap(expr);
   if (ts.isIdentifier(e)) return resolveSymbol(checker, e);
+  if (ts.isPropertyAccessExpression(e)) return resolveSymbol(checker, e.name);
   if (ts.isCallExpression(e)) {
     // `createUsersRouter()` → the function symbol stands for its router.
     return resolveSymbol(checker, ts.isPropertyAccessExpression(e.expression) ? e.expression.name : e.expression);
@@ -641,22 +1553,63 @@ function rootSymbol(checker: ts.TypeChecker, expr: ts.Expression): ts.Symbol | u
   return undefined;
 }
 
-function collectMounts(checker: ts.TypeChecker, sources: ts.SourceFile[]): Mount[] {
-  const mounts: Mount[] = [];
-  for (const sf of sources) {
+/** Whether the first `.use()` argument is a path (string, string[] or RegExp by type) rather than middleware. */
+function isPathArgument(checker: ts.TypeChecker, arg: ts.Expression): boolean {
+  const e = unwrap(arg);
+  if (ts.isStringLiteralLike(e) || ts.isTemplateExpression(e) || ts.isRegularExpressionLiteral(e)) return true;
+  const type = checker.getTypeAtLocation(e);
+  if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+  const stringish = (t: ts.Type): boolean => (t.flags & ts.TypeFlags.StringLike) !== 0;
+  if (stringish(type) || (type.isUnion() && type.types.every(stringish))) return true;
+  if (checker.isArrayType(type)) return checker.getTypeArguments(type as ts.TypeReference).every((t) => stringish(t));
+  return type.getSymbol()?.name === 'RegExp';
+}
+
+function pathValues(checker: ts.TypeChecker, arg: ts.Expression): string[] | null {
+  const e = unwrap(arg);
+  if (ts.isArrayLiteralExpression(e)) {
+    const out: string[] = [];
+    for (const el of e.elements) {
+      const v = constString(checker, el);
+      if (v === undefined) return null;
+      out.push(v);
+    }
+    return out;
+  }
+  const v = constString(checker, e);
+  return v === undefined ? null : [v];
+}
+
+function collectUses(m: ApiModel): UseCall[] {
+  const { checker } = m;
+  const uses: UseCall[] = [];
+  for (const { sf } of m.sources) {
     walk(sf, (node) => {
       if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
-      if (node.expression.name.text !== 'use') return;
-      const prefix = stringLiteralValue(node.arguments[0]);
-      if (prefix === undefined || !isExpressReceiver(checker, node.expression.expression)) return;
-      const parent = rootSymbol(checker, node.expression.expression);
-      for (const arg of node.arguments.slice(1)) {
-        const child = rootSymbol(checker, arg);
-        if (child !== undefined) mounts.push({ child, parent, prefix });
-      }
+      if (node.expression.name.text !== 'use' || !isExpressReceiver(checker, node.expression.expression)) return;
+      const first = node.arguments[0];
+      const hasPath = first !== undefined && isPathArgument(checker, first);
+      uses.push({
+        call: node,
+        owner: rootSymbol(checker, node.expression.expression),
+        paths: hasPath && first !== undefined ? pathValues(checker, first) : undefined,
+        pathNode: hasPath ? first : undefined,
+        args: flattenArgs(checker, node.arguments.slice(hasPath ? 1 : 0)),
+      });
     });
   }
-  return mounts;
+  return uses;
+}
+
+function mountsOf(m: ApiModel): Mount[] {
+  const out: Mount[] = [];
+  for (const u of m.uses) {
+    for (const arg of u.args) {
+      const child = rootSymbol(m.checker, arg);
+      if (child !== undefined) out.push({ child, parent: u.owner, prefixes: u.paths === undefined ? [''] : u.paths, call: u.call, pathNode: u.pathNode });
+    }
+  }
+  return out;
 }
 
 export function joinPaths(prefix: string, path: string): string {
@@ -688,79 +1641,111 @@ function factoryOf(checker: ts.TypeChecker, sym: ts.Symbol): ts.Symbol | undefin
   return nameNode !== undefined ? resolveSymbol(checker, nameNode) : undefined;
 }
 
-function prefixOf(checker: ts.TypeChecker, mounts: Mount[], sym: ts.Symbol | undefined, seen: Set<ts.Symbol> = new Set()): string {
-  if (sym === undefined || seen.has(sym)) return '';
-  seen.add(sym);
-  const ids = [sym];
-  const factory = factoryOf(checker, sym);
-  if (factory !== undefined) ids.push(factory);
-  const own = mounts.filter((m) => ids.includes(m.child));
-  const candidates = new Set(own.map((m) => joinPaths(prefixOf(checker, mounts, m.parent, new Set(seen)), m.prefix)));
-  if (candidates.size !== 1) return ''; // not mounted under a path, or ambiguous: use paths as written
-  const [only] = [...candidates];
-  return only ?? '';
+interface Prefixes {
+  values: string[];
+  /** A mount on the way up whose path could not be resolved. */
+  unresolved?: ts.Node;
 }
 
-/** A `<x>.use([path,] ...fns)` registration: middleware that applies to the routes of `owner` and its sub-routers. */
-interface ScopeUse {
-  owner: ts.Symbol | undefined;
-  path: string | undefined;
-  arg: ts.Expression;
-  call: ts.CallExpression;
-}
-
-function collectScopeUses(checker: ts.TypeChecker, sources: ts.SourceFile[]): { uses: ScopeUse[]; links: Mount[] } {
-  const uses: ScopeUse[] = [];
-  const links: Mount[] = [];
-  for (const sf of sources) {
-    walk(sf, (node) => {
-      if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
-      if (node.expression.name.text !== 'use' || !isExpressReceiver(checker, node.expression.expression)) return;
-      const path = stringLiteralValue(node.arguments[0]);
-      const owner = rootSymbol(checker, node.expression.expression);
-      for (const arg of node.arguments.slice(path === undefined ? 0 : 1)) {
-        uses.push({ owner, path, arg, call: node });
-        const child = rootSymbol(checker, arg);
-        if (child !== undefined) links.push({ child, parent: owner, prefix: path ?? '' });
-      }
+/** Every function symbol some call expression in the sources invokes. */
+function calledSymbols(m: ApiModel): Set<ts.Symbol> {
+  if (m.called !== undefined) return m.called;
+  const out = new Set<ts.Symbol>();
+  for (const { sf } of m.sources) {
+    walk(sf, (n) => {
+      if (!ts.isCallExpression(n)) return;
+      const callee = unwrap(n.expression);
+      const sym = resolveSymbol(m.checker, ts.isPropertyAccessExpression(callee) ? callee.name : callee);
+      if (sym !== undefined) out.add(sym);
     });
   }
-  return { uses, links };
-}
-
-/** `sym` (plus its factory) and every router/app it is mounted on, transitively. */
-function ancestorSymbols(checker: ts.TypeChecker, links: Mount[], sym: ts.Symbol | undefined): Set<ts.Symbol> {
-  const out = new Set<ts.Symbol>();
-  const queue = sym !== undefined ? [sym] : [];
-  for (let s = queue.shift(); s !== undefined; s = queue.shift()) {
-    if (out.has(s)) continue;
-    out.add(s);
-    const factory = factoryOf(checker, s);
-    if (factory !== undefined && !out.has(factory)) {
-      out.add(factory);
-    }
-    for (const l of links) {
-      if ((l.child === s || l.child === factory) && l.parent !== undefined) queue.push(l.parent);
-    }
-  }
+  m.called = out;
   return out;
 }
 
-/** Middleware registered with `.use()` on the route's router (before the route) or on a router/app it is mounted on. */
-function scopeMiddlewareFor(
-  checker: ts.TypeChecker,
-  scope: { uses: ScopeUse[]; links: Mount[] },
-  reg: Registration,
-  fullPath: string,
-): ts.Expression[] {
-  const receiver = rootSymbol(checker, reg.receiver);
-  const owners = ancestorSymbols(checker, scope.links, receiver);
-  const regFile = reg.call.getSourceFile();
-  return scope.uses
-    .filter((u) => u.owner !== undefined && owners.has(u.owner))
-    .filter((u) => u.path === undefined || fullPath.includes(u.path.replace(/\/+$/, '')))
-    .filter((u) => !(u.owner === receiver && u.call.getSourceFile() === regFile && u.call.getStart() > reg.call.getStart()))
-    .map((u) => u.arg);
+/**
+ * A router (not an application: apps are the roots that get served) created inside a factory that
+ * nothing in the sources calls: what is mounted on it is never served.
+ */
+function isDeadRouter(m: ApiModel, sym: ts.Symbol | undefined): boolean {
+  const decl = sym?.valueDeclaration;
+  if (sym === undefined || decl === undefined || !ts.isVariableDeclaration(decl)) return false;
+  const type = m.checker.getApparentType(m.checker.getTypeOfSymbolAtLocation(sym, decl));
+  if (type.getProperty('listen') !== undefined) return false;
+  const factory = factoryOf(m.checker, sym);
+  return factory !== undefined && !calledSymbols(m).has(factory);
+}
+
+/** Every full prefix the routes of router `sym` are served under (composed through nested mounts). */
+function prefixesOf(m: ApiModel, mounts: Mount[], sym: ts.Symbol | undefined, seen: Set<ts.Symbol> = new Set()): Prefixes {
+  if (sym === undefined || seen.has(sym)) return { values: [''] };
+  const inner = new Set(seen).add(sym);
+  const factory = factoryOf(m.checker, sym);
+  const own = mounts.filter((x) => (x.child === sym || (factory !== undefined && x.child === factory)) && !isDeadRouter(m, x.parent));
+  if (own.length === 0) return { values: [''] };
+  const values = new Set<string>();
+  let unresolved: ts.Node | undefined;
+  for (const mount of own) {
+    const parent = prefixesOf(m, mounts, mount.parent, inner);
+    unresolved ??= parent.unresolved;
+    if (mount.prefixes === null) {
+      unresolved ??= mount.pathNode ?? mount.call;
+      continue;
+    }
+    for (const pp of parent.values) for (const p of mount.prefixes) values.add(joinPaths(pp, p));
+  }
+  return unresolved !== undefined ? { values: [...values], unresolved } : { values: [...values] };
+}
+
+/** `:name` → `:` so a use path and a route path with differently named params compare equal. */
+function normalizeParams(path: string): string {
+  return path.replace(/:[^/]+/g, ':');
+}
+
+function pathCovers(prefix: string, fullPath: string): boolean {
+  const p = normalizeParams(prefix.replace(/\/+$/, ''));
+  const f = normalizeParams(fullPath);
+  return p === '' || f === p || f.startsWith(`${p}/`);
+}
+
+/**
+ * Middleware registered with `.use()` on the route's router before the route, or on a router/app it is
+ * mounted on before that mount (same file; other files: included), whose path covers the route.
+ */
+function scopeMiddlewareFor(m: ApiModel, mounts: Mount[], reg: Registration, fullPath: string): ts.Expression[] {
+  const out: ts.Expression[] = [];
+  const visited = new Set<ts.Symbol>();
+  const queue: Array<{ sym: ts.Symbol; anchor: ts.CallExpression; child?: ts.Symbol }> = [];
+  const receiver = rootSymbol(m.checker, reg.receiver);
+  if (receiver !== undefined) queue.push({ sym: receiver, anchor: reg.call });
+  for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
+    const { sym, anchor } = item;
+    if (visited.has(sym)) continue;
+    visited.add(sym);
+    const factory = factoryOf(m.checker, sym);
+    const owners = factory !== undefined ? [sym, factory] : [sym];
+    for (const u of m.uses) {
+      if (u.owner === undefined || !owners.includes(u.owner)) continue;
+      if (u.paths === null) continue;
+      const sameFile = u.call.getSourceFile() === anchor.getSourceFile();
+      if (sameFile && u.call.getStart() > anchor.getStart()) continue;
+      const ownerPrefixes = prefixesOf(m, mounts, u.owner).values;
+      if (u.paths !== undefined && !u.paths.some((p) => ownerPrefixes.some((op) => pathCovers(joinPaths(op, p), fullPath)))) continue;
+      for (const arg of u.args) {
+        // The mount through which the route is reached: only the arguments before the child run first.
+        if (u.call === anchor && item.child !== undefined) {
+          const childSym = rootSymbol(m.checker, arg);
+          if (childSym === item.child || (childSym !== undefined && factoryOf(m.checker, item.child) === childSym)) break;
+        }
+        if (u.call === anchor && item.child === undefined) continue;
+        out.push(arg);
+      }
+    }
+    for (const mount of mounts) {
+      if ((mount.child === sym || mount.child === factory) && mount.parent !== undefined) queue.push({ sym: mount.parent, anchor: mount.call, child: mount.child });
+    }
+  }
+  return out;
 }
 
 // ───────────────────────────── extraction ─────────────────────────────
@@ -772,9 +1757,15 @@ function asMethod(name: string): HttpMethod | undefined {
 interface Registration {
   call: ts.CallExpression;
   method: HttpMethod;
-  path: string;
+  /** undefined: the path could not be resolved to a constant. */
+  path: string | undefined;
+  pathNode: ts.Expression;
   receiver: ts.Expression;
   handlerArgs: ts.Expression[];
+}
+
+function isCallable(checker: ts.TypeChecker, expr: ts.Expression): boolean {
+  return checker.getTypeAtLocation(expr).getCallSignatures().length > 0 || resolveFunction(checker, expr) !== undefined;
 }
 
 function registrationOf(checker: ts.TypeChecker, call: ts.CallExpression): Registration | undefined {
@@ -782,9 +1773,9 @@ function registrationOf(checker: ts.TypeChecker, call: ts.CallExpression): Regis
   if (!ts.isPropertyAccessExpression(callee)) return undefined;
   const method = asMethod(callee.name.text);
   if (method === undefined) return undefined;
-  const path = stringLiteralValue(call.arguments[0]);
-  if (path !== undefined && call.arguments.length >= 2 && isExpressReceiver(checker, callee.expression)) {
-    return { call, method, path, receiver: callee.expression, handlerArgs: call.arguments.slice(1) };
+  const first = call.arguments[0];
+  if (first !== undefined && call.arguments.length >= 2 && isExpressReceiver(checker, callee.expression) && !isCallable(checker, first)) {
+    return { call, method, path: constString(checker, first), pathNode: first, receiver: callee.expression, handlerArgs: call.arguments.slice(1) };
   }
   // router.route('/x').get(h).post(h)
   let base: ts.Expression = callee.expression;
@@ -792,54 +1783,118 @@ function registrationOf(checker: ts.TypeChecker, call: ts.CallExpression): Regis
     base = base.expression.expression;
   }
   if (ts.isCallExpression(base) && ts.isPropertyAccessExpression(base.expression) && base.expression.name.text === 'route') {
-    const routePath = stringLiteralValue(base.arguments[0]);
-    if (routePath !== undefined && call.arguments.length >= 1 && isExpressReceiver(checker, base.expression.expression)) {
-      return { call, method, path: routePath, receiver: base.expression.expression, handlerArgs: [...call.arguments] };
+    const routeArg = base.arguments[0];
+    if (routeArg !== undefined && call.arguments.length >= 1 && isExpressReceiver(checker, base.expression.expression)) {
+      return { call, method, path: constString(checker, routeArg), pathNode: routeArg, receiver: base.expression.expression, handlerArgs: [...call.arguments] };
     }
   }
   return undefined;
 }
 
-export function extractRoutes(program: ts.Program, root: string, files: string[]): RouteInfo[] {
-  const checker = program.getTypeChecker();
-  const sources: Array<{ rel: string; sf: ts.SourceFile }> = [];
-  for (const rel of files) {
-    const sf = programFile(program, root, rel);
-    if (sf !== undefined) sources.push({ rel: toPosix(rel), sf });
-  }
-  const mounts = collectMounts(checker, sources.map((s) => s.sf));
-  const scope = collectScopeUses(checker, sources.map((s) => s.sf));
-  const routes: RouteInfo[] = [];
-  for (const { rel, sf } of sources) {
+export interface RouteTable {
+  /** Every route, including those whose path could not be resolved (`unresolvedPath` set). */
+  all: RouteInfo[];
+  /** Routes with a fully resolved path. */
+  routes: RouteInfo[];
+  /** Routes whose path (or a mount prefix on the way up) could not be resolved statically. */
+  unresolved: RouteInfo[];
+}
+
+const TABLES = new WeakMap<ApiModel, RouteTable>();
+
+/** Every route registration of the API, with its chain analysed. Cached per program. */
+export function extractRouteTable(program: ts.Program, root: string, files: string[]): RouteTable {
+  const m = apiModel(program, root, files);
+  const cached = TABLES.get(m);
+  if (cached !== undefined) return cached;
+  const { checker } = m;
+  const mounts = mountsOf(m);
+  const memberFacts = new Map<ts.Node, FnFacts | null>();
+  const factsOfMember = (expr: ts.Expression): FnFacts | null => {
+    const hit = memberFacts.get(expr);
+    if (hit !== undefined) return hit;
+    const c = resolveCallable(m, expr, NO_ENV);
+    // Error middleware (err, req, res, next) is not part of the request chain.
+    const f = c !== undefined && c.fn.parameters.length < 4 && isProgramNode(c.fn) ? analyseFunction(m, c.fn, c.env, 0, -1) : null;
+    memberFacts.set(expr, f);
+    return f;
+  };
+  const all: RouteInfo[] = [];
+  for (const { rel, sf } of m.sources) {
     walk(sf, (node) => {
       if (!ts.isCallExpression(node)) return;
       const reg = registrationOf(checker, node);
       if (reg === undefined) return;
-      const prefix = prefixOf(checker, mounts, rootSymbol(checker, reg.receiver));
-      const last = reg.handlerArgs[reg.handlerArgs.length - 1];
-      const handler = last !== undefined ? resolveHandler(checker, last) : undefined;
-      const facts = handler !== undefined ? analyseHandler(checker, root, handler) : emptyFacts();
-      const calleeProblemSites = handler !== undefined ? calleeProblems(checker, handler) : [];
-      const path = joinPaths(prefix, reg.path);
+      const args = flattenArgs(checker, reg.handlerArgs);
+      const last = args[args.length - 1];
+      const resolved = last !== undefined ? resolveCallable(m, last, NO_ENV) : undefined;
+      const handler = resolved?.fn;
+      const own = resolved !== undefined ? analyseFunction(m, resolved.fn, resolved.env, 0, 1) : emptyFacts();
+      const calleeProblemSites = handler !== undefined ? calleeProblems(m, handler) : [];
       const lc = sf.getLineAndCharacterOfPosition(node.getStart(sf));
-      routes.push({
-        file: rel,
-        method: reg.method,
-        path,
-        line: lc.line + 1,
-        column: lc.character + 1,
-        registration: node,
-        handler,
-        middleware: reg.handlerArgs.slice(0, -1),
-        reqName: handler !== undefined ? paramName(handler, 0) : undefined,
-        resName: handler !== undefined ? paramName(handler, 1) : undefined,
-        ...facts,
-        calleeProblemSites,
-        scopeMiddleware: scopeMiddlewareFor(checker, scope, reg, path),
-      });
+      const targets: Array<{ path: string; unresolvedPath?: RouteInfo['unresolvedPath'] }> = [];
+      if (reg.path === undefined) {
+        targets.push({ path: `<${reg.pathNode.getText()}>`, unresolvedPath: { node: reg.pathNode, reason: `route path ${reg.pathNode.getText()} is not a constant string` } });
+      } else {
+        const prefixes = prefixesOf(m, mounts, rootSymbol(checker, reg.receiver));
+        for (const p of prefixes.values) targets.push({ path: joinPaths(p, reg.path) });
+        if (prefixes.unresolved !== undefined) {
+          const text = prefixes.unresolved.getText();
+          targets.push({ path: `<${text}>${reg.path}`, unresolvedPath: { node: prefixes.unresolved, reason: `mount prefix ${text} is not a constant string` } });
+        }
+      }
+      for (const t of targets) {
+        const scope = scopeMiddlewareFor(m, mounts, reg, t.path);
+        const chain = [...scope, ...args.slice(0, -1)].map(factsOfMember).filter((f): f is FnFacts => f !== null);
+        all.push({
+          file: rel,
+          method: reg.method,
+          path: t.path,
+          line: lc.line + 1,
+          column: lc.character + 1,
+          registration: node,
+          handler,
+          middleware: reg.handlerArgs.slice(0, -1),
+          reqName: handler !== undefined ? paramName(handler, 0) : undefined,
+          resName: handler !== undefined ? paramName(handler, 1) : undefined,
+          ...combineChain(chain, own),
+          calleeProblemSites,
+          scopeMiddleware: scope,
+          ...(t.unresolvedPath !== undefined ? { unresolvedPath: t.unresolvedPath } : {}),
+        });
+      }
     });
   }
-  return routes;
+  const table: RouteTable = { all, routes: all.filter((r) => r.unresolvedPath === undefined), unresolved: all.filter((r) => r.unresolvedPath !== undefined) };
+  TABLES.set(m, table);
+  return table;
+}
+
+/**
+ * Merge a route's middleware chain with its handler: parses anywhere in the chain count for the route
+ * (handler parses first); a raw read is covered only when an earlier function wrote the parsed value back.
+ */
+function combineChain(chain: FnFacts[], handler: FnFacts): Pick<RouteInfo, 'parses' | 'unparsedReads' | 'responses' | 'statusLiterals' | 'problemSites' | 'resEscapes' | 'readsIdempotencyKey'> {
+  const written = new Set<string>();
+  const unparsedReads: RouteInfo['unparsedReads'] = [];
+  for (const f of [...chain, handler]) {
+    for (const r of f.reads) if (!written.has(r.target)) unparsedReads.push({ target: r.target, node: r.node });
+    for (const w of f.writeBacks) written.add(w.target);
+  }
+  return {
+    parses: [...handler.parses, ...chain.flatMap((f) => f.parses)],
+    unparsedReads,
+    responses: handler.responses,
+    statusLiterals: handler.statusLiterals,
+    problemSites: handler.problemSites,
+    resEscapes: handler.resEscapes,
+    readsIdempotencyKey: handler.idempotencyKey || chain.some((f) => f.idempotencyKey),
+  };
+}
+
+/** Routes with a resolved path (see extractRouteTable for the unresolved ones). */
+export function extractRoutes(program: ts.Program, root: string, files: string[]): RouteInfo[] {
+  return extractRouteTable(program, root, files).routes;
 }
 
 /** Sort key helpers for deterministic output. */
@@ -864,12 +1919,17 @@ export function propertyType(checker: ts.TypeChecker, type: ts.Type, name: strin
   return sym === undefined ? undefined : checker.getTypeOfSymbolAtLocation(sym, at);
 }
 
-/** Every function-like node reachable as a registered middleware: `<x>.use(...fns)`. */
+/** A function registered with `<x>.use(...)`. */
 export interface UseRegistration {
   call: ts.CallExpression;
+  /** The first resolved path prefix; undefined for a path-less registration. */
   path: string | undefined;
+  /** Resolved body (factories such as `errorHandler()` are followed), when it is program code. */
   fn: ts.FunctionLikeDeclaration | undefined;
+  env: Env;
   arg: ts.Expression;
+  /** Parameter count, from the body or (for library middleware) the call signature of its type. */
+  params: number | undefined;
 }
 
 /** The program's SourceFile for an API-relative path. */
@@ -877,25 +1937,23 @@ export function programFile(program: ts.Program, root: string, rel: string): ts.
   return program.getSourceFile(resolve(root, rel)) ?? program.getSourceFile(toPosix(resolve(root, rel)));
 }
 
-export function useRegistrations(program: ts.Program, root: string, files: string[]): UseRegistration[] {
-  const checker = program.getTypeChecker();
+function useRegistrationsOf(m: ApiModel): UseRegistration[] {
   const out: UseRegistration[] = [];
-  for (const rel of files) {
-    const sf = programFile(program, root, rel);
-    if (sf === undefined) continue;
-    walk(sf, (node) => {
-      if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
-      if (node.expression.name.text !== 'use' || !isExpressReceiver(checker, node.expression.expression)) return;
-      const path = stringLiteralValue(node.arguments[0]);
-      for (const arg of node.arguments.slice(path === undefined ? 0 : 1)) {
-        const e = unwrap(arg);
-        // Direct functions/identifiers only: `x.use(express.json())` is a factory call, not a handler.
-        const fn = ts.isCallExpression(e) ? undefined : resolveFunction(checker, e);
-        out.push({ call: node, path, fn, arg });
-      }
-    });
+  for (const u of m.uses) {
+    for (const arg of u.args) {
+      const c = resolveCallable(m, arg, NO_ENV);
+      const fn = c !== undefined && isProgramNode(c.fn) ? c.fn : undefined;
+      const sigs = m.checker.getTypeAtLocation(arg).getCallSignatures();
+      const params = fn !== undefined ? fn.parameters.length : sigs.length > 0 ? Math.max(...sigs.map((s) => s.parameters.length)) : undefined;
+      const path = u.paths === undefined ? undefined : (u.paths?.[0] ?? '<unresolved>');
+      out.push({ call: u.call, path, fn, env: c?.env ?? NO_ENV, arg, params });
+    }
   }
   return out;
+}
+
+export function useRegistrations(program: ts.Program, root: string, files: string[]): UseRegistration[] {
+  return useRegistrationsOf(apiModel(program, root, files));
 }
 
 export { walk };

@@ -15,8 +15,9 @@ describe('problem-json', () => {
     // 8 spec probes + collection success (GET /v1/users is JSON, not a problem) + injected internal error (500 problem, no leak)
     expect(runtime?.units).toEqual({ passed: 10, total: 10 });
     expect(findings.find((f) => f.file === 'src/app.ts')?.units).toEqual({ passed: 2, total: 2 });
-    // every problem helper construction in lib/problem.ts is a unit
-    expect(findings.find((f) => f.file === 'src/lib/problem.ts')?.units).toEqual({ passed: 5, total: 5 });
+    // every problem helper construction in lib/problem.ts is a unit, plus sendProblem's res.status(problem.status):
+    // a non-constant status is judged as an error path (its ProblemSchema.parse body is a full problem)
+    expect(findings.find((f) => f.file === 'src/lib/problem.ts')?.units).toEqual({ passed: 6, total: 6 });
     // the three notFound(...) throws in the handlers
     expect(findings.find((f) => f.file === 'src/routes/users.ts')?.units).toEqual({ passed: 3, total: 3 });
   });
