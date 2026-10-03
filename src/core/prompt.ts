@@ -4,13 +4,16 @@
  * systemPrompt  ~1.7 KB: role, completion contract, hook-enforced rules, workflow, how to
  *               fetch context, and a one-line-per-rule index (descriptions come from the
  *               check registry, so a new rule plugin shows up automatically).
- * taskBrief     the first user message: the task, compactly, plus a compact file tree (and, for
- *               greenfield, the scaffold's exported signatures: scaffoldApi).
+ * taskBrief     the first user message: the task, compactly (free text and carried keys verbatim),
+ *               plus a compact file tree (and, for greenfield, the template manifest's conventions
+ *               and the scaffold's exported signatures: scaffoldApi).
  * frontLoad     BASELINE ONLY: what a non-JIT harness would front-load (every text file under
  *               the API root, every standards doc in full), exactly as tokens.ts
  *               BASELINE_DEFINITION states. Tool schemas are NOT repeated here: both requests
  *               already carry them in their tools array. Used for the shadow baseline and --baseline.
  */
+import { stringify as stringifyYaml } from 'yaml';
+import { DEFAULT_TEMPLATE, GENERIC_SIGNATURE_GLOBS, TEMPLATE_MANIFEST, templateManifest, type TemplateManifest } from './template.ts';
 import type { CheckPlugin, FieldSpec, ResourceSpec, Task, TestMap, ToolSpec, Workspace } from './types.ts';
 
 const CONTEXT_TOOLS = ['list_files', 'read_file', 'outline', 'search_code', 'test_map', 'fetch_standard'];
@@ -45,8 +48,15 @@ export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: T
 
 // ───────────────────────────── task brief ─────────────────────────────
 
+/** A declared type is printed as declared (`tags: string[]`), never coerced to a canonical name. */
+function typeText(f: FieldSpec): string {
+  if (f.type === 'enum' && f.values !== undefined) return `enum [${f.values.join('|')}]`;
+  if (f.rawType !== undefined) return f.rawType;
+  return f.type === 'unknown' ? 'unspecified type' : f.type;
+}
+
 export function fieldLine(f: FieldSpec): string {
-  const bits: string[] = [f.type === 'enum' && f.values !== undefined ? `enum [${f.values.join('|')}]` : f.type];
+  const bits: string[] = [typeText(f)];
   if (f.required) bits.push('required');
   if (f.unique) bits.push('unique');
   if (f.readOnly) bits.push('read-only');
@@ -57,16 +67,17 @@ export function fieldLine(f: FieldSpec): string {
   return `${f.name}: ${bits.join(', ')}${desc}`;
 }
 
-function resourceBlock(r: ResourceSpec): string[] {
+function resourceBlock(r: ResourceSpec, implied: boolean): string[] {
   return [
-    `Resource ${r.name} (plural ${r.plural}); server-managed id (uuid), createdAt, updatedAt (datetime) are implied.`,
+    `Resource ${r.name} (plural ${r.plural})${implied ? '; server-managed id (uuid), createdAt, updatedAt (datetime) are implied.' : ''}`,
     ...r.fields.map(fieldLine),
     `operations: ${r.operations.join(', ')}`,
+    ...(r.notes ?? []).map((n) => `note: ${n}`),
   ];
 }
 
-/** Scaffold files whose exported signatures go into the greenfield brief. */
-export const SCAFFOLD_API_GLOBS = ['src/lib/**/*.ts', 'src/app.ts', 'src/routes/index.ts'];
+/** Longest scaffold API section; a template with a huge surface is summarised, not pasted. */
+const SCAFFOLD_API_CAP = 6_000;
 
 /**
  * Exported signatures of scaffold files, one `path:line  export …` line each (bodies and
@@ -85,36 +96,77 @@ export function scaffoldApi(files: Array<{ path: string; content: string }>): st
   return out.join('\n');
 }
 
-/** scaffoldApi over the SCAFFOLD_API_GLOBS files of a workspace. */
-export async function scaffoldApiOf(ws: Workspace): Promise<string> {
+/**
+ * scaffoldApi over the template manifest's signature globs (generic globs for a template without
+ * a manifest), capped at SCAFFOLD_API_CAP characters.
+ */
+export async function scaffoldApiOf(ws: Workspace, manifest: TemplateManifest | null = templateManifest(DEFAULT_TEMPLATE)): Promise<string> {
+  const globs = manifest?.signatureGlobs ?? GENERIC_SIGNATURE_GLOBS;
+  if (globs.length === 0) return '';
   const files: Array<{ path: string; content: string }> = [];
-  for (const path of await ws.list(SCAFFOLD_API_GLOBS)) {
+  for (const path of await ws.list(globs)) {
     const content = await ws.read(path);
     if (content !== null) files.push({ path, content });
   }
-  return scaffoldApi(files);
+  const api = scaffoldApi(files);
+  if (api.length <= SCAFFOLD_API_CAP) return api;
+  const lines = api.split('\n');
+  const kept: string[] = [];
+  let size = 0;
+  for (const l of lines) {
+    if (size + l.length + 1 > SCAFFOLD_API_CAP) break;
+    kept.push(l);
+    size += l.length + 1;
+  }
+  return [...kept, `… ${lines.length - kept.length} more exported lines (use outline)`].join('\n');
 }
 
-export function taskBrief(task: Task, extras: { tree: string; testMap?: string; scaffoldApi?: string }): string {
+/** The model's tests are what the gates judge: say so in every brief. */
+const TESTS_DELIVERABLE = {
+  greenfield: 'Your tests are a deliverable: cover every resource operation and behaviour above with a test you wrote, and see it fail before you implement it.',
+  brownfield: 'Your tests are a deliverable: cover the change and every acceptance criterion above with a test you wrote, and see it fail before you implement it; existing tests must keep passing.',
+};
+
+/** Template conventions for the greenfield brief: the manifest's lines, else honest generic text. */
+function templateLines(template: string, manifest: TemplateManifest | null): string[] {
+  if (manifest !== null && manifest.brief.length > 0) return manifest.brief;
+  const lines = [
+    `Scaffold: template "${template}" ships no conventions (${manifest === null ? `no ${TEMPLATE_MANIFEST}` : `its ${TEMPLATE_MANIFEST} has no brief`}); learn its entry point, helpers and test setup from its files (Files below) before adding code.`,
+  ];
+  if (manifest !== null && manifest.readOnly.length > 0) lines.push(`Read-only (writes are blocked): ${manifest.readOnly.join(', ')}.`);
+  return lines;
+}
+
+export function taskBrief(
+  task: Task,
+  extras: { tree: string; testMap?: string; scaffoldApi?: string; template?: TemplateManifest | null },
+): string {
   const out: string[] = [`Task ${task.id} (${task.kind}): ${task.title}`];
   if (task.kind === 'greenfield') {
+    if (task.brief !== undefined) out.push('', 'Brief (verbatim from the task file):', task.brief.trim(), '');
     out.push(`Base path: ${task.basePath}`, '');
-    for (const r of task.resources) out.push(...resourceBlock(r), '');
+    if (task.resources.length === 0) out.push('Resources: none listed; derive them from the brief.', '');
+    for (const r of task.resources) out.push(...resourceBlock(r, true), '');
   } else {
     out.push('', 'Change:', task.change.trim(), '');
+    if (task.brief !== undefined) out.push('Brief (verbatim from the task file):', task.brief.trim(), '');
+    if (task.resources !== undefined && task.resources.length > 0) {
+      out.push('Resources named by the task (new or extended):');
+      for (const r of task.resources) out.push(...resourceBlock(r, false), '');
+    }
   }
   if (task.behaviours.length > 0) {
     out.push(task.kind === 'greenfield' ? 'Behaviours:' : 'Acceptance criteria:');
     for (const b of task.behaviours) out.push(`- ${b}`);
     out.push('');
   }
+  if (task.carried !== undefined && Object.keys(task.carried).length > 0) {
+    out.push('Additional details from the task file (verbatim):', stringifyYaml(task.carried, { lineWidth: 0 }).trimEnd(), '');
+  }
+  out.push(TESTS_DELIVERABLE[task.kind], '');
   if (task.kind === 'greenfield') {
-    out.push(
-      'Scaffold: read-only helpers in src/lib to use (do not edit): problem.ts (HttpProblem, notFound, conflict, unprocessable, badRequest), errors.ts (errorHandler, notFoundHandler), pagination.ts (CursorQuerySchema, paginate, pageSchema), idempotency.ts (idempotency() middleware for POST/PATCH).',
-      'Mount routers in src/routes/index.ts (registerRoutes). Tests live in test/*.test.ts and use supertest against createApp() from src/app.ts.',
-      'Every createApp() call must start with empty state: create stores inside the function that builds/registers the router (called per app), never at module level, so tests stay independent.',
-      '',
-    );
+    const manifest = extras.template === undefined ? templateManifest(task.template) : extras.template;
+    out.push(...templateLines(task.template, manifest), '');
     if (extras.scaffoldApi !== undefined && extras.scaffoldApi.length > 0) {
       out.push('Scaffold API (exported signatures; read_file a line range only when you need a body):', extras.scaffoldApi, '');
     }

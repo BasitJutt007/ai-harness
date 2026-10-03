@@ -1,0 +1,13 @@
+# Fields as a map, with "format: email"; otherwise canonical.
+kind: greenfield
+id: contacts-api
+title: Contacts API
+output: generated/contacts-api
+resources:
+  - name: contact
+    fields:
+      email: {type: string, format: email, unique: true, required: true}
+      name: {type: string, required: true}
+      phone: {type: string}
+behaviours:
+  - Duplicate email returns 409

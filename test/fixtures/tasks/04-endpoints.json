@@ -1,0 +1,20 @@
+{
+  "name": "Todo API",
+  "description": "A simple todo list API.",
+  "resources": [
+    {
+      "name": "todo",
+      "fields": [
+        { "name": "title", "type": "string", "required": true },
+        { "name": "done", "type": "boolean", "default": false }
+      ],
+      "endpoints": [
+        "GET /todos",
+        "POST /todos",
+        "GET /todos/:id",
+        "PATCH /todos/:id",
+        "DELETE /todos/:id"
+      ]
+    }
+  ]
+}

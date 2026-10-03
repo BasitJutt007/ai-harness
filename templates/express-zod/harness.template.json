@@ -1,0 +1,10 @@
+{
+  "readOnly": ["src/lib/**", "src/server.ts"],
+  "brief": [
+    "Scaffold: read-only helpers in src/lib to use (do not edit): problem.ts (HttpProblem, notFound, conflict, unprocessable, badRequest), errors.ts (errorHandler, notFoundHandler), pagination.ts (CursorQuerySchema, paginate, pageSchema), idempotency.ts (idempotency() middleware for POST/PATCH).",
+    "Mount routers in src/routes/index.ts (registerRoutes). Tests live in test/*.test.ts and use supertest against createApp() from src/app.ts.",
+    "Every createApp() call must start with empty state: create stores inside the function that builds/registers the router (called per app), never at module level, so tests stay independent."
+  ],
+  "entry": { "module": "src/app.ts", "export": "createApp" },
+  "signatureGlobs": ["src/lib/**/*.ts", "src/app.ts", "src/routes/index.ts"]
+}

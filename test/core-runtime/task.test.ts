@@ -73,25 +73,45 @@ describe('task loading', () => {
     expect(lt.task.behaviours).toEqual([]);
   });
 
-  it('rejects a "model:" key with a message naming it', async () => {
-    await expect(loadTask(file('m.task.yaml', `${GREEN}model: some-model\n`))).rejects.toThrow(/unknown key "model"/);
-    await expect(loadTask(file('m2.task.yaml', BROWN.replace('title:', 'provider: x\ntitle:')))).rejects.toThrow(/"provider"/);
+  it('rejects a "model:" key with a message naming it (lenient and strict)', async () => {
+    for (const strict of [false, true]) {
+      await expect(loadTask(file('m.task.yaml', `${GREEN}model: some-model\n`), { strict })).rejects.toThrow(/key "model" is not allowed: task files are provider-neutral/);
+      await expect(loadTask(file('m2.task.yaml', BROWN.replace('title:', 'provider: x\ntitle:')), { strict })).rejects.toThrow(/"provider"/);
+    }
   });
 
-  it('rejects unknown keys in nested objects', async () => {
+  // Old behaviour: every unknown nested key was an error. Field-level extras only reach the prompt, so the
+  // lenient front end keeps them in the field description (with a note); --strict-task keeps the old error.
+  it('unknown keys in nested objects: kept in the description (lenient), rejected (--strict-task)', async () => {
     const bad = GREEN.replace('{ name: email, type: email,', '{ name: email, type: email, colour: red,');
-    await expect(loadTask(file('n.task.yaml', bad))).rejects.toThrow(/resources\.0\.fields\.0: unknown key "colour"/);
+    const lt = await loadTask(file('n.task.yaml', bad));
+    if (lt.task.kind !== 'greenfield') throw new Error('expected greenfield');
+    expect(lt.task.resources[0]?.fields[0]?.description).toBe('colour: red');
+    expect(lt.warnings.join('\n')).toMatch(/"colour" kept in the field description/);
+    await expect(loadTask(file('n.task.yaml', bad), { strict: true })).rejects.toThrow(/resources\.0\(user\)\.fields\.0\(email\): unknown key "colour"/);
   });
 
-  it('rejects a bad id', async () => {
-    await expect(loadTask(file('b.task.yaml', GREEN.replace('id: users-api', 'id: Users_API')))).rejects.toThrow(/id must match/);
-    await expect(loadTask(file('b2.task.yaml', GREEN.replace('id: users-api', 'id: -users')))).rejects.toThrow(/id/);
+  // Old behaviour: a non-slug id was an error. The id only names the run, branch and package, so it is slugified (noted).
+  it('a bad id: slugified with a note (lenient), rejected (--strict-task)', async () => {
+    const lt = await loadTask(file('b.task.yaml', GREEN.replace('id: users-api', 'id: Users_API')));
+    expect(lt.task.id).toBe('users-api');
+    expect(lt.warnings).toContain('id "Users_API" -> "users-api"');
+    expect((await loadTask(file('b2.task.yaml', GREEN.replace('id: users-api', 'id: -users')))).task.id).toBe('users');
+    await expect(loadTask(file('b.task.yaml', GREEN.replace('id: users-api', 'id: Users_API')), { strict: true })).rejects.toThrow(/id must match/);
+    await expect(loadTask(file('b3.task.yaml', GREEN.replace('id: users-api', 'id: "!!!"')))).rejects.toThrow(/id: "!!!" has no letters or digits/);
   });
 
-  it('rejects server-managed fields, enum without values, and escaping paths', async () => {
-    await expect(loadTask(file('s.task.yaml', GREEN.replace('name: email,', 'name: id,')))).rejects.toThrow(/server-managed/);
-    await expect(loadTask(file('e.task.yaml', GREEN.replace(', values: [admin, member]', '')))).rejects.toThrow(/values/);
-    await expect(loadTask(file('o.task.yaml', GREEN.replace('generated/users-api', '../outside')))).rejects.toThrow(/\.\./);
+  // Old behaviour: listing id/createdAt/updatedAt was an error; the brief already says they are implied, so they are dropped (noted).
+  it('server-managed fields: dropped with a note (lenient), rejected (--strict-task); enum without values and escaping paths always rejected', async () => {
+    const sm = await loadTask(file('s.task.yaml', GREEN.replace('name: email,', 'name: id,')));
+    if (sm.task.kind !== 'greenfield') throw new Error('expected greenfield');
+    expect(sm.task.resources[0]?.fields.map((f) => f.name)).toEqual(['name', 'role']);
+    expect(sm.warnings.join('\n')).toMatch(/server-managed/);
+    await expect(loadTask(file('s.task.yaml', GREEN.replace('name: email,', 'name: id,')), { strict: true })).rejects.toThrow(/server-managed/);
+    for (const strict of [false, true]) {
+      await expect(loadTask(file('e.task.yaml', GREEN.replace(', values: [admin, member]', '')), { strict })).rejects.toThrow(/enum fields need "values"/);
+      await expect(loadTask(file('o.task.yaml', GREEN.replace('generated/users-api', '../outside')), { strict })).rejects.toThrow(/\.\./);
+    }
   });
 
   it('limits.maxOutputTokens accepts up to 128000 and rejects more', async () => {
@@ -102,7 +122,22 @@ describe('task loading', () => {
     await expect(loadTask(file('l3.task.yaml', at(255)))).rejects.toThrow(/limits\.maxOutputTokens/);
   });
 
-  it('rejects unsupported extensions', async () => {
-    await expect(loadTask(file('t.task.txt', GREEN))).rejects.toThrow(/unsupported/);
+  // Old behaviour: .txt was unsupported. .md/.txt are now free text (the whole file is the brief), so the
+  // unsupported-extension error is shown with formats that are still unsupported.
+  it('rejects unsupported extensions; --strict-task accepts only .yaml/.yml/.json', async () => {
+    await expect(loadTask(file('t.task.toml', GREEN))).rejects.toThrow(/unsupported task file extension ".toml"/);
+    await expect(loadTask(file('t.task.xml', GREEN))).rejects.toThrow(/unsupported/);
+    await expect(loadTask(file('t.task.txt', 'Build a pets API.'), { strict: true })).rejects.toThrow(/--strict-task accepts \.yaml, \.yml or \.json/);
+    expect((await loadTask(file('t.task.txt', 'Build a pets API.'))).task).toMatchObject({ kind: 'greenfield', brief: 'Build a pets API.' });
+  });
+
+  it('records a stable normalizedSha256 (key order independent) next to the raw sha', async () => {
+    const a = await loadTask(file('h1.task.json', JSON.stringify({ kind: 'brownfield', id: 'x', title: 'X', target: 'a', change: 'c' })));
+    const b = await loadTask(file('h2.task.json', JSON.stringify({ change: 'c', target: 'a', title: 'X', id: 'x', kind: 'brownfield' })));
+    expect(a.sha256).not.toBe(b.sha256);
+    expect(a.normalizedSha256).toBe(b.normalizedSha256);
+    expect(a.normalizedSha256).toMatch(/^[0-9a-f]{64}$/);
+    const c = await loadTask(file('h3.task.json', JSON.stringify({ kind: 'brownfield', id: 'x', title: 'X', target: 'a', change: 'd' })));
+    expect(c.normalizedSha256).not.toBe(a.normalizedSha256);
   });
 });

@@ -1,0 +1,5 @@
+kind: brownfield
+id: dotdot-target
+title: Sibling target
+target: ../sample-api
+change: Add DELETE /v1/projects/{id}.

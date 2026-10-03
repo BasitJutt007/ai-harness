@@ -1,0 +1,6 @@
+kind: greenfield
+id: x
+title: X
+output: generated/x
+limits: {maxTurns: 10, model: gpt-x}
+resources: [{name: car, fields: [{name: make, type: string}]}]

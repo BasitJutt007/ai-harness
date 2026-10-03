@@ -18,7 +18,8 @@ import { deserializeState, newRunId, newRunState, RunStore, serializeState } fro
 import { isolationHonesty, isolationInfo, isolationUnavailable, setSandboxMode } from './sandbox.ts';
 import { saveInitial } from './initial.ts';
 import { createServices } from './services.ts';
-import { loadTask } from './task.ts';
+import { loadTask, parseTask } from './task.ts';
+import { TEMPLATE_MANIFEST, templateManifest, type TemplateManifest } from './template.ts';
 import { TokenLedger, type TokenReport } from './tokens.ts';
 import { createWorkspace, createWorktree, gitToplevel, sha256 } from './workspace.ts';
 import type {
@@ -204,8 +205,8 @@ async function refuseExistingOutput(repoDir: string, rootRel: string): Promise<v
   }
 }
 
-/** Never copied into a scaffold: dependencies, caches, build output, VCS data. */
-const SCAFFOLD_SKIP = new Set(['node_modules', '.vite', 'dist', '.git', 'coverage']);
+/** Never copied into a scaffold: dependencies, caches, build output, VCS data, the harness's template manifest. */
+const SCAFFOLD_SKIP = new Set(['node_modules', '.vite', 'dist', '.git', 'coverage', TEMPLATE_MANIFEST]);
 
 export async function scaffold(templatesDir: string, template: string, dest: string, apiName: string): Promise<void> {
   const src = join(templatesDir, template);
@@ -369,6 +370,11 @@ export interface ExecuteRunOptions {
   exec?: Exec;
   /** Extra driver plugins, looked up before the registry's (tests and embedders). */
   extraDrivers?: DriverPlugin[];
+  /** --strict-task: the task file must already be canonical (no lenient front end). */
+  strictTask?: boolean;
+  /** --target / --output: override the task's API location (and decide a missing kind). */
+  target?: string;
+  output?: string;
 }
 
 /** Config whose runsDir/tokensDir point at the resolved evidence dirs (harness-relative when possible). */
@@ -390,8 +396,13 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const isolation = isolationInfo();
   if (isolation.mode === 'auto' && isolation.mechanism === 'none') throw isolationUnavailable();
   const registry = await loadRegistryOrThrow(config);
-  const loaded: LoadedTask = await loadTask(resolve(opts.taskFile));
+  const loaded: LoadedTask = await loadTask(resolve(opts.taskFile), { strict: opts.strictTask, target: opts.target, output: opts.output });
   const task = loaded.task;
+  // Before any model call: what the front end renamed, inferred, dropped or carried.
+  if (loaded.warnings.length > 0) {
+    log(`task       ${loaded.warnings.length} note(s) normalizing ${loaded.file} ('harness task check' prints the canonical task):`);
+    for (const w of loaded.warnings) log(`           - ${w}`);
+  }
 
   const driverPlugins = [...(opts.extraDrivers ?? []), ...registry.drivers.map((d) => d.plugin)];
   const driverPlugin = driverPlugins.find((d) => d.name === opts.driver);
@@ -427,9 +438,12 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     claim.release();
   }
   let ws: Workspace;
+  let manifest: TemplateManifest | null = null;
   try {
     if (task.kind === 'greenfield') {
-      await scaffold(resolve(HARNESS_ROOT, config.templatesDir), task.template, join(wt.worktreeRoot, rootRel), task.id);
+      const templatesDir = resolve(HARNESS_ROOT, config.templatesDir);
+      manifest = templateManifest(task.template, templatesDir);
+      await scaffold(templatesDir, task.template, join(wt.worktreeRoot, rootRel), task.id);
     }
     ws = createWorkspace(wt.worktreeRoot, rootRel);
   } catch (e) {
@@ -476,7 +490,15 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const runRecordBase = {
     runId,
     taskFile: loaded.file,
-    task: { id: task.id, kind: task.kind, sha256: loaded.sha256, file: harnessRel(loaded.file) },
+    task: {
+      id: task.id,
+      kind: task.kind,
+      sha256: loaded.sha256,
+      normalizedSha256: loaded.normalizedSha256,
+      format: loaded.format,
+      strict: loaded.strict,
+      file: harnessRel(loaded.file),
+    },
     driver: driver.name,
     model: driver.model,
     tokenCounter: driver.tokenCounter,
@@ -495,6 +517,18 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     isolation,
   };
   store.writeJson('run.json', { ...runRecordBase, status: 'running' });
+  store.writeJson('task.normalized.json', {
+    file: loaded.file,
+    format: loaded.format,
+    strict: loaded.strict,
+    sha256: loaded.sha256,
+    normalizedSha256: loaded.normalizedSha256,
+    warnings: loaded.warnings,
+    task,
+  });
+  if (loaded.warnings.length > 0) {
+    ctx.emit({ kind: 'note', source: 'task', message: `${loaded.warnings.length} task-file normalization note(s); see task.normalized.json`, data: loaded.warnings });
+  }
   if (dirty.length > 0) {
     ctx.emit({
       kind: 'note',
@@ -529,11 +563,14 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
         ctx.emit({ kind: 'error', source: 'testmap', message: `test map unavailable: ${errMsg(e)}` });
       }
     }
-    const api = task.kind === 'greenfield' ? await scaffoldApiOf(ws) : undefined;
-    const first = {
-      role: 'user' as const,
-      parts: [{ type: 'text' as const, text: taskBrief(task, { tree, ...(testMapText !== undefined ? { testMap: testMapText } : {}), ...(api !== undefined ? { scaffoldApi: api } : {}) }) }],
-    };
+    const api = task.kind === 'greenfield' ? await scaffoldApiOf(ws, manifest) : undefined;
+    const brief = taskBrief(task, {
+      tree,
+      template: manifest,
+      ...(testMapText !== undefined ? { testMap: testMapText } : {}),
+      ...(api !== undefined ? { scaffoldApi: api } : {}),
+    });
+    const first = { role: 'user' as const, parts: [{ type: 'text' as const, text: brief }] };
     agent = await runAgent({
       driver,
       ctx,
@@ -722,7 +759,9 @@ export async function openRun(
   if (!parsed.success) throw new Error(`${harnessRel(runDir)}/run.json is not a valid run record`);
   const record = parsed.data;
   if (!existsSync(record.worktreeRoot)) throw new Error(`worktree no longer exists: ${record.worktreeRoot}`);
-  const loaded = await loadTask(record.taskFile);
+  // The task exactly as the run used it (CLI overrides included); older runs re-read the task file.
+  const normalized = store.readJson<{ task?: unknown }>('task.normalized.json');
+  const runTask = normalized?.task !== undefined ? parseTask(normalized.task, `${harnessRel(runDir)}/task.normalized.json`) : (await loadTask(record.taskFile)).task;
   const ws = createWorkspace(record.worktreeRoot, record.rootRel);
   const savedState = store.readJson<unknown>('state.json');
   const state = savedState === null ? newRunState() : deserializeState(savedState);
@@ -738,7 +777,7 @@ export async function openRun(
       baseBranch: record.baseBranch,
       baseSha: record.baseSha,
     },
-    task: loaded.task,
+    task: runTask,
     ws,
     state,
     store,

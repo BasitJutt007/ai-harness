@@ -126,8 +126,8 @@ wait short) and stops the run at once on a longer one (a daily quota).
 
 **Refused to leak through the interface:** provider names, model ids, vendor tool-schema
 formats, vendor message shapes, vendor stop reasons and reasoning blocks. Reasoning blocks
-travel as `opaque` parts that only their own driver replays. Task files are
-`.strict()`-validated, so a `model:` or `provider:` key is a load error. `harness doctor`
+travel as `opaque` parts that only their own driver replays. Task files are read leniently
+(docs/task-format.md), but a `model:` or `provider:` key is always a load error. `harness doctor`
 scans `src/core/`, `tasks/` and every file under every plugin directory except driver plugins
 and `drivers/` for provider vocabulary.
 `run.json` fingerprints the task file, every tool/hook/gate/check file and every shared helper

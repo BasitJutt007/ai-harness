@@ -1,0 +1,8 @@
+kind: greenfield
+id: s-bools
+title: String bools
+output: generated/s-bools
+resources:
+  - name: tag
+    fields:
+      - {name: label, type: string, required: "yes", max: "50"}
