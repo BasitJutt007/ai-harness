@@ -8,8 +8,9 @@ import pluralize from 'pluralize';
 import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
-import { extractRouteTable, hasPathParams, isCollectionPath, location, propertyType, routeLabel } from '../lib/api-ast.ts';
+import { dynamicRouteReason, extractRouteTable, hasPathParams, isCollectionPath, location, propertyType, routeLabel } from '../lib/api-ast.ts';
 import type { ResponseSite, RouteInfo } from '../lib/api-ast.ts';
+import { unprovenFinding } from '../lib/plugin-helpers.ts';
 
 const RULE = 'rest-conventions';
 export const ALLOWED_STATUSES = new Set([200, 201, 202, 204, 304, 400, 401, 403, 404, 409, 412, 415, 422, 428, 429, 500, 503]);
@@ -188,24 +189,19 @@ export function routeViolations(checker: ts.TypeChecker, root: string, r: RouteI
 async function run(ctx: CheckContext): Promise<CheckFinding[]> {
   const program = ctx.program();
   const checker = program.getTypeChecker();
-  const { all } = extractRouteTable(program, ctx.root, ctx.sourceFiles);
-  const files = [...new Set(all.map((r) => r.file))].sort();
+  const { all, dynamic } = extractRouteTable(program, ctx.root, ctx.sourceFiles);
+  const files = [...new Set([...all.map((r) => r.file), ...dynamic.map((d) => d.file)])].sort();
   const findings: CheckFinding[] = [];
   for (const file of files) {
+    for (const d of dynamic.filter((x) => x.file === file)) findings.push(unprovenFinding(RULE, file, dynamicRouteReason(ctx.root, d)));
     let passed = 0;
     let total = 0;
     const violations: Violation[] = [];
     for (const r of all.filter((x) => x.file === file)) {
       const v = routeViolations(checker, ctx.root, r);
       if (r.unresolvedPath !== undefined && v.length === 0) {
-        findings.push({
-          rule: RULE,
-          file,
-          status: 'skip',
-          units: { passed: 0, total: 0 },
-          violations: [],
-          skipReason: `${location(ctx.root, r.unresolvedPath.node)}: ${r.method.toUpperCase()} route: ${r.unresolvedPath.reason}, so its versioning, naming, pagination and 404 rules are unproven`,
-        });
+        const at = location(ctx.root, r.unresolvedPath.node);
+        findings.push(unprovenFinding(RULE, file, `${at}: ${r.method.toUpperCase()} route: ${r.unresolvedPath.reason}, so its versioning, naming, pagination and 404 rules are unproven`));
         continue;
       }
       total++;

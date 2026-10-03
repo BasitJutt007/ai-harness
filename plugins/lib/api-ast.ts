@@ -1788,15 +1788,31 @@ function isCallable(checker: ts.TypeChecker, expr: ts.Expression): boolean {
   return checker.getTypeAtLocation(expr).getCallSignatures().length > 0 || resolveFunction(checker, expr) !== undefined;
 }
 
+/**
+ * `app[verb](path, ...handlers)` on an Express receiver where `verb` is not a constant (routes registered
+ * from a table in a loop): the method, path and chain cannot be known statically.
+ */
+function dynamicRegistration(checker: ts.TypeChecker, call: ts.CallExpression): ts.Expression | undefined {
+  const callee = call.expression;
+  if (!ts.isElementAccessExpression(callee) || call.arguments.length < 2) return undefined;
+  const first = call.arguments[0];
+  if (first === undefined || isCallable(checker, first) || !isExpressReceiver(checker, callee.expression)) return undefined;
+  const key = constString(checker, callee.argumentExpression);
+  return key === undefined ? callee.argumentExpression : undefined;
+}
+
 function registrationOf(checker: ts.TypeChecker, call: ts.CallExpression): Registration | undefined {
   const callee = call.expression;
-  if (!ts.isPropertyAccessExpression(callee)) return undefined;
-  const method = asMethod(callee.name.text);
+  // `router.get(…)` or `router['get'](…)` / `router[VERB](…)` with a constant verb.
+  const named = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isElementAccessExpression(callee) ? constString(checker, callee.argumentExpression) : undefined;
+  if (named === undefined || !(ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee))) return undefined;
+  const method = asMethod(named);
   if (method === undefined) return undefined;
   const first = call.arguments[0];
   if (first !== undefined && call.arguments.length >= 2 && isExpressReceiver(checker, callee.expression) && !isCallable(checker, first)) {
     return { call, method, paths: routePaths(checker, first), pathNode: first, receiver: callee.expression, handlerArgs: call.arguments.slice(1) };
   }
+  if (!ts.isPropertyAccessExpression(callee)) return undefined;
   // router.route('/x').get(h).all(mw).post(h): `.all(mw)` before a method runs first for it.
   let base: ts.Expression = callee.expression;
   const before: ts.Expression[] = [];
@@ -1820,6 +1836,8 @@ export interface RouteTable {
   routes: RouteInfo[];
   /** Routes whose path (or a mount prefix on the way up) could not be resolved statically. */
   unresolved: RouteInfo[];
+  /** Registrations with a computed method (`router[verb](…)`): nothing about them can be proven statically. */
+  dynamic: Array<{ file: string; call: ts.CallExpression; method: ts.Expression }>;
 }
 
 const TABLES = new WeakMap<ApiModel, RouteTable>();
@@ -1842,9 +1860,12 @@ export function extractRouteTable(program: ts.Program, root: string, files: stri
     return f;
   };
   const all: RouteInfo[] = [];
+  const dynamic: RouteTable['dynamic'] = [];
   for (const { rel, sf } of m.sources) {
     walk(sf, (node) => {
       if (!ts.isCallExpression(node)) return;
+      const computed = dynamicRegistration(checker, node);
+      if (computed !== undefined) dynamic.push({ file: rel, call: node, method: computed });
       const reg = registrationOf(checker, node);
       if (reg === undefined) return;
       const args = flattenArgs(checker, reg.handlerArgs);
@@ -1889,7 +1910,7 @@ export function extractRouteTable(program: ts.Program, root: string, files: stri
       }
     });
   }
-  const table: RouteTable = { all, routes: all.filter((r) => r.unresolvedPath === undefined), unresolved: all.filter((r) => r.unresolvedPath !== undefined) };
+  const table: RouteTable = { all, routes: all.filter((r) => r.unresolvedPath === undefined), unresolved: all.filter((r) => r.unresolvedPath !== undefined), dynamic };
   TABLES.set(m, table);
   return table;
 }
@@ -1914,6 +1935,11 @@ function combineChain(chain: FnFacts[], handler: FnFacts): Pick<RouteInfo, 'pars
     resEscapes: handler.resEscapes,
     readsIdempotencyKey: handler.idempotencyKey || chain.some((f) => f.idempotencyKey),
   };
+}
+
+/** Why a route registered with a computed method (`router[verb](…)`) is UNPROVEN, with its location. */
+export function dynamicRouteReason(root: string, d: RouteTable['dynamic'][number]): string {
+  return `${location(root, d.call)}: route registered with a computed method (${d.method.getText()}), so its method, path and handler chain are unproven; register it with a constant method and path`;
 }
 
 /** Routes with a resolved path (see extractRouteTable for the unresolved ones). */

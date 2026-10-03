@@ -446,6 +446,81 @@ r.post(where(), (req, res) => { res.status(201).json(Item.parse({ ...req.body })
   });
 });
 
+describe('error responses are judged by status value and body type', () => {
+  // [send statement, expected: null = not an error path, '' = passing error path, else a message fragment]
+  const SENDS: Array<[string, string | null]> = [
+    ["res.setHeader('Content-Type', 'application/problem+json');\n  res.status(404).json({ type: 'about:blank', title: 'Not Found', status: 404, detail: 'x', instance: '/x' });", ''],
+    ["res.status(404).json({ type: 'about:blank', title: 'Not Found', status: 404, detail: 'x', instance: '/x' });", "missing .type('application/problem+json')"],
+    ["res.status(404).type('application/problem+json').json({ type: 'about:blank', title: 'Not Found', status: 404 });", 'missing detail, instance'],
+    ["res.status(code).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: code, detail: 'x', instance: '/x' }));", ''],
+    ["res.status(code).json(Loose.parse({ reason: 'x' }));", 'status code is not a constant'],
+    ['res.status(rec.status).json(rec.body);', null],
+    ['res.sendStatus(code);', 'status code is not a constant'],
+    ['res.status(flag ? 201 : 409).json(Loose.parse({ reason: \'x\' }));', 'status 201|409 is sent with a non-problem body'],
+    ['res.status(flag ? 200 : 201).json(Loose.parse({ reason: \'x\' }));', null],
+    ['res.status(Codes.Conflict).json(Loose.parse({ reason: \'x\' }));', 'status 409 is sent with a non-problem body'],
+  ];
+  let findings: CheckFinding[];
+  beforeAll(async () => {
+    const fns = SENDS.map(([send], i) => `export function send${i}(res: Response): void {\n  ${send}\n}`);
+    const ctx = await api({
+      'src/sends.ts': `import type { Response } from 'express';
+import { z } from 'zod';
+const ProblemSchema = z.object({ type: z.string(), title: z.string(), status: z.number(), detail: z.string(), instance: z.string() });
+const Loose = z.object({ reason: z.string() });
+enum Codes { Conflict = 409 }
+declare const code: number;
+declare const flag: boolean;
+declare const rec: { status: number; body: unknown };
+${fns.join('\n')}
+`,
+    });
+    findings = staticProblemFindings(ctx).filter((f) => f.file === 'src/sends.ts');
+  });
+  it.each(SENDS.map(([send, want], i) => [i, send, want] as const))('send%i: %s → %s', (i, _send, want) => {
+    const inFn = findings.flatMap((f) => f.violations).filter((v) => lineInSends(i, Number(v.location.split(':')[1])));
+    if (want === null || want === '') expect(inFn, JSON.stringify(inFn)).toEqual([]);
+    else expect(inFn.some((v) => v.message.includes(want)), JSON.stringify(inFn)).toBe(true);
+  });
+  it('counts one unit per error path and none for success-only or replayed sends', () => {
+    // + the two app-level units (no error middleware / not-found handler in this file-only API)
+    const total = findings.reduce((n, f) => n + f.units.total, 0);
+    expect(total).toBe(SENDS.filter(([, w]) => w !== null).length + 2);
+  });
+
+  /** Whether line `line` of src/sends.ts belongs to send<i> (each function is 3 lines, the first one is 2 lines longer). */
+  function lineInSends(i: number, line: number): boolean {
+    const header = 9; // lines before the first function
+    let start = header + 1;
+    for (let k = 0; k < i; k++) start += 3 + ((SENDS[k]?.[0] ?? '').split('\n').length - 1);
+    const len = 3 + ((SENDS[i]?.[0] ?? '').split('\n').length - 1);
+    return line >= start && line < start + len;
+  }
+});
+
+describe('routes registered with a computed method', () => {
+  it('are UNPROVEN with their location; a constant computed method is a normal route', async () => {
+    const ctx = await api({
+      'src/routes.ts': `import { Router, type RequestHandler } from 'express';
+const table: Array<{ method: 'get' | 'post'; path: string; handler: RequestHandler }> = [];
+const VERB = 'get';
+export const r = Router();
+for (const row of table) {
+  r[row.method](row.path, row.handler);
+}
+r[VERB]('/v1/pings', (_req, res) => { res.status(204).end(); });
+`,
+    });
+    const table = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles);
+    expect(table.routes.map((x) => `${x.method} ${x.path}`)).toEqual(['get /v1/pings']);
+    for (const check of [zodBoundary, restConventions]) {
+      const skips = (await check.run(ctx)).filter((f) => f.status === 'skip').map((f) => f.skipReason ?? '');
+      expect(skips).toHaveLength(1);
+      expect(skips[0]).toMatch(/^src\/routes\.ts:6:3: route registered with a computed method \(row\.method\)/);
+    }
+  });
+});
+
 describe('handler lists in every Express shape', () => {
   it('route() chains with .all() middleware, path arrays and spread handler lists', async () => {
     const ctx = await api({

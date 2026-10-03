@@ -7,8 +7,9 @@
 import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
-import { constString, extractRouteTable, hasPathParams, isZodSchemaType, location, permissiveReason, programFile, routeLabel, walk } from '../lib/api-ast.ts';
+import { constString, dynamicRouteReason, extractRouteTable, hasPathParams, isZodSchemaType, location, permissiveReason, programFile, routeLabel, walk } from '../lib/api-ast.ts';
 import type { RouteInfo, SchemaRef } from '../lib/api-ast.ts';
+import { unprovenFinding } from '../lib/plugin-helpers.ts';
 
 const RULE = 'zod-boundary';
 
@@ -195,17 +196,11 @@ export function handWrittenTypes(root: string, sf: ts.SourceFile, checker?: ts.T
 
 // ───────────────────────────── run ─────────────────────────────
 
-function unprovenFinding(root: string, r: RouteInfo, file: string): CheckFinding {
+
+function unresolvedRouteFinding(root: string, r: RouteInfo, file: string): CheckFinding {
   const why = r.unresolvedPath?.reason ?? 'path could not be resolved';
   const at = location(root, r.unresolvedPath?.node ?? r.registration);
-  return {
-    rule: RULE,
-    file,
-    status: 'skip',
-    units: { passed: 0, total: 0 },
-    violations: [],
-    skipReason: `${at}: ${r.method.toUpperCase()} route: ${why}, so whether its path parameters are parsed is unproven (parse req.params or use a constant path)`,
-  };
+  return unprovenFinding(RULE, file, `${at}: ${r.method.toUpperCase()} route: ${why}, so whether its path parameters are parsed is unproven (parse req.params or use a constant path)`);
 }
 
 async function run(ctx: CheckContext): Promise<CheckFinding[]> {
@@ -218,6 +213,7 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
   for (const file of ctx.sourceFiles) {
     const sf = programFile(program, ctx.root, file) ?? ctx.sourceFile(file);
     const fileRoutes = table.all.filter((r) => r.file === file);
+    for (const d of table.dynamic.filter((x) => x.file === file)) findings.push(unprovenFinding(RULE, file, dynamicRouteReason(ctx.root, d)));
     const types = handWrittenTypes(ctx.root, sf, checker, zodEnums);
     // Units are route handlers; each hand-written DTO type is one extra (failing) unit.
     // A file with neither has nothing to prove and produces no finding.
@@ -230,7 +226,7 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
       const v = handlerViolations(ctx.root, r, checker, known);
       if (!known && v.length === 0 && !r.parses.some((p) => p.target === 'params')) {
         // Nothing wrong found, but a :param in the unknown path may go unparsed: unproven, never pass.
-        findings.push(unprovenFinding(ctx.root, r, file));
+        findings.push(unresolvedRouteFinding(ctx.root, r, file));
         continue;
       }
       total++;

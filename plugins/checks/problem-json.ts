@@ -116,21 +116,39 @@ function mentionsProblemType(checker: ts.TypeChecker, arg: ts.Expression | undef
   return text !== undefined && /problem\+json/i.test(text);
 }
 
-/** Whether the response chain sets Content-Type application/problem+json (`.type(...)`, `.set('Content-Type', ...)`, …). */
+/** `.type(problem+json)`, `.contentType(…)`, `.set/.header/.setHeader('Content-Type', problem+json)`. */
+function setsProblemType(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
+  if (!ts.isPropertyAccessExpression(call.expression)) return false;
+  const name = call.expression.name.text;
+  const [a0, a1] = call.arguments;
+  if ((name === 'type' || name === 'contentType') && mentionsProblemType(checker, a0)) return true;
+  return (name === 'set' || name === 'header' || name === 'setHeader') && constString(checker, a0)?.toLowerCase() === 'content-type' && mentionsProblemType(checker, a1);
+}
+
+/**
+ * Whether the response sets Content-Type application/problem+json: in the send chain itself, or in an
+ * earlier statement on the same response in the same function (`res.setHeader('Content-Type', …); res.json(…)`).
+ */
 function chainSetsProblemType(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
   let cur: ts.Expression = call.expression;
   while (ts.isPropertyAccessExpression(cur) || ts.isCallExpression(cur)) {
-    if (ts.isCallExpression(cur) && ts.isPropertyAccessExpression(cur.expression)) {
-      const name = cur.expression.name.text;
-      const [a0, a1] = cur.arguments;
-      if ((name === 'type' || name === 'contentType') && mentionsProblemType(checker, a0)) return true;
-      if ((name === 'set' || name === 'header' || name === 'setHeader') && constString(checker, a0)?.toLowerCase() === 'content-type' && mentionsProblemType(checker, a1)) {
-        return true;
-      }
-    }
+    if (ts.isCallExpression(cur) && setsProblemType(checker, cur)) return true;
     cur = cur.expression;
   }
-  return false;
+  const root = unwrap(cur);
+  const sym = ts.isIdentifier(root) ? checker.getSymbolAtLocation(root) : undefined;
+  let fn: ts.Node | undefined = call.parent;
+  while (fn !== undefined && !ts.isFunctionLike(fn)) fn = fn.parent;
+  if (sym === undefined || fn === undefined) return false;
+  let found = false;
+  walk(fn, (n) => {
+    if (found || !ts.isCallExpression(n) || n.getStart() >= call.getStart() || !setsProblemType(checker, n)) return;
+    let r: ts.Expression = n.expression;
+    while (ts.isPropertyAccessExpression(r) || ts.isCallExpression(r)) r = r.expression;
+    const rr = unwrap(r);
+    found = ts.isIdentifier(rr) && checker.getSymbolAtLocation(rr) === sym;
+  });
+  return found;
 }
 
 /**

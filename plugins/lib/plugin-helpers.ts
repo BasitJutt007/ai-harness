@@ -53,6 +53,11 @@ export function fileFinding(rule: string, file: string, total: number, violation
   };
 }
 
+/** An UNPROVEN (skipped) finding: the rule could not decide part of `file`; `reason` says where and why. */
+export function unprovenFinding(rule: string, file: string, reason: string): CheckFinding {
+  return { rule, file, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: reason };
+}
+
 /** Last name of an identifier / property access chain (`schema.users` → "users"). */
 export function lastName(expr: ts.Expression): string | undefined {
   if (ts.isIdentifier(expr)) return expr.text;
