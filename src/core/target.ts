@@ -584,7 +584,7 @@ function readAliases(apiRoot: string, file: string, resolveObj: ts.ObjectLiteral
     const p = staticPath(target);
     const rel = p === null ? null : aliasTarget(apiRoot, dirname(file), p);
     if (rel === null) notes.push(`resolve.alias "${find}" in ${posix.basename(file)} is not a static path: imports through it are not followed`);
-    else out.push({ find, replacement: rel });
+    else out.push({ find: find.length > 1 ? find.replace(/\/$/, '') : find, replacement: rel });
   };
   if (ts.isObjectLiteralExpression(alias)) {
     for (const p of alias.properties) {

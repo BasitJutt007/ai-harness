@@ -19,6 +19,7 @@ import {
   suggestTestPath,
 } from '../../src/core/target.ts';
 import type { TargetProfile } from '../../src/core/target.ts';
+import { missingSourceModule } from '../../src/core/testing.ts';
 import { buildTestMap, importSpecifiers, resolveImport } from '../../src/core/testmap.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import { fakePackage, scratch, VARIANTS, writeTree } from './_variants.ts';
@@ -260,6 +261,29 @@ describe('import resolution (testmap): the API resolves specifiers, the graph fo
     expect(resolveImport(from, '#db', existing, p)).toBe('src/db/index.ts');
     for (const pkg of ['express', 'zod/v4', '@types/node', 'node:fs', 'vitest']) expect(resolveImport(from, pkg, existing, p), pkg).toBeNull();
     expect(resolveImport(from, '../../outside.ts', existing, p)).toBeNull();
+  });
+
+  it('alias keys with a trailing slash, and a non-static alias is noted (not followed, not guessed)', async () => {
+    const { p } = await profileOf({
+      'tsconfig.json': JSON.stringify({ include: ['src', 'test'] }),
+      'vite.config.ts': "import { defineConfig } from 'vite';\nexport default defineConfig({ resolve: { alias: { '~/': './src/', '#gen': computeDir() } } });\n",
+      'src/a.ts': '',
+    });
+    expect(resolveImport('test/x.test.ts', '~/a', new Set(['src/a.ts']), p)).toBe('src/a.ts');
+    expect(resolveImport('test/x.test.ts', '#gen/x', new Set(), p)).toBeNull();
+    expect(p.notes.join('\n')).toMatch(/resolve\.alias "#gen" .* not a static path/);
+  });
+
+  it('a missing module behind an alias is a missing-source red; behind a package or a test helper it is not', async () => {
+    const pathsVariant = VARIANTS.find((v) => v.name.startsWith('tsconfig paths'));
+    if (pathsVariant === undefined) throw new Error('paths variant missing');
+    const { root, p } = await profileOf(pathsVariant.files);
+    const from = join(root, 'test/red.test.ts');
+    expect(missingSourceModule(root, `Error: Failed to resolve import "@/users/store.ts" from "${from}". Does the file exist?`, p)).toBe('src/users/store.ts');
+    expect(missingSourceModule(root, `Error: Failed to resolve import "@/math.ts" from "${from}".`, p)).toBeNull(); // exists
+    expect(missingSourceModule(root, `Cannot find package 'left-pad' imported from ${from}`, p)).toBeNull();
+    expect(missingSourceModule(root, `Error: Failed to resolve import "./helpers/nope.ts" from "${from}".`, p)).toBeNull();
+    expect(missingSourceModule(root, "Cannot find module '../src/billing' from 'test/red.test.ts'", p)).toBe('src/billing.ts');
   });
 
   it('require(), import x = require() and jest.mock() are import edges', () => {
