@@ -8,7 +8,12 @@
  * - Mutated copies with one planted violation each FAIL (or are UNPROVEN) at a precise location.
  */
 import { afterAll, describe, expect, it } from 'vitest';
+import { extractRouteTable } from '../../plugins/lib/api-ast.ts';
+import { diffContracts, extractContract } from '../../plugins/lib/contract.ts';
+import { HARNESS_ROOT } from '../../src/core/config.ts';
+import { exec } from '../../src/core/exec.ts';
 import type { CheckFinding } from '../../src/core/plugin-api.ts';
+import { contextFor } from './_ctx.ts';
 import { STYLE_NAMES, lineIn, removeStyle, staticFindings, styleCopy } from './_styles.ts';
 import type { Edits, StyleName } from './_styles.ts';
 
@@ -519,5 +524,31 @@ describe('planted violations in the foreign styles', () => {
         expect(hit, `${file}:${line} ${message}\n${JSON.stringify(mine.filter((f) => f.status === 'skip'))}`).toBe(true);
       }
     }
+  });
+});
+
+describe('the contract follows the middleware chain', () => {
+  it('style a: request slots come from validate({...}) with the call-site schema, and a breaking body change is caught', async () => {
+    const before = await styleCopy('a-validate-mw');
+    const after = await styleCopy('a-validate-mw', {
+      'src/schemas.ts': [['quantity: z.number().int().min(1).max(1000),', 'quantity: z.number().int().min(1).max(10),\n  customerId: z.string(),']],
+    });
+    roots.push(before, after);
+    const ctx = await contextFor(before);
+    const post = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).routes.find((r) => r.method === 'post');
+    expect(post?.parses.map((p) => [p.target, p.schema.module, p.schema.exportName])).toEqual([
+      ['headers', undefined, undefined], // a module-local schema in the idempotency middleware: static fallback
+      ['body', 'src/schemas.ts', 'CreateOrder'],
+    ]);
+    const a = await extractContract({ apiRoot: before, harnessRoot: HARNESS_ROOT, exec, trusted: () => true });
+    const b = await extractContract({ apiRoot: after, harnessRoot: HARNESS_ROOT, exec, trusted: () => true });
+    expect(a.endpoints.map((e) => `${e.method} ${e.path} ${Object.keys(e.request).sort().join(',')}`)).toEqual([
+      'GET /v1/orders query',
+      'POST /v1/orders body,headers',
+      'DELETE /v1/orders/:orderId params',
+      'GET /v1/orders/:orderId params',
+    ]);
+    const breaking = diffContracts(a, b).breaking.map((c) => c.location);
+    expect(breaking.some((l) => l.startsWith('POST /v1/orders body')), JSON.stringify(breaking)).toBe(true);
   });
 });
