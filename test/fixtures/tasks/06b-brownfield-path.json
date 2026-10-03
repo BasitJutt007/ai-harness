@@ -1,0 +1,6 @@
+{
+  "type": "brownfield",
+  "title": "Add search to projects",
+  "path": "samples/existing-api",
+  "change": "GET /v1/projects accepts ?q= and filters by name substring."
+}

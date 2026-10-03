@@ -1,0 +1,14 @@
+kind: greenfield
+id: invoices-api
+title: Invoices API
+output: generated/invoices-api
+resources:
+  - name: invoice
+    fields:
+      - {name: amount, type: decimal, required: true}
+      - {name: issuedOn, type: date, required: true}
+      - {name: tags, type: "string[]"}
+      - {name: lines, type: array}
+      - {name: billingAddress, type: object}
+      - {name: customerId, type: uuid, required: true}
+      - {name: currency, type: string, enum: [USD, EUR]}

@@ -126,9 +126,28 @@ export interface DriverPlugin {
 
 export type TaskKind = 'greenfield' | 'brownfield';
 
+/** Canonical field types; `unknown` = the task declared a type the harness has no name for (see rawType). */
+export type FieldType =
+  | 'string'
+  | 'email'
+  | 'uuid'
+  | 'integer'
+  | 'number'
+  | 'decimal'
+  | 'boolean'
+  | 'datetime'
+  | 'date'
+  | 'time'
+  | 'enum'
+  | 'array'
+  | 'object'
+  | 'unknown';
+
 export interface FieldSpec {
   name: string;
-  type: 'string' | 'email' | 'uuid' | 'integer' | 'number' | 'boolean' | 'datetime' | 'enum';
+  type: FieldType;
+  /** The type exactly as the task file declared it, when that differs from `type` (the brief prints it as declared). */
+  rawType?: string | undefined;
   required: boolean;
   unique: boolean;
   readOnly: boolean;
@@ -148,6 +167,8 @@ export interface ResourceSpec {
   plural: string;
   fields: FieldSpec[];
   operations: Operation[];
+  /** Resource-level details the task gave beyond fields and operations (relations, custom routes, ...), verbatim. */
+  notes?: string[] | undefined;
 }
 
 interface TaskCommon {
@@ -156,6 +177,10 @@ interface TaskCommon {
   /** Free-text behaviours / acceptance criteria. */
   behaviours: string[];
   limits: { maxTurns: number; maxOutputTokens: number };
+  /** Free-text description of the task, shown to the model verbatim. */
+  brief?: string | undefined;
+  /** Top-level task-file keys the harness has no slot for, carried to the model verbatim. */
+  carried?: Record<string, unknown> | undefined;
 }
 
 export interface GreenfieldTask extends TaskCommon {
@@ -165,6 +190,7 @@ export interface GreenfieldTask extends TaskCommon {
   /** Scaffold template directory name under templates/. */
   template: string;
   basePath: string;
+  /** May be empty when the task describes the API in its brief. */
   resources: ResourceSpec[];
 }
 
@@ -178,9 +204,14 @@ export interface BrownfieldTask extends TaskCommon {
   scope: { allow: string[]; deny: string[] };
   /** When false (default), any breaking contract change blocks finish and ship. */
   allowBreaking: boolean;
+  /** Resources the change adds or extends, when the task lists them. */
+  resources?: ResourceSpec[] | undefined;
 }
 
 export type Task = GreenfieldTask | BrownfieldTask;
+
+/** How a task file was decoded. */
+export type TaskFormat = 'json' | 'yaml' | 'markdown' | 'text';
 
 export interface LoadedTask {
   task: Task;
@@ -188,6 +219,13 @@ export interface LoadedTask {
   file: string;
   /** sha256 of the task file bytes. */
   sha256: string;
+  /** sha256 of the canonical (normalized) task, key-sorted JSON. */
+  normalizedSha256: string;
+  format: TaskFormat;
+  /** True when loaded with --strict-task (canonical schema only, no lenient front end). */
+  strict: boolean;
+  /** Everything the front end renamed, inferred, dropped or carried, one line each. */
+  warnings: string[];
 }
 
 // ───────────────────────────── Run state & context ─────────────────────────────

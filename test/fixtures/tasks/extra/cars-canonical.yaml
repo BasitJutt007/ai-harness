@@ -1,0 +1,8 @@
+kind: greenfield
+id: cars
+title: Cars
+output: generated/cars
+resources:
+  - name: car
+    fields:
+      - {name: model, type: string, required: true}

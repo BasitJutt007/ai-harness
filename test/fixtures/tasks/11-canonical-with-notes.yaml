@@ -1,0 +1,10 @@
+# Canonical except one harmless extra top-level key (notes) and a field-level "example".
+kind: greenfield
+id: notes-api
+title: Notes API
+output: generated/notes-api
+notes: Please use cursor pagination.
+resources:
+  - name: note
+    fields:
+      - {name: body, type: string, required: true, example: "hello"}

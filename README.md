@@ -50,7 +50,7 @@ src/core/        engine: loop, hook bus, gates runner, context/compaction, token
 plugins/         drivers/ tools/ hooks/ gates/ checks/   (+ lib/ helpers, never loaded as plugins)
 templates/       greenfield scaffold (express-zod)
 samples/         brownfield sample API (existing-api: a projects API)
-tasks/           task files (provider-free; unknown keys such as `model:` are rejected)
+tasks/           task files (provider-free: `model:`/`provider:` keys are rejected; format: docs/task-format.md)
 examples/plugins ready-to-drop extensions: openapi_diff tool, ORM validator, lint rule
 runs/ tokens/    evidence written by the harness on every run
 ```

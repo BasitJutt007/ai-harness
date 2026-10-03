@@ -1,0 +1,14 @@
+# Single `resource:` object instead of `resources:` list; no kind, no output.
+id: books-api
+title: Books API
+resource:
+  name: book
+  fields:
+    - name: title
+      type: string
+      required: true
+    - name: isbn
+      type: string
+      unique: true
+behaviours:
+  - POST /v1/books returns 201
