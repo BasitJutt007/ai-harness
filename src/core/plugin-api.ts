@@ -16,6 +16,9 @@ import type {
 
 export type * from './types.ts';
 
+/** The harness's single definition of a runnable test file and of test support code (see testmap.ts). */
+export { isTestFile, isTestSupport } from './testmap.ts';
+
 export function defineDriver(p: Omit<DriverPlugin, 'kind'>): DriverPlugin {
   return { kind: 'driver', ...p };
 }

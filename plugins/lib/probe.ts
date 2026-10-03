@@ -1,11 +1,13 @@
 /**
  * Runtime problem+json probes. Builds the probe list from the extracted routes,
- * runs `probe-runtime.ts` in a child process (tsx) against the API's createApp,
- * and judges each response. If the app cannot be started the caller reports
- * UNPROVEN, never pass.
+ * starts the API's createApp in a confined child process (`probe-runtime.ts`, tsx),
+ * sends every request from the harness process itself and judges each response here.
+ * If the app cannot be started the caller reports UNPROVEN, never pass.
  */
 import { randomBytes } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { CheckContext } from '../../src/core/plugin-api.ts';
@@ -39,12 +41,8 @@ export interface Probe {
 export const ProbeResponseSchema = z.object({ status: z.number().int(), contentType: z.string(), body: z.string() });
 export type ProbeResponse = z.infer<typeof ProbeResponseSchema>;
 
-export const RuntimeOutputSchema = z.object({
-  __harnessProbe: z.literal(1),
-  ok: z.boolean(),
-  error: z.string().optional(),
-  responses: z.array(z.union([ProbeResponseSchema, z.object({ error: z.string() }), z.object({ skipped: z.string() })])).default([]),
-});
+/** Bytes of each response body kept for judging and the log. */
+const MAX_BODY = 4096;
 
 export interface ProbeOutcome {
   probe: Probe;
@@ -155,48 +153,98 @@ export function evaluateProbe(probe: Probe, res: ProbeResponse): ProbeOutcome {
   return { probe, ok: problems.length === 0, status: res.status, problems };
 }
 
-function parseRuntimeOutput(stdout: string): z.infer<typeof RuntimeOutputSchema> | undefined {
-  const lines = stdout.split('\n').reverse();
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t.startsWith('{') || !t.includes('__harnessProbe')) continue;
-    try {
-      const r = RuntimeOutputSchema.safeParse(JSON.parse(t));
-      if (r.success) return r.data;
-    } catch {
-      // not our line
-    }
-  }
-  return undefined;
+/** A loopback port nobody listens on right now (the OS picks it; we release it for the child to bind). */
+function freePort(): Promise<number> {
+  return new Promise((resolvePort, reject) => {
+    const srv = createServer();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const addr = srv.address();
+      const port = typeof addr === 'object' && addr !== null ? addr.port : 0;
+      srv.close(() => resolvePort(port));
+    });
+  });
 }
 
+/** Send one probe from the harness process and record the raw response. */
+async function send(base: string, p: Probe): Promise<ProbeResponse | { error: string }> {
+  try {
+    const headers: Record<string, string> = { accept: 'application/json' };
+    if (p.body !== undefined) headers['content-type'] = 'application/json';
+    const init: RequestInit = { method: p.method, redirect: 'manual', signal: AbortSignal.timeout(5000), headers };
+    if (p.body !== undefined) init.body = p.body;
+    const res = await fetch(`${base}${p.path}`, init);
+    const text = await res.text();
+    return { status: res.status, contentType: res.headers.get('content-type') ?? '', body: text.slice(0, MAX_BODY) };
+  } catch (e) {
+    return { error: e instanceof Error ? `${e.name}: ${e.message}` : String(e) };
+  }
+}
+
+/** Poll until something accepts HTTP on `base`, the child exits, or the deadline passes. */
+async function waitForServer(base: string, exited: () => boolean, deadline: number): Promise<boolean> {
+  while (!exited() && Date.now() < deadline) {
+    try {
+      await fetch(`${base}/__harness_probe__/ready`, { signal: AbortSignal.timeout(1000) });
+      return true;
+    } catch {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  return false;
+}
+
+/**
+ * Start the app in a confined child (probe-runtime.ts) on a port the harness picked, then send every
+ * probe FROM THIS PROCESS and judge the responses here. The child only serves: nothing it prints is
+ * trusted, since it runs agent code that could rewrite its own output.
+ */
 export async function runProbe(ctx: CheckContext, routes: RouteInfo[]): Promise<ProbeRun> {
   const probes = buildProbes(routes);
-  const dir = join(ctx.harnessRoot, '.harness', 'tmp', `probe-${process.pid}-${randomBytes(6).toString('hex')}`);
-  await mkdir(dir, { recursive: true });
+  // Short per-call dir under the OS temp dir: it becomes the confined child's TMPDIR, and tsx puts a
+  // unix socket there whose path must stay under the 104-byte limit (a .harness/tmp path can exceed it).
+  const dir = await mkdtemp(join(tmpdir(), 'harness-probe-'));
   const file = join(dir, 'probes.json');
+  const stop = join(dir, 'stop');
   try {
     await writeFile(file, JSON.stringify({ probes }), 'utf8');
+    const port = await freePort();
+    const base = `http://127.0.0.1:${port}`;
     const tsx = join(ctx.harnessRoot, 'node_modules', '.bin', 'tsx');
     const runtime = join(ctx.harnessRoot, 'plugins', 'lib', 'probe-runtime.ts');
-    const res = await ctx.exec(tsx, [runtime, ctx.root, file], { cwd: ctx.root, timeoutMs: PROBE_TIMEOUT_MS });
+    // createApp is agent code: confined, the API source read-only (the runtime only imports it),
+    // writes only to this per-call dir (the sandbox points TMPDIR, hence tsx's cache, here), loopback only.
+    let exited = false;
+    const child = ctx.exec(tsx, [runtime, ctx.root, file, String(port), stop], {
+      cwd: ctx.root,
+      timeoutMs: PROBE_TIMEOUT_MS,
+      sandbox: { writable: [dir], network: 'localhost' },
+    }).finally(() => {
+      exited = true;
+    });
+    const up = await waitForServer(base, () => exited, Date.now() + PROBE_TIMEOUT_MS - 5_000);
+    const responses: Array<ProbeResponse | { error: string }> = [];
+    if (up) for (const p of probes) responses.push(await send(base, p));
+    await writeFile(stop, '', 'utf8');
+    const res = await child;
     const logPath = await ctx.logs.write(
       'problem-json-probe.txt',
-      `$ tsx probe-runtime.ts ${ctx.root}\nexit=${String(res.code)} timedOut=${String(res.timedOut)}\n--- stdout\n${res.stdout}\n--- stderr\n${res.stderr}`,
+      [`$ tsx probe-runtime.ts ${ctx.root} (port ${port})`, `exit=${String(res.code)} timedOut=${String(res.timedOut)} served=${String(up)}`,
+        '--- responses (sent and recorded by the harness)', ...responses.map((r, i) => `${probes[i]?.method ?? ''} ${probes[i]?.path ?? ''} -> ${JSON.stringify(r)}`),
+        '--- stdout', res.stdout, '--- stderr', res.stderr].join('\n'),
     );
-    if (res.timedOut) return { ok: false, reason: `probe runtime timed out after ${PROBE_TIMEOUT_MS / 1000}s`, logPath };
-    const out = parseRuntimeOutput(res.stdout);
-    if (out === undefined) {
-      const err = res.stderr.trim().split('\n').slice(-3).join(' | ');
-      return { ok: false, reason: `probe runtime produced no result (exit ${String(res.code)}): ${err.slice(0, 300)}`, logPath };
+    if (!up) {
+      if (res.timedOut) return { ok: false, reason: `probe runtime timed out after ${PROBE_TIMEOUT_MS / 1000}s`, logPath };
+      const err = (res.stderr.trim() || res.stdout.trim()).split('\n').slice(-3).join(' | ');
+      return { ok: false, reason: `app could not be started (exit ${String(res.code)}): ${err.slice(0, 300)}`, logPath };
     }
-    if (!out.ok) return { ok: false, reason: `app could not be started: ${(out.error ?? 'unknown error').slice(0, 300)}`, logPath };
     const outcomes: ProbeOutcome[] = [];
     probes.forEach((probe, i) => {
-      const r = out.responses[i];
+      const r = responses[i];
       if (r === undefined) outcomes.push({ probe, ok: false, status: null, problems: ['no response recorded'] });
-      else if ('skipped' in r) return; // e.g. the internal-error route could not be injected: not a unit
       else if ('error' in r) outcomes.push({ probe, ok: false, status: null, problems: [`request failed: ${r.error}`] });
+      // The injected throwing route was not reached (not an Express app we can inject into): not a unit.
+      else if (probe.throwMarker !== undefined && r.status === 404) return;
       else outcomes.push(evaluateProbe(probe, r));
     });
     return { ok: true, outcomes, logPath };

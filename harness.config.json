@@ -7,5 +7,6 @@
   "tokensDir": "tokens",
   "templatesDir": "templates",
   "history": { "keepRecentTurns": 2 },
-  "limits": { "maxReadLines": 160, "maxListEntries": 200, "maxSearchHits": 40 }
+  "limits": { "maxReadLines": 160, "maxListEntries": 200, "maxSearchHits": 40 },
+  "sandbox": "auto"
 }

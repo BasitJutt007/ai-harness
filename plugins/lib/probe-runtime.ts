@@ -1,13 +1,18 @@
 /**
  * Child-process side of the problem+json probes (spawned with tsx by probe.ts).
  *
- *   tsx probe-runtime.ts <apiRoot> <probes.json>
+ *   tsx probe-runtime.ts <apiRoot> <probes.json> <port> <stopFile>
  *
- * Imports createApp from <apiRoot>/src/app.ts, listens on an ephemeral port,
- * sends each probe with fetch, prints ONE JSON result line and exits.
+ * Imports createApp from <apiRoot>/src/app.ts, injects the throwing route of the internal-error
+ * probe, listens on 127.0.0.1:<port> (chosen by the harness) and keeps serving until <stopFile>
+ * exists. That is ALL it does: it reports nothing. The harness parent sends every request and
+ * judges every response itself, because this process runs agent code (createApp), which could
+ * rewrite anything this process prints.
+ * Runs inside the OS sandbox (probe.ts passes the policy): agent code may write only the
+ * per-call temp dir and reach only loopback.
  */
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -20,15 +25,8 @@ interface ProbeIn {
   throwMarker?: string;
 }
 
-const MAX_BODY = 4096;
-
-type Result = { __harnessProbe: 1; ok: boolean; error?: string; responses?: unknown[] };
-
-const fail = (error: string): Result => ({ __harnessProbe: 1, ok: false, error });
-
-function errorText(e: unknown): string {
-  return e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-}
+/** The child never outlives this, even if the harness never writes the stop file. */
+const MAX_LIFETIME_MS = 55_000;
 
 function readProbes(raw: unknown): ProbeIn[] {
   if (typeof raw !== 'object' || raw === null || !('probes' in raw) || !Array.isArray(raw.probes)) return [];
@@ -75,66 +73,30 @@ function injectThrowingRoute(app: unknown, path: string, marker: string): boolea
   }
 }
 
-async function start(apiRoot: string, probes: ProbeIn[]): Promise<{ server: Server; injected: Set<ProbeIn> } | string> {
+async function main(): Promise<void> {
+  const [apiRoot, probesFile, portArg, stopFile] = process.argv.slice(2);
+  if (apiRoot === undefined || probesFile === undefined || portArg === undefined || stopFile === undefined) {
+    throw new Error('usage: probe-runtime <apiRoot> <probes.json> <port> <stopFile>');
+  }
+  const probes = readProbes(JSON.parse(await readFile(probesFile, 'utf8')));
   const mod: unknown = await import(pathToFileURL(join(apiRoot, 'src', 'app.ts')).href);
   const createApp = typeof mod === 'object' && mod !== null && 'createApp' in mod ? mod.createApp : undefined;
-  if (typeof createApp !== 'function') return 'src/app.ts does not export createApp()';
+  if (typeof createApp !== 'function') throw new Error('src/app.ts does not export createApp()');
   const app: unknown = await Promise.resolve(createApp());
-  if (!isListenable(app)) return 'createApp() did not return an app with listen()';
-  const injected = new Set<ProbeIn>();
-  for (const p of probes) {
-    if (p.throwMarker !== undefined && injectThrowingRoute(app, p.path, p.throwMarker)) injected.add(p);
-  }
-  const server = await new Promise<Server>((resolveServer, reject) => {
-    const s = app.listen(0, '127.0.0.1', () => resolveServer(s));
+  if (!isListenable(app)) throw new Error('createApp() did not return an app with listen()');
+  for (const p of probes) if (p.throwMarker !== undefined) injectThrowingRoute(app, p.path, p.throwMarker);
+  await new Promise<Server>((resolveServer, reject) => {
+    const s = app.listen(Number(portArg), '127.0.0.1', () => resolveServer(s));
     s.on('error', reject);
   });
-  return { server, injected };
-}
-
-async function main(): Promise<Result> {
-  const [apiRoot, probesFile] = process.argv.slice(2);
-  if (apiRoot === undefined || probesFile === undefined) return fail('usage: probe-runtime <apiRoot> <probes.json>');
-  const probes = readProbes(JSON.parse(await readFile(probesFile, 'utf8')));
-
-  let server: Server;
-  let injected: Set<ProbeIn>;
-  try {
-    const started = await start(apiRoot, probes);
-    if (typeof started === 'string') return fail(started);
-    ({ server, injected } = started);
-  } catch (e) {
-    return fail(errorText(e));
-  }
-
-  const address = server.address() as AddressInfo;
-  const base = `http://127.0.0.1:${address.port}`;
-  const responses: unknown[] = [];
-  for (const p of probes) {
-    if (p.throwMarker !== undefined && !injected.has(p)) {
-      responses.push({ skipped: 'could not inject a throwing route into the app' });
-      continue;
-    }
-    try {
-      const headers: Record<string, string> = { accept: 'application/json' };
-      if (p.body !== undefined) headers['content-type'] = 'application/json';
-      const init: RequestInit = { method: p.method, redirect: 'manual', signal: AbortSignal.timeout(5000), headers };
-      if (p.body !== undefined) init.body = p.body;
-      const res = await fetch(`${base}${p.path}`, init);
-      const text = await res.text();
-      responses.push({ status: res.status, contentType: res.headers.get('content-type') ?? '', body: text.slice(0, MAX_BODY) });
-    } catch (e) {
-      responses.push({ error: errorText(e) });
-    }
-  }
-  server.close();
-  return { __harnessProbe: 1, ok: true, responses };
-}
-
-function emitAndExit(result: Result): void {
+  const started = Date.now();
   // Exit explicitly: the app may hold open handles (timers, pools) we do not own.
-  process.stdout.write(`\n${JSON.stringify(result)}\n`, () => process.exit(0));
-  setTimeout(() => process.exit(0), 2000).unref();
+  setInterval(() => {
+    if (existsSync(stopFile) || Date.now() - started > MAX_LIFETIME_MS) process.exit(0);
+  }, 50);
 }
 
-main().then(emitAndExit, (e: unknown) => emitAndExit(fail(errorText(e))));
+main().catch((e: unknown) => {
+  process.stderr.write(`probe runtime: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}\n`);
+  process.exit(1);
+});

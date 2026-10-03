@@ -5,7 +5,8 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { HARNESS_ROOT } from './config.ts';
-import type { Exec, ExecOptions, ExecResult } from './types.ts';
+import { isolationUnavailable, sandboxMode, wrap } from './sandbox.ts';
+import type { Exec, ExecOptions, ExecResult, SandboxMechanism } from './types.ts';
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -58,10 +59,29 @@ class CappedBuffer {
 export const exec: Exec = (cmd: string, args: string[], opts: ExecOptions): Promise<ExecResult> => {
   const started = Date.now();
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const env = opts.env !== undefined ? filterEnv(opts.env) : safeEnv();
+  let env = opts.env !== undefined ? filterEnv(opts.env) : safeEnv();
+  // Untrusted code (opts.sandbox): confined by the OS sandbox, refused when none works in 'auto' mode.
+  let sandbox: SandboxMechanism | undefined;
+  if (opts.sandbox !== undefined) {
+    if (sandboxMode() === 'off') {
+      sandbox = 'none';
+    } else {
+      let w: ReturnType<typeof wrap>;
+      try {
+        w = wrap(cmd, args, opts.sandbox, env);
+      } catch (e) {
+        return Promise.reject(e instanceof Error ? e : new Error(String(e)));
+      }
+      if (w.mechanism === 'none') return Promise.reject(isolationUnavailable());
+      ({ cmd, args, env } = w);
+      sandbox = w.mechanism;
+    }
+  }
+  const tag = sandbox !== undefined ? { sandbox } : {};
   return new Promise<ExecResult>((resolve) => {
     const out = new CappedBuffer();
     const err = new CappedBuffer();
+    const chan = new CappedBuffer();
     let timedOut = false;
     let settled = false;
     let killTimer: NodeJS.Timeout | undefined;
@@ -72,16 +92,19 @@ export const exec: Exec = (cmd: string, args: string[], opts: ExecOptions): Prom
       clearTimeout(timer);
       if (killTimer !== undefined) clearTimeout(killTimer);
       const stderr = extraErr !== undefined ? `${err.text()}${extraErr}` : err.text();
-      resolve({ code, stdout: out.text(), stderr, durationMs: Date.now() - started, timedOut });
+      const channel = opts.channel === true ? { channel: chan.text() } : {};
+      resolve({ ...tag, ...channel, code, stdout: out.text(), stderr, durationMs: Date.now() - started, timedOut });
     };
 
     let child: ReturnType<typeof spawn>;
     try {
       // detached → own process group, so a timeout kills grandchildren too (POSIX).
-      child = spawn(cmd, args, { cwd: opts.cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'], detached: !IS_WIN });
+      const stdio: Array<'pipe'> = opts.channel === true ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'];
+      child = spawn(cmd, args, { cwd: opts.cwd, env, shell: false, stdio, detached: !IS_WIN });
     } catch (e) {
       settled = true;
       resolve({
+        ...tag,
         code: null,
         stdout: '',
         stderr: `failed to spawn ${cmd}: ${e instanceof Error ? e.message : String(e)}`,
@@ -111,6 +134,8 @@ export const exec: Exec = (cmd: string, args: string[], opts: ExecOptions): Prom
 
     child.stdout?.on('data', (c: Buffer) => out.push(c));
     child.stderr?.on('data', (c: Buffer) => err.push(c));
+    const fd3 = child.stdio[3];
+    if (opts.channel === true && fd3 !== null && fd3 !== undefined && 'on' in fd3) fd3.on('data', (c: Buffer) => chan.push(c));
     child.on('error', (e) => finish(null, `${e.message}\n`));
     child.on('close', (code) => {
       // Reap anything the command left behind in its process group (e.g. a test that

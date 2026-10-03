@@ -169,7 +169,7 @@ export function makeCtx(opts: {
     mode: { jit: true, compactReturns: true, compactHistory: true },
     config: loadConfig(),
     exec: opts.exec ?? isolatedExec,
-    services: { runTests: fail, runChecks: fail, testMap: fail },
+    services: { runTests: fail, runChecks: fail, testMap: fail, runTestsReverted: fail },
     registry,
     emit: () => undefined,
   };

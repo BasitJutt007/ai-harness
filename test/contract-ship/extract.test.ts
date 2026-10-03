@@ -146,8 +146,8 @@ describe('snapshotBase + contract-lock gate + contract_diff tool', () => {
 
 const SAMPLE = join(HARNESS_ROOT, 'samples', 'existing-api');
 describe.runIf(existsSync(join(SAMPLE, 'src')))('extractContract on samples/existing-api', () => {
-  it('extracts the sample at runtime and it is stable against itself', async () => {
-    const c = await extractContract({ apiRoot: SAMPLE, harnessRoot: HARNESS_ROOT, exec: isolatedExec });
+  it('extracts the sample at runtime (as operator code) and it is stable against itself', async () => {
+    const c = await extractContract({ apiRoot: SAMPLE, harnessRoot: HARNESS_ROOT, exec: isolatedExec, trusted: () => true });
     expect(c.endpoints.length).toBeGreaterThan(0);
     expect(c.extractedWith).toBe('runtime');
     expect(diffContracts(c, structuredClone(c))).toEqual({ breaking: [], additive: [], unproven: [] });

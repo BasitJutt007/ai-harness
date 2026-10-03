@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
 import { bin, exec, safeEnv } from '../../src/core/exec.ts';
+import { detectMechanism, sandboxMode } from '../../src/core/sandbox.ts';
 import { repoTmp } from './helpers.ts';
 
 const tmp = repoTmp('config');
@@ -20,6 +21,7 @@ describe('config', () => {
     expect(c.protectedBranches).toContain('main');
     expect(c.history.keepRecentTurns).toBe(2);
     expect(c.limits.maxReadLines).toBe(160);
+    expect(c.sandbox).toBe('auto');
   });
 
   it('fills defaults for a partial config and an absent file', () => {
@@ -29,6 +31,7 @@ describe('config', () => {
     expect(c.worktreeDir).toBe('.harness/worktrees');
     expect(c.limits).toEqual({ maxReadLines: 160, maxListEntries: 200, maxSearchHits: 40 });
     expect(loadConfig(join(tmp.dir, 'nope')).runsDir).toBe('runs');
+    expect(c.sandbox).toBe('auto');
   });
 
   it('rejects invalid values and unknown keys', () => {
@@ -36,6 +39,10 @@ describe('config', () => {
     expect(() => loadConfig(tmp.dir)).toThrow(/pluginDirs/);
     writeFileSync(join(tmp.dir, 'harness.config.json'), JSON.stringify({ bogus: 1 }));
     expect(() => loadConfig(tmp.dir)).toThrow(/bogus/);
+    writeFileSync(join(tmp.dir, 'harness.config.json'), JSON.stringify({ sandbox: 'maybe' }));
+    expect(() => loadConfig(tmp.dir)).toThrow(/sandbox/);
+    writeFileSync(join(tmp.dir, 'harness.config.json'), JSON.stringify({ sandbox: 'off' }));
+    expect(loadConfig(tmp.dir).sandbox).toBe('off');
   });
 });
 
@@ -93,6 +100,15 @@ describe('exec', () => {
     expect(r.timedOut).toBe(true);
     expect(r.code).toBeNull();
     expect(r.durationMs).toBeLessThan(10_000);
+  });
+
+  it('marks sandboxed results with the mechanism and leaves trusted ones unmarked', async () => {
+    const plain = await exec(process.execPath, ['-e', '0'], { cwd: HARNESS_ROOT });
+    expect('sandbox' in plain).toBe(false);
+    const confined = await exec(process.execPath, ['-e', '0'], { cwd: tmp.dir, sandbox: { writable: [tmp.dir], network: 'none' } }).catch((e: unknown) => e);
+    const mechanism = detectMechanism();
+    if (mechanism === 'none' && sandboxMode() === 'auto') expect(String(confined)).toMatch(/execution isolation unavailable/);
+    else expect(confined).toMatchObject({ code: 0, sandbox: sandboxMode() === 'off' ? 'none' : mechanism });
   });
 
   it('bin() points into node_modules/.bin', () => {
