@@ -620,8 +620,10 @@ async function toolVersion(cmd: string): Promise<string | null> {
 }
 
 /**
- * Isolation line + self-test: a confined node child must fail both to write outside its writable
- * dir and to open an outbound socket. False (doctor fails) iff isolation is unavailable in auto mode.
+ * Isolation line + self-test: a confined node child must fail to write outside its writable dir, to
+ * open an outbound socket, to read a canary file outside its read allow-list, and to see an env canary
+ * (SANDBOX_CANARY_DATABASE_URL) planted in its caller's env. False (doctor fails) iff isolation is
+ * unavailable in auto mode or any of those succeeded.
  */
 export async function doctorIsolation(out: Out): Promise<boolean> {
   const mode = sandboxMode();

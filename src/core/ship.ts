@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { passThroughEnv } from './exec.ts';
 import { runGates } from './gates.ts';
 import type { GateOutcome } from './gates.ts';
 import type { ExecResult, RegistryView, RunContext } from './types.ts';
@@ -37,6 +38,13 @@ export interface ShipOptions {
 }
 
 const SAFE_REF = /^[A-Za-z0-9._/-]+$/;
+
+/**
+ * Credential-shaped variables ship's own git / gh calls may see (exec strips them from every other
+ * trusted child, and confined agent code never gets them): the SSH agent socket for `git push`
+ * over SSH and the forge tokens `gh pr create` authenticates with.
+ */
+export const SHIP_ENV_PASS_THROUGH = ['SSH_AUTH_SOCK', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'] as const;
 
 /**
  * Repository hooks are not run for the harness's own commit and push: they would
@@ -207,7 +215,7 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
 
   const run = async (cmd: string, args: string[], record = true): Promise<ExecResult> => {
     if (record) commands.push(formatCommand(cmd, args));
-    return ctx.exec(cmd, args, { cwd: repo, timeoutMs: 120_000 });
+    return ctx.exec(cmd, args, { cwd: repo, timeoutMs: 120_000, env: passThroughEnv(SHIP_ENV_PASS_THROUGH) });
   };
   const git = (args: string[], record = true): Promise<ExecResult> => run('git', ['-C', repo, ...args], record);
   const refuse = (...reasons: string[]): ShipResult => ({ status: 'refused', branch, reasons, commands });
@@ -324,6 +332,6 @@ async function ghStatus(gh: (args: string[]) => Promise<ExecResult>): Promise<{ 
   const version = await gh(['--version']);
   if (version.code !== 0) return { ok: false, why: 'gh CLI is not installed' };
   const auth = await gh(['auth', 'status']);
-  if (auth.code !== 0) return { ok: false, why: 'gh is not authenticated (gh auth login; token env vars are stripped from harness subprocesses)' };
+  if (auth.code !== 0) return { ok: false, why: 'gh is not authenticated (gh auth login, or GH_TOKEN / GITHUB_TOKEN in the environment)' };
   return { ok: true, why: '' };
 }

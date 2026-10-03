@@ -5,13 +5,15 @@
  *   outside.txt   a path outside every writable dir (must never be created)
  *   api/          the API root agent code lives in (package.json; zod/express resolve from the harness)
  *   run-tmp/      the per-run temp dir
+ *   fake-home/    (readCanaries) a home-like dir holding a credentials canary
  *
- * Every "outside" target lives inside this temp layout, so even an unconfined run damages nothing real.
+ * Every "outside" target lives inside this temp layout (plus one canary dir standing in for another
+ * run's temp dir under the OS temp dir), so even an unconfined run damages or reveals nothing real.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
 
@@ -89,6 +91,64 @@ export function existingSecretDir(): string | null {
   return null;
 }
 
+/**
+ * Synthetic credentials planted in the harness's env (names are what matters): a confined child must
+ * see none of them, whatever the caller passes. NODE_OPTIONS stands for "toolchain-steering" variables.
+ */
+export const ENV_CANARIES: Record<string, string> = {
+  DATABASE_URL: 'postgres://canary:canary@127.0.0.1:5/canary',
+  AWS_ACCESS_KEY_ID: 'AKIASANDBOXCANARY000',
+  GITHUB_PAT: 'sandbox-canary-pat',
+  SANDBOX_CANARY_DATABASE_URL: 'postgres://canary:canary@127.0.0.1:5/canary',
+  NODE_OPTIONS: '--no-warnings',
+};
+/** Inherited by confined children (allow-listed). */
+export const LANG_CANARY = 'en_US.UTF-8';
+
+/** Plant ENV_CANARIES + LANG in process.env; returns the restore function. */
+export function plantEnvCanaries(): () => void {
+  const saved = new Map<string, string | undefined>();
+  for (const [k, v] of Object.entries({ ...ENV_CANARIES, LANG: LANG_CANARY })) {
+    saved.set(k, process.env[k]);
+    process.env[k] = v;
+  }
+  return () => {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+}
+
+/**
+ * Read canaries outside every allow-list: a credentials file under a home-like dir next to the API,
+ * the sibling checkout's .git, a listing of the layout dir around the API, and another run's temp dir.
+ */
+export interface ReadCanaries {
+  homeCanary: string;
+  siblingGit: string;
+  layoutDir: string;
+  otherRun: string;
+  cleanup(): void;
+}
+
+export function readCanaries(l: Layout): ReadCanaries {
+  const homeDir = join(l.dir, 'fake-home', '.config', 'app');
+  mkdirSync(homeDir, { recursive: true });
+  const homeCanary = join(homeDir, 'credentials.json');
+  writeFileSync(homeCanary, '{"canary":"home"}\n');
+  const otherDir = mkdtempSync(join(tmpdir(), 'harness-vitest-other-run-'));
+  const otherRun = join(otherDir, 'canary.txt');
+  writeFileSync(otherRun, 'other run\n');
+  return {
+    homeCanary,
+    siblingGit: join(l.original, '.git', 'config'),
+    layoutDir: l.dir,
+    otherRun,
+    cleanup: () => rmSync(otherDir, { recursive: true, force: true }),
+  };
+}
+
 export interface AttackTargets {
   outside: string;
   sibling: string;
@@ -96,6 +156,8 @@ export interface AttackTargets {
   apiFile: string;
   loopbackPort: number;
   secretDir: string | null;
+  reads?: Omit<ReadCanaries, 'cleanup'>;
+  envNames?: string[];
 }
 
 /**
@@ -104,7 +166,7 @@ export interface AttackTargets {
  */
 export function attackSource(t: AttackTargets): string {
   return `
-import { readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { connect } from 'node:net';
 const T = ${JSON.stringify(t)};
@@ -128,9 +190,27 @@ export async function attack() {
   r.netLoopback = await tcp('127.0.0.1', T.loopbackPort);
   r.envKey = process.env.${ENV_KEY} === undefined ? 'absent' : 'present';
   if (T.secretDir !== null) tryIt('readSecrets', () => readdirSync(T.secretDir));
+  if (T.reads) {
+    tryIt('readHomeCanary', () => readFileSync(T.reads.homeCanary, 'utf8'));
+    tryIt('readSiblingGit', () => readFileSync(T.reads.siblingGit, 'utf8'));
+    tryIt('listLayout', () => readdirSync(T.reads.layoutDir));
+    tryIt('readOtherRun', () => readFileSync(T.reads.otherRun, 'utf8'));
+  }
+  if (T.envNames) {
+    const seen = T.envNames.filter((n) => process.env[n] !== undefined);
+    r.envLeaks = seen.length === 0 ? 'none' : seen.join(',');
+    r.lang = process.env.LANG ?? 'unset';
+  }
   return r;
 }
 `;
+}
+
+/** Read and env outcomes a confined run must show when attackSource got `reads` and `envNames`. */
+export function blockedReads(): Record<string, string> {
+  // Seatbelt refuses with EPERM; bwrap's tmpfs masks make the paths simply absent.
+  const code = process.platform === 'darwin' ? 'EPERM' : 'ENOENT';
+  return { readHomeCanary: code, readSiblingGit: code, listLayout: code, readOtherRun: code, envLeaks: 'none', lang: LANG_CANARY };
 }
 
 /** Parse the `ATTACK {...}` line a malicious module printed. */

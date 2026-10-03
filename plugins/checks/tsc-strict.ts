@@ -76,10 +76,25 @@ async function runTsc(ctx: CheckContext): Promise<TscRun> {
   const tsconfig = join(ctx.root, 'tsconfig.json');
   if (!existsSync(tsconfig)) return { ok: true, diags: programDiags(ctx) };
   const tsc = join(ctx.harnessRoot, 'node_modules', '.bin', 'tsc');
-  const res = await ctx.exec(tsc, ['--noEmit', '-p', tsconfig, '--strict', '--noUncheckedIndexedAccess', '--pretty', 'false'], {
-    cwd: ctx.root,
-    timeoutMs: 180_000,
-  });
+  // The agent controls tsconfig.json (extends, paths, files): tsc runs confined like other agent-steered
+  // children: it reads only the API's tree, node_modules and the toolchain, writes only a throw-away dir, no network.
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const scratch = await mkdtemp(join(tmpdir(), 'harness-tsc-'));
+  let res: Awaited<ReturnType<CheckContext['exec']>>;
+  try {
+    // An `incremental` tsconfig writes its build info even with --noEmit: into the scratch dir, not the read-only API.
+    const buildInfo = ['--tsBuildInfoFile', join(scratch, 'tsc.tsbuildinfo')];
+    res = await ctx.exec(tsc, ['--noEmit', '-p', tsconfig, '--strict', '--noUncheckedIndexedAccess', '--pretty', 'false', ...buildInfo], {
+      cwd: ctx.root,
+      timeoutMs: 180_000,
+      sandbox: { writable: [scratch], network: 'none' },
+    });
+  } catch (e) {
+    return { ok: false, reason: `tsc could not run: ${e instanceof Error ? e.message : String(e)}` };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
   const output = `${res.stdout}\n${res.stderr}`;
   await ctx.logs.write('tsc-strict.txt', `$ tsc --noEmit -p tsconfig.json --strict --noUncheckedIndexedAccess\nexit=${String(res.code)}\n${output}`);
   if (res.timedOut) return { ok: false, reason: 'tsc timed out' };
