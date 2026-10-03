@@ -17,8 +17,8 @@ const DOC = `zod-boundary (unit: route handlers; each hand-written DTO type is o
 A route handler passes iff ALL of (its middleware chain counts: validate({ body: S }) and router.use(...) included):
 1. Every read of req.params / req.query / req.body / req.headers / req.get() / req.header(), in the handler or a
    middleware, is the direct argument of <schema>.parse() / .safeParse() / .parseAsync() / .safeParseAsync(),
-   or follows a middleware that wrote the parsed value back (req.body = S.parse(req.body)). Only serialising
-   raw input (JSON.stringify, a template string) is exempt. Destructuring or passing \`req\` along is not.
+   or follows a middleware that wrote the parsed value back (req.body = S.parse(req.body)). Only serialising a
+   whole part with JSON.stringify (to hash it) is exempt. Destructuring or passing \`req\` along is not.
 2. A path with :param segments parses req.params; POST / PUT / PATCH parse req.body (anywhere in the chain).
 3. Schemas constrain the data: z.any()/z.unknown()/z.custom() without a type, z.record(k, z.unknown()) and
    z.object({}).passthrough()/.loose() validate nothing and fail, as request or response schemas.

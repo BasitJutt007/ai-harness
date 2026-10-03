@@ -446,6 +446,38 @@ r.post(where(), (req, res) => { res.status(201).json(Item.parse({ ...req.body })
   });
 });
 
+describe('only serialising a whole raw part is exempt from parsing', () => {
+  const USES: Array<[string, boolean]> = [
+    ['void JSON.stringify(req.body);', true],
+    ['void JSON.stringify([req.method, req.body ?? null]);', true],
+    ['void JSON.stringify({ at: req.originalUrl, body: req.body });', true],
+    ['void hash(req.body);', true],
+    ['void JSON.stringify(req.body.items);', false],
+    ['void `${req.body}`;', false],
+    ['void launder(req.body);', false],
+    ['void JSON.parse(JSON.stringify(req.body));', false],
+    ['void Object.assign({}, req.body);', false],
+  ];
+  let routes: RouteInfo[];
+  beforeAll(async () => {
+    const lines = USES.map(([use], i) => `r.get('/v1/uses-${i}', (req, res) => {\n  ${use}\n  res.status(204).end();\n});`);
+    const ctx = await api({
+      'src/routes.ts': `import { createHash } from 'node:crypto';
+import { Router } from 'express';
+function hash(v: unknown): string { return createHash('sha256').update(JSON.stringify(v)).digest('hex'); }
+function launder(v: unknown): unknown { return v; }
+export const r = Router();
+${lines.join('\n')}
+`,
+    });
+    routes = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).routes;
+  });
+  it.each(USES.map(([use, ok], i) => [use, ok, i] as const))('%s → exempt: %s', (_use, ok, i) => {
+    const r = routes.find((x) => x.path === `/v1/uses-${i}`);
+    expect(r?.unparsedReads.map((u) => u.target)).toEqual(ok ? [] : ['body']);
+  });
+});
+
 describe('error responses are judged by status value and body type', () => {
   // [send statement, expected: null = not an error path, '' = passing error path, else a message fragment]
   const SENDS: Array<[string, string | null]> = [

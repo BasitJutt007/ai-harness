@@ -344,7 +344,8 @@ function resolveValue(checker: ts.TypeChecker, expr: ts.Expression, env: Env, co
   if (depth > MAX_EVAL_DEPTH) return { expr: e, env };
   if (ts.isIdentifier(e)) {
     const bound = boundOf(checker, e, env);
-    if (bound !== undefined) return resolveBound(checker, bound, consts, depth + 1);
+    // An unresolvable member of a destructured argument: the parameter itself (unknown).
+    if (bound !== undefined) return resolveBound(checker, bound, consts, depth + 1) ?? { expr: e, env };
     if (consts) {
       const init = constInitializer(checker, e);
       if (init !== undefined) return resolveValue(checker, init, env, consts, depth + 1);
@@ -360,14 +361,15 @@ function resolveValue(checker: ts.TypeChecker, expr: ts.Expression, env: Env, co
   return { expr: e, env };
 }
 
-function resolveBound(checker: ts.TypeChecker, bound: Bound, consts: boolean, depth: number): Resolved {
+/** The value bound to a parameter; undefined when a destructured member cannot be followed. */
+function resolveBound(checker: ts.TypeChecker, bound: Bound, consts: boolean, depth: number): Resolved | undefined {
   if (bound.expr === undefined) return 'absent';
   let cur = resolveValue(checker, bound.expr, bound.env, bound.path !== undefined ? true : consts, depth);
   for (const key of bound.path ?? []) {
     if (cur === 'absent') return 'absent';
-    if (!ts.isObjectLiteralExpression(cur.expr)) return { expr: bound.expr, env: bound.env };
+    if (!ts.isObjectLiteralExpression(cur.expr)) return undefined;
     const next = memberValue(checker, cur.expr, key, cur.env, consts, depth + 1);
-    if (next === undefined) return { expr: bound.expr, env: bound.env };
+    if (next === undefined) return undefined;
     cur = next;
   }
   return cur;
@@ -381,7 +383,7 @@ function memberValue(checker: ts.TypeChecker, obj: ts.ObjectLiteralExpression, k
   if (ts.isShorthandPropertyAssignment(prop)) {
     const sym = checker.getShorthandAssignmentValueSymbol(prop);
     const bound = sym !== undefined ? env.params.get(sym) : undefined;
-    if (bound !== undefined) return resolveBound(checker, bound, consts, depth);
+    if (bound !== undefined) return resolveBound(checker, bound, consts, depth) ?? { expr: prop.name, env };
     const target = sym !== undefined && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
     const init = consts ? constInitializerOf(target) : undefined;
     return init !== undefined ? resolveValue(checker, init, env, consts, depth) : { expr: prop.name, env };
@@ -1224,17 +1226,17 @@ function isParseResult(m: ApiModel, expr: ts.Expression, env: Env, depth = 0): b
   return active(e, DATA_PARSE_METHODS);
 }
 
-/** JSON.stringify of the standard library: it serialises a value without trusting its shape. */
-function isJsonStringify(checker: ts.TypeChecker, callee: ts.Expression): boolean {
+/** `JSON.<method>` of the standard library (stringify serialises a value without trusting its shape). */
+function isJsonCall(checker: ts.TypeChecker, callee: ts.Expression, method: 'stringify' | 'parse'): boolean {
   const e = unwrap(callee);
-  if (!ts.isPropertyAccessExpression(e) || e.name.text !== 'stringify' || !ts.isIdentifier(e.expression) || e.expression.text !== 'JSON') return false;
+  if (!ts.isPropertyAccessExpression(e) || e.name.text !== method || !ts.isIdentifier(e.expression) || e.expression.text !== 'JSON') return false;
   const sym = resolveSymbol(checker, e.expression);
   return (sym?.declarations ?? []).every((d) => d.getSourceFile().isDeclarationFile);
 }
 
 /**
- * A raw read whose value is only serialised (JSON.stringify, a template string), directly or through a
- * program function's `unknown` parameter used that way: hashing or logging input does not trust its shape.
+ * A raw request part whose value is only serialised with JSON.stringify, directly or through a program
+ * function's `unknown` parameter used that way: hashing the whole input does not trust its shape.
  */
 function isOpaqueUse(m: ApiModel, node: ts.Node, depth = 0): boolean {
   let cur = node;
@@ -1246,15 +1248,18 @@ function isOpaqueUse(m: ApiModel, node: ts.Node, depth = 0): boolean {
       cur = p;
     } else if (ts.isPropertyAssignment(p) && p.initializer === cur && ts.isObjectLiteralExpression(p.parent)) {
       cur = p.parent;
-    } else if (ts.isTemplateSpan(p)) {
-      return true;
     } else {
       break;
     }
   }
   const call = cur.parent;
   if (!ts.isCallExpression(call) || !call.arguments.includes(cur as ts.Expression)) return false;
-  if (isJsonStringify(m.checker, call.expression)) return true;
+  if (isJsonCall(m.checker, call.expression, 'stringify')) {
+    // `JSON.parse(JSON.stringify(req.body))` launders the raw value back into data.
+    let up: ts.Node = call.parent;
+    while (ts.isParenthesizedExpression(up) || ts.isAsExpression(up)) up = up.parent;
+    return !(ts.isCallExpression(up) && isJsonCall(m.checker, up.expression, 'parse'));
+  }
   if (depth >= 2) return false;
   const fn = resolveFunction(m.checker, call.expression);
   const param = fn?.parameters[call.arguments.indexOf(cur as ts.Expression)];
@@ -1402,7 +1407,8 @@ function analyseFunction(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, 
           }
         }
       }
-      if (isOpaqueUse(m, arg)) return;
+      // Only the whole part (not a member read, which already trusts its shape) can be serialised opaquely.
+      if (arg === read.node && isOpaqueUse(m, arg)) return;
       facts.reads.push(read);
       return;
     }
