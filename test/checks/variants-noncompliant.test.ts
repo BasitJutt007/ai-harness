@@ -24,8 +24,12 @@ const ROUTES = 'src/routes/users.ts';
 
 const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolations?: Partial<Record<Rule, number>> }> = {
   'bad-res-send-helper': {
-    fails: ['zod-boundary'],
-    expect: [{ rule: 'zod-boundary', at: [ROUTES, 'respond(res, 200, user)'], message: '`res` is passed along' }],
+    // respond(res, status: number, body: unknown) can send any status with any body: a non-constant status is an error path
+    fails: ['zod-boundary', 'problem-json'],
+    expect: [
+      { rule: 'zod-boundary', at: [ROUTES, 'respond(res, 200, user)'], message: '`res` is passed along' },
+      { rule: 'problem-json', at: ['src/http/respond.ts', 'res.status(status).send(body)'], message: 'status status is not a constant, so this may be an error response' },
+    ],
   },
   'bad-body-spread': {
     fails: ['zod-boundary', 'problem-json'],
