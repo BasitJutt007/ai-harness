@@ -12,6 +12,8 @@ import { readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
+import { createTypecheck, registerTypecheck } from './typecheck.ts';
+import type { Typecheck } from './typecheck.ts';
 import type {
   CheckContext,
   CheckFinding,
@@ -24,6 +26,8 @@ import type {
 } from './types.ts';
 
 const STANDARDS = 'standards';
+/** The finding file of a whole-project result. */
+const PROJECT = '(project)';
 /** Why a standards rule with nothing to check is unproven. */
 const EMPTY_WHY = '0 units';
 /** Minimum rule column width; widened to the longest rule id + 2 so long ids stay aligned. */
@@ -58,8 +62,17 @@ export async function createCheckContext(opts: {
     (await glob(['test/**/*.ts', 'src/**/*.test.ts', 'src/**/*.spec.ts'], { cwd: root, ignore: [...IGNORE, '**/*.d.ts'] })).map(posixify),
   )].sort();
   const sfCache = new Map<string, ts.SourceFile>();
-  let program: ts.Program | undefined;
   let deps: Record<string, string> | undefined;
+  const dependencies = (): Record<string, string> => {
+    deps ??= readDependencies(root);
+    return { ...deps };
+  };
+  // One type check per context (forced strict options over every TS file of the API, see typecheck.ts):
+  // program() is its primary program, and tsc-strict diagnoses that same program through typecheckOf(ctx).
+  let typecheck: Typecheck | undefined;
+  const getTypecheck = (): Typecheck => (typecheck ??= createTypecheck(root, dependencies));
+  const program = (): ts.Program => getTypecheck().primary();
+  registerTypecheck(program, getTypecheck);
   return {
     root,
     sourceFiles,
@@ -69,10 +82,7 @@ export async function createCheckContext(opts: {
     logs: opts.logs,
     ...(opts.taskKind !== undefined ? { taskKind: opts.taskKind } : {}),
     ...(opts.base !== undefined ? { base: { ...opts.base } } : {}),
-    dependencies(): Record<string, string> {
-      deps ??= readDependencies(root);
-      return { ...deps };
-    },
+    dependencies,
     read: (rel: string) => readFile(join(root, rel), 'utf8'),
     sourceFile(rel: string): ts.SourceFile {
       const cached = sfCache.get(rel);
@@ -82,13 +92,7 @@ export async function createCheckContext(opts: {
       sfCache.set(rel, sf);
       return sf;
     },
-    program(): ts.Program {
-      if (program === undefined) {
-        const files = [...sourceFiles, ...testFiles].map((f) => join(root, f));
-        program = ts.createProgram({ rootNames: files, options: compilerOptions(root) });
-      }
-      return program;
-    },
+    program,
   };
 }
 
@@ -114,26 +118,12 @@ export function readDependencies(root: string): Record<string, string> {
   return out;
 }
 
-/** The API's tsconfig (if any) with strict, noUncheckedIndexedAccess and noEmit forced on. */
+/**
+ * The options the API is type-checked with: its (primary) tsconfig with every strict-family flag,
+ * noUncheckedIndexedAccess and noEmit forced, or the harness's default when it has no tsconfig.json.
+ */
 export function compilerOptions(root: string): ts.CompilerOptions {
-  const forced: ts.CompilerOptions = { strict: true, noUncheckedIndexedAccess: true, noEmit: true };
-  const configPath = join(root, 'tsconfig.json');
-  if (existsSync(configPath)) {
-    const read = ts.readConfigFile(configPath, (p) => ts.sys.readFile(p));
-    if (read.error === undefined) {
-      const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, root, undefined, configPath);
-      return { ...parsed.options, ...forced };
-    }
-  }
-  return {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    esModuleInterop: true,
-    skipLibCheck: true,
-    allowImportingTsExtensions: true,
-    ...forced,
-  };
+  return createTypecheck(root).options();
 }
 
 // ───────────────────────────── runner ─────────────────────────────
@@ -208,10 +198,13 @@ export function formatReport(
       continue;
     }
     for (const f of v.findings) {
-      const status = f.status === 'fail' ? 'FAIL' : f.status === 'skip' ? 'skip' : (empty ?? 'pass');
+      // A skipped finding is what makes the rule UNPROVEN: say so, with its reason.
+      const status = f.status === 'fail' ? 'FAIL' : f.status === 'skip' ? 'UNPROVEN' : (empty ?? 'pass');
+      // The failing whole-project row of an `errors` rule counts the whole project, not only its own diagnostics.
+      const errors = f.file === PROJECT && f.status === 'fail' ? v.violations : f.violations.length;
       const count = f.status === 'skip'
         ? `skipped: ${oneLine(f.skipReason ?? 'no reason given')}`
-        : unit === 'errors' ? `${f.violations.length} errors` : `${f.units.passed}/${f.units.total} ${unit}`;
+        : unit === 'errors' ? `${errors} errors` : `${f.units.passed}/${f.units.total} ${unit}`;
       const line = `${pad(rule, ruleW)}${pad(status, STATUS_W)}${pad(f.file, fileW)}${count}`;
       const vlines = f.violations.map((x) => `    ${x.location}  ${oneLine(x.message)}`);
       full.push(line, ...vlines);

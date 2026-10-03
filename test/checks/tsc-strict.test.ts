@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import tscStrict, { parseTscOutput } from '../../plugins/checks/tsc-strict.ts';
+import tscStrict from '../../plugins/checks/tsc-strict.ts';
 import type { CheckContext, Exec } from '../../src/core/plugin-api.ts';
-import { rm } from 'node:fs/promises';
-import { contextFor, fixtureContext, lineOf, runCheck, tempApi } from './_ctx.ts';
+import { rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { contextFor, fixtureContext, lineOf, memoryLogs, runCheck, tempApi } from './_ctx.ts';
 
 const FORMAT = 'src/util/format.ts';
 
@@ -55,27 +56,30 @@ describe('tsc-strict', () => {
     }
   });
 
-  it('is UNPROVEN (skip) when tsc cannot run', async () => {
-    const real = await fixtureContext('good');
+  it('runs in-process: a broken exec changes nothing (no tsc binary to fail), and the run is logged', async () => {
+    const real = await fixtureContext('bad-tsc');
     const broken: Exec = () => Promise.resolve({ code: null, stdout: '', stderr: 'spawn ENOENT', durationMs: 1, timedOut: false });
-    const ctx: CheckContext = { ...real, exec: broken };
+    const logs = memoryLogs();
+    const ctx: CheckContext = { ...real, exec: broken, logs };
     const findings = await tscStrict.run(ctx);
-    expect(findings).toHaveLength(1);
-    expect(findings[0]?.status).toBe('skip');
-    expect(findings[0]?.skipReason).toContain('tsc could not run');
+    expect(findings.find((f) => f.file === '(project)')?.status).toBe('fail');
+    expect(findings.reduce((n, f) => n + f.units.total - f.units.passed, 0)).toBe(5);
+    const log = logs.entries.get('tsc-strict.txt') ?? '';
+    expect(log).toContain('--strict --noImplicitAny --strictNullChecks');
+    expect(log).toContain('project tsconfig.json (primary');
+    expect(log).toContain('files: 12, errors: 5');
   });
 
-  it('parses tsc --pretty false output into file and project diagnostics', () => {
-    const out = [
-      "src/a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.",
-      '  continuation line',
-      '../outside.ts(1,1): error TS1005: x',
-      "error TS5058: The specified path does not exist: 'nope'.",
-    ].join('\n');
-    expect(parseTscOutput(out, '/api')).toEqual([
-      { file: 'src/a.ts', location: 'src/a.ts:3:7', message: "TS2322: Type 'string' is not assignable to type 'number'." },
-      { file: null, location: '../outside.ts:1:1', message: 'TS1005: x' },
-      { file: null, location: '(project)', message: "TS5058: The specified path does not exist: 'nope'." },
-    ]);
+  it('is UNPROVEN (skip, with the reason) when the tsconfig cannot be read, never a pass', async () => {
+    const root = await tempApi({ 'src/a.ts': 'export const a = 1;\n' });
+    try {
+      await writeFile(join(root, 'tsconfig.json'), '{ "extends": "./missing-base.json" }');
+      const findings = await tscStrict.run(await contextFor(root));
+      expect(findings).toHaveLength(1);
+      expect(findings[0]?.status).toBe('skip');
+      expect(findings[0]?.skipReason).toContain('unusable TypeScript configuration: tsconfig.json: TS5083');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
