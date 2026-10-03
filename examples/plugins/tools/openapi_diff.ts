@@ -151,7 +151,7 @@ export function report(before: Contract, after: Contract, diff: ContractDiff, la
     if (!labels.spec) return d;
     const msg = (m: string): string => m === 'route removed' ? 'documented but not implemented' : m === 'new route' ? 'implemented but not documented' : m;
     const fix = (cs: ContractDiff['breaking']): ContractDiff['breaking'] => cs.map((c) => ({ ...c, message: msg(c.message) }));
-    return { breaking: fix(d.breaking), additive: fix(d.additive), unproven: fix(d.unproven) };
+    return { breaking: fix(d.breaking), additive: fix(d.additive), unproven: fix(d.unproven), informational: d.informational };
   };
   const plus = labels.spec ? 'undocumented' : 'added';
   const minus = labels.spec ? 'missing' : 'removed';
