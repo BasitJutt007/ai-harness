@@ -194,6 +194,10 @@ offline scripted run that calls the new tool, prints `git diff --stat` and
   `node_modules/` and dot-directories, files or directories starting with `_`,
   `*.test.*` / `*.spec.*` and `*.d.ts`. Files are loaded in sorted path order, so tools,
   hooks, gates and checks run in a deterministic order (`checks/a.ts` before `checks/b.ts`).
+- **Trust.** Plugins are trusted code: a file is executed when it is imported (like an eslint
+  or Vitest plugin), before validation runs. Only point `pluginDirs` at code you trust. The
+  registry refuses, without importing, any plugin dir inside the worktree dir
+  (`.harness/worktrees/`), because agent output lives there.
 - **Validation.** Every exported value is checked with Zod before it is registered:
   `kind`, a non-empty name or id, the required functions, and a Zod schema as a tool's
   `input`. Tool names must match `/^[A-Za-z][A-Za-z0-9_-]{0,63}$/`, so `read_file` and
@@ -467,6 +471,24 @@ neutral, and `harness doctor` scans for leaks. The core counts tokens with
 `countTokens` for both the actual and the shadow-baseline request every turn
 (`tokens/<runId>.json`). Driver files are excluded from the run fingerprint, so the same
 task can run on two drivers and `harness agnostic` still shows zero diff.
+
+Real endpoints taught four rules (see `runs/real-model/`):
+- **Replay what the provider needs back.** Anything that must come back verbatim on later turns
+  travels as an `opaque` part tagged with your driver's name, and only your driver reads it.
+  Examples: reasoning blocks, or the openai driver's per-tool-call extras, such as a thought
+  signature.
+- **Keep the provider's status and error text in the error you throw.** The loop recognises a
+  rate limit from `status: 429`, or from `429`, `rate limit`, `RESOURCE_EXHAUSTED` or `quota` in
+  the message. It reads the stated wait (`retryDelay`, "retry in 37.6s", `Retry-After`, or an
+  `X-RateLimit-Reset` epoch timestamp) from the message too. It waits out a wait of 120 s or less and stops the
+  run on a longer one.
+- **If the endpoint cannot count tokens, let `countTokens` throw.** The loop then estimates
+  chars/4 for both the actual and the baseline request, logs that in `events.jsonl`, and the
+  token report's `counter` names the fallback instead of your counter.
+- **Downgrade a rejected optional parameter once, and say so.** When a 400 names a parameter
+  you can drop or change, retry the session with a compatible request and report the model as
+  `<id> (compat)`. Example: the openai driver retries with `reasoning_effort: 'none'` when
+  `gpt-6-luna` rejects function tools with reasoning on (`test/drivers/openai-reasoning.test.ts`).
 
 ## If the core lacks something
 

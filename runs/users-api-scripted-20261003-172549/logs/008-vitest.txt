@@ -1,0 +1,414 @@
+$ vitest run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09 --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09
+
+ ❯ test/users.test.ts (27 tests | 23 failed) 52ms
+   ❯ POST /v1/users (12)
+     × creates a user: 201, Location header, role defaults to member 20ms
+     × accepts an explicit role 5ms
+     × returns 409 when the email already exists 1ms
+     × rejects an invalid body (missing email) with a 422 problem 1ms
+     × rejects an invalid body (invalid email) with a 422 problem 1ms
+     × rejects an invalid body (empty name) with a 422 problem 1ms
+     × rejects an invalid body (name over 100 characters) with a 422 problem 1ms
+     × rejects an invalid body (unknown role) with a 422 problem 1ms
+     × rejects an invalid body (unknown property) with a 422 problem 1ms
+     ✓ rejects malformed JSON with a 400 problem 2ms
+     × honours Idempotency-Key: same key and body replays the first response 2ms
+     × rejects reuse of an Idempotency-Key with a different body (422) 1ms
+   ❯ GET /v1/users (4)
+     × is cursor-paginated: following nextCursor visits every user once 1ms
+     × defaults limit to 20 1ms
+     × allows limit up to 100 and rejects anything outside 1..100 with a 422 problem 1ms
+     × rejects a cursor it did not issue with a 422 problem 1ms
+   ❯ GET /v1/users/:userId (3)
+     × returns the user 1ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     × answers a malformed id with a 422 problem 1ms
+   ❯ PATCH /v1/users/:userId (5)
+     × updates only the given fields 1ms
+     × returns 409 when changing the email to one that already exists 1ms
+     × allows keeping the same email 1ms
+     × rejects an empty or invalid patch with a 422 problem 1ms
+     ✓ answers an unknown id with a 404 problem 1ms
+   ❯ DELETE /v1/users/:userId (3)
+     × deletes the user: 204 with no body, then 404 1ms
+     × frees the email for reuse 1ms
+     ✓ answers an unknown id with a 404 problem 1ms
+
+ Test Files  1 failed (1)
+      Tests  23 failed | 4 passed (27)
+   Start at  22:25:54
+   Duration  249ms (import 51%, tests 32%, transform 15%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 23 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > POST /v1/users > creates a user: 201, Location header, role defaults to member
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:46:24
+     44|     const email = uniqueEmail();
+     45|     const res = await request(app).post('/v1/users').send({ email, nam…
+     46|     expect(res.status).toBe(201);
+       |                        ^
+     47|     const user = UserBody.parse(res.body);
+     48|     expect(res.headers['location']).toBe(`/v1/users/${user.id}`);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/23]⎯
+
+ FAIL  test/users.test.ts > POST /v1/users > accepts an explicit role
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:53:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/23]⎯
+
+ FAIL  test/users.test.ts > POST /v1/users > returns 409 when the email already exists
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:57:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/23]⎯
+
+ FAIL  test/users.test.ts > POST /v1/users > rejects an invalid body (missing email) with a 422 problem
+ FAIL  test/users.test.ts > POST /v1/users > rejects an invalid body (invalid email) with a 422 problem
+ FAIL  test/users.test.ts > POST /v1/users > rejects an invalid body (empty name) with a 422 problem
+ FAIL  test/users.test.ts > POST /v1/users > rejects an invalid body (name over 100 characters) with a 422 problem
+ FAIL  test/users.test.ts > POST /v1/users > rejects an invalid body (unknown role) with a 422 problem
+ FAIL  test/users.test.ts > POST /v1/users > rejects an invalid body (unknown property) with a 422 problem
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/users.test.ts:27:22
+     25|
+     26| function expectProblem(res: Response, status: number) {
+     27|   expect(res.status).toBe(status);
+       |                      ^
+     28|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     29|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/users.test.ts:70:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/23]⎯
+
+ FAIL  test/users.test.ts > POST /v1/users > honours Idempotency-Key: same key and body replays the first response
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:82:26
+     80|     const first = await request(app).post('/v1/users').set('Idempotenc…
+     81|     const second = await request(app).post('/v1/users').set('Idempoten…
+     82|     expect(first.status).toBe(201);
+       |                          ^
+     83|     expect(second.status).toBe(201);
+     84|     expect(second.headers['idempotent-replayed']).toBe('true');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/23]⎯
+
+ FAIL  test/users.test.ts > POST /v1/users > rejects reuse of an Idempotency-Key with a different body (422)
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:90:114
+     88|   it('rejects reuse of an Idempotency-Key with a different body (422)'…
+     89|     const key = randomUUID();
+     90|     await request(app).post('/v1/users').set('Idempotency-Key', key).s…
+       |                                                                                                                  ^
+     91|     expectProblem(await request(app).post('/v1/users').set('Idempotenc…
+     92|   });
+ ❯ Test._assertStatus ../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/23]⎯
+
+ FAIL  test/users.test.ts > GET /v1/users > is cursor-paginated: following nextCursor visits every user once
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:97:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/23]⎯
+
+ FAIL  test/users.test.ts > GET /v1/users > defaults limit to 20
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:115:37
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/23]⎯
+
+ FAIL  test/users.test.ts > GET /v1/users > allows limit up to 100 and rejects anything outside 1..100 with a 422 problem
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:122:82
+    120|
+    121|   it('allows limit up to 100 and rejects anything outside 1..100 with …
+    122|     expect((await request(app).get('/v1/users').query({ limit: '100' }…
+       |                                                                                  ^
+    123|     expectProblem(await request(app).get('/v1/users').query({ limit: '…
+    124|     expectProblem(await request(app).get('/v1/users').query({ limit: '…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/23]⎯
+
+ FAIL  test/users.test.ts > GET /v1/users > rejects a cursor it did not issue with a 422 problem
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/users.test.ts:27:22
+     25|
+     26| function expectProblem(res: Response, status: number) {
+     27|   expect(res.status).toBe(status);
+       |                      ^
+     28|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     29|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/users.test.ts:128:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/23]⎯
+
+ FAIL  test/users.test.ts > GET /v1/users/:userId > returns the user
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:134:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/23]⎯
+
+ FAIL  test/users.test.ts > GET /v1/users/:userId > answers a malformed id with a 422 problem
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/users.test.ts:27:22
+     25|
+     26| function expectProblem(res: Response, status: number) {
+     27|   expect(res.status).toBe(status);
+       |                      ^
+     28|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     29|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/users.test.ts:146:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/23]⎯
+
+ FAIL  test/users.test.ts > PATCH /v1/users/:userId > updates only the given fields
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:152:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/23]⎯
+
+ FAIL  test/users.test.ts > PATCH /v1/users/:userId > returns 409 when changing the email to one that already exists
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:161:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/23]⎯
+
+ FAIL  test/users.test.ts > PATCH /v1/users/:userId > allows keeping the same email
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:166:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/23]⎯
+
+ FAIL  test/users.test.ts > PATCH /v1/users/:userId > rejects an empty or invalid patch with a 422 problem
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:171:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/23]⎯
+
+ FAIL  test/users.test.ts > DELETE /v1/users/:userId > deletes the user: 204 with no body, then 404
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:183:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/23]⎯
+
+ FAIL  test/users.test.ts > DELETE /v1/users/:userId > frees the email for reuse
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createUser test/users.test.ts:38:22
+     36|     .post('/v1/users')
+     37|     .send({ email: uniqueEmail(), name: 'Ada Lovelace', ...body });
+     38|   expect(res.status).toBe(201);
+       |                      ^
+     39|   return UserBody.parse(res.body);
+     40| }
+ ❯ test/users.test.ts:192:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/23]⎯
+
+
+--- json ---
+{"numTotalTestSuites":6,"numPassedTestSuites":0,"numFailedTestSuites":6,"numPendingTestSuites":0,"numTotalTests":27,"numPassedTests":4,"numFailedTests":23,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791048354298,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users creates a user: 201, Location header, role defaults to member","status":"failed","title":"creates a user: 201, Location header, role defaults to member","duration":20.044667000000004,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:46:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users accepts an explicit role","status":"failed","title":"accepts an explicit role","duration":5.060541000000001,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:53:13\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users returns 409 when the email already exists","status":"failed","title":"returns 409 when the email already exists","duration":1.4285409999999956,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:57:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users rejects an invalid body (missing email) with a 422 problem","status":"failed","title":"rejects an invalid body (missing email) with a 422 problem","duration":1.3621249999999918,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:27:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:70:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users rejects an invalid body (invalid email) with a 422 problem","status":"failed","title":"rejects an invalid body (invalid email) with a 422 problem","duration":1.3727079999999887,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:27:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:70:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users rejects an invalid body (empty name) with a 422 problem","status":"failed","title":"rejects an invalid body (empty name) with a 422 problem","duration":1.1834580000000017,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:27:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:70:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users rejects an invalid body (name over 100 characters) with a 422 problem","status":"failed","title":"rejects an invalid body (name over 100 characters) with a 422 problem","duration":1.0236250000000098,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:27:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:70:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users rejects an invalid body (unknown role) with a 422 problem","status":"failed","title":"rejects an invalid body (unknown role) with a 422 problem","duration":0.9034170000000188,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:27:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:70:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users rejects an invalid body (unknown property) with a 422 problem","status":"failed","title":"rejects an invalid body (unknown property) with a 422 problem","duration":1.0768340000000194,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:27:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:70:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users rejects malformed JSON with a 400 problem","status":"passed","title":"rejects malformed JSON with a 400 problem","duration":2.0876659999999845,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users honours Idempotency-Key: same key and body replays the first response","status":"failed","title":"honours Idempotency-Key: same key and body replays the first response","duration":1.5195420000000013,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:82:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/users"],"fullName":"POST /v1/users rejects reuse of an Idempotency-Key with a different body (422)","status":"failed","title":"rejects reuse of an Idempotency-Key with a different body (422)","duration":1.3203749999999843,"failureMessages":["Error: expected 201 \"Created\", got 404 \"Not Found\"\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:90:114\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)\n----\n    at Test._assertStatus (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13\n    at Test._assertFunction (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13)\n    at Test.assert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23)\n    at localAssert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38)\n    at Server.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13)\n    at Object.onceWrapper (node:events:630:28)\n    at Server.emit (node:events:509:28)\n    at emitCloseNT (node:net:2661:8)\n    at processTicksAndRejections (node:internal/process/task_queues:89:21)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/users"],"fullName":"GET /v1/users is cursor-paginated: following nextCursor visits every user once","status":"failed","title":"is cursor-paginated: following nextCursor visits every user once","duration":0.8721250000000111,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:97:22\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/users"],"fullName":"GET /v1/users defaults limit to 20","status":"failed","title":"defaults limit to 20","duration":0.7718749999999943,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:115:37\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/users"],"fullName":"GET /v1/users allows limit up to 100 and rejects anything outside 1..100 with a 422 problem","status":"failed","title":"allows limit up to 100 and rejects anything outside 1..100 with a 422 problem","duration":1.2298749999999927,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:122:82\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/users"],"fullName":"GET /v1/users rejects a cursor it did not issue with a 422 problem","status":"failed","title":"rejects a cursor it did not issue with a 422 problem","duration":0.7875000000000227,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:27:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:128:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/users/:userId"],"fullName":"GET /v1/users/:userId returns the user","status":"failed","title":"returns the user","duration":0.9203329999999994,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:134:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/users/:userId"],"fullName":"GET /v1/users/:userId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":1.110791000000006,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/users/:userId"],"fullName":"GET /v1/users/:userId answers a malformed id with a 422 problem","status":"failed","title":"answers a malformed id with a 422 problem","duration":0.9792909999999893,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:27:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:146:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/users/:userId"],"fullName":"PATCH /v1/users/:userId updates only the given fields","status":"failed","title":"updates only the given fields","duration":0.8145000000000095,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:152:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/users/:userId"],"fullName":"PATCH /v1/users/:userId returns 409 when changing the email to one that already exists","status":"failed","title":"returns 409 when changing the email to one that already exists","duration":0.7315409999999929,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:161:21\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/users/:userId"],"fullName":"PATCH /v1/users/:userId allows keeping the same email","status":"failed","title":"allows keeping the same email","duration":0.8270000000000266,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:166:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/users/:userId"],"fullName":"PATCH /v1/users/:userId rejects an empty or invalid patch with a 422 problem","status":"failed","title":"rejects an empty or invalid patch with a 422 problem","duration":0.8107919999999922,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:171:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/users/:userId"],"fullName":"PATCH /v1/users/:userId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":0.6600410000000068,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["DELETE /v1/users/:userId"],"fullName":"DELETE /v1/users/:userId deletes the user: 204 with no body, then 404","status":"failed","title":"deletes the user: 204 with no body, then 404","duration":0.7559589999999901,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:183:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["DELETE /v1/users/:userId"],"fullName":"DELETE /v1/users/:userId frees the email for reuse","status":"failed","title":"frees the email for reuse","duration":0.7338330000000042,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:38:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts:192:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["DELETE /v1/users/:userId"],"fullName":"DELETE /v1/users/:userId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":0.6493340000000103,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791048354479,"endTime":1791048354530.6494,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-96324-ad106c09/test/users.test.ts"}]}

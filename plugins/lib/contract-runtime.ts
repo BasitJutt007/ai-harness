@@ -8,6 +8,9 @@
  * response emits). Zod is resolved from the API root so the API's own zod
  * instance does the conversion; the harness's zod is the fallback.
  * Prints exactly one result line starting with {"contractRuntime":1, then exits.
+ * Runs inside the OS sandbox (contract.ts passes the policy) and is only handed modules whose import
+ * closure is unchanged since the base commit or declarative Zod (schema-purity.ts): agent code that
+ * could fake the measurement is never imported here.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -16,6 +19,8 @@ import { pathToFileURL } from 'node:url';
 import { z as harnessZ } from 'zod';
 
 type ToJson = (schema: unknown, opts: Record<string, unknown>) => unknown;
+/** A fresh, empty metadata registry of the same zod instance (see convert()). */
+type NewRegistry = () => unknown;
 
 interface SchemaResult {
   module: string;
@@ -33,16 +38,23 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function toJsonFrom(mod: unknown): ToJson | undefined {
+function zodFrom(mod: unknown): { toJson: ToJson; registry: NewRegistry } | undefined {
   if (!isRecord(mod)) return undefined;
-  const candidates: unknown[] = [mod.toJSONSchema, isRecord(mod.z) ? mod.z.toJSONSchema : undefined];
-  if (isRecord(mod.default)) candidates.push(mod.default.toJSONSchema);
+  const candidates: unknown[] = [mod, mod.z, mod.default];
   for (const c of candidates) {
-    if (typeof c === 'function') {
-      const fn = c;
-      return (schema, opts) => {
-        const out: unknown = Reflect.apply(fn, undefined, [schema, opts]);
-        return out;
+    if (!isRecord(c)) continue;
+    const fn = c.toJSONSchema;
+    const reg = c.registry;
+    if (typeof fn === 'function' && typeof reg === 'function') {
+      return {
+        toJson: (schema, opts) => {
+          const out: unknown = Reflect.apply(fn, undefined, [schema, opts]);
+          return out;
+        },
+        registry: () => {
+          const out: unknown = Reflect.apply(reg, undefined, []);
+          return out;
+        },
       };
     }
   }
@@ -50,7 +62,7 @@ function toJsonFrom(mod: unknown): ToJson | undefined {
 }
 
 /** Find the API's zod package and import its ESM entry (the one the API's own modules load). */
-async function loadZod(apiRoot: string): Promise<{ toJson: ToJson; source: string }> {
+async function loadZod(apiRoot: string): Promise<{ toJson: ToJson; registry: NewRegistry; source: string }> {
   try {
     const req = createRequire(join(apiRoot, 'package.json'));
     let dir = dirname(req.resolve('zod'));
@@ -77,8 +89,8 @@ async function loadZod(apiRoot: string): Promise<{ toJson: ToJson; source: strin
         entry = pkg.module;
       }
       const mod: unknown = await import(pathToFileURL(join(dirname(pkgFile), entry)).href);
-      const toJson = toJsonFrom(mod);
-      if (toJson !== undefined) return { toJson, source: pkgFile };
+      const found = zodFrom(mod);
+      if (found !== undefined) return { ...found, source: pkgFile };
     }
   } catch {
     // fall through to the harness's zod
@@ -88,6 +100,7 @@ async function loadZod(apiRoot: string): Promise<{ toJson: ToJson; source: strin
       const out: unknown = Reflect.apply(harnessZ.toJSONSchema, undefined, [schema, opts]);
       return out;
     },
+    registry: () => harnessZ.registry(),
     source: 'harness',
   };
 }
@@ -104,8 +117,13 @@ function parseRefs(file: string): Array<{ module: string; exportName: string }> 
   return refs;
 }
 
-function convert(toJson: ToJson, schema: unknown, io: 'input' | 'output'): Record<string, unknown> {
-  const out = toJson(schema, { io, unrepresentable: 'any' });
+/**
+ * JSON Schema of `schema` as accepted (io 'input') or emitted (io 'output'). The metadata registry is a
+ * fresh empty one: `.meta({ enum: [...] })` would otherwise be merged into the output and let a schema
+ * describe itself wider than it parses.
+ */
+function convert(zod: { toJson: ToJson; registry: NewRegistry }, schema: unknown, io: 'input' | 'output'): Record<string, unknown> {
+  const out = zod.toJson(schema, { io, unrepresentable: 'any', metadata: zod.registry() });
   if (!isRecord(out)) throw new Error('conversion did not return an object');
   const copy: Record<string, unknown> = { ...out };
   delete copy.$schema;
@@ -134,8 +152,8 @@ async function main(argv: string[]): Promise<void> {
       if (!isRecord(schema) || !('_zod' in schema || '_def' in schema)) {
         throw new Error(`export ${ref.exportName} of ${ref.module} is not a Zod schema`);
       }
-      result.input = convert(zod.toJson, schema, 'input');
-      result.output = convert(zod.toJson, schema, 'output');
+      result.input = convert(zod, schema, 'input');
+      result.output = convert(zod, schema, 'output');
     } catch (e) {
       result.error = errMsg(e).split('\n')[0] ?? 'error';
     }

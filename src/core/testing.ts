@@ -5,18 +5,31 @@
  * report and turns it into one TestObservation per test file. Whether a red
  * counts (validRed) is decided here, deterministically, never by the model.
  *
- * The child runs agent-written code, so its home/config directories point at
- * a throw-away directory: tests cannot read the operator's ~/.config/gh,
- * ~/.aws, ~/.npmrc or ~/.ssh.
+ * Each observation also carries per-case evidence (TestObservation.cases): the cases
+ * are parsed statically from the exact file content that was hashed and joined with
+ * the runner's per-case results. A red only counts when a failing case uses code
+ * imported from src/ and asserts on something other than constants.
+ *
+ * The child runs agent-written code: it runs sandboxed (writes only to a per-run temp
+ * dir, network only to localhost; the API root is read-only, so test code cannot edit
+ * source or tests behind the hooked write tools' back), and its home/config/temp
+ * directories point at that throw-away directory: tests cannot read the operator's
+ * ~/.config/gh, ~/.aws, ~/.npmrc or ~/.ssh.
  */
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { glob } from 'tinyglobby';
 import { safeEnv } from './exec.ts';
-import type { Exec, LogStore, TestObservation, TestRunReport } from './types.ts';
+import { graphFiles, importGraph, reachesSource, resolveSpecifier, staticTestCases } from './testmap.ts';
+import type { ImportGraph, StaticTestCase } from './testmap.ts';
+import type { Exec, LogStore, TestCaseObservation, TestObservation, TestRunReport } from './types.ts';
 
 const VITEST_TIMEOUT_MS = 300_000;
+/** Where vitest's JSON reporter writes: the exec channel (fd 3), a pipe only the vitest process itself holds. */
+export const REPORT_CHANNEL = '/dev/fd/3';
 const MAX_SUMMARY_FAILURES = 10;
 const MAX_MESSAGE_CHARS = 160;
 /** Cap of TestRunReport.console (the runner's own console output). */
@@ -45,17 +58,27 @@ export async function runVitest(opts: {
   turn: number;
 }): Promise<TestRunReport> {
   const files = checkFileArgs(opts.root, opts.files ?? []);
-  const tmpDir = join(opts.harnessRoot, '.harness', 'tmp', `vitest-${Date.now()}-${randomBytes(4).toString('hex')}`);
+  // Under the OS temp dir, never inside the harness repo: nothing the confined child can write lives next to plugin code.
+  const tmpDir = await mkdtemp(join(tmpdir(), 'harness-vitest-'));
   const home = join(tmpDir, 'home');
   await mkdir(home, { recursive: true });
-  const outFile = join(tmpDir, 'report.json');
   const vitest = join(opts.harnessRoot, 'node_modules', '.bin', 'vitest');
   // Both reporters: the console one is what a developer sees (the honest raw return), JSON is what we parse.
-  const args = ['run', '--root', opts.root, '--reporter=default', '--reporter=json', `--outputFile.json=${outFile}`, ...files];
+  // The JSON report travels over a private pipe on vitest's fd 3 (REPORT_CHANNEL), never through a file:
+  // test workers (forced to child processes) and anything they spawn do not inherit that descriptor, so
+  // agent code cannot rewrite the report between vitest writing it and the harness reading it.
+  const args = ['run', '--root', opts.root, '--configLoader', 'runner', '--pool=forks', '--reporter=default', '--reporter=json',
+    `--outputFile.json=${REPORT_CHANNEL}`, ...files];
   try {
-    const res = await opts.exec(vitest, args, { cwd: opts.root, env: runnerEnv(home), timeoutMs: VITEST_TIMEOUT_MS });
-    const json = await readFile(outFile, 'utf8').catch(() => null);
-    const consoleText = consoleOutput(res.stdout, res.stderr, outFile);
+    const res = await opts.exec(vitest, args, {
+      cwd: opts.root,
+      env: runnerEnv(home, tmpDir),
+      timeoutMs: VITEST_TIMEOUT_MS,
+      sandbox: { writable: [tmpDir], network: 'localhost' },
+      channel: true,
+    });
+    const json = res.channel !== undefined && res.channel.trim() !== '' ? res.channel : null;
+    const consoleText = consoleOutput(res.stdout, res.stderr, REPORT_CHANNEL);
     const logPath = await opts.logs.write(
       'vitest',
       [`$ vitest ${args.join(' ')}`, `exit: ${String(res.code)}${res.timedOut ? ' (timed out)' : ''}`,
@@ -75,9 +98,10 @@ export async function runVitest(opts: {
       };
     }
     const at = new Date().toISOString();
+    const graph = await sourceGraph(opts.root);
     const observations: TestObservation[] = [];
-    for (const fr of parsed) observations.push(await observe(opts.root, fr, opts.turn, at));
-    return { ...buildReport(opts.root, parsed, observations, logPath), console: consoleText };
+    for (const fr of parsed) observations.push(await observe(opts.root, fr, opts.turn, at, graph));
+    return { ...buildReport(opts.root, parsed, observations, logPath, consoleText), console: consoleText };
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -115,10 +139,12 @@ const HOME_POINTERS = [
 
 /**
  * Child env: credentials stripped, no colour, no leaked vitest worker state from a parent vitest,
- * and HOME / USERPROFILE / XDG_* pointing at a fresh throw-away directory.
+ * HOME / USERPROFILE / XDG_* pointing at a fresh throw-away directory, and TMPDIR / TMP / TEMP
+ * at the per-run temp dir (the only place the confined runner may write).
  */
-export function runnerEnv(home: string): NodeJS.ProcessEnv {
+export function runnerEnv(home: string, tmp?: string): NodeJS.ProcessEnv {
   const env = safeEnv({
+    ...(tmp !== undefined ? { TMPDIR: tmp, TMP: tmp, TEMP: tmp } : {}),
     NO_COLOR: '1',
     FORCE_COLOR: '0',
     HOME: home,
@@ -190,26 +216,101 @@ export function parseReport(json: string): VitestFileResult[] | null {
   return out;
 }
 
-async function observe(root: string, fr: VitestFileResult, turn: number, at: string): Promise<TestObservation> {
+/** Import graph of the API root's .ts files as they are on disk after the run (for "does this import reach src/?"). */
+async function sourceGraph(root: string): Promise<ImportGraph> {
+  const listed = await glob(['**/*.ts', '**/*.mts', '**/*.cts'], { cwd: root, ignore: ['**/node_modules/**', '**/.git/**'] }).catch(() => []);
+  return importGraph(graphFiles(listed), (f) => readFile(join(root, f), 'utf8').catch(() => null));
+}
+
+async function observe(root: string, fr: VitestFileResult, turn: number, at: string, graph: ImportGraph): Promise<TestObservation> {
   const file = relPath(root, fr.name);
   const content = await readFile(resolve(root, file)).catch(() => null);
   const hash = createHash('sha256').update(content ?? '').digest('hex');
   const collected = fr.assertionResults.length;
   const failed = fr.assertionResults.filter((a) => a.status === 'failed').length;
   const loadError = collected === 0 && (fr.status === 'failed' || fr.message !== '');
+  // Static cases come from the very bytes that were hashed above.
+  const statics = staticTestCases(file, (content ?? Buffer.alloc(0)).toString('utf8'), {
+    resolve: (spec) => resolveSpecifier(file, spec, graph.existing),
+    reachesSource: (target) => reachesSource(target, graph.edges),
+  });
+  const cases = joinCases(statics, fr.assertionResults, loadError);
+  const base = { file, hash, collected, failed, turn, at, cases };
   if (failed > 0) {
-    return { file, hash, status: 'fail', collected, failed, validRed: true, reason: `${failed} of ${collected} tests failed`, turn, at };
+    const counts = cases.some((c) => c.status === 'fail' && countsAsRed(c));
+    const why = `${failed} of ${collected} tests failed`;
+    return { ...base, status: 'fail', validRed: counts, reason: counts ? why : `${why}; ${rejectedFailures(cases)}` };
   }
   if (loadError || fr.status === 'failed') {
     const missing = missingSourceModule(root, fr.message);
     if (missing !== null) {
-      return { file, hash, status: 'error', collected, failed, validRed: true,
-        reason: `imports ${missing}, which does not exist yet`, turn, at };
+      const why = `imports ${missing}, which does not exist yet`;
+      const counts = cases.some(countsAsRed);
+      return { ...base, status: 'error', validRed: counts, reason: counts ? why : `${why}; ${rejectedCases(cases)}` };
     }
     const msg = shortMessage(root, fr.message) || 'suite failed to load';
-    return { file, hash, status: 'error', collected, failed, validRed: false, reason: `suite error: ${msg}`, turn, at };
+    return { ...base, status: 'error', validRed: false, reason: `suite error: ${msg}` };
   }
-  return { file, hash, status: 'pass', collected, failed, validRed: false, reason: `${collected} tests passed`, turn, at };
+  return { ...base, status: 'pass', validRed: false, reason: `${collected} tests passed` };
+}
+
+/** A case whose failure can count as red: an expect() subject uses a value from src/ and is not a constant. */
+export function countsAsRed(c: TestCaseObservation): boolean {
+  return c.exercisesSource && !c.constantOnly;
+}
+
+/** Why the failing cases of a run do not count as red. */
+function rejectedFailures(cases: TestCaseObservation[]): string {
+  const failing = cases.filter((c) => c.status === 'fail');
+  if (failing.length === 0) return 'red rejected: the failing tests could not be matched to a test case in the file (use literal titles)';
+  if (failing.every((c) => c.constantOnly)) return 'red rejected: the failing cases only assert constants';
+  if (failing.every((c) => !c.exercisesSource)) {
+    return "red rejected: the failing cases do not assert on anything imported from src/ (an expect() subject must use its value; side-effect imports, void x and typeof x don't count)";
+  }
+  return 'red rejected: no failing case both asserts on something imported from src/ and has a non-constant subject';
+}
+
+/** Why a missing-module red does not count: no case would exercise the missing code. */
+function rejectedCases(cases: TestCaseObservation[]): string {
+  if (cases.every((c) => !c.exercisesSource)) {
+    return "red rejected: no test case uses anything imported from src/ (side-effect imports don't count)";
+  }
+  return 'red rejected: the test cases that use src/ only assert constants';
+}
+
+const RUNTIME_STATUS: Record<string, TestCaseObservation['status']> = { passed: 'pass', failed: 'fail' };
+
+/**
+ * Join static cases with the runner's per-case results. Exact keys ("describe > ... > title")
+ * pair up in order; a table/dynamic case takes the leftover results its pattern matches, and a
+ * result that two patterns match is attributed to neither. A case with no result is 'skip'
+ * (not observed); every case of a file that failed to load is 'error'.
+ */
+export function joinCases(statics: StaticTestCase[], results: VitestAssertion[], loadError: boolean): TestCaseObservation[] {
+  const keyed = results.map((a) => ({ key: [...a.ancestorTitles, a.title].join(' > '), status: RUNTIME_STATUS[a.status] ?? 'skip', used: false }));
+  const assigned = statics.map((): Array<TestCaseObservation['status']> => []);
+  statics.forEach((s, i) => {
+    if (!('exact' in s.match)) return;
+    const hit = keyed.find((k) => !k.used && 'exact' in s.match && k.key === s.match.exact);
+    if (hit === undefined) return;
+    hit.used = true;
+    assigned[i]?.push(hit.status);
+  });
+  for (const k of keyed.filter((x) => !x.used)) {
+    const owners = statics.flatMap((s, i) => ('pattern' in s.match && s.match.pattern.test(k.key) ? [i] : []));
+    const owner = owners[0];
+    if (owners.length === 1 && owner !== undefined) assigned[owner]?.push(k.status);
+  }
+  return statics.map((s, i) => {
+    const seen = assigned[i] ?? [];
+    const status: TestCaseObservation['status'] = loadError ? 'error'
+      : seen.includes('fail') ? 'fail'
+        : seen.length > 0 && seen.every((x) => x === 'pass') ? 'pass'
+          : 'skip';
+    const c: TestCaseObservation = { name: s.name, status, exercisesSource: s.exercisesSource, constantOnly: s.constantOnly };
+    if (s.bodyHash !== undefined) c.bodyHash = s.bodyHash;
+    return c;
+  });
 }
 
 /**
@@ -248,7 +349,44 @@ export function missingSourceModule(root: string, message: string): string | nul
   return null;
 }
 
-function buildReport(root: string, files: VitestFileResult[], observations: TestObservation[], logPath: string): TestRunReport {
+/**
+ * Where a suite that failed to load broke, from the runner's console output: the first
+ * in-project stack frame (src/ or test/) after `file`'s failure header and `message`, plus the
+ * source line the runner prints for it, e.g. `at src/routes/index.ts:10:7  app.use(usersRouter);`.
+ * A load error with a location is actionable; the bare message usually is not. Null when the
+ * console names no such frame, or has no failure header for `file` (a capped console may have
+ * dropped it), or the message is not inside that file's own block.
+ */
+export function errorLocation(consoleText: string, file: string, message: string): string | null {
+  const head = firstLine(stripAnsi(message));
+  if (head === '') return null;
+  const header = consoleText.search(new RegExp(`FAIL\\s+${escapeRegExp(file)}\\b`));
+  // No header for this file (e.g. the console cap dropped it): any frame found would belong to another file's failure.
+  if (header < 0) return null;
+  const at = consoleText.indexOf(head, header);
+  // The message must sit in the file's own block: before the next separator line after its header.
+  const sep = /\n\s*⎯/g;
+  sep.lastIndex = header;
+  const end = sep.exec(consoleText)?.index ?? consoleText.length;
+  if (at < 0 || at > end) return null;
+  const block = consoleText.slice(at, at + 4000).split('\n');
+  for (let i = 1; i < block.length; i += 1) {
+    const line = block[i] ?? '';
+    if (/^\s*⎯/.test(line) || /^\s*FAIL\s/.test(line)) break; // next failure block
+    // `❯ fn src/a.ts:1:2`, `❯ new UsersService src/a.ts:1:2` (a constructor frame) or a bare `❯ src/a.ts:1:2`.
+    const loc = /❯\s+(?:new\s+)?(?:\S+\s+)?((?:src|test)\/[^\s:]+:(\d+):\d+)\s*$/.exec(line);
+    if (loc?.[1] === undefined) continue;
+    const code = block.slice(i + 1, i + 8).map((l) => /^\s*(\d+)\|\s?(.*)$/.exec(l)).find((m) => m?.[1] === loc[2])?.[2]?.trim();
+    return `at ${loc[1]}${code !== undefined && code.length > 0 ? `  ${clip(code)}` : ''}`;
+  }
+  return null;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildReport(root: string, files: VitestFileResult[], observations: TestObservation[], logPath: string, consoleText = ''): TestRunReport {
   let tests = 0;
   let passed = 0;
   let failed = 0;
@@ -266,8 +404,11 @@ function buildReport(root: string, files: VitestFileResult[], observations: Test
       failLines.push(`FAIL ${rel} > ${title}: ${clip(stripRoot(root, msg))}`);
     }
   }
+  const messages = new Map(files.map((fr) => [relPath(root, fr.name), fr.message]));
   for (const o of observations) {
-    if (o.status === 'error') errorLines.push(`ERROR ${o.file}: ${clip(o.reason)}${o.validRed ? ' (valid red)' : ''}`);
+    if (o.status !== 'error') continue;
+    const where = errorLocation(consoleText, o.file, messages.get(o.file) ?? '');
+    errorLines.push(`ERROR ${o.file}: ${clip(o.reason)}${where !== null ? ` (${where})` : ''}${o.validRed ? ' (valid red)' : ''}`);
   }
   const errors = observations.filter((o) => o.status === 'error').length;
   const skipped = tests - passed - failed;

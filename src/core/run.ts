@@ -12,9 +12,11 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { formatGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { runAgent, type AgentResult, type AgentStatus } from './loop.ts';
-import { compactTree, frontLoad, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
+import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
 import { loadRegistry, pluginFingerprint, toolSpecs } from './registry.ts';
 import { deserializeState, newRunId, newRunState, RunStore, serializeState } from './run-store.ts';
+import { isolationHonesty, isolationInfo, isolationUnavailable, setSandboxMode } from './sandbox.ts';
+import { saveInitial } from './initial.ts';
 import { createServices } from './services.ts';
 import { loadTask } from './task.ts';
 import { TokenLedger, type TokenReport } from './tokens.ts';
@@ -112,6 +114,7 @@ export function buildContext(opts: {
     harnessRoot: opts.run.harnessRoot,
     taskKind: opts.task.kind,
     baseSha: opts.run.baseSha,
+    runDir: opts.run.runDir,
   });
   return {
     run: opts.run,
@@ -219,12 +222,17 @@ export async function scaffold(templatesDir: string, template: string, dest: str
   if (existsSync(pkg)) await writeFile(pkg, (await readFile(pkg, 'utf8')).replaceAll('__API_NAME__', apiName), 'utf8');
 }
 
-async function snapshotHashes(ws: Workspace): Promise<Map<string, string>> {
+/** Hash of every file at run start; the TypeScript files' content is kept under <runDir>/initial (revert check). */
+async function snapshotHashes(ws: Workspace, runDir: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();
+  const contents = new Map<string, string>();
   for (const f of (await ws.list(['**/*'])).sort()) {
     const content = await ws.read(f);
-    if (content !== null) out.set(f, sha256(content));
+    if (content === null) continue;
+    out.set(f, sha256(content));
+    contents.set(f, content);
   }
+  await saveInitial(runDir, contents);
   return out;
 }
 
@@ -295,6 +303,7 @@ export function honesty(task: Task, gates: NamedGateResult[], report: CheckRepor
   h.humanMustVerify.push(
     'behaviour semantics beyond the tests the agent wrote',
     'that the agent-written tests cover every listed behaviour',
+    'that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)',
     'persistence, performance, security and concurrency beyond what the tests exercise',
   );
   if (task.kind === 'brownfield') {
@@ -376,6 +385,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const run = opts.exec ?? exec;
   const dirs = evidenceDirs(loadConfig(HARNESS_ROOT), HARNESS_ROOT, { runsDir: opts.runsDir, tokensDir: opts.tokensDir });
   const config = withEvidenceDirs(loadConfig(HARNESS_ROOT), dirs);
+  setSandboxMode(config.sandbox);
+  // Fail closed before any worktree exists: agent code would have nothing to confine it.
+  const isolation = isolationInfo();
+  if (isolation.mode === 'auto' && isolation.mechanism === 'none') throw isolationUnavailable();
   const registry = await loadRegistryOrThrow(config);
   const loaded: LoadedTask = await loadTask(resolve(opts.taskFile));
   const task = loaded.task;
@@ -427,7 +440,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const runDir = join(dirs.runsDir, runId);
   const store = new RunStore(runDir, HARNESS_ROOT);
   const state = newRunState();
-  state.initialHashes = await snapshotHashes(ws);
+  state.initialHashes = await snapshotHashes(ws, store.runDir);
   const mode = opts.baseline ? BASELINE_MODE : JIT_MODE;
   const ctx = buildContext({
     run: {
@@ -479,6 +492,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     pluginFingerprint: pluginFingerprint(registry, { config, harnessRoot: HARNESS_ROOT }),
     toolsOffered: (offered ?? []).map((t) => t.name),
     checksRegistered: registry.checks.map((r) => r.plugin.id),
+    isolation,
   };
   store.writeJson('run.json', { ...runRecordBase, status: 'running' });
   if (dirty.length > 0) {
@@ -515,9 +529,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
         ctx.emit({ kind: 'error', source: 'testmap', message: `test map unavailable: ${errMsg(e)}` });
       }
     }
+    const api = task.kind === 'greenfield' ? await scaffoldApiOf(ws) : undefined;
     const first = {
       role: 'user' as const,
-      parts: [{ type: 'text' as const, text: taskBrief(task, testMapText !== undefined ? { tree, testMap: testMapText } : { tree }) }],
+      parts: [{ type: 'text' as const, text: taskBrief(task, { tree, ...(testMapText !== undefined ? { testMap: testMapText } : {}), ...(api !== undefined ? { scaffoldApi: api } : {}) }) }],
     };
     agent = await runAgent({
       driver,
@@ -541,11 +556,19 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   ctx.run.model = finalModel;
   ledger.meta.model = finalModel;
 
+  // An operator stop (Ctrl-C / SIGTERM) that lands after the loop ended (e.g. while the finish
+  // gates ran, after `finish` was accepted) still stops the run: it is checked again before every
+  // slow post-loop step, and a stopped run is reported `aborted`, never ships, never exits 0.
+  const stopRequested = (): boolean => opts.signal?.aborted === true;
+  let abortedRun = agent.status === 'aborted' || stopRequested();
+  // Interim record: a hard kill during the final gates or checks leaves the loop's outcome, not `running`.
+  if (!abortedRun) store.writeJson('run.json', { ...runRecordBase, status: 'finalizing', loopStatus: agent.status, turns: agent.turns });
+
   // Fresh final gate run: never trust what the loop saw. Skipped (and reported UNPROVEN) after an abort.
-  const abortedRun = agent.status === 'aborted';
   const final: GateOutcome = abortedRun
     ? { ok: false, results: [], text: 'gates     not run: the run was aborted (UNPROVEN)', compact: '' }
     : await runGates(registry.gates, ctx, 'finish');
+  abortedRun ||= stopRequested();
   let report: CheckReport | null = null;
   if (abortedRun) {
     store.writeText('standards.txt', 'standards not run: the run was aborted (UNPROVEN)\n');
@@ -557,15 +580,23 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       store.writeText('standards.txt', `standards could not run: ${errMsg(e)}\n`);
     }
   }
+  abortedRun ||= stopRequested();
+  const status: AgentStatus = abortedRun ? 'aborted' : agent.status;
+  const error =
+    abortedRun && agent.status !== 'aborted'
+      ? `stopped by signal after the loop ended ${agent.status}${agent.error !== undefined ? ` (${agent.error})` : ''}`
+      : agent.error;
   store.writeJson('gates.json', { phase: 'finish', ok: final.ok, results: final.results });
   store.writeJson('state.json', serializeState(state));
   const tokensPath = ledger.write(dirs.tokensDir);
   const tokenReport = ledger.report();
-  const ok = agent.status === 'done' && final.ok;
+  const ok = status === 'done' && final.ok;
 
   let shipped: ShipOutcome | undefined;
   if (opts.ship) {
-    if (ok) {
+    if (abortedRun || stopRequested()) {
+      shipped = { status: 'refused', branch, reasons: ['stopped by signal'] };
+    } else if (ok) {
       try {
         const { ship } = await import('./ship.ts');
         shipped = await ship({ ctx, registry, dryRun: false, ...(opts.remote !== undefined ? { remote: opts.remote } : {}) });
@@ -577,8 +608,12 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     }
   }
 
-  const notes = abortedRun ? ['gates and checks: not run because the run was aborted'] : [];
+  const notes = abortedRun
+    ? [final.results.length > 0 || report !== null ? 'run stopped by signal after the loop ended: the remaining post-loop steps did not run' : 'gates and checks: not run because the run was aborted']
+    : [];
   const h = honesty(task, final.results, report, notes);
+  const iso = isolationHonesty(isolation);
+  (iso.proven ? h.proven : h.unproven).push(iso.line);
   const evidence = {
     runJson: harnessRel(join(runDir, 'run.json')),
     events: harnessRel(join(runDir, 'events.jsonl')),
@@ -591,11 +626,13 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   store.writeJson('run.json', {
     ...runRecordBase,
     model: finalModel,
+    tokenCounter: ledger.counterLabel(),
     ...(finalModel !== runRecordBase.model ? { initialModel: runRecordBase.model } : {}),
-    status: agent.status,
+    status,
+    ...(status !== agent.status ? { loopStatus: agent.status } : {}),
     ok,
     turns: agent.turns,
-    ...(agent.error !== undefined ? { error: agent.error } : {}),
+    ...(error !== undefined ? { error } : {}),
     finishedAt: new Date().toISOString(),
     finishAttempts: state.finishAttempts,
     gatesOk: final.ok,
@@ -610,11 +647,11 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const t = tokenReport.totals;
   const lines = [
     `run        ${runId}`,
-    `status     ${agent.status}  turns ${agent.turns}  finish attempts ${state.finishAttempts}  driver ${driver.name}  model ${finalModel}${opts.baseline ? '  (baseline mode)' : ''}`,
-    ...(agent.error !== undefined ? [`error      ${agent.error}`] : []),
-    `gates      fresh final run (phase finish): ${abortedRun ? 'not run' : final.ok ? 'all green' : 'NOT green'}`,
+    `status     ${status}  turns ${agent.turns}  finish attempts ${state.finishAttempts}  driver ${driver.name}  model ${finalModel}${opts.baseline ? '  (baseline mode)' : ''}`,
+    ...(error !== undefined ? [`error      ${error}`] : []),
+    `gates      fresh final run (phase finish): ${final.results.length === 0 && abortedRun ? 'not run' : final.ok ? 'all green' : 'NOT green'}`,
     ...(final.results.length > 0 ? formatGates(final.results, true).split('\n') : [final.text]),
-    `standards  ${standardsLine(report, abortedRun)}`,
+    `standards  ${standardsLine(report, abortedRun && report === null)}`,
     `tokens     actual ${t.actual_input_tokens}  baseline ${t.baseline_input_tokens}  reduction ${t.reduction_pct}%  over ${tokenReport.turns.length} turns  (output ${t.output_tokens}, provider-reported input ${t.provider_reported_input_tokens})`,
     `evidence   ${harnessRel(runDir)}/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}`,
     `           ${evidence.tokens}`,
@@ -622,14 +659,14 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     ...formatHonesty(h),
     ...(shipped !== undefined ? [`ship       ${shipped.status}${shipped.commit !== undefined ? ` ${shipped.commit.slice(0, 12)}` : ''}${shipped.prUrl !== undefined ? ` ${shipped.prUrl}` : ''}${shipped.reasons.length > 0 ? `: ${shipped.reasons.join('; ')}` : ''}`] : []),
     ...(abortedRun ? [`resume     the worktree and evidence are kept; 'harness ship ${runId} --dry-run' re-runs every gate fresh on it`] : []),
-    `verdict    ${ok ? 'DONE (all gates green)' : `NOT DONE (${agent.status !== 'done' ? `loop ended ${agent.status}` : 'final gates not green'})`}`,
+    `verdict    ${ok ? 'DONE (all gates green)' : `NOT DONE (${status !== 'done' ? (status !== agent.status ? 'stopped by signal' : `loop ended ${status}`) : 'final gates not green'})`}`,
   ];
   const text = lines.join('\n');
   log(text);
 
   return {
     runId,
-    status: agent.status,
+    status,
     ok,
     driver: driver.name,
     model: finalModel,
@@ -645,7 +682,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     tokensPath,
     honesty: h,
     ...(shipped !== undefined ? { ship: shipped } : {}),
-    ...(agent.error !== undefined ? { error: agent.error } : {}),
+    ...(error !== undefined ? { error } : {}),
     text,
   };
 }
@@ -677,6 +714,7 @@ export async function openRun(
 ): Promise<{ ctx: RunContext; registry: RegistryView; store: RunStore; record: RunRecord }> {
   const dirs = evidenceDirs(loadConfig(HARNESS_ROOT), HARNESS_ROOT, { runsDir: opts.runsDir, tokensDir: opts.tokensDir });
   const config = withEvidenceDirs(loadConfig(HARNESS_ROOT), dirs);
+  setSandboxMode(config.sandbox);
   const runDir = resolveRunDir(ref, dirs.runsDir);
   const registry = await loadRegistryOrThrow(config);
   const store = new RunStore(runDir, HARNESS_ROOT);

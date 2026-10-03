@@ -1,0 +1,34 @@
+run        projects-change-openai-20261003-185304
+status     max_turns  turns 40  finish attempts 0  driver openai  model gpt-5.4-mini
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  pass      contract preserved (4 → 4 endpoints, via runtime): no additive changes
+gate  observed-red   fail      no observed red in this run
+    Write test/<name>.test.ts for the behaviour, run it with run_tests and see it fail before changing source.
+gate  scope          pass      0 changed files, all in scope
+gate  standards      pass      verdict 100% (4 rules)
+gate  tests-green    pass      17/17 tests passed in 1 files
+standards  pass 100%  problem-json pass, rest-conventions pass, tsc-strict pass, zod-boundary pass
+tokens     actual 171861  baseline 1445390  reduction 88.1%  over 40 turns  (output 10263, provider-reported input 160918)
+evidence   runs/projects-change-openai-20261003-185304/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/projects-change-openai-20261003-185304.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-185304  branch harness/projects-change-openai-20261003-185304  (base main @ 701493dee56b; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/target-final-bf untouched)
+honesty
+  proven             gate:contract-lock
+                     gate:scope
+                     gate:standards
+                     gate:tests-green
+                     check:problem-json
+                     check:rest-conventions
+                     check:tsc-strict
+                     check:zod-boundary
+                     isolation:sandbox-exec (agent code: API root read-only, writes only to a per-call temp dir; network loopback only)
+  failed             gate:observed-red (no observed red in this run)
+  UNPROVEN           (none)
+  n/a                (none)
+  human must verify  behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+                     behaviour changes that keep the contract shape (the contract lock compares schemas and status codes only)
+verdict    NOT DONE (loop ended max_turns)
+exit=1

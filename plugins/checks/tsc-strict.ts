@@ -9,7 +9,7 @@ import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
 import { toPosix } from '../lib/api-ast.ts';
-import { findUnsafeCode } from '../lib/ts-safety.ts';
+import { findImplicitAny, findUnsafeCode } from '../lib/ts-safety.ts';
 
 const RULE = 'tsc-strict';
 const PROJECT = '(project)';
@@ -19,6 +19,9 @@ The API must type-check with: tsc --noEmit -p tsconfig.json --strict --noUncheck
 (the flags are forced even if tsconfig.json relaxes them), over src/ and test/.
 Banned in every .ts file under src/ and test/ (reported with file:line:col):
 - the \`any\` keyword (annotations, \`as any\`, generic arguments): use unknown and narrow, or a precise type
+- in src/ also \`any\` without the keyword (type checker): a variable, parameter, function result or type alias
+  whose type is any (e.g. \`type T = ReturnType<typeof JSON.parse>\`, \`const x = JSON.parse(s)\`, an untyped
+  \`(err, req, res, next) =>\` parameter), and member access or calls on an any-typed value
 - non-null assertions \`expr!\` and definite-assignment assertions (\`id!: string\`, \`let x!: T\`): check for null/undefined explicitly, or initialise
 - @ts-ignore, @ts-expect-error, @ts-nocheck comments: fix the error instead
 Indexed access is \`T | undefined\` under noUncheckedIndexedAccess: handle the undefined case.
@@ -104,10 +107,23 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
     if (d.file === null) projectViolations.push({ location: d.location, message: d.message });
     else add(d.file, { location: d.location, message: d.message });
   }
+  const keywordAny = new Set<string>();
   for (const file of [...ctx.sourceFiles, ...ctx.testFiles]) {
     const text = await ctx.read(file);
     for (const v of findUnsafeCode(resolve(ctx.root, file), text)) {
       add(file, { location: `${file}:${v.line}:${v.col}`, message: v.message });
+      if (v.kind === 'any') keywordAny.add(`${file}:${v.line}`);
+    }
+  }
+  // `any` without the keyword (ReturnType<typeof JSON.parse>, an unannotated JSON.parse result, an untyped
+  // callback parameter): found with the type checker, in production code (tests may read untyped library
+  // values such as supertest's res.body).
+  const program = ctx.program();
+  for (const file of ctx.sourceFiles) {
+    const sf = program.getSourceFile(resolve(ctx.root, file));
+    if (sf === undefined) continue;
+    for (const v of findImplicitAny(program, sf)) {
+      if (!keywordAny.has(`${file}:${v.line}`)) add(file, { location: `${file}:${v.line}:${v.col}`, message: v.message });
     }
   }
   const findings: CheckFinding[] = [...byFile.entries()]

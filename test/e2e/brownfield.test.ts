@@ -1,8 +1,9 @@
 /**
  * E2E brownfield on a committed throwaway copy of samples/existing-api:
  *  (b) projects-change.json — additive change: done, contract-lock pass, standards 100%.
- *  (d) projects-breaking.json — tests kept green but a response property removed:
- *      contract-lock fails, finish is refused, the run is not done.
+ *  (d) projects-breaking.json — an appended red test goes green and no existing test
+ *      changes, but POST stops accepting status "archived": contract-lock fails,
+ *      finish is refused, the run is not done.
  */
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -83,12 +84,12 @@ describe('(d) breaking change with green tests: projects-breaking.json', () => {
     for (const e of lockEvents) expect(e.decision).toBe('block');
   });
 
-  it('final status is not done; contract-lock fails with the removed property; tests stay green', () => {
+  it('final status is not done; contract-lock fails with the narrowed enum; tests stay green', () => {
     expect(s.status).not.toBe('done');
     expect(s.ok).toBe(false);
     const byGate = Object.fromEntries(s.gates.map((g) => [g.gate, g]));
     expect(byGate['contract-lock']?.status).toBe('fail');
-    expect((byGate['contract-lock']?.details ?? []).join('\n')).toMatch(/description/);
+    expect((byGate['contract-lock']?.details ?? []).join('\n')).toMatch(/status\s+enum loses values: "archived"/);
     expect(byGate['tests-green']?.status).toBe('pass');
     expect(byGate['observed-red']?.status).toBe('pass');
     const r = readRunJson(s.runDir);

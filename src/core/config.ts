@@ -37,6 +37,8 @@ const ConfigSchema = z
       })
       .strict()
       .default({ maxReadLines: 160, maxListEntries: 200, maxSearchHits: 40 }),
+    // Isolation of agent-written code (src/core/sandbox.ts). HARNESS_SANDBOX=off|auto overrides it.
+    sandbox: z.enum(['auto', 'off']).default('auto'),
   })
   .strict();
 

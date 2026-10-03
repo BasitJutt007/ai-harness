@@ -1,0 +1,245 @@
+{
+  "runId": "projects-change-openai-20261003-190028",
+  "taskFile": "/Users/abdulbasit/Documents/GitHub/ai-harness/tasks/projects-change.task.yaml",
+  "task": {
+    "id": "projects-change",
+    "kind": "brownfield",
+    "sha256": "5989d7c7716a48454801be7c511e81e42082d625dfbb580a70d96bc3ad798ad3",
+    "file": "tasks/projects-change.task.yaml"
+  },
+  "driver": "openai",
+  "model": "gpt-5.4-mini",
+  "tokenCounter": "js-tiktoken o200k_base (local, OpenAI chat format)",
+  "mode": {
+    "jit": true,
+    "compactReturns": true,
+    "compactHistory": true
+  },
+  "startedAt": "2026-10-03T19:00:28.570Z",
+  "targetRepo": "/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/target-final-bf2",
+  "worktreeRoot": "/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190028",
+  "rootRel": "samples/existing-api",
+  "apiRoot": "/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190028/samples/existing-api",
+  "branch": "harness/projects-change-openai-20261003-190028",
+  "baseBranch": "main",
+  "baseSha": "86fbbdb2e1cbc6a721458dcaaa07946046ac718e",
+  "pluginFingerprint": {
+    "plugins/checks/problem-json.ts": "d25647120c020e9ff5725bed5dddedd22b365354399038f8cffa0e088837d3b4",
+    "plugins/checks/rest-conventions.ts": "c89b5b638ed9ff28cf49a36c37edc2388a0250869809d0022b20c5b1797195c8",
+    "plugins/checks/tsc-strict.ts": "90bc54acdc909e0a68d65ba908f75e954073b2195e51b287acc7924f31dc4248",
+    "plugins/checks/zod-boundary.ts": "1c7215d4589f6060659c7832eb933044bb76ba62d2bfb2032ac3ea6dadad685f",
+    "plugins/gates/contract-lock.ts": "e0adafe233da0f9ea8c40002cffeaee6f43b7ac23cadcfd810fb0bc3952d702a",
+    "plugins/gates/observed-red.ts": "9814494dc74f3ee6bb78c870ef3c47a369cfc685e508d759542c47be486abfad",
+    "plugins/gates/scope.ts": "c27e4b4784492596d8108d357101ebb358a335244aed69ee04d9c3f79cadbbaf",
+    "plugins/gates/secrets.ts": "a7032581a922d5276ac64c0a820c0e7f0803e45cd000b6a790c04b97feaaec11",
+    "plugins/gates/standards.ts": "d92061389f8d2866b10b96850a38b16a25d8bcd59f5ad56a11b8002b7ced173a",
+    "plugins/gates/tests-green.ts": "f8000f1a65fd89d52ed23004c6098613755c597bfe3aeaa2ef9d0c4503093eda",
+    "plugins/hooks/observed-red.ts": "bebe41c7a7f120b4698b8347e6a083bbb789cff0aa69286552c4b4eda5e7a9a0",
+    "plugins/hooks/path-guard.ts": "57f64a2d471e0f8886b53a3522373424847c82a6a9209780b2e70b483a8ff6ee",
+    "plugins/hooks/secret-guard.ts": "5b0826e119dbadcb5a0288d5b0cb6a29b56861ada6075c287afc102448aea1f8",
+    "plugins/hooks/source-boundary.ts": "1aeb28da01472f6923c2dcd274c06729c4f067bde96888b002e471a3e23aa956",
+    "plugins/hooks/test-preservation.ts": "d7a83d702e11d9802073525d818b2911fd8d01a2ad860005d38e79a480f92cf8",
+    "plugins/hooks/unsafe-code-guard.ts": "b90427c6e154cc1f6b07fc53fe765c5fb5d30d99e1e48b8cc7cb551909240081",
+    "plugins/lib/api-ast.ts": "8e7c67c34d59b3573a42e519f1b59b519eb0e81f645ca631064f57571a6933a4",
+    "plugins/lib/contract-runtime.ts": "33665f19aafca89cc9016fdf7f6a2beafda3a2721711cbc5baf2aa3f803a2974",
+    "plugins/lib/contract.ts": "4c82561dd5836394c5061d95b3ec5bce7802c60db1a808bbe8883f3202870d8f",
+    "plugins/lib/diff.ts": "18724c4413c1abcde88e8b15595fec694ae65026b0ec5912e55d3aab39f51954",
+    "plugins/lib/path-policy.ts": "2891f60d524246b777be2949114b6927b4e81da5fdbe499da291e9bd1922db5a",
+    "plugins/lib/plugin-helpers.ts": "53f798358c34ed5a7fa59f37d7918bb28ae2dce855f99033f8828d1477135c7b",
+    "plugins/lib/probe-runtime.ts": "b16670cc1f2f2de723f338e60116a1d917ecc591c209fef93afcf841f69905ea",
+    "plugins/lib/probe.ts": "2b70f802d544a0bb367a8d776afb473575ffb579a7a378dbdcc076f3ef52b574",
+    "plugins/lib/red.ts": "4a07aec493f59223e35b947681159b0dacb1d8e9c9361cac88ed3fac157c6e12",
+    "plugins/lib/schema-purity.ts": "d7c7a3fc452b6c5318eefcd66b3d77dd75561b262fe18fd74b6146a7928c0bb0",
+    "plugins/lib/secrets.ts": "dc9108f09c2b44952b36d2f963d2553c59611a3895521caba0f94f863d424f76",
+    "plugins/lib/tokenize.ts": "759cca0e4ac694c6e0af1c626b19a9f3f244d6c6a6bebb626eb65d1a2306b2c9",
+    "plugins/lib/ts-safety.ts": "1b879db2bdbbc9e859469d203ff6e5f9c488449d0fea859040b1cce157dd2ef8",
+    "plugins/tools/append_file.ts": "2342e286691c2aa7545ba26131aa74ba75675f9180ea98c395a10f535c5fba0e",
+    "plugins/tools/check_standards.ts": "246aa43b315e51af1a40470db40fef19dcc747e4956ff07b12bce2dee1438ea9",
+    "plugins/tools/contract_diff.ts": "23ab95edf859d3e17fe84783d00b7c79c76db728a43a129663b3039564755a97",
+    "plugins/tools/edit_file.ts": "e8cc23df050ab4bce99b6d519182faee3cbc748de3e28aad178d707df58bff4a",
+    "plugins/tools/fetch_standard.ts": "48135a9efdf47fb2dbfa90b94d8fdc364646cc0c6cb31481c88f927b030ed764",
+    "plugins/tools/finish.ts": "85c6dfec3bea66f83698b56eca4e927f6c63a9a672f7893cdeeac720111a5677",
+    "plugins/tools/list_files.ts": "bfacc1bb4f24aac395210c789ff4f08f92c6e684492c1642b5d37088ec925fd7",
+    "plugins/tools/outline.ts": "5abecb24c320071fb5facdfabbe799225bedc5d9e69a798e9dc30488d8252454",
+    "plugins/tools/plan.ts": "1be1e3bb17b429d0e569dd0e5ff97328bfc75d72279a1a9d6305d0fb9825bea7",
+    "plugins/tools/read_file.ts": "2ca52a89263839b265f6b2c684143760d9336a6990d7e18f055349f8ce007399",
+    "plugins/tools/run_tests.ts": "c5762ed7c50bc1915e270a3455feec498fff0606fa21493bac8c9f7e12bb3b97",
+    "plugins/tools/search_code.ts": "3945daf015359971e1de1b48b3c95151b1973cc29acf08f3b9366ef889f09703",
+    "plugins/tools/test_map.ts": "b4f568bbd7860e0b019ed1517c6acf36c10bbeb19901b106c19cd0bc56f53cce",
+    "plugins/tools/write_file.ts": "f6af2128921ba07685be59de8b0c57e2f26f90239d0d792489b8e4f86f81804c"
+  },
+  "toolsOffered": [
+    "append_file",
+    "check_standards",
+    "contract_diff",
+    "edit_file",
+    "fetch_standard",
+    "finish",
+    "list_files",
+    "outline",
+    "plan",
+    "read_file",
+    "run_tests",
+    "search_code",
+    "test_map",
+    "write_file"
+  ],
+  "checksRegistered": [
+    "problem-json",
+    "rest-conventions",
+    "tsc-strict",
+    "zod-boundary"
+  ],
+  "isolation": {
+    "mode": "auto",
+    "mechanism": "sandbox-exec",
+    "policy": "agent code: API root read-only, writes only to a per-call temp dir; network loopback only"
+  },
+  "status": "max_turns",
+  "ok": false,
+  "turns": 40,
+  "finishedAt": "2026-10-03T19:01:32.075Z",
+  "finishAttempts": 0,
+  "gatesOk": false,
+  "gates": [
+    {
+      "gate": "contract-lock",
+      "status": "pass",
+      "summary": "contract preserved (4 → 5 endpoints, via runtime): 2 additive (GET /v1/projects query.status: new optional property; DELETE /v1/projects/:projectId: new route)",
+      "logPath": "runs/projects-change-openai-20261003-190028/logs/005-contract-diff.txt"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "1 red observations (1 test files); 3 changed source files went red -> green on unchanged cases, red again with the original source"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "4 changed files, all in scope"
+    },
+    {
+      "gate": "standards",
+      "status": "fail",
+      "summary": "verdict 86%",
+      "details": [
+        "problem-json      FAIL  (runtime)                        9/10 error paths",
+        "    src/modules/projects/routes.ts:34:1  DELETE /v1/projects/00000000-0000-4000-8000-000000000000 (unknown id): expected status 404 or 422, got 500",
+        "tsc-strict        FAIL  src/modules/projects/routes.ts   4 errors",
+        "    src/modules/projects/routes.ts:37:21  TS2345: Argument of type 'Response<any, Record<string, any>, number>' is not assignable to parameter of type 'string'.",
+        "    src/modules/projects/routes.ts:39:8  TS2552: Cannot find name 'deleteProject'. Did you mean 'getProject'?",
+        "    src/modules/projects/routes.ts:40:21  TS2345: Argument of type 'Response<any, Record<string, any>, number>' is not assignable to parameter of type 'string'.",
+        "    src/modules/projects/routes.ts:39:8  `deleteProject` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type",
+        "tsc-strict        FAIL  (project)                        0 errors",
+        "zod-boundary      FAIL  src/modules/projects/routes.ts   4/5 handlers",
+        "    src/modules/projects/routes.ts:37:21  DELETE /v1/projects/:projectId: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler",
+        "    src/modules/projects/routes.ts:40:21  DELETE /v1/projects/:projectId: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler",
+        "────────────────────────────────────────────────────────────",
+        "problem-json      FAIL    28/29 error paths",
+        "rest-conventions  pass     5/5 routes",
+        "tsc-strict        FAIL     4 errors",
+        "zod-boundary      FAIL     4/5 handlers",
+        "verdict           86%     → failing: problem-json, tsc-strict, zod-boundary"
+      ]
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "3 of 21 tests failed in 1 files",
+      "details": [
+        "tests: 3 failed, 18 passed (21) in 1 files",
+        "FAIL test/projects.test.ts > DELETE /v1/projects/:projectId > deletes a project and returns 204 with no body: expected 500 to be 204 // Object.is equality",
+        "FAIL test/projects.test.ts > DELETE /v1/projects/:projectId > answers a malformed id with a 422 problem: Error: Test timed out in 5000ms.",
+        "FAIL test/projects.test.ts > GET /v1/projects with status filters > filters archived and active projects before paginating: expected [ …(3) ] to deeply equal [ …(2) ]"
+      ],
+      "logPath": "runs/projects-change-openai-20261003-190028/logs/010-vitest.txt"
+    }
+  ],
+  "standards": {
+    "verdict": {
+      "status": "fail",
+      "percent": 86
+    },
+    "rules": [
+      {
+        "rule": "problem-json",
+        "category": "standards",
+        "unit": "error paths",
+        "status": "fail",
+        "passed": 28,
+        "total": 29,
+        "files": 7
+      },
+      {
+        "rule": "rest-conventions",
+        "category": "standards",
+        "unit": "routes",
+        "status": "pass",
+        "passed": 5,
+        "total": 5,
+        "files": 1
+      },
+      {
+        "rule": "tsc-strict",
+        "category": "standards",
+        "unit": "errors",
+        "status": "fail",
+        "passed": 0,
+        "total": 4,
+        "files": 2
+      },
+      {
+        "rule": "zod-boundary",
+        "category": "standards",
+        "unit": "handlers",
+        "status": "fail",
+        "passed": 4,
+        "total": 5,
+        "files": 1
+      }
+    ]
+  },
+  "tokens": {
+    "actual_input_tokens": 180284,
+    "baseline_input_tokens": 1279048,
+    "reduction_pct": 85.9,
+    "provider_reported_input_tokens": 168291,
+    "output_tokens": 2966,
+    "turns": 40,
+    "path": "tokens/projects-change-openai-20261003-190028.json"
+  },
+  "evidence": {
+    "runJson": "runs/projects-change-openai-20261003-190028/run.json",
+    "events": "runs/projects-change-openai-20261003-190028/events.jsonl",
+    "transcript": "runs/projects-change-openai-20261003-190028/transcript.jsonl",
+    "gates": "runs/projects-change-openai-20261003-190028/gates.json",
+    "standards": "runs/projects-change-openai-20261003-190028/standards.txt",
+    "state": "runs/projects-change-openai-20261003-190028/state.json",
+    "tokens": "tokens/projects-change-openai-20261003-190028.json"
+  },
+  "honesty": {
+    "proven": [
+      "gate:contract-lock",
+      "gate:observed-red",
+      "gate:scope",
+      "check:rest-conventions",
+      "isolation:sandbox-exec (agent code: API root read-only, writes only to a per-call temp dir; network loopback only)"
+    ],
+    "failed": [
+      "gate:standards (verdict 86%)",
+      "gate:tests-green (3 of 21 tests failed in 1 files)",
+      "check:problem-json (28/29 error paths)",
+      "check:tsc-strict (0/4 errors)",
+      "check:zod-boundary (4/5 handlers)"
+    ],
+    "unproven": [],
+    "notApplicable": [],
+    "humanMustVerify": [
+      "behaviour semantics beyond the tests the agent wrote",
+      "that the agent-written tests cover every listed behaviour",
+      "that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)",
+      "persistence, performance, security and concurrency beyond what the tests exercise",
+      "behaviour changes that keep the contract shape (the contract lock compares schemas and status codes only)"
+    ]
+  }
+}

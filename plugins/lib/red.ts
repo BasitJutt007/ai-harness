@@ -2,6 +2,10 @@
  * "Observed red" predicate shared by the observed-red hook, the observed-red
  * gate and the test_map tool.
  *
+ * R.validRed is decided by the harness's runner (src/core/testing.ts): a failing
+ * case whose expect() subject uses a value imported from src/ and is not a constant, or a
+ * missing src/ module that such a case imports.
+ *
  * A red observation R of test T counts for a source file S iff R.validRed and
  *   - R saw an assertion fail (status 'fail'), or
  *   - R is a missing-module red and S did not exist when the run started
@@ -16,23 +20,30 @@
  * Editing T without re-running it always re-locks (neither (a) nor (b) holds).
  */
 import { createHash } from 'node:crypto';
+import { posix } from 'node:path';
+import { isTestFile, isTestSupport } from '../../src/core/plugin-api.ts';
 import type { RunContext, RunState, TestObservation } from '../../src/core/plugin-api.ts';
+
+/** The core's single definition: runnable test = *.test|spec.(c|m)?ts; test support = any other file under test/. */
+export { isTestFile, isTestSupport };
 
 export function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
-/** Test files: anything under test/, or *.test.ts / *.spec.ts anywhere. */
-export function isTestFile(rel: string): boolean {
-  return rel.startsWith('test/') || /\.(test|spec)\.[cm]?ts$/.test(rel);
-}
-
 /**
- * Source files the observed-red rule governs: every non-test TypeScript file
- * (src/** and anything else a broad brownfield scope allows, e.g. scripts/x.ts).
+ * Source files the observed-red rule governs: every TypeScript file that is neither a
+ * runnable test nor test support (src/** and anything else a broad brownfield scope
+ * allows, e.g. scripts/x.ts).
  */
 export function isGovernedSource(rel: string): boolean {
-  return /\.[cm]?ts$/.test(rel) && !rel.endsWith('.d.ts') && !isTestFile(rel);
+  return /\.[cm]?ts$/.test(rel) && !rel.endsWith('.d.ts') && !isTestFile(rel) && !isTestSupport(rel);
+}
+
+/** The runnable test file to suggest for a source file: test/<name>.test.ts. */
+export function suggestedTest(source: string): string {
+  const name = posix.basename(source).replace(/\.[cm]?ts$/, '');
+  return `test/${name === 'index' ? posix.basename(posix.dirname(source)) || 'index' : name}.test.ts`;
 }
 
 /** scratch key: governed files the observed-red hook has let through in this run. */
@@ -82,6 +93,8 @@ export interface TestRedStatus {
   fresh: boolean;
   /** Status of the latest run, if any. */
   lastStatus?: TestObservation['status'];
+  /** The latest run's reason when it failed without counting as red (e.g. "red rejected: …"). */
+  rejected?: string;
 }
 
 export interface LockState {
@@ -111,6 +124,7 @@ export async function testRedStatus(ctx: RunContext, test: string, source?: stri
     fresh: latest !== undefined && currentHash !== null && latest.hash === currentHash,
   };
   if (latest) status.lastStatus = latest.status;
+  if (latest !== undefined && latest.status !== 'pass' && !latest.validRed) status.rejected = latest.reason;
   return status;
 }
 
@@ -131,7 +145,9 @@ export function describeTest(t: TestRedStatus): string {
       ? 'red observed on an earlier version'
       : t.loadRedOnly
         ? 'only a missing-module red (does not count for a file that already existed)'
-        : `no red observed (last run: ${t.lastStatus ?? 'unknown'})`,
+        : t.rejected !== undefined
+          ? `no valid red (last run: ${t.rejected})`
+          : `no red observed (last run: ${t.lastStatus ?? 'unknown'})`,
   ];
   parts.push(t.fresh ? 'unchanged since last run' : 'edited since last run');
   return parts.join(', ');
@@ -142,8 +158,9 @@ export function lockedReason(lock: LockState): string {
   const { path } = lock;
   if (lock.tests.length === 0) {
     return (
-      `${path} is locked: no test covers it. Write a test under test/ that imports it ` +
-      `(e.g. import from '../${path}'), run it with run_tests to observe it fail, then edit ${path}.`
+      `${path} is locked: no test covers it. Write ${suggestedTest(path)} that imports what it tests ` +
+      `(e.g. import { … } from '../${path}'; a side-effect import does not count), run it with run_tests ` +
+      `and observe a case that uses it fail on a real assertion, then edit ${path}.`
     );
   }
   const lines = lock.tests.map((t) => `  ${t.test}: ${describeTest(t)}`);
@@ -158,8 +175,8 @@ export function lockedReason(lock: LockState): string {
       `Create the missing module(s) first, then run run_tests { "files": ${files} } again to observe an assertion fail.`;
   } else {
     next =
-      `Next: add or change a test in ${lock.tests[0]?.test ?? 'a covering test'} that fails for the missing behaviour, ` +
-      `then run run_tests { "files": ${files} } to observe red.`;
+      `Next: add or change a case in ${lock.tests[0]?.test ?? suggestedTest(path)} that asserts on a value imported from src/ and ` +
+      `fails on a non-constant assertion for the missing behaviour, then run run_tests { "files": ${files} } to observe red.`;
   }
   return [`${path} is locked: no covering test has an observed red at its current content.`, 'Covering tests:', ...lines, next].join('\n');
 }

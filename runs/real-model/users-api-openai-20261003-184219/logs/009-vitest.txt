@@ -1,0 +1,43 @@
+$ vitest run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184219/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/lib/errors.test.ts test/lib/problem.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184219/generated/users-api
+
+ ✓ test/lib/problem.test.ts (7 tests) 22ms
+ ❯ test/lib/errors.test.ts (7 tests | 1 failed) 39ms
+   ❯ createApp error handling (7)
+     ✓ answers unknown routes with a 404 problem 16ms
+     ✓ answers malformed JSON with a 400 problem 9ms
+     ✓ maps a ZodError to a 422 problem listing each issue 4ms
+     ✓ passes valid bodies through 2ms
+     ✓ sends a thrown HttpProblem with its own status 2ms
+     ✓ hides unexpected errors behind a 500 problem without a stack 3ms
+     × does not leave createApp with a no-op router 3ms
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 13 passed (14)
+   Start at  23:43:08
+   Duration  247ms (import 65%, tests 20%, transform 14%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/lib/errors.test.ts > createApp error handling > does not leave createApp with a no-op router
+AssertionError: expected 404 not to be 404 // Object.is equality
+ ❯ test/lib/errors.test.ts:89:28
+     87|   it('does not leave createApp with a no-op router', async () => {
+     88|     const res = await request(createApp()).get('/v1/users');
+     89|     expect(res.status).not.toBe(404);
+       |                            ^
+     90|   });
+     91| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":4,"numPassedTestSuites":2,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":14,"numPassedTests":13,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791052988262,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers unknown routes with a 404 problem","status":"passed","title":"answers unknown routes with a 404 problem","duration":15.517624999999981,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers malformed JSON with a 400 problem","status":"passed","title":"answers malformed JSON with a 400 problem","duration":9.071416999999997,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling maps a ZodError to a 422 problem listing each issue","status":"passed","title":"maps a ZodError to a 422 problem listing each issue","duration":4.040042,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling passes valid bodies through","status":"passed","title":"passes valid bodies through","duration":1.9699999999999989,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling sends a thrown HttpProblem with its own status","status":"passed","title":"sends a thrown HttpProblem with its own status","duration":1.9761249999999961,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling hides unexpected errors behind a 500 problem without a stack","status":"passed","title":"hides unexpected errors behind a 500 problem without a stack","duration":3.262750000000011,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling does not leave createApp with a no-op router","status":"failed","title":"does not leave createApp with a no-op router","duration":2.7125000000000057,"failureMessages":["AssertionError: expected 404 not to be 404 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184219/generated/users-api/test/lib/errors.test.ts:89:28\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791052988469,"endTime":1791052988507.7124,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184219/generated/users-api/test/lib/errors.test.ts"},{"assertionResults":[{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":2.6232080000000053,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.17300000000000182,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.13154099999999858,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.11050000000000182,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers accepts a custom problem type slug","status":"passed","title":"accepts a custom problem type slug","duration":0.15016700000001038,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers turns an HttpProblem into a Problem with an instance","status":"passed","title":"turns an HttpProblem into a Problem with an instance","duration":1.851666999999992,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers sends a problem as application/problem+json","status":"passed","title":"sends a problem as application/problem+json","duration":16.01654099999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791052988462,"endTime":1791052988483.0166,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184219/generated/users-api/test/lib/problem.test.ts"}]}

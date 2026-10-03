@@ -7,7 +7,7 @@
  * `finish` runs the finish gates; only an all-green gate run ends the loop as `done`.
  */
 import { serializeState } from './run-store.ts';
-import { baselineView, jitView, messageChars, type TranscriptTurn } from './context.ts';
+import { baselineView, jitView, messageChars, repeatPointer, type RepeatRef, type TranscriptTurn } from './context.ts';
 import { runGates, type GateOutcome } from './gates.ts';
 import { runPostHooks, runPreHooks } from './hooks.ts';
 import type { TokenLedger } from './tokens.ts';
@@ -59,6 +59,8 @@ export interface RunAgentOptions {
   retryDelaysMs?: number[];
   /** Operator abort: checked before every turn and every tool call, and passed to driver.complete. */
   signal?: AbortSignal;
+  /** How the loop waits between attempts (default: a timer that an abort cuts short); a test seam. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
 
 export const RAW_LOG_THRESHOLD = 2048;
@@ -77,11 +79,66 @@ function firstLine(s: string): string {
   return (i === -1 ? s : s.slice(0, i)).slice(0, 200);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+/** Resolves after `ms`, or as soon as `signal` aborts. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((r) => {
+    if (signal?.aborted === true) return r();
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      r();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 class AbortedError extends Error {}
+
+/** The provider asked for a wait longer than RATE_LIMIT_MAX_WAIT_MS (a daily quota): stop instead of waiting. */
+class RateLimitStop extends Error {}
+
+/** Longest provider-requested wait the loop honours (per-minute limits); a longer one is a quota: stop. */
+export const RATE_LIMIT_MAX_WAIT_MS = 120_000;
+/** Cap on provider-requested waits per request (they do not consume the normal retry budget). */
+export const MAX_RATE_LIMIT_WAITS = 30;
+
+/** `6h56m35.8s`, `37.6s`, `1m30s`, `250ms` → ms; null when the text is not such a duration. */
+function durationMs(text: string): number | null {
+  const m = /^(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m(?!s))?(?:(\d+(?:\.\d+)?)s)?(?:(\d+(?:\.\d+)?)ms)?$/.exec(text);
+  if (m === null || text.length === 0) return null;
+  const [h, min, sec, ms] = [m[1], m[2], m[3], m[4]].map((v) => (v === undefined ? 0 : Number(v)));
+  return Math.ceil(((h ?? 0) * 3600 + (min ?? 0) * 60 + (sec ?? 0)) * 1000 + (ms ?? 0));
+}
+
+/**
+ * The wait a rate-limit error asks for, in ms, or null when it names none: a structured
+ * `"retryDelay": "37s"`, a `retry in 37.6s` / `retry in 6h56m35s` sentence, a
+ * `Retry-After: 37` (seconds) header echoed in the message, or an echoed
+ * `X-RateLimit-Reset` epoch timestamp (ms or s; the wait is the time left until it, at least 0).
+ */
+export function providerRetryDelayMs(message: string, now: number = Date.now()): number | null {
+  const structured = /"retryDelay"\s*:\s*"([\d.hms]+)"/.exec(message)?.[1];
+  const sentence = /retry (?:in|after) ((?:\d+(?:\.\d+)?(?:h|ms|m|s))+)/i.exec(message)?.[1];
+  for (const d of [structured, sentence]) {
+    const v = d === undefined ? null : durationMs(d);
+    if (v !== null) return v;
+  }
+  const header = /retry-after["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)\b/i.exec(message)?.[1];
+  if (header !== undefined) return Math.ceil(Number(header) * 1000);
+  // Only an epoch timestamp (>= 1e9 s): a small number could be a delta or a count, so it names no wait.
+  const reset = /x-ratelimit-reset[\\"']*\s*[:=]\s*[\\"']*(\d{10,13})\b/i.exec(message)?.[1];
+  if (reset === undefined) return null;
+  const n = Number(reset);
+  const resetMs = n >= 1e12 ? n : n * 1000;
+  return Math.max(0, Math.ceil(resetMs - now));
+}
+
+/** A thrown driver error that is a rate limit (HTTP 429 or the usual wording). */
+export function isRateLimit(e: unknown): boolean {
+  const status = typeof e === 'object' && e !== null && 'status' in e ? e.status : undefined;
+  return status === 429 || /\b429\b|rate.?limit|RESOURCE_EXHAUSTED|quota/i.test(errMsg(e));
+}
 
 /** A function (not an inline property read) so TypeScript does not narrow `aborted` across awaits. */
 function isAborted(signal: AbortSignal | undefined): boolean {
@@ -94,28 +151,44 @@ async function completeWithRetry(
   delays: number[],
   ctx: RunContext,
   signal: AbortSignal | undefined,
+  wait: (ms: number, signal?: AbortSignal) => Promise<void>,
 ): Promise<ModelResponse> {
   let attempt = 0;
+  let rateWaits = 0;
   for (;;) {
     try {
       return await driver.complete(req, signal);
     } catch (e) {
       if (isAborted(signal)) throw new AbortedError('aborted during driver.complete');
+      // A rate limit that names its wait: honour a short one (per-minute limits) outside the
+      // normal retry budget; a long one (a daily quota) will not clear in this run: stop.
+      const asked = isRateLimit(e) ? providerRetryDelayMs(errMsg(e)) : null;
+      if (asked !== null && asked > RATE_LIMIT_MAX_WAIT_MS) {
+        throw new RateLimitStop(`rate limited: the provider asked to retry in ${Math.round(asked / 1000)}s, longer than the ${RATE_LIMIT_MAX_WAIT_MS / 1000}s the harness waits: ${errMsg(e)}`);
+      }
+      if (asked !== null && rateWaits < MAX_RATE_LIMIT_WAITS) {
+        rateWaits += 1;
+        ctx.emit({ kind: 'note', source: 'driver', message: `rate limited: the provider asked to retry in ${Math.ceil(asked / 1000)}s; waiting (${rateWaits}/${MAX_RATE_LIMIT_WAITS})` });
+        await wait(asked + 1000, signal);
+        if (isAborted(signal)) throw new AbortedError('aborted while waiting out a rate limit');
+        continue;
+      }
       const delay = delays[attempt];
       if (delay === undefined) throw e;
       attempt += 1;
       ctx.emit({ kind: 'error', source: 'driver', message: `complete failed (attempt ${attempt}): ${errMsg(e)}; retrying in ${delay} ms` });
-      await sleep(delay);
+      await wait(delay, signal);
       if (isAborted(signal)) throw new AbortedError('aborted while waiting to retry');
     }
   }
 }
 
-async function countOrEstimate(driver: Driver, req: ModelRequest, ctx: RunContext, label: string): Promise<number> {
+async function countOrEstimate(driver: Driver, req: ModelRequest, ctx: RunContext, label: string, ledger?: TokenLedger): Promise<number> {
   try {
     return await driver.countTokens(req);
   } catch (e) {
     const est = Math.ceil((req.system.length + messageChars(req.messages)) / 4);
+    ledger?.noteEstimated();
     ctx.emit({ kind: 'error', source: 'driver', message: `countTokens(${label}) failed: ${errMsg(e)}; estimated ${est} from chars/4` });
     return est;
   }
@@ -128,6 +201,8 @@ interface CallOutcome {
   logPath?: string;
   /** Set when the call was an accepted request to finish (gates ran). */
   finish?: GateOutcome;
+  /** Canonical API-relative paths a successful write call touched (write-effect tools only). */
+  written?: string[];
 }
 
 function formatIssues(issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }>): string {
@@ -203,7 +278,8 @@ async function executeCall(
   } catch (e) {
     result = { ok: false, summary: `tool ${tool.name} failed: ${errMsg(e)}` };
   }
-  if (tool.effect === 'write' && result.ok) for (const p of writtenPaths(result, paths, ctx)) ctx.state.written.add(p);
+  const written = tool.effect === 'write' && result.ok ? writtenPaths(result, paths, ctx) : undefined;
+  for (const p of written ?? []) ctx.state.written.add(p);
 
   const post = await runPostHooks(ctx.registry.hooks, info, result, ctx);
   const notes = [...pre.notes, ...post.notes].map((n) => `[${n.hook}] ${n.note}`);
@@ -245,7 +321,67 @@ async function executeCall(
     part: { type: 'tool_result', callId: call.id, content: visible, isError },
     raw,
     ...(logPath !== undefined ? { logPath } : {}),
+    ...(written !== undefined ? { written } : {}),
   };
+}
+
+/** Key-order-independent JSON (models emit the same arguments in different key orders). */
+export function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
+  if (typeof v === 'object' && v !== null) {
+    const rec = v as Record<string, unknown>;
+    return `{${Object.keys(rec).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(rec[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v) ?? 'null';
+}
+
+/** A call and its result as the model will see them in the next request. */
+export interface VisibleCall {
+  turn: number;
+  call: ToolCallPart;
+  result: ToolResultPart;
+  /** Set when that result is itself a repeat pointer. */
+  ref?: RepeatRef;
+  /** Full content of the result (the pointed-to content for a pointer). */
+  content: string;
+}
+
+/**
+ * A read call whose freshly executed, model-visible result is byte-identical to the result of
+ * an identical call (same tool, canonical JSON input) that the next request still shows: where
+ * the full content lives. The read always ran, so a file changed by a write (even earlier in the
+ * same turn) or by code run during tests is never mistaken for unchanged.
+ */
+export function findRepeat(call: ToolCallPart, content: string, visible: VisibleCall[], firstVisibleTurn: number): RepeatRef | null {
+  const key = canonicalJson(call.input);
+  for (let i = visible.length - 1; i >= 0; i -= 1) {
+    const v = visible[i];
+    if (v === undefined || v.result.isError || v.call.name !== call.name || v.content !== content) continue;
+    if (canonicalJson(v.call.input) !== key) continue;
+    const named = v.ref !== undefined && v.ref.turn >= firstVisibleTurn ? v.ref.turn : v.turn;
+    return { turn: named, source: v.ref?.source ?? { turn: v.turn, callId: v.call.id } };
+  }
+  return null;
+}
+
+function visibleCalls(t: TranscriptTurn, all: TranscriptTurn[]): VisibleCall[] {
+  const results = new Map<string, ToolResultPart>();
+  for (const p of t.results?.parts ?? []) if (p.type === 'tool_result') results.set(p.callId, p);
+  const out: VisibleCall[] = [];
+  for (const p of t.assistant.parts) {
+    if (p.type !== 'tool_call') continue;
+    const result = results.get(p.id);
+    if (result === undefined) continue;
+    const ref = t.repeats?.[p.id];
+    let content = result.content;
+    if (ref !== undefined) {
+      const src = all.find((x) => x.turn === ref.source.turn)?.results?.parts.find((x) => x.type === 'tool_result' && x.callId === ref.source.callId);
+      if (src === undefined || src.type !== 'tool_result') continue;
+      content = src.content;
+    }
+    out.push({ turn: t.turn, call: p, result, content, ...(ref !== undefined ? { ref } : {}) });
+  }
+  return out;
 }
 
 function offeredTools(ctx: RunContext, specs: ToolSpec[]): Map<string, ToolPlugin<unknown>> {
@@ -264,6 +400,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const baselineMode = !ctx.mode.jit && !ctx.mode.compactReturns && !ctx.mode.compactHistory;
   const keep = ctx.config.history.keepRecentTurns;
   const toolMap = offeredTools(ctx, tools);
+  const writeTools = [...toolMap.values()].filter((t) => t.effect === 'write').map((t) => t.name);
+  // Repeat pointers (JIT only): the turns the NEXT request shows verbatim are the current one and the keep-1 before it.
+  const repeatsOn = !baselineMode && (!ctx.mode.compactHistory || keep >= 1);
+  const shownBefore = ctx.mode.compactHistory ? Math.max(0, keep - 1) : Number.POSITIVE_INFINITY;
   const turns: TranscriptTurn[] = [];
   let idle = 0;
   let lastFinish: GateOutcome | undefined;
@@ -303,14 +443,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       let attribution = { frontLoadChars: 0, rawReturnChars: 0, historyChars: 0 };
       if (baselineMode) {
         actualReq = baselineReq;
-        actual = await countOrEstimate(driver, actualReq, ctx, 'actual');
+        actual = await countOrEstimate(driver, actualReq, ctx, 'actual', ledger);
         baseline = actual;
       } else {
         const fullMsgs = jitView(first, turns, keep, false);
-        const msgs = ctx.mode.compactHistory ? jitView(first, turns, keep, true) : fullMsgs;
+        const msgs = ctx.mode.compactHistory ? jitView(first, turns, keep, true, { writeTools }) : fullMsgs;
         actualReq = { system: opts.system, messages: msgs, tools, maxOutputTokens: opts.maxOutputTokens };
-        actual = await countOrEstimate(driver, actualReq, ctx, 'actual');
-        baseline = await countOrEstimate(driver, baselineReq, ctx, 'baseline');
+        actual = await countOrEstimate(driver, actualReq, ctx, 'actual', ledger);
+        baseline = await countOrEstimate(driver, baselineReq, ctx, 'baseline', ledger);
         attribution = {
           frontLoadChars: opts.baselineSystem.length - opts.system.length,
           rawReturnChars: messageChars(baselineMsgs) - messageChars(fullMsgs),
@@ -320,10 +460,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
 
       let response: ModelResponse;
       try {
-        response = await completeWithRetry(driver, actualReq, delays, ctx, opts.signal);
+        response = await completeWithRetry(driver, actualReq, delays, ctx, opts.signal, opts.sleep ?? sleep);
       } catch (e) {
         if (e instanceof AbortedError) return aborted(turn - 1);
-        const error = `driver.complete failed after ${delays.length + 1} attempts: ${errMsg(e)}`;
+        const error = e instanceof RateLimitStop ? `driver.complete stopped: ${e.message}` : `driver.complete failed after ${delays.length + 1} attempts: ${errMsg(e)}`;
         ctx.emit({ kind: 'error', source: 'driver', message: error });
         store.writeJson('state.json', serializeState(ctx.state));
         return withFinish({ status: 'error', turns: turn - 1, error });
@@ -376,6 +516,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       const parts: ToolResultPart[] = [];
       const raw: Record<string, string> = {};
       const logs: Record<string, string> = {};
+      const repeats: Record<string, RepeatRef> = {};
+      const written: Record<string, string[]> = {};
+      const earlier = repeatsOn ? turns.slice(Math.max(0, turns.length - Math.min(turns.length, shownBefore))) : [];
+      const visible: VisibleCall[] = earlier.flatMap((t) => visibleCalls(t, turns));
+      const firstVisibleTurn = earlier[0]?.turn ?? turn;
       let accepted: GateOutcome | undefined;
       for (const call of calls) {
         if (accepted !== undefined || isAborted(opts.signal)) {
@@ -385,17 +530,36 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
           continue;
         }
         const out = await executeCall(call, toolMap, ctx);
-        parts.push(out.part);
+        let part = out.part;
+        if (repeatsOn && toolMap.get(call.name)?.effect === 'read' && !part.isError) {
+          const ref = findRepeat(call, part.content, visible, firstVisibleTurn);
+          if (ref !== null) {
+            repeats[call.id] = ref;
+            part = { ...part, content: repeatPointer(call.name, ref.turn) };
+            ctx.emit({ kind: 'note', source: call.name, message: `identical to the t${ref.turn} result still in context: answered with a pointer` });
+          }
+          visible.push({ turn, call, result: out.part, content: out.part.content, ...(ref !== null ? { ref } : {}) });
+        }
+        parts.push(part);
         raw[call.id] = out.raw;
         if (out.logPath !== undefined) logs[call.id] = out.logPath;
+        if (out.written !== undefined) written[call.id] = out.written;
         if (out.finish !== undefined) {
           lastFinish = out.finish;
           if (out.finish.ok) accepted = out.finish;
         }
       }
-      const t: TranscriptTurn = { turn, assistant, results: { role: 'user', parts }, raw };
+      const hasRepeats = Object.keys(repeats).length > 0;
+      const t: TranscriptTurn = {
+        turn,
+        assistant,
+        results: { role: 'user', parts },
+        raw,
+        ...(hasRepeats ? { repeats } : {}),
+        ...(Object.keys(written).length > 0 ? { written } : {}),
+      };
       turns.push(t);
-      persist(t, meta, logs);
+      persist(t, hasRepeats ? { ...meta, repeats } : meta, logs);
       if (accepted !== undefined) return { status: 'done', turns: turn, finish: accepted };
       if (isAborted(opts.signal)) return aborted(turn);
     }

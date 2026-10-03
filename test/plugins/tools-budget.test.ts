@@ -46,8 +46,10 @@ describe('tool list token budget', async () => {
     const green = countText(JSON.stringify(toolSpecs(shipped, 'greenfield')));
     const brown = countText(JSON.stringify(toolSpecs(shipped, 'brownfield')));
     // measured: 816 / 850 tokens before the trim, 697 / 726 after
-    expect(green).toBeLessThanOrEqual(720);
-    expect(brown).toBeLessThanOrEqual(750);
+    // 13 tools measured 697; append_file (added after real runs: models rewrote whole test files and were
+    // refused by test-preservation) costs ~66 more. The budget catches bloat, not one justified tool.
+    expect(green).toBeLessThanOrEqual(780);
+    expect(brown).toBeLessThanOrEqual(810);
     const tools = toolSpecs(shipped, 'greenfield');
     expect(systemPrompt({ task: GREENFIELD, checks: [], tools })).toMatch(/paths are relative to the API root/);
   });

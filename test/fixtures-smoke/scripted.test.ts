@@ -15,9 +15,12 @@ import type { LoadedScript } from '../../plugins/drivers/scripted.ts';
 import { toApiRel, writePolicy } from '../../plugins/lib/path-policy.ts';
 import { findUnsafeCode } from '../../plugins/lib/ts-safety.ts';
 import { parseTask } from '../../src/core/task.ts';
+import { exec } from '../../src/core/exec.ts';
+import { runVitest } from '../../src/core/testing.ts';
 import { buildTestMap } from '../../src/core/testmap.ts';
+import type { TestObservation } from '../../src/core/types.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
-import { ROOT, copyInto, providerHits, repoTmp, run, tsc, vitest, walk } from './helpers.ts';
+import { ROOT, copyInto, providerHits, repoTmp, run, tsc, walk } from './helpers.ts';
 
 const SCRIPTS_DIR = join(ROOT, 'fixtures', 'scripted');
 const SCRIPTS = ['users-api.json', 'projects-change.json', 'users-api-cheat.json', 'projects-breaking.json'];
@@ -81,12 +84,17 @@ describe.each(SCRIPTS)('%s', (file) => {
   });
 });
 
-/** Minimal stand-in for the harness loop: applies writes/edits and runs tests, enforcing observed red. */
+/**
+ * Minimal stand-in for the harness loop: applies writes/edits and runs tests with the harness's own
+ * runner (so "red" means validRed: a failing case that uses src/ with a non-constant assertion),
+ * enforcing observed red before every source write.
+ */
 async function replay(script: LoadedScript, repoRoot: string, rootRel: string) {
   const ws = createWorkspace(repoRoot, rootRel);
   const observations: Array<{ file: string; hash: string; red: boolean }> = [];
-  const runs: Array<{ failed: number; total: number; red: string[] }> = [];
+  const runs: Array<{ failed: number; total: number; red: string[]; observations: TestObservation[] }> = [];
   const order: string[] = [];
+  const logs = { write: async (name: string) => name };
 
   const assertUnlocked = async (rel: string): Promise<void> => {
     if (!rel.startsWith('src/')) return;
@@ -114,18 +122,19 @@ async function replay(script: LoadedScript, repoRoot: string, rootRel: string) {
       writeFileSync(ws.resolve(path), before.replace(find, () => replace));
     } else if (call.name === 'run_tests') {
       const { files } = RunTestsInput.parse(call.input);
-      const report = vitest(ws.root, files);
-      const red: string[] = [];
-      for (const result of report.testResults) {
-        const rel = ws.rel(result.name);
-        const isRed = result.assertionResults.some((a) => a.status === 'failed');
-        if (isRed) red.push(rel);
-        observations.push({ file: rel, hash: sha(readFileSync(result.name, 'utf8')), red: isRed });
-      }
-      runs.push({ failed: report.numFailedTests, total: report.numTotalTests, red });
+      const report = await runVitest({ root: ws.root, ...(files !== undefined ? { files } : {}), exec, harnessRoot: ROOT, logs, turn: 0 });
+      for (const o of report.observations) observations.push({ file: o.file, hash: o.hash, red: o.validRed });
+      runs.push({ failed: report.totals.failed, total: report.totals.tests, red: report.observations.filter((o) => o.validRed).map((o) => o.file), observations: report.observations });
     }
   }
   return { runs, order };
+}
+
+/** Names of the cases seen red in the first run that pass with the SAME body in the last run (what the gate requires). */
+function redToGreen(runs: Array<{ observations: TestObservation[] }>): string[] {
+  const first = runs[0]?.observations.flatMap((o) => (o.validRed ? o.cases ?? [] : [])).filter((c) => c.status === 'fail' && c.exercisesSource && !c.constantOnly) ?? [];
+  const last = runs.at(-1)?.observations.flatMap((o) => o.cases ?? []) ?? [];
+  return first.filter((r) => last.some((c) => c.name === r.name && c.bodyHash === r.bodyHash && c.status === 'pass')).map((r) => r.name);
 }
 
 describe('reference replays', () => {
@@ -139,6 +148,7 @@ describe('reference replays', () => {
     expect(runs[0]?.red).toEqual(['test/users.test.ts']);
     expect(runs[1]?.failed).toBe(0);
     expect(runs[1]?.total).toBeGreaterThan(40);
+    expect(redToGreen(runs).length).toBeGreaterThan(10);
     const res = tsc(join(tmp.dir, 'users-api'));
     expect(res.output.trim(), res.output).toBe('');
     // Once the router is mounted the scaffold has no unused locals/parameters left (lint-clean for graders' rules).
@@ -158,6 +168,7 @@ describe('reference replays', () => {
     expect(runs[0]?.red).toEqual(['test/projects.test.ts']);
     expect(runs[0]?.failed).toBeGreaterThan(0);
     expect(runs[1]?.failed).toBe(0);
+    expect(redToGreen(runs).length).toBeGreaterThan(0);
     const api = join(tmp.dir, 'existing-api');
     expect(readFileSync(join(api, 'src/modules/projects/routes.ts'), 'utf8')).toMatch(/projectsRouter\.delete\('\/v1\/projects\/:projectId'/);
     const res = tsc(api);
@@ -166,7 +177,7 @@ describe('reference replays', () => {
 });
 
 describe('projects-breaking.json', () => {
-  it('red, then green, on a copy of the sample, while the response loses `description` (a breaking change)', async () => {
+  it('red, then green, on a copy of the sample, while POST stops accepting status archived (a breaking change)', async () => {
     copyInto(join(ROOT, 'samples', 'existing-api'), join(tmp.dir, 'breaking'));
     const { runs, order } = await replay(loadScript(join(SCRIPTS_DIR, 'projects-breaking.json')), tmp.dir, 'breaking');
     expect(order.at(-1)).toBe('finish');
@@ -174,9 +185,10 @@ describe('projects-breaking.json', () => {
     expect(runs[0]?.red).toEqual(['test/projects.test.ts']);
     expect(runs[1]?.failed).toBe(0);
     const schema = readFileSync(join(tmp.dir, 'breaking', 'src/modules/projects/schema.ts'), 'utf8');
-    const projectSchema = schema.slice(schema.indexOf('export const ProjectSchema'), schema.indexOf('export type Project ='));
-    expect(projectSchema).not.toContain('description');
-    expect(schema).toMatch(/CreateProjectSchema = z\.strictObject\(\{[^}]*description/);
+    expect(schema).toMatch(/CreateProjectSchema = z\.strictObject\(\{[^}]*status: z\.enum\(\['active'\]\)/);
+    // append-only: every original line of the existing test file is still there, in order
+    const original = readFileSync(join(ROOT, 'samples', 'existing-api', 'test', 'projects.test.ts'), 'utf8');
+    expect(readFileSync(join(tmp.dir, 'breaking', 'test', 'projects.test.ts'), 'utf8').startsWith(original)).toBe(true);
     const res = tsc(join(tmp.dir, 'breaking'));
     expect(res.output.trim(), res.output).toBe('');
   });

@@ -49,6 +49,29 @@ describe('tests-green gate', () => {
   });
 });
 
+/** The fake runner's observations, with one case per file whose body hash is the file's hash (edit = new body). */
+function withCases(h: Awaited<ReturnType<typeof harness>>, revertStatus: 'fail' | 'pass' = 'fail'): void {
+  const inner = h.services.runTests;
+  h.ctx.services.runTests = async (files) => {
+    const report = await inner(files);
+    for (const o of report.observations) {
+      o.cases = [{ name: 'case', status: o.status, bodyHash: o.hash, exercisesSource: true, constantOnly: false }];
+    }
+    return report;
+  };
+  // The revert check's run (run-start source back in place): by default the case is red again.
+  h.ctx.services.runTestsReverted = async (files) => {
+    const observations = await Promise.all(files.map(async (file) => {
+      const hash = sha((await h.ws.read(file)) ?? '');
+      return {
+        file, hash, status: revertStatus, collected: 1, failed: revertStatus === 'fail' ? 1 : 0, validRed: false, reason: '', turn: 1, at: '',
+        cases: [{ name: 'case', status: revertStatus, bodyHash: hash, exercisesSource: true, constantOnly: false }],
+      };
+    }));
+    return { ok: revertStatus === 'pass', totals: { files: files.length, tests: files.length, passed: 0, failed: 0 }, observations, summary: '', logPath: '' };
+  };
+}
+
 describe('observed-red gate', () => {
   const files = {
     'test/items.test.ts': "import { x } from '../src/items.ts';\n",
@@ -58,32 +81,55 @@ describe('observed-red gate', () => {
 
   it('fails without any red, and when a changed file has no red test', async () => {
     const h = await harness({ files });
+    withCases(h);
     expect((await run(observedRedGate, h.ctx)).summary).toBe('no observed red in this run');
 
     h.outcomes.set('test/items.test.ts', 'fail');
-    await h.services.runTests();
+    await h.ctx.services.runTests();
+    h.outcomes.set('test/items.test.ts', 'pass');
     // Greenfield: nothing in initialHashes, so both src files count as changed; other.ts has no test.
     recordUnlocked(h.ctx.state, 'src/items.ts');
     recordUnlocked(h.ctx.state, 'src/other.ts');
     const r = await run(observedRedGate, h.ctx);
     expect(r.status).toBe('fail');
-    expect(r.details).toEqual(['src/other.ts: no covering test']);
+    expect(r.details?.[0]).toBe('src/other.ts: no covering test');
   });
 
-  it('passes when every changed src file has a red-observed covering test (brownfield)', async () => {
+  it('passes when every changed src file has a covering case seen red, then green unchanged (brownfield)', async () => {
     const h = await harness({ files, task: brownfieldTask() });
+    withCases(h);
     h.ctx.state.initialHashes.set('src/items.ts', sha('export const x = 0;\n'));
     h.ctx.state.initialHashes.set('src/other.ts', sha(files['src/other.ts']));
     h.outcomes.set('test/items.test.ts', 'fail');
-    await h.services.runTests();
+    await h.ctx.services.runTests();
     recordUnlocked(h.ctx.state, 'src/items.ts');
+    // still red when finishing: the gate's own fresh run decides
+    expect(await run(observedRedGate, h.ctx)).toMatchObject({ status: 'fail', details: ['src/items.ts: test/items.test.ts: still failing ("case")', expect.any(String)] });
+    h.outcomes.set('test/items.test.ts', 'pass');
     expect(await run(observedRedGate, h.ctx)).toMatchObject({ status: 'pass' });
   });
 
-  it('is unproven when the test map cannot be built', async () => {
+  it('revert check: a case that also passes with the run-start source does not prove the change', async () => {
+    const h = await harness({ files, task: brownfieldTask() });
+    withCases(h, 'pass');
+    h.ctx.state.initialHashes.set('src/items.ts', sha('export const x = 0;\n'));
+    h.ctx.state.initialHashes.set('src/other.ts', sha(files['src/other.ts']));
+    h.outcomes.set('test/items.test.ts', 'fail');
+    await h.ctx.services.runTests();
+    recordUnlocked(h.ctx.state, 'src/items.ts');
+    h.outcomes.set('test/items.test.ts', 'pass');
+    const r = await run(observedRedGate, h.ctx);
+    expect(r.status).toBe('fail');
+    expect(r.details?.[0]).toBe('src/items.ts: test/items.test.ts: "case" also passes with the run-start source (revert check): its red did not depend on the source change');
+  });
+
+  it('is unproven when the test map cannot be built or the runner crashes', async () => {
     const h = await harness({ files, services: { testMap: async () => { throw new Error('parse error'); } } });
     h.ctx.state.tests.push({ file: 'test/items.test.ts', hash: 'h', status: 'fail', collected: 1, failed: 1, validRed: true, reason: '', turn: 1, at: '' });
     expect((await run(observedRedGate, h.ctx)).status).toBe('unproven');
+    const crash = await harness({ files, services: { runTests: async () => { throw new Error('vitest missing'); } } });
+    crash.ctx.state.tests.push({ file: 'test/items.test.ts', hash: 'h', status: 'fail', collected: 1, failed: 1, validRed: true, reason: '', turn: 1, at: '' });
+    expect(await run(observedRedGate, crash.ctx)).toMatchObject({ status: 'unproven', summary: 'test runner failed: vitest missing' });
   });
 });
 

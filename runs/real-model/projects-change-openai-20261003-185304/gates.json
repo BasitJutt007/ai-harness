@@ -1,0 +1,39 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "pass",
+      "summary": "contract preserved (4 → 4 endpoints, via runtime): no additive changes",
+      "logPath": "runs/projects-change-openai-20261003-185304/logs/006-contract-diff.txt"
+    },
+    {
+      "gate": "observed-red",
+      "status": "fail",
+      "summary": "no observed red in this run",
+      "details": [
+        "Write test/<name>.test.ts for the behaviour, run it with run_tests and see it fail before changing source."
+      ]
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "0 changed files, all in scope"
+    },
+    {
+      "gate": "standards",
+      "status": "pass",
+      "summary": "verdict 100% (4 rules)"
+    },
+    {
+      "gate": "tests-green",
+      "status": "pass",
+      "summary": "17/17 tests passed in 1 files",
+      "details": [
+        "tests: 0 failed, 17 passed (17) in 1 files"
+      ],
+      "logPath": "runs/projects-change-openai-20261003-185304/logs/009-vitest.txt"
+    }
+  ]
+}

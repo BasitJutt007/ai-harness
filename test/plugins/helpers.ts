@@ -143,6 +143,7 @@ export const testConfig: HarnessConfig = {
   templatesDir: 'templates',
   history: { keepRecentTurns: 2 },
   limits: { maxReadLines: 5, maxListEntries: 3, maxSearchHits: 2 },
+  sandbox: 'auto',
 };
 
 export function emptyRegistry(): RegistryView {
@@ -247,6 +248,9 @@ export async function makeHarness(opts: {
     runTests,
     runChecks,
     testMap: () => simpleTestMap(ws),
+    runTestsReverted: async () => {
+      throw new Error('the fake harness has no revert runner');
+    },
     ...opts.services,
   };
 

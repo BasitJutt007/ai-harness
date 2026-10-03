@@ -114,3 +114,38 @@ export function newUnsafeCode(fileName: string, before: string | null, after: st
     return true;
   });
 }
+
+/**
+ * `any` that never appears as a keyword (type checker based, for tsc-strict): a declaration, parameter,
+ * function result or type alias whose type IS any (`ReturnType<typeof JSON.parse>`, an unannotated
+ * JSON.parse result, an untyped callback parameter), and member access or calls on an any-typed value.
+ * Library code is not inspected: only `sf`, a file of `program`.
+ */
+export function findImplicitAny(program: ts.Program, sf: ts.SourceFile): SafetyViolation[] {
+  const checker = program.getTypeChecker();
+  const out: SafetyViolation[] = [];
+  const seen = new Set<number>();
+  const isAny = (t: ts.Type): boolean => (t.flags & ts.TypeFlags.Any) !== 0;
+  const add = (node: ts.Node, what: string): void => {
+    const p = pos(sf, node.getStart(sf));
+    if (seen.has(p.line)) return; // one finding per line is enough to point at it
+    seen.add(p.line);
+    out.push({ kind: 'any', ...p, message: `${what} has type \`any\` (no keyword needed): annotate it as unknown and narrow, or give it a precise type` });
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isTypeAliasDeclaration(node) && isAny(checker.getTypeFromTypeNode(node.type))) add(node.name, `type ${node.name.text}`);
+    else if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isPropertyDeclaration(node)) && ts.isIdentifier(node.name)
+      && isAny(checker.getTypeAtLocation(node.name))) add(node.name, `\`${node.name.text}\``);
+    else if (ts.isFunctionLike(node) && !ts.isFunctionTypeNode(node) && !ts.isConstructorTypeNode(node)) {
+      const sig = checker.getSignatureFromDeclaration(node);
+      if (sig !== undefined && isAny(checker.getReturnTypeOfSignature(sig))) add(node, 'the function result');
+    } else if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && isAny(checker.getTypeAtLocation(node.expression))) {
+      add(node, `\`${node.expression.getText(sf).slice(0, 40)}\``);
+    } else if (ts.isCallExpression(node) && isAny(checker.getTypeAtLocation(node.expression))) {
+      add(node, `\`${node.expression.getText(sf).slice(0, 40)}\``);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out.sort((a, b) => a.line - b.line || a.col - b.col);
+}

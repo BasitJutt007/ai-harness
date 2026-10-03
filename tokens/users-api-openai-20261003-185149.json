@@ -1,0 +1,195 @@
+{
+  "runId": "users-api-openai-20261003-185149",
+  "task": "users-api",
+  "driver": "openai",
+  "model": "gpt-5.4-mini",
+  "mode": "jit",
+  "counter": "js-tiktoken o200k_base (local, OpenAI chat format)",
+  "method": "shadow-baseline",
+  "baselineDefinition": "same request with JIT fetchers and compaction disabled: system = same system prompt + every text file under the API root at run start (node_modules/.git/dist and binary files excluded, 200 KB cap) + every standards doc in full; same tools array (tool schemas counted once, not repeated in the system prompt) and same task brief; history = same assistant turns verbatim with each tool result replaced by its raw (naive, uncapped) return: whole files with line numbers, full listings and search hits, the test runner console output, the full standards report, the full contract diff; no input elision, no history compaction; same token counter",
+  "turns": [
+    {
+      "turn": 1,
+      "actual_input_tokens": 2465,
+      "baseline_input_tokens": 11075,
+      "reduction_pct": 77.7,
+      "provider_reported_input_tokens": 2286,
+      "provider_cached_input_tokens": 2176,
+      "output_tokens": 103
+    },
+    {
+      "turn": 2,
+      "actual_input_tokens": 4635,
+      "baseline_input_tokens": 13245,
+      "reduction_pct": 65,
+      "provider_reported_input_tokens": 4350,
+      "provider_cached_input_tokens": 4224,
+      "output_tokens": 183
+    },
+    {
+      "turn": 3,
+      "actual_input_tokens": 8581,
+      "baseline_input_tokens": 17191,
+      "reduction_pct": 50.1,
+      "provider_reported_input_tokens": 8436,
+      "provider_cached_input_tokens": 2176,
+      "output_tokens": 115
+    },
+    {
+      "turn": 4,
+      "actual_input_tokens": 7137,
+      "baseline_input_tokens": 17785,
+      "reduction_pct": 59.9,
+      "provider_reported_input_tokens": 6890,
+      "provider_cached_input_tokens": 2176,
+      "output_tokens": 454
+    },
+    {
+      "turn": 5,
+      "actual_input_tokens": 4423,
+      "baseline_input_tokens": 18753,
+      "reduction_pct": 76.4,
+      "provider_reported_input_tokens": 3994,
+      "provider_cached_input_tokens": 2176,
+      "output_tokens": 21
+    },
+    {
+      "turn": 6,
+      "actual_input_tokens": 4097,
+      "baseline_input_tokens": 19361,
+      "reduction_pct": 78.8,
+      "provider_reported_input_tokens": 3833,
+      "provider_cached_input_tokens": 2176,
+      "output_tokens": 63
+    },
+    {
+      "turn": 7,
+      "actual_input_tokens": 4157,
+      "baseline_input_tokens": 19490,
+      "reduction_pct": 78.7,
+      "provider_reported_input_tokens": 3885,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 1169
+    },
+    {
+      "turn": 8,
+      "actual_input_tokens": 4103,
+      "baseline_input_tokens": 21930,
+      "reduction_pct": 81.3,
+      "provider_reported_input_tokens": 3828,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 21
+    },
+    {
+      "turn": 9,
+      "actual_input_tokens": 4105,
+      "baseline_input_tokens": 22111,
+      "reduction_pct": 81.4,
+      "provider_reported_input_tokens": 3838,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 35
+    },
+    {
+      "turn": 10,
+      "actual_input_tokens": 4236,
+      "baseline_input_tokens": 22466,
+      "reduction_pct": 81.1,
+      "provider_reported_input_tokens": 3975,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 56
+    },
+    {
+      "turn": 11,
+      "actual_input_tokens": 4295,
+      "baseline_input_tokens": 22586,
+      "reduction_pct": 81,
+      "provider_reported_input_tokens": 4028,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 26
+    },
+    {
+      "turn": 12,
+      "actual_input_tokens": 4260,
+      "baseline_input_tokens": 22714,
+      "reduction_pct": 81.2,
+      "provider_reported_input_tokens": 3987,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 25
+    },
+    {
+      "turn": 13,
+      "actual_input_tokens": 4269,
+      "baseline_input_tokens": 22806,
+      "reduction_pct": 81.3,
+      "provider_reported_input_tokens": 3997,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 48
+    },
+    {
+      "turn": 14,
+      "actual_input_tokens": 4326,
+      "baseline_input_tokens": 23079,
+      "reduction_pct": 81.3,
+      "provider_reported_input_tokens": 4052,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 35
+    },
+    {
+      "turn": 15,
+      "actual_input_tokens": 4467,
+      "baseline_input_tokens": 23438,
+      "reduction_pct": 80.9,
+      "provider_reported_input_tokens": 4196,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 56
+    },
+    {
+      "turn": 16,
+      "actual_input_tokens": 4523,
+      "baseline_input_tokens": 23565,
+      "reduction_pct": 80.8,
+      "provider_reported_input_tokens": 4246,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 30
+    },
+    {
+      "turn": 17,
+      "actual_input_tokens": 5668,
+      "baseline_input_tokens": 24877,
+      "reduction_pct": 77.2,
+      "provider_reported_input_tokens": 5388,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 142
+    },
+    {
+      "turn": 18,
+      "actual_input_tokens": 5784,
+      "baseline_input_tokens": 25258,
+      "reduction_pct": 77.1,
+      "provider_reported_input_tokens": 5514,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 35
+    },
+    {
+      "turn": 19,
+      "actual_input_tokens": 4664,
+      "baseline_input_tokens": 25587,
+      "reduction_pct": 81.8,
+      "provider_reported_input_tokens": 4395,
+      "provider_cached_input_tokens": 2688,
+      "output_tokens": 107
+    }
+  ],
+  "totals": {
+    "actual_input_tokens": 90195,
+    "baseline_input_tokens": 397317,
+    "reduction_pct": 77.3,
+    "provider_reported_input_tokens": 85118,
+    "output_tokens": 2724
+  },
+  "attribution_chars": {
+    "front_load_avoided": 628444,
+    "raw_returns_avoided": 105989,
+    "history_compacted": 332131
+  }
+}

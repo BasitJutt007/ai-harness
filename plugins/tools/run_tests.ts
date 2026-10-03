@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineTool } from '../../src/core/plugin-api.ts';
 import { toApiRel } from '../lib/path-policy.ts';
-import { isTestFile } from '../lib/red.ts';
+import { isTestFile, isTestSupport } from '../lib/red.ts';
 
 const Input = z.object({
   files: z.array(z.string()).optional().describe('Test files, default all'),
@@ -19,7 +19,10 @@ async function checkFiles(files: string[], ws: Parameters<typeof toApiRel>[0]): 
     if (f.trim().startsWith('-')) return { ok: false, reason: `"${f}" looks like a runner option; pass test file paths only` };
     const r = toApiRel(ws, f);
     if (!r.ok) return { ok: false, reason: r.reason };
-    if (!isTestFile(r.rel)) return { ok: false, reason: `${r.rel} is not a test file (test/**, *.test.ts, *.spec.ts)` };
+    if (!isTestFile(r.rel)) {
+      const what = isTestSupport(r.rel) ? 'is test support code (a helper), not a runnable test' : 'is not a runnable test file';
+      return { ok: false, reason: `${r.rel} ${what}; runnable tests are *.test.ts / *.spec.ts: write test/<name>.test.ts` };
+    }
     if (!(await ws.exists(r.rel))) return { ok: false, reason: `${r.rel} does not exist` };
     if (!out.includes(r.rel)) out.push(r.rel);
   }
@@ -40,7 +43,8 @@ export default defineTool({
     }
     const report = await ctx.services.runTests(files);
     const red = report.observations.filter((o) => o.validRed).map((o) => o.file);
-    const lines = [report.summary];
+    const rejected = report.observations.filter((o) => o.status === 'fail' && !o.validRed).map((o) => `${o.file}: ${o.reason}`);
+    const lines = [report.summary, ...rejected];
     if (files !== undefined && report.observations.length === 0) {
       lines.push(`no test file was collected for ${files.join(', ')}; check the runner's include pattern`);
     }

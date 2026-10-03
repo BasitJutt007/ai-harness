@@ -257,6 +257,25 @@ export interface TestObservation {
   reason: string;
   turn: number;
   at: string;
+  /**
+   * Per-test-case evidence, statically extracted from the file content that was run and
+   * joined with the runner's per-case results. Used to tie a red to the code it exercises
+   * and to require red -> green on UNCHANGED test code.
+   */
+  cases?: TestCaseObservation[];
+}
+
+export interface TestCaseObservation {
+  /** "describe > ... > title" (same key format as the test-preservation hook). */
+  name: string;
+  /** Runner result for this case; 'error' = the file failed to load, so the case never ran. */
+  status: 'pass' | 'fail' | 'skip' | 'error';
+  /** sha256 of the case body with whitespace/comments normalised; undefined if not statically found. */
+  bodyHash?: string;
+  /** The case (or its file-level hooks) uses a binding imported from a module whose closure reaches src/. */
+  exercisesSource: boolean;
+  /** Every assertion compares literals only (e.g. expect(true).toBe(false)) or there is none. */
+  constantOnly: boolean;
 }
 
 export interface RunEvent {
@@ -292,18 +311,45 @@ export interface LogStore {
 }
 
 export interface ExecResult {
+  /** Set when opts.sandbox was given: the mechanism that confined the child. */
+  sandbox?: SandboxMechanism;
   code: number | null;
   stdout: string;
   stderr: string;
+  /** Set when opts.channel was given: everything the child wrote to its fd 3. */
+  channel?: string;
   durationMs: number;
   timedOut: boolean;
 }
+
+/**
+ * OS-level confinement for a subprocess that executes untrusted (agent-written) code:
+ * the test runner, runtime probes, contract schema extraction. Applied by exec.ts via
+ * src/core/sandbox.ts. Writes outside `writable` and network outside `network` are denied.
+ */
+export interface SandboxPolicy {
+  /** Absolute directories the child may write (everything else is read-only). */
+  writable: string[];
+  /** 'none' = no network at all; 'localhost' = loopback only (supertest, runtime probes). */
+  network: 'none' | 'localhost';
+}
+
+/** Which confinement actually wrapped an execution (recorded in run evidence). */
+export type SandboxMechanism = 'sandbox-exec' | 'bwrap' | 'node-permission' | 'none';
 
 export interface ExecOptions {
   cwd: string;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
   input?: string;
+  /** Run the command confined (see SandboxPolicy). Omit only for trusted commands (git, tsc). */
+  sandbox?: SandboxPolicy;
+  /**
+   * Open a private pipe on the child's fd 3 and return what it writes there (ExecResult.channel).
+   * Node marks inherited descriptors close-on-exec, so the child's own children (test workers,
+   * anything they spawn) never hold it: a result written there cannot be forged or rewritten by them.
+   */
+  channel?: boolean;
 }
 
 /** Deterministic subprocess execution (provider keys are always stripped from the env). */
@@ -319,6 +365,12 @@ export interface HarnessConfig {
   templatesDir: string;
   history: { keepRecentTurns: number };
   limits: { maxReadLines: number; maxListEntries: number; maxSearchHits: number };
+  /**
+   * Execution isolation for agent-written code. 'auto' (default) = best available
+   * mechanism, and REFUSE to run untrusted code if none works; 'off' = run unconfined
+   * (recorded as UNPROVEN isolation in run evidence).
+   */
+  sandbox: 'auto' | 'off';
 }
 
 export interface TestRunReport {
@@ -381,6 +433,12 @@ export interface CoreServices {
   runChecks(opts?: { categories?: string[]; rules?: string[] }): Promise<CheckReport>;
   /** Current import graph (recomputed from disk on each call). */
   testMap(): Promise<TestMap>;
+  /**
+   * Run `files` with the harness's runner in a scratch copy of the API root in which every path in
+   * `revert` has its run-start content again (or is absent, if it did not exist at run start).
+   * Observations are NOT recorded in RunState. Throws when a run-start content is unavailable.
+   */
+  runTestsReverted(files: string[], revert: string[]): Promise<TestRunReport>;
 }
 
 /** Everything a plugin can reach during a run. */

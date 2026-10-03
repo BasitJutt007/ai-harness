@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import tscStrict, { parseTscOutput } from '../../plugins/checks/tsc-strict.ts';
 import type { CheckContext, Exec } from '../../src/core/plugin-api.ts';
-import { fixtureContext, lineOf, runCheck } from './_ctx.ts';
+import { rm } from 'node:fs/promises';
+import { contextFor, fixtureContext, lineOf, runCheck, tempApi } from './_ctx.ts';
 
 const FORMAT = 'src/util/format.ts';
 
@@ -30,6 +31,28 @@ describe('tsc-strict', () => {
     expect(project?.status).toBe('fail');
     // sum(total - passed) == number of errors
     expect(findings.reduce((n, f) => n + f.units.total - f.units.passed, 0)).toBe(5);
+  });
+
+  it('second review round (13): `any` laundered without the keyword is found by the type checker in src/', async () => {
+    const root = await tempApi({
+      'src/lib/loose.ts': [
+        'export type Loose = ReturnType<typeof JSON.parse>;',
+        'export function shout(input: Loose): string { return input.deeply.nested.call(42).toUpperCase(); }',
+        'export const parsed = JSON.parse(\'{"a":1}\');',
+        'export const typed: unknown = JSON.parse(\'{"a":1}\');',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const findings = await tscStrict.run(await contextFor(root));
+      const loose = findings.find((f) => f.file === 'src/lib/loose.ts');
+      expect(loose?.status).toBe('fail');
+      const lines = (loose?.violations ?? []).map((v) => Number(v.location.split(':')[1]));
+      expect(lines).toEqual([1, 2, 3]); // `unknown`-annotated JSON.parse (line 4) is the allowed pattern
+      expect(loose?.violations[0]?.message).toContain('type Loose has type `any`');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('is UNPROVEN (skip) when tsc cannot run', async () => {

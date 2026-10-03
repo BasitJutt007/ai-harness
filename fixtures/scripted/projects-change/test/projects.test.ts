@@ -37,6 +37,21 @@ async function createProject(body: Record<string, unknown> = {}) {
   return ProjectBody.parse(res.body);
 }
 
+async function listAll(query: Record<string, string>) {
+  const ids: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const res = await request(app)
+      .get('/v1/projects')
+      .query(cursor === null ? query : { ...query, cursor });
+    expect(res.status).toBe(200);
+    const page = PageBody.parse(res.body);
+    ids.push(...page.data.map((p) => p.id));
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return ids;
+}
+
 async function listAllProjects(query: Record<string, string>) {
   const projects: Array<z.infer<typeof ProjectBody>> = [];
   let cursor: string | null = null;
@@ -50,10 +65,6 @@ async function listAllProjects(query: Record<string, string>) {
     cursor = page.nextCursor;
   } while (cursor !== null);
   return projects;
-}
-
-async function listAll(query: Record<string, string>) {
-  return (await listAllProjects(query)).map((p) => p.id);
 }
 
 describe('POST /v1/projects', () => {

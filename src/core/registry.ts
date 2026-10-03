@@ -5,7 +5,8 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { realpathLoose } from './sandbox.ts';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import type {
@@ -59,11 +60,28 @@ function walk(dir: string, out: string[]): void {
   }
 }
 
+/**
+ * TRUST BOUNDARY. Plugins are trusted code: like eslint or vitest plugins, a plugin file is
+ * executed by `import()` before its export is validated. Plugin directories are operator
+ * configuration and must never be a location the agent can write. Agent-written files persist
+ * only in the worktrees (config.worktreeDir); sandboxed agent code can otherwise write only its
+ * own per-call temp dir, deleted when the call ends. So a plugin dir that resolves (symlinks
+ * included) inside the worktree dir is refused: reported as a load error, never imported.
+ */
+export function agentWritablePluginDir(config: HarnessConfig, harnessRoot: string, d: string): string | null {
+  const dir = realpathLoose(isAbsolute(d) ? d : join(harnessRoot, d));
+  const wt = realpathLoose(resolve(harnessRoot, config.worktreeDir));
+  const rel = relative(wt, dir);
+  const within = rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  return within ? `plugin dir "${d}" is inside the worktree dir ${config.worktreeDir} (agent-writable); plugins are executed at import and must never come from there` : null;
+}
+
 /** Absolute paths of candidate plugin files, sorted by harness-relative path. */
 export function discoverPluginFiles(config: HarnessConfig, harnessRoot: string): string[] {
   const files: string[] = [];
   for (const d of config.pluginDirs) {
     const dir = isAbsolute(d) ? d : join(harnessRoot, d);
+    if (agentWritablePluginDir(config, harnessRoot, d) !== null) continue;
     if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
     walk(dir, files);
   }
@@ -184,6 +202,10 @@ export async function loadRegistry(config: HarnessConfig, harnessRoot: string): 
   const reg: RegistryView = { drivers: [], tools: [], hooks: [], gates: [], checks: [], errors: [] };
   const seen = new Map<string, string>(); // `${kind}:${name}` -> file
   const disabled = new Set(config.disabled);
+  for (const d of config.pluginDirs) {
+    const unsafe = agentWritablePluginDir(config, harnessRoot, d);
+    if (unsafe !== null) reg.errors.push({ file: d, error: unsafe });
+  }
 
   for (const abs of discoverPluginFiles(config, harnessRoot)) {
     const file = toPosix(relative(harnessRoot, abs));

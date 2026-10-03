@@ -1,0 +1,15 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                5/5 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               5/5 error paths
+problem-json      pass  (runtime)                        2/2 error paths
+rest-conventions  unproven  (none)                           0/0 routes
+tsc-strict        pass  (project)                        0 errors
+zod-boundary      unproven  (none)                           0/0 handlers
+────────────────────────────────────────────────────────────
+problem-json      pass    17/17 error paths
+rest-conventions  unproven 0/0 routes
+tsc-strict        pass     0 errors
+zod-boundary      unproven 0/0 handlers
+verdict           UNPROVEN → not proven: rest-conventions (0 units), zod-boundary (0 units)

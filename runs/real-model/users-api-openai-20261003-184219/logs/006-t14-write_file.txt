@@ -1,0 +1,76 @@
+--- a/test/users.test.ts
++++ b/test/users.test.ts
+@@ -2,6 +2,10 @@
+ import { beforeEach, describe, expect, it } from 'vitest';
+ import { createApp } from '../src/app.ts';
+ 
++function userPath(id: string): string {
++  return `/v1/users/${id}`;
++}
++
+ describe('users API', () => {
+   let app = createApp();
+ 
+@@ -15,7 +19,7 @@
+       .send({ email: 'a@example.com', name: 'Ada' })
+       .expect(201);
+ 
+-    expect(created.headers.location).toBe('/v1/users/' + created.body.id);
++    expect(created.headers.location).toBe(userPath(created.body.id));
+     expect(created.body.role).toBe('member');
+ 
+     await request(app).post('/v1/users').send({ email: 'a@example.com', name: 'Ada' }).expect(409);
+@@ -26,15 +30,48 @@
+     expect(list.body.data).toHaveLength(1);
+ 
+     await request(app).get('/v1/users/not-a-uuid').expect(422);
+-    await request(app).get('/v1/users/' + created.body.id).expect(200);
++    await request(app).get(userPath(created.body.id)).expect(200);
+ 
+     await request(app)
+-      .patch('/v1/users/' + created.body.id)
++      .patch(userPath(created.body.id))
+       .send({ name: 'Ada Lovelace' })
+       .expect(200);
+ 
+-    await request(app).patch('/v1/users/' + created.body.id).send({}).expect(422);
+-    await request(app).delete('/v1/users/' + created.body.id).expect(204);
+-    await request(app).get('/v1/users/' + created.body.id).expect(404);
++    await request(app).patch(userPath(created.body.id)).send({}).expect(422);
++    await request(app).delete(userPath(created.body.id)).expect(204);
++    await request(app).get(userPath(created.body.id)).expect(404);
++  });
++
++  it('honours idempotency keys and cursor pagination', async () => {
++    const first = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'abc')
++      .send({ email: 'c@example.com', name: 'Carla' })
++      .expect(201);
++
++    const replay = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'abc')
++      .send({ email: 'c@example.com', name: 'Carla' })
++      .expect(201);
++
++    expect(replay.headers['idempotent-replayed']).toBe('true');
++    expect(replay.body).toEqual(first.body);
++
++    await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'abc')
++      .send({ email: 'd@example.com', name: 'Different' })
++      .expect(422);
++
++    await request(app).post('/v1/users').send({ email: 'e@example.com', name: 'Eve' }).expect(201);
++    await request(app).post('/v1/users').send({ email: 'f@example.com', name: 'Finn' }).expect(201);
++
++    const page1 = await request(app).get('/v1/users?limit=2').expect(200);
++    expect(page1.body.data).toHaveLength(2);
++    if (page1.body.nextCursor) {
++      const page2 = await request(app).get('/v1/users?limit=2&cursor=' + encodeURIComponent(page1.body.nextCursor)).expect(200);
++      expect(page2.body.data.length).toBeGreaterThan(0);
++    }
+   });
+ });

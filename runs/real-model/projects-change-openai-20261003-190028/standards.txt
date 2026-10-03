@@ -1,0 +1,24 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                5/5 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               5/5 error paths
+problem-json      pass  src/modules/projects/routes.ts   4/4 error paths
+problem-json      FAIL  (runtime)                        9/10 error paths
+    src/modules/projects/routes.ts:34:1  DELETE /v1/projects/00000000-0000-4000-8000-000000000000 (unknown id): expected status 404 or 422, got 500
+rest-conventions  pass  src/modules/projects/routes.ts   5/5 routes
+tsc-strict        FAIL  src/modules/projects/routes.ts   4 errors
+    src/modules/projects/routes.ts:37:21  TS2345: Argument of type 'Response<any, Record<string, any>, number>' is not assignable to parameter of type 'string'.
+    src/modules/projects/routes.ts:39:8  TS2552: Cannot find name 'deleteProject'. Did you mean 'getProject'?
+    src/modules/projects/routes.ts:40:21  TS2345: Argument of type 'Response<any, Record<string, any>, number>' is not assignable to parameter of type 'string'.
+    src/modules/projects/routes.ts:39:8  `deleteProject` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type
+tsc-strict        FAIL  (project)                        0 errors
+zod-boundary      FAIL  src/modules/projects/routes.ts   4/5 handlers
+    src/modules/projects/routes.ts:37:21  DELETE /v1/projects/:projectId: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler
+    src/modules/projects/routes.ts:40:21  DELETE /v1/projects/:projectId: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler
+────────────────────────────────────────────────────────────
+problem-json      FAIL    28/29 error paths
+rest-conventions  pass     5/5 routes
+tsc-strict        FAIL     4 errors
+zod-boundary      FAIL     4/5 handlers
+verdict           86%     → failing: problem-json, tsc-strict, zod-boundary

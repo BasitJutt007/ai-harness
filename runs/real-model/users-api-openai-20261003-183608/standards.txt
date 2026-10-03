@@ -1,0 +1,23 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                5/5 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               5/5 error paths
+problem-json      pass  src/routes/users.ts              6/6 error paths
+problem-json      FAIL  (runtime)                        8/10 error paths
+    src/routes/users.ts:35:1  GET /users (collection success): expected status 200 or 401 or 403, got 404
+    src/routes/users.ts:41:1  POST /users (invalid body): expected status 422, got 404
+rest-conventions  FAIL  src/routes/users.ts              0/5 routes
+    src/routes/users.ts:35:1  GET /users: path is not versioned; prefix it with /v1/
+    src/routes/users.ts:41:1  POST /users: path is not versioned; prefix it with /v1/
+    src/routes/users.ts:52:1  GET /users/:userId: path is not versioned; prefix it with /v1/
+    src/routes/users.ts:59:1  PATCH /users/:userId: path is not versioned; prefix it with /v1/
+    src/routes/users.ts:74:1  DELETE /users/:userId: path is not versioned; prefix it with /v1/
+tsc-strict        pass  (project)                        0 errors
+zod-boundary      pass  src/routes/users.ts              5/5 handlers
+────────────────────────────────────────────────────────────
+problem-json      FAIL    29/31 error paths
+rest-conventions  FAIL     0/5 routes
+tsc-strict        pass     0 errors
+zod-boundary      pass     5/5 handlers
+verdict           83%     → failing: problem-json, rest-conventions

@@ -4,15 +4,18 @@
  * *.spec.ts) — those are writable without an observed red, so importing one would
  * smuggle unreviewed behaviour past the observed-red rule. Files under src/ may
  * only import relative modules under src/ (plus packages), and nobody may import
- * by absolute path or through a computed `import(x)` / `require(x)`.
+ * by absolute path or through a computed `import(x)` / `require(x)`. Module-loader APIs
+ * (`node:module`, e.g. createRequire, and process.getBuiltinModule) are refused too: a
+ * require function they return loads any path without the hook seeing it. Production code
+ * may not import the test runner (vitest), which would let it rewire assertions.
  * Only NEW violations are blocked, so legacy code stays editable.
  */
 import path from 'node:path';
 import ts from 'typescript';
 import { defineHook } from '../../src/core/plugin-api.ts';
-import { applySingleEdit } from '../lib/diff.ts';
+import { proposedContent } from '../lib/diff.ts';
 import { stringField, toApiRel } from '../lib/path-policy.ts';
-import { isGovernedSource, isTestFile } from '../lib/red.ts';
+import { isGovernedSource, isTestFile, isTestSupport } from '../lib/red.ts';
 
 export interface BoundaryViolation {
   line: number;
@@ -37,6 +40,7 @@ function specifiers(sf: ts.SourceFile): Spec[] {
       out.push({ text: ts.isStringLiteralLike(e) ? e.text : null, node: e });
     } else if (ts.isCallExpression(node)) {
       const callee = node.expression;
+      if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'getBuiltinModule') out.push({ text: 'node:module', node });
       const isImport = callee.kind === ts.SyntaxKind.ImportKeyword;
       const isRequire = ts.isIdentifier(callee) && callee.text === 'require';
       if (isImport || isRequire) {
@@ -67,11 +71,19 @@ export function boundaryViolations(rel: string, content: string): BoundaryViolat
       out.push({ ...at, key: `abs|${spec}`, message: `absolute import "${spec}": import modules relative to the file` });
       continue;
     }
+    if (/^(node:)?module$/.test(spec)) {
+      out.push({ ...at, key: 'loader', message: 'module-loader API (node:module, createRequire, getBuiltinModule): loads code past the import graph; use static imports' });
+      continue;
+    }
+    if (/^(vitest|@vitest\/.+|vitest\/.+)$/.test(spec)) {
+      out.push({ ...at, key: `runner|${spec}`, message: `"${spec}" is the test runner; production code must not depend on it` });
+      continue;
+    }
     if (!spec.startsWith('./') && !spec.startsWith('../')) continue; // package or node: builtin
     const target = path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec)).replace(/\.([cm]?)js$/, '.$1ts');
     if (target === '..' || target.startsWith('../')) {
       out.push({ ...at, key: `escape|${spec}`, message: `"${spec}" resolves outside the API root` });
-    } else if (isTestFile(target)) {
+    } else if (isTestFile(target) || isTestSupport(target)) {
       out.push({ ...at, key: `test|${target}`, message: `"${spec}" imports test code (${target}); production code must not depend on tests` });
     } else if (inSrc && !target.startsWith('src/')) {
       out.push({ ...at, key: `outside|${target}`, message: `"${spec}" imports ${target}, outside src/; source under src/ may only import src/ modules and packages` });
@@ -110,15 +122,8 @@ export default defineHook({
     if (!r.ok || !isGovernedSource(r.rel)) return { decision: 'pass' };
 
     const before = await ctx.workspace.read(r.rel);
-    let after = stringField(call.input, 'content');
-    if (after === undefined) {
-      const find = stringField(call.input, 'find');
-      const replace = stringField(call.input, 'replace');
-      if (find === undefined || replace === undefined || before === null) return { decision: 'pass' };
-      const edited = applySingleEdit(before, find, replace);
-      if (edited === null) return { decision: 'pass' }; // the tool reports 0/2+ matches itself
-      after = edited;
-    }
+    const after = proposedContent(call.input, before);
+    if (after === undefined) return { decision: 'pass' }; // not computable: the tool reports 0/2+ edit matches itself
     const violations = newBoundaryViolations(r.rel, before, after);
     if (violations.length === 0) return { decision: 'pass' };
     return {

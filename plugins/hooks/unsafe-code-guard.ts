@@ -3,7 +3,7 @@
  * blocks new `any`, non-null assertions and ts-ignore family comments, with locations.
  */
 import { defineHook } from '../../src/core/plugin-api.ts';
-import { applySingleEdit } from '../lib/diff.ts';
+import { proposedContent } from '../lib/diff.ts';
 import { stringField, toApiRel } from '../lib/path-policy.ts';
 import { formatViolations, newUnsafeCode } from '../lib/ts-safety.ts';
 
@@ -21,15 +21,8 @@ export default defineHook({
     if (!r.ok || !r.rel.endsWith('.ts')) return { decision: 'pass' };
 
     const before = await ctx.workspace.read(r.rel);
-    let after = stringField(call.input, 'content');
-    if (after === undefined) {
-      const find = stringField(call.input, 'find');
-      const replace = stringField(call.input, 'replace');
-      if (find === undefined || replace === undefined || before === null) return { decision: 'pass' };
-      const edited = applySingleEdit(before, find, replace);
-      if (edited === null) return { decision: 'pass' }; // the tool reports 0/2+ matches itself
-      after = edited;
-    }
+    const after = proposedContent(call.input, before);
+    if (after === undefined) return { decision: 'pass' }; // not computable: the tool reports 0/2+ edit matches itself
 
     const violations = newUnsafeCode(r.rel, before, after);
     if (violations.length === 0) return { decision: 'pass' };

@@ -1,0 +1,12 @@
+$ tsc --noEmit -p tsconfig.json --strict --noUncheckedIndexedAccess
+exit=2
+src/modules/projects/routes.ts(1,10): error TS1005: '>' expected.
+src/modules/projects/routes.ts(1,15): error TS1005: ';' expected.
+src/modules/projects/routes.ts(1,21): error TS1109: Expression expected.
+src/modules/projects/schema.ts(1,10): error TS1005: '>' expected.
+src/modules/projects/schema.ts(1,15): error TS1005: ';' expected.
+src/modules/projects/schema.ts(1,21): error TS1109: Expression expected.
+src/modules/projects/store.ts(1,10): error TS1005: '>' expected.
+src/modules/projects/store.ts(1,15): error TS1005: ';' expected.
+src/modules/projects/store.ts(1,21): error TS1109: Expression expected.
+

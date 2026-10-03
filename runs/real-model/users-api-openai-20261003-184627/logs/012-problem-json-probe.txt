@@ -1,0 +1,7 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184627/generated/users-api (port 51507)
+exit=1 timedOut=false served=false
+--- responses (sent and recorded by the harness)
+--- stdout
+
+--- stderr
+probe runtime: ReferenceError: require is not defined

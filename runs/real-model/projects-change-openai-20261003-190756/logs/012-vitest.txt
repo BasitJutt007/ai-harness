@@ -1,0 +1,63 @@
+$ vitest run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756/samples/existing-api
+
+ ❯ test/store.test.ts (0 test)
+ ❯ test/projects.test.ts (0 test)
+
+ Test Files  2 failed (2)
+      Tests  no tests
+   Start at  00:08:49
+   Duration  216ms (worker 97%, environment 3%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts [ test/projects.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[PARSE_ERROR] [0mExpected `>` but found `decimal`
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/modules/projects/routes.ts:1:10 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m1 │[0m [38;5;249m<[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249mi[0m[38;5;249mt[0m[38;5;249mt[0m[38;5;249me[0m[38;5;249md[0m[38;5;249m [0m1033[38;5;249m [0m[38;5;249mc[0m[38;5;249mh[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249ms[0m[38;5;249m>[0m
+ [38;5;240m  │[0m          ──┬─  
+ [38;5;240m  │[0m            ╰─── `>` expected
+[38;5;246m───╯[0m
+
+  Plugin: vite:oxc
+  File: /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756/samples/existing-api/src/modules/projects/routes.ts
+ ❯ transformWithOxc ../../../../../node_modules/vite/dist/node/chunks/node.js:7581:19
+ ❯ TransformPluginContext.transform ../../../../../node_modules/vite/dist/node/chunks/node.js:7653:26
+ ❯ EnvironmentPluginContainer.transform ../../../../../node_modules/vite/dist/node/chunks/node.js:8545:51
+ ❯ loadAndTransform ../../../../../node_modules/vite/dist/node/chunks/node.js:19988:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/store.test.ts [ test/store.test.ts ]
+Error: Transform failed with 1 error:
+
+[31m[PARSE_ERROR] [0mExpected `>` but found `decimal`
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/modules/projects/store.ts:1:10 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m1 │[0m [38;5;249m<[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249mi[0m[38;5;249mt[0m[38;5;249mt[0m[38;5;249me[0m[38;5;249md[0m[38;5;249m [0m1388[38;5;249m [0m[38;5;249mc[0m[38;5;249mh[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249ms[0m[38;5;249m>[0m
+ [38;5;240m  │[0m          ──┬─  
+ [38;5;240m  │[0m            ╰─── `>` expected
+[38;5;246m───╯[0m
+
+  Plugin: vite:oxc
+  File: /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756/samples/existing-api/src/modules/projects/store.ts
+ ❯ transformWithOxc ../../../../../node_modules/vite/dist/node/chunks/node.js:7581:19
+ ❯ TransformPluginContext.transform ../../../../../node_modules/vite/dist/node/chunks/node.js:7653:26
+ ❯ EnvironmentPluginContainer.transform ../../../../../node_modules/vite/dist/node/chunks/node.js:8545:51
+ ❯ loadAndTransform ../../../../../node_modules/vite/dist/node/chunks/node.js:19988:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":0,"numPassedTests":0,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791054529866,"success":false,"testResults":[{"assertionResults":[],"startTime":1791054529866,"endTime":1791054529866,"status":"failed","message":"Transform failed with 1 error:\n\n\u001b[31m[PARSE_ERROR] \u001b[0mExpected `>` but found `decimal`\n   \u001b[38;5;246m╭\u001b[0m\u001b[38;5;246m─\u001b[0m\u001b[38;5;246m[\u001b[0m src/modules/projects/routes.ts:1:10 \u001b[38;5;246m]\u001b[0m\n   \u001b[38;5;246m│\u001b[0m\n \u001b[38;5;246m1 │\u001b[0m \u001b[38;5;249m<\u001b[0m\u001b[38;5;249mo\u001b[0m\u001b[38;5;249mm\u001b[0m\u001b[38;5;249mi\u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249me\u001b[0m\u001b[38;5;249md\u001b[0m\u001b[38;5;249m \u001b[0m1033\u001b[38;5;249m \u001b[0m\u001b[38;5;249mc\u001b[0m\u001b[38;5;249mh\u001b[0m\u001b[38;5;249ma\u001b[0m\u001b[38;5;249mr\u001b[0m\u001b[38;5;249ms\u001b[0m\u001b[38;5;249m>\u001b[0m\n \u001b[38;5;240m  │\u001b[0m          ──┬─  \n \u001b[38;5;240m  │\u001b[0m            ╰─── `>` expected\n\u001b[38;5;246m───╯\u001b[0m\n","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756/samples/existing-api/test/projects.test.ts"},{"assertionResults":[],"startTime":1791054529866,"endTime":1791054529866,"status":"failed","message":"Transform failed with 1 error:\n\n\u001b[31m[PARSE_ERROR] \u001b[0mExpected `>` but found `decimal`\n   \u001b[38;5;246m╭\u001b[0m\u001b[38;5;246m─\u001b[0m\u001b[38;5;246m[\u001b[0m src/modules/projects/store.ts:1:10 \u001b[38;5;246m]\u001b[0m\n   \u001b[38;5;246m│\u001b[0m\n \u001b[38;5;246m1 │\u001b[0m \u001b[38;5;249m<\u001b[0m\u001b[38;5;249mo\u001b[0m\u001b[38;5;249mm\u001b[0m\u001b[38;5;249mi\u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249mt\u001b[0m\u001b[38;5;249me\u001b[0m\u001b[38;5;249md\u001b[0m\u001b[38;5;249m \u001b[0m1388\u001b[38;5;249m \u001b[0m\u001b[38;5;249mc\u001b[0m\u001b[38;5;249mh\u001b[0m\u001b[38;5;249ma\u001b[0m\u001b[38;5;249mr\u001b[0m\u001b[38;5;249ms\u001b[0m\u001b[38;5;249m>\u001b[0m\n \u001b[38;5;240m  │\u001b[0m          ──┬─  \n \u001b[38;5;240m  │\u001b[0m            ╰─── `>` expected\n\u001b[38;5;246m───╯\u001b[0m\n","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756/samples/existing-api/test/store.test.ts"}]}

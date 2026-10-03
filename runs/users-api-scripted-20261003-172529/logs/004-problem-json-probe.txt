@@ -1,0 +1,19 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-scripted-20261003-172529/generated/users-api (port 51335)
+exit=0 timedOut=false served=true
+--- responses (sent and recorded by the harness)
+GET /__harness_probe__/does-not-exist -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"No route matches GET /__harness_probe__/does-not-exist.\",\"instance\":\"/__harness_probe__/does-not-exist\"}"}
+GET /__harness_probe__/internal-error -> {"status":500,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/internal\",\"title\":\"Internal Server Error\",\"status\":500,\"detail\":\"An unexpected error occurred.\",\"instance\":\"/__harness_probe__/internal-error\"}"}
+--- stdout
+
+--- stderr
+Error: harness-probe-secret-9a280df0765e
+    at <anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/plugins/lib/probe-runtime.ts:63:13)
+    at Layer.handleRequest (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/layer.js:152:17)
+    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:295:15
+    at processParams (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:582:12)
+    at next (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:291:5)
+    at router.handle (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:186:3)

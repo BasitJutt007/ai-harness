@@ -1,0 +1,49 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "n/a",
+      "summary": "not applicable to greenfield tasks"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "3 red observations (1 test files); 1 changed source files covered"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "2 changed files, all in scope"
+    },
+    {
+      "gate": "standards",
+      "status": "unproven",
+      "summary": "verdict UNPROVEN (a rule was skipped or had nothing to check)",
+      "details": [
+        "rest-conventions  unproven  (none)                           0/0 routes",
+        "tsc-strict        FAIL  test/users.test.ts               1 errors",
+        "    test/users.test.ts:5:29  TS2307: Cannot find module '../src/services/user-service.ts' or its corresponding type declarations.",
+        "tsc-strict        FAIL  (project)                        0 errors",
+        "zod-boundary      unproven  (none)                           0/0 handlers",
+        "────────────────────────────────────────────────────────────",
+        "problem-json      pass    17/17 error paths",
+        "rest-conventions  unproven 0/0 routes",
+        "tsc-strict        FAIL     1 errors",
+        "zod-boundary      unproven 0/0 handlers",
+        "verdict           UNPROVEN → not proven: rest-conventions (0 units), zod-boundary (0 units); failing: tsc-strict"
+      ]
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "1 of 28 tests failed in 5 files",
+      "details": [
+        "tests: 1 failed, 27 passed (28) in 5 files",
+        "FAIL test/users.test.ts > Users API > POST /v1/users > should create a user and return 201: Error: expected 201 \"Created\", got 404 \"Not Found\""
+      ],
+      "logPath": "runs/users-api-openai-20261003-165940/logs/006-vitest.txt"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+run        users-api-openai-20261003-184627
+status     max_turns  turns 60  finish attempts 7  driver openai  model gpt-5.4-mini
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  n/a       not applicable to greenfield tasks
+gate  observed-red   fail      1 of 1 changed source files lack a red -> green test case
+    src/routes/index.ts: test/users.test.ts: edited after red ("users api > creates, gets, lists, updates, deletes, and enforces problems/idempotency")
+    Each changed file needs a covering case that was seen failing, now passes with its body unchanged, and fails again with the original source.
+    log: runs/users-api-openai-20261003-184627/logs/062-vitest.txt
+gate  scope          pass      2 changed files, all in scope
+gate  standards      pass      verdict 100% (4 rules)
+gate  tests-green    pass      29/29 tests passed in 5 files
+standards  pass 100%  problem-json pass, rest-conventions pass, tsc-strict pass, zod-boundary pass
+tokens     actual 330915  baseline 2310173  reduction 85.7%  over 60 turns  (output 11421, provider-reported input 315223)
+evidence   runs/users-api-openai-20261003-184627/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/users-api-openai-20261003-184627.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184627  branch harness/users-api-openai-20261003-184627  (base main @ 323018f3803b; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/target-final-gf3 untouched)
+honesty
+  proven             gate:scope
+                     gate:standards
+                     gate:tests-green
+                     check:problem-json
+                     check:rest-conventions
+                     check:tsc-strict
+                     check:zod-boundary
+                     isolation:sandbox-exec (agent code: API root read-only, writes only to a per-call temp dir; network loopback only)
+  failed             gate:observed-red (1 of 1 changed source files lack a red -> green test case)
+  UNPROVEN           (none)
+  n/a                gate:contract-lock
+  human must verify  behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+verdict    NOT DONE (loop ended max_turns)
+exit=1

@@ -1,0 +1,67 @@
+--- a/src/routes/users.ts
++++ b/src/routes/users.ts
+@@ -3,7 +3,7 @@
+ import { z } from 'zod';
+ import { idempotency } from '../lib/idempotency.ts';
+ import { paginate, pageSchema, CursorQuerySchema } from '../lib/pagination.ts';
+-import { badRequest, conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
+ 
+ const UserRoleSchema = z.enum(['admin', 'member']);
+ const UserSchema = z.object({
+@@ -24,17 +24,51 @@
+ export function createUsersRouter(): Router {
+   const router = Router();
+   const users = new Map<string, User>();
+-  const idempotencyStore = new Map<string, unknown>();
+   router.use(idempotency());
+-  router.post('/', (req: Request, res: Response) => {
++
++  router.get('/', (req, res) => {
++    const query = UserListQuerySchema.parse(req.query);
++    const items = [...users.values()].sort((a, b) => a.id.localeCompare(b.id));
++    res.json(pageSchema(UserSchema).parse(paginate(items, query, (user) => user.id)));
++  });
++
++  router.post('/', (req, res) => {
+     const body = CreateUserBodySchema.parse(req.body);
+-    for (const user of users.values()) if (user.email === body.email) throw conflict('Email already exists.');
++    if ([...users.values()].some((user) => user.email === body.email)) throw conflict('Email already exists.');
+     const now = new Date().toISOString();
+     const user: User = { id: randomUUID(), email: body.email, name: body.name, role: body.role ?? 'member', createdAt: now, updatedAt: now };
+     users.set(user.id, user);
+     res.setHeader('Location', `/v1/users/${user.id}`).status(201).json(UserSchema.parse(user));
+   });
++
++  router.get('/:userId', (req, res) => {
++    const user = getUser(req.params.userId);
++    res.json(UserSchema.parse(user));
++  });
++
++  router.patch('/:userId', (req, res) => {
++    const user = getUser(req.params.userId);
++    const patch = UpdateUserBodySchema.parse(req.body);
++    if (patch.email && [...users.values()].some((existing) => existing.id !== user.id && existing.email === patch.email)) throw conflict('Email already exists.');
++    const updated: User = { ...user, ...patch, updatedAt: new Date().toISOString() };
++    users.set(updated.id, updated);
++    res.json(UserSchema.parse(updated));
++  });
++
++  router.delete('/:userId', (req, res) => {
++    const user = getUser(req.params.userId);
++    users.delete(user.id);
++    res.status(204).end();
++  });
++
+   return router;
+ }
+ 
+-function parseUserId(id: string): string { if (!z.string().uuid().safeParse(id).success) throw unprocessable('Invalid path parameter.'); return id; }
++function getUser(userId: string): User {
++  if (!z.string().uuid().safeParse(userId).success) throw unprocessable('Invalid path parameter.');
++  const user = [...thisUsers.values()].find((entry) => entry.id === userId);
++  if (!user) throw notFound('User not found.');
++  return user;
++}
++
++const thisUsers = new Map<string, User>();

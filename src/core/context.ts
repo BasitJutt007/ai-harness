@@ -10,7 +10,12 @@
  *              - older turns fold into a digest appended to the first user message: one
  *                line per tool call (`t<turn> <tool> <short input> -> <first line of result>`,
  *                input strings longer than DIGEST_VALUE_CHARS shown as `<N chars>`), assistant
- *                prose and opaque parts dropped with their turn.
+ *                prose and opaque parts dropped with their turn;
+ *              - after the digest, a working set: a skeleton (signature lines with line
+ *                numbers) of each file read in a folded turn and not written since, so a file's
+ *                shape does not vanish from context the moment its read turn ages out;
+ *              - a repeat pointer (see repeatPointer) whose referenced turn has folded is shown
+ *                with the full content it pointed to again.
  * baselineView the shadow baseline: raw tool returns everywhere, nothing elided or folded.
  *
  * Both rules are pure functions of (turn index, number of turns) and append-only: input
@@ -18,7 +23,8 @@
  * its end. So the serialized request prefix (system, tools, brief, digest so far) is stable
  * from turn to turn, which keeps provider-side prompt caching effective.
  */
-import type { Message, Part } from './types.ts';
+import { posix } from 'node:path';
+import type { Message, Part, ToolCallPart, ToolResultPart } from './types.ts';
 
 export interface TranscriptTurn {
   turn: number;
@@ -28,6 +34,29 @@ export interface TranscriptTurn {
   results: Message | null;
   /** callId -> raw tool output (for the baseline view). */
   raw: Record<string, string>;
+  /** callId -> where the full content of a result answered with a repeat pointer lives. */
+  repeats?: Record<string, RepeatRef>;
+  /**
+   * callId -> canonical API-relative paths a successful write call touched (as the workspace
+   * resolved them: `src//a.ts`, `src/./a.ts`, an absolute path or another letter case all land
+   * on `src/a.ts`). The working set tracks staleness through these, not the raw input path.
+   */
+  written?: Record<string, string[]>;
+}
+
+/**
+ * A read result the loop answered with a pointer instead of a second copy: `turn` is the turn
+ * the pointer names (visible when the pointer was made), `source` the call whose result holds
+ * the full, byte-identical content.
+ */
+export interface RepeatRef {
+  turn: number;
+  source: { turn: number; callId: string };
+}
+
+/** Model-visible content of a read whose result is byte-identical to one still in context. */
+export function repeatPointer(tool: string, turn: number): string {
+  return `unchanged since t${turn}: identical to that ${tool} result, still in your context above`;
 }
 
 /** Digest lines quote at most this many characters of a result's first line. */
@@ -111,11 +140,158 @@ export function digestTurn(t: TranscriptTurn): string[] {
   return lines;
 }
 
+// ───────────────────────────── working set ─────────────────────────────
+
+/** Read tools whose results feed the working set. */
+const WORKING_SET_READS: ReadonlySet<string> = new Set(['read_file', 'outline']);
+/** Write tools assumed when the caller names none (the loop passes every offered write-effect tool). */
+export const DEFAULT_WRITE_TOOLS: readonly string[] = ['write_file', 'edit_file', 'append_file'];
+/** Character budget of the working set (most recently read first). */
+export const WORKING_SET_CHARS = 12_000;
+/**
+ * Of that budget, how much may be FULL read results (most recent first); older entries are
+ * skeletons. Real runs: a model editing three related files re-read them in a 3-turn cycle when
+ * only skeletons survived (it needs to see the bodies side by side to reason about an edit).
+ */
+export const WORKING_SET_FULL_CHARS = 6_000;
+/** A folded read stays in full only this many turns after it left the kept recent turns. */
+export const WORKING_SET_FULL_TURNS = 3;
+/** Signature lines kept per file skeleton. */
+export const SKELETON_LINES = 40;
+export const WORKING_SET_HEADER =
+  'Files you read in earlier turns and have not written since (most recent first: the latest read in full while space allows, then signature lines with their line numbers; read_file a line range for a body):';
+
+/**
+ * API-relative path named by a tool input (`path`), normalised like the path policy does for a
+ * relative path (backslashes, `//`, `./`, `a/../`), without a leading `./` or `/`. A fallback only:
+ * write calls carry their canonical paths in TranscriptTurn.written.
+ */
+function inputPath(input: unknown): string | null {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return null;
+  const v = (input as Record<string, unknown>)['path'];
+  if (typeof v !== 'string') return null;
+  return posix.normalize(v.trim().replace(/\\/g, '/')).replace(/^(\.\/|\/)+/, '').replace(/\/+$/, '');
+}
+
+const SIGNATURE = /^(export\b|import\b|(async\s+)?function\b|class\b|const\b|let\b|type\b|interface\b|enum\b|describe\(|it\(|test\(|\w+\.(get|post|put|patch|delete|use)\()/;
+
+/**
+ * Skeleton of a numbered file listing (`<n>| <code>` lines, as read_file returns): its header
+ * line plus the top-level signature lines (imports, exports, declarations, top-level test
+ * titles, route registrations) with their line numbers. Nested lines (bodies) are left out.
+ */
+export function skeleton(listing: string, maxLines = SKELETON_LINES): string {
+  // A CRLF file keeps a trailing \r on every listed line (read_file splits on \n): drop it.
+  const lines = listing.split('\n').map((l) => l.replace(/\r$/, ''));
+  const keep: string[] = [];
+  for (const l of lines.slice(1)) {
+    const code = /^\s*\d+\| (.*)$/.exec(l)?.[1];
+    if (code === undefined || /^\s/.test(code) || !SIGNATURE.test(code)) continue;
+    keep.push(l.length > 160 ? `${l.slice(0, 160)}…` : l);
+  }
+  const shown = keep.slice(0, maxLines);
+  if (keep.length > shown.length) shown.push(`… ${keep.length - shown.length} more signature lines`);
+  return [lines[0] ?? '', ...shown].join('\n');
+}
+
+/** Full content of a result: the result itself, or for a repeat pointer the result it points to. */
+function resolvedContent(turns: TranscriptTurn[], t: TranscriptTurn, p: ToolResultPart): string {
+  const ref = t.repeats?.[p.callId];
+  if (ref === undefined) return p.content;
+  const src = turns.find((x) => x.turn === ref.source.turn)?.results?.parts.find((x) => x.type === 'tool_result' && x.callId === ref.source.callId);
+  return src !== undefined && src.type === 'tool_result' ? src.content : p.content;
+}
+
+/**
+ * Working set for a view that folds `turns[0..cutoff)` into the digest: for each file whose
+ * latest successful read_file / outline sits in a folded turn, that read, most recently read
+ * first: in full while it left the recent turns at most WORKING_SET_FULL_TURNS turns ago and
+ * WORKING_SET_FULL_CHARS allows, otherwise as a skeleton (an outline as is), all within WORKING_SET_CHARS. A file read again in the
+ * kept recent turns (successfully: a failed re-read shows nothing) is visible there and left out.
+ * Staleness is tracked through write-tool calls only (any call to one of `writeTools` touching
+ * the path, in any later turn or later in the same turn, drops it; the path is the canonical one
+ * the loop recorded in `written`, else the normalised input path); a file changed some other way
+ * (e.g. by code run during run_tests) keeps its entry. The skeleton is a hint with line numbers, not the file: the model can re-read.
+ * Pure function of the transcript, deterministic.
+ */
+export function workingSet(turns: TranscriptTurn[], cutoff: number, writeTools: Iterable<string> = DEFAULT_WRITE_TOOLS): string | null {
+  const writes = new Set(writeTools);
+  const lastWrite = new Map<string, number>();
+  const recentReads = new Set<string>();
+  const seqOf = new Map<ToolCallPart, number>();
+  let seq = 0;
+  turns.forEach((t, i) => {
+    const results = resultMap(t);
+    for (const p of t.assistant.parts) {
+      if (p.type !== 'tool_call') continue;
+      seq += 1;
+      seqOf.set(p, seq);
+      if (writes.has(p.name)) {
+        const canonical = t.written?.[p.id];
+        const fallback = inputPath(p.input);
+        for (const path of canonical ?? (fallback !== null ? [fallback] : [])) lastWrite.set(path, seq);
+      } else if (i >= cutoff && WORKING_SET_READS.has(p.name)) {
+        // Only a successful recent read shows the file: a failed one (a bad range) must not hide its skeleton.
+        const r = results.get(p.id);
+        const path = r === undefined || r.isError ? null : readPath(p, r);
+        if (path !== null) recentReads.add(path);
+      }
+    }
+  });
+  const picked = new Map<string, { full: string | null; skel: string }>();
+  for (let i = cutoff - 1; i >= 0; i -= 1) {
+    const t = turns[i];
+    if (t === undefined) continue;
+    const results = resultMap(t);
+    for (const p of [...t.assistant.parts].reverse()) {
+      if (p.type !== 'tool_call' || !WORKING_SET_READS.has(p.name)) continue;
+      const r = results.get(p.id);
+      const path = readPath(p, r);
+      if (path === null || r === undefined || r.isError || picked.has(path) || recentReads.has(path)) continue;
+      if ((lastWrite.get(path) ?? -1) > (seqOf.get(p) ?? 0)) continue;
+      const content = resolvedContent(turns, t, r);
+      const recent = cutoff - 1 - i < WORKING_SET_FULL_TURNS;
+      picked.set(path, { full: recent ? content : null, skel: p.name === 'read_file' ? skeleton(content) : content });
+    }
+  }
+  const blocks: string[] = [];
+  let used = 0;
+  let fullUsed = 0;
+  for (const e of picked.values()) {
+    const useFull = e.full !== null && fullUsed + e.full.length <= WORKING_SET_FULL_CHARS && used + e.full.length <= WORKING_SET_CHARS;
+    const b = useFull && e.full !== null ? e.full : e.skel;
+    if (used + b.length > WORKING_SET_CHARS) continue;
+    blocks.push(b);
+    used += b.length;
+    if (useFull) fullUsed += b.length;
+  }
+  return blocks.length === 0 ? null : [WORKING_SET_HEADER, ...blocks].join('\n');
+}
+
+function resultMap(t: TranscriptTurn): Map<string, ToolResultPart> {
+  const out = new Map<string, ToolResultPart>();
+  for (const p of t.results?.parts ?? []) if (p.type === 'tool_result') out.set(p.callId, p);
+  return out;
+}
+
+/** The path a read reported in its header line (`src/a.ts (lines 1-9 of 9)` / `src/a.ts (9 lines)`), else its input path. */
+function readPath(call: ToolCallPart, result: ToolResultPart | undefined): string | null {
+  const head = result !== undefined && !result.isError ? /^(\S+) \((?:lines \d+-\d+ of \d+|\d+ lines|empty file)\)/.exec(result.content)?.[1] : undefined;
+  return head ?? inputPath(call.input);
+}
+
+/** Options of jitView. */
+export interface JitViewOptions {
+  /** Tools whose calls make earlier reads of the same path stale (default DEFAULT_WRITE_TOOLS). */
+  writeTools?: Iterable<string>;
+}
+
 export function jitView(
   first: Message,
   turns: TranscriptTurn[],
   keepRecentTurns: number,
   compactHistory: boolean,
+  opts: JitViewOptions = {},
 ): Message[] {
   if (!compactHistory) {
     const out: Message[] = [first];
@@ -127,14 +303,29 @@ export function jitView(
   }
   const cutoff = Math.max(0, turns.length - Math.max(0, keepRecentTurns));
   const digest = turns.slice(0, cutoff).flatMap(digestTurn);
-  const head: Message =
-    digest.length === 0 ? first : { role: first.role, parts: [...first.parts, { type: 'text', text: [DIGEST_HEADER, ...digest].join('\n') }] };
+  const extra: Part[] = [];
+  // The digest comes first and only grows at its end; the working set follows it.
+  if (digest.length > 0) extra.push({ type: 'text', text: [DIGEST_HEADER, ...digest].join('\n') });
+  const ws = workingSet(turns, cutoff, opts.writeTools);
+  if (ws !== null) extra.push({ type: 'text', text: ws });
+  const head: Message = extra.length === 0 ? first : { role: first.role, parts: [...first.parts, ...extra] };
   const out: Message[] = [head];
+  const firstKept = turns[cutoff]?.turn ?? Number.POSITIVE_INFINITY;
   for (const t of turns.slice(cutoff)) {
     out.push(elideCalls(t.assistant));
-    if (t.results !== null) out.push(t.results);
+    if (t.results !== null) out.push(expandFoldedRepeats(turns, t, t.results, firstKept));
   }
   return out;
+}
+
+/** A repeat pointer whose named turn has folded into the digest points at nothing visible: show the full content again. */
+function expandFoldedRepeats(turns: TranscriptTurn[], t: TranscriptTurn, results: Message, firstKept: number): Message {
+  const repeats = t.repeats;
+  if (repeats === undefined || !results.parts.some((p) => p.type === 'tool_result' && (repeats[p.callId]?.turn ?? firstKept) < firstKept)) return results;
+  return {
+    role: results.role,
+    parts: results.parts.map((p) => (p.type === 'tool_result' && (repeats[p.callId]?.turn ?? firstKept) < firstKept ? { ...p, content: resolvedContent(turns, t, p) } : p)),
+  };
 }
 
 export function baselineView(first: Message, turns: TranscriptTurn[]): Message[] {

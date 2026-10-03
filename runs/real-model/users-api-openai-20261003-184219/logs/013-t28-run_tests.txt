@@ -1,0 +1,52 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184219/generated/users-api
+
+ ❯ test/users.test.ts (2 tests | 2 failed) 44ms
+   ❯ users API (2)
+     × creates, lists, gets, updates, deletes, and enforces validations 34ms
+     × honours idempotency keys and cursor pagination 9ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  23:43:21
+   Duration  279ms (import 55%, tests 22%, transform 21%, worker 2%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, lists, gets, updates, deletes, and enforces validations
+Error: expected 200 "OK", got 404 "Not Found"
+ ❯ test/users.test.ts:29:54
+     27|     await request(app).post('/v1/users').send('not-json').set('Content…
+     28|
+     29|     const list = await request(app).get('/v1/users').expect(200);
+       |                                                      ^
+     30|     expect(list.body.data).toHaveLength(1);
+     31|
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/users.test.ts > users API > honours idempotency keys and cursor pagination
+Error: expected 200 "OK", got 404 "Not Found"
+ ❯ test/users.test.ts:70:63
+     68|     await request(app).post('/v1/users').send({ email: 'f@example.com'…
+     69|
+     70|     const page1 = await request(app).get('/v1/users?limit=2').expect(2…
+       |                                                               ^
+     71|     expect(page1.body.data).toHaveLength(2);
+     72|     if (page1.body.nextCursor) {
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+test/users.test.ts: 2 of 2 tests failed; red rejected: the failing cases do not assert on anything imported from src/ (an expect() subject must use its value; side-effect imports, void x and typeof x don't count)

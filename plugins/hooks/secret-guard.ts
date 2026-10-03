@@ -24,10 +24,13 @@ export default defineHook({
 
     let matches: SecretMatch[];
     const content = stringField(call.input, 'content');
+    const append = stringField(call.input, 'append');
     const find = stringField(call.input, 'find');
     const replace = stringField(call.input, 'replace');
     if (content !== undefined) {
       matches = newSecrets(before, content);
+    } else if (append !== undefined) {
+      matches = scanSecrets(append);
     } else if (replace !== undefined) {
       const edited = before !== null && find !== undefined ? applySingleEdit(before, find, replace) : null;
       matches = edited !== null ? newSecrets(before, edited) : scanSecrets(replace);

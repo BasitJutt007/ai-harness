@@ -77,18 +77,54 @@ export interface OpenAIShape {
   systemRole: 'system' | 'developer';
   /** Keep only widely supported JSON Schema keywords in tool parameters. */
   looseSchemas: boolean;
+  /** Send reasoning_effort 'none': some models reject function tools with reasoning on this endpoint. */
+  noReasoning: boolean;
 }
 
-export const STANDARD_SHAPE: OpenAIShape = { legacyMaxTokens: false, ceiling: undefined, omitToolChoice: false, systemRole: 'system', looseSchemas: false };
+export const STANDARD_SHAPE: OpenAIShape = { legacyMaxTokens: false, ceiling: undefined, omitToolChoice: false, systemRole: 'system', looseSchemas: false, noReasoning: false };
 
 function isStandard(s: OpenAIShape): boolean {
-  return !s.legacyMaxTokens && s.ceiling === undefined && !s.omitToolChoice && s.systemRole === 'system' && !s.looseSchemas;
+  return !s.legacyMaxTokens && s.ceiling === undefined && !s.omitToolChoice && s.systemRole === 'system' && !s.looseSchemas && !s.noReasoning;
 }
 
 // ───────────────────────────── translation ─────────────────────────────
 
-function toolCallOf(p: Extract<Part, { type: 'tool_call' }>): ChatCompletionMessageFunctionToolCall {
-  return { id: p.id, type: 'function', function: { name: p.name, arguments: JSON.stringify(p.input ?? {}) } };
+/**
+ * Fields a provider adds to a tool call beyond id/type/function (e.g. an OpenAI-compatible
+ * gateway's `extra_content` carrying a thought signature) must be echoed back verbatim on later
+ * turns, or such providers reject the request. They travel through the core as this driver's own
+ * opaque part, next to the call in the same assistant message, so they are digested (dropped)
+ * together with it and never outlive their call.
+ */
+interface ToolCallExtras {
+  toolCallExtras: { id: string; extras: Record<string, unknown> };
+}
+
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+export function isToolCallExtras(v: unknown): v is ToolCallExtras {
+  if (!isPlainRecord(v)) return false;
+  const x = v['toolCallExtras'];
+  return isPlainRecord(x) && typeof x['id'] === 'string' && isPlainRecord(x['extras']);
+}
+
+/** Extras of the tool calls in `m`, by call id (only this driver's opaque parts). */
+function extrasByCallId(m: Message): Map<string, Record<string, unknown>> {
+  const out = new Map<string, Record<string, unknown>>();
+  for (const p of m.parts) {
+    if (p.type === 'opaque' && p.driver === DRIVER_NAME && isToolCallExtras(p.data)) out.set(p.data.toolCallExtras.id, p.data.toolCallExtras.extras);
+  }
+  return out;
+}
+
+const TOOL_CALL_KEYS = new Set(['id', 'type', 'function']);
+
+function toolCallOf(p: Extract<Part, { type: 'tool_call' }>, extras?: Record<string, unknown>): ChatCompletionMessageFunctionToolCall {
+  const base: ChatCompletionMessageFunctionToolCall = { id: p.id, type: 'function', function: { name: p.name, arguments: JSON.stringify(p.input ?? {}) } };
+  // The neutral call wins over anything stored under its own keys.
+  return extras === undefined ? base : { ...extras, ...base };
 }
 
 function noOpaque(p: Part): boolean {
@@ -96,17 +132,20 @@ function noOpaque(p: Part): boolean {
 }
 
 /**
- * System + neutral messages → chat messages. OpaquePart (any driver) is ignored. Every
+ * System + neutral messages → chat messages. OpaquePart is not sent as content; this driver's
+ * tool-call extras are merged back into the call they belong to (only calls still present). Every
  * assistant tool call is answered by a role:'tool' message before any other user content
  * (see normalizeTranscript for the invariants).
  */
 export function toOpenAIMessages(system: string, messages: Message[], systemRole: OpenAIShape['systemRole'] = 'system'): ChatCompletionMessageParam[] {
   const out: ChatCompletionMessageParam[] = [];
   if (system.length > 0) out.push(systemRole === 'developer' ? { role: 'developer', content: system } : { role: 'system', content: system });
+  const extras = new Map<string, Record<string, unknown>>();
+  for (const m of messages) if (m.role === 'assistant') for (const [id, x] of extrasByCallId(m)) extras.set(id, x);
   for (const m of normalizeTranscript(messages, noOpaque)) {
     const text = m.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('\n');
     if (m.role === 'assistant') {
-      const calls = m.parts.flatMap((p) => (p.type === 'tool_call' ? [toolCallOf(p)] : []));
+      const calls = m.parts.flatMap((p) => (p.type === 'tool_call' ? [toolCallOf(p, extras.get(p.id))] : []));
       out.push(calls.length > 0 ? { role: 'assistant', content: text.length > 0 ? text : null, tool_calls: calls } : { role: 'assistant', content: text });
       continue;
     }
@@ -162,6 +201,9 @@ export function fromOpenAIResponse(res: ChatCompletion): ModelResponse {
   for (const call of msg.tool_calls ?? []) {
     if (call.type !== 'function') continue;
     parts.push({ type: 'tool_call', id: call.id, name: call.function.name, input: parseArguments(call.function.arguments) });
+    const extras: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(call)) if (!TOOL_CALL_KEYS.has(k) && v !== undefined) extras[k] = v;
+    if (Object.keys(extras).length > 0) parts.push({ type: 'opaque', driver: DRIVER_NAME, data: { toolCallExtras: { id: call.id, extras } } });
   }
   let stop = mapOpenAIStop(choice.finish_reason);
   if (typeof msg.refusal === 'string' && msg.refusal.length > 0) stop = 'refusal';
@@ -176,6 +218,7 @@ export function buildOpenAIParams(req: ModelRequest, model: string, shape: OpenA
   const params: ChatCompletionCreateParamsNonStreaming = { model, messages: toOpenAIMessages(req.system, req.messages, shape.systemRole) };
   if (shape.legacyMaxTokens) params.max_tokens = limit;
   else params.max_completion_tokens = limit;
+  if (shape.noReasoning) params.reasoning_effort = 'none';
   if (req.tools.length > 0) {
     params.tools = toOpenAITools(req.tools, shape.looseSchemas);
     if (!shape.omitToolChoice) params.tool_choice = 'auto';
@@ -196,6 +239,7 @@ export function adjustShape(e: unknown, shape: OpenAIShape, maxOutputTokens: num
   if (cap !== undefined && cap < current) return { ...shape, ceiling: cap };
   if (!shape.legacyMaxTokens && /max_completion_tokens/.test(t)) return { ...shape, legacyMaxTokens: true };
   if (!shape.omitToolChoice && /tool_choice/.test(t)) return { ...shape, omitToolChoice: true };
+  if (!shape.noReasoning && /reasoning_effort/.test(t) && /\bnone\b/.test(t)) return { ...shape, noReasoning: true };
   if (shape.systemRole === 'system' && /'system'|"system"|role.{0,40}system|system.{0,40}role/i.test(t)) return { ...shape, systemRole: 'developer' };
   if (!shape.looseSchemas && /schema|parameters|tools\[/i.test(t)) return { ...shape, looseSchemas: true };
   return undefined;

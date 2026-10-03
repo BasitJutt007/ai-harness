@@ -1,0 +1,27 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                5/5 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               5/5 error paths
+problem-json      skip  (runtime)                        skipped: app could not be started (exit 1): probe runtime: TransformError: Transform failed with 1 error: | /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190…
+rest-conventions  unproven  (none)                           0/0 routes
+tsc-strict        FAIL  src/modules/projects/routes.ts   3 errors
+    src/modules/projects/routes.ts:1:10  TS1005: '>' expected.
+    src/modules/projects/routes.ts:1:15  TS1005: ';' expected.
+    src/modules/projects/routes.ts:1:21  TS1109: Expression expected.
+tsc-strict        FAIL  src/modules/projects/schema.ts   3 errors
+    src/modules/projects/schema.ts:1:10  TS1005: '>' expected.
+    src/modules/projects/schema.ts:1:15  TS1005: ';' expected.
+    src/modules/projects/schema.ts:1:21  TS1109: Expression expected.
+tsc-strict        FAIL  src/modules/projects/store.ts    3 errors
+    src/modules/projects/store.ts:1:10  TS1005: '>' expected.
+    src/modules/projects/store.ts:1:15  TS1005: ';' expected.
+    src/modules/projects/store.ts:1:21  TS1109: Expression expected.
+tsc-strict        FAIL  (project)                        0 errors
+zod-boundary      unproven  (none)                           0/0 handlers
+────────────────────────────────────────────────────────────
+problem-json      unproven 15/15 error paths
+rest-conventions  unproven 0/0 routes
+tsc-strict        FAIL     9 errors
+zod-boundary      unproven 0/0 handlers
+verdict           UNPROVEN → not proven: problem-json (skipped), rest-conventions (0 units), zod-boundary (0 units); failing: tsc-strict

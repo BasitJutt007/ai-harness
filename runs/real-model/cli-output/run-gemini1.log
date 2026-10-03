@@ -1,0 +1,43 @@
+run        users-api-openai-20261003-165940
+status     error  turns 15  finish attempts 0  driver openai  model gemini-3-flash-preview
+error      driver.complete failed after 4 attempts: 429 [{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3-flash\nPlease retry in 6h56m35.833502263s.","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.Help","links":[{"description":"Learn more about Gemini API quotas","url":"https://ai.google.dev/gemini-api/docs/rate-limits"}]},{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaMetric":"generativelanguage.googleapis.com/generate_content_free_tier_requests","quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier","quotaDimensions":{"location":"global","model":"gemini-3-flash"},"quotaValue":"20"}]},{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"24995s"}]}}]
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  n/a       not applicable to greenfield tasks
+gate  observed-red   pass      3 red observations (1 test files); 1 changed source files covered
+gate  scope          pass      2 changed files, all in scope
+gate  standards      unproven  verdict UNPROVEN (a rule was skipped or had nothing to check)
+    rest-conventions  unproven  (none)                           0/0 routes
+    tsc-strict        FAIL  test/users.test.ts               1 errors
+        test/users.test.ts:5:29  TS2307: Cannot find module '../src/services/user-service.ts' or its corresponding type declarations.
+    tsc-strict        FAIL  (project)                        0 errors
+    zod-boundary      unproven  (none)                           0/0 handlers
+    ────────────────────────────────────────────────────────────
+    problem-json      pass    17/17 error paths
+    rest-conventions  unproven 0/0 routes
+    tsc-strict        FAIL     1 errors
+    zod-boundary      unproven 0/0 handlers
+    verdict           UNPROVEN → not proven: rest-conventions (0 units), zod-boundary (0 units); failing: tsc-strict
+gate  tests-green    fail      1 of 28 tests failed in 5 files
+    tests: 1 failed, 27 passed (28) in 5 files
+    FAIL test/users.test.ts > Users API > POST /v1/users > should create a user and return 201: Error: expected 201 "Created", got 404 "Not Found"
+    log: runs/users-api-openai-20261003-165940/logs/006-vitest.txt
+standards  UNPROVEN (a rule was skipped or had nothing to check; 94% of checked units passed)  problem-json pass, rest-conventions unproven, tsc-strict fail, zod-boundary unproven
+tokens     actual 59594  baseline 252991  reduction 76.4%  over 15 turns  (output 1623, provider-reported input 57137)
+evidence   runs/users-api-openai-20261003-165940/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/users-api-openai-20261003-165940.json
+worktree   /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-165940  branch harness/users-api-openai-20261003-165940  (base main @ ba2ebf9c608f; /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/tmp/target-gemini1 untouched)
+honesty
+  proven             gate:observed-red
+                     gate:scope
+                     check:problem-json
+  failed             gate:tests-green (1 of 28 tests failed in 5 files)
+                     check:tsc-strict (0/1 errors)
+  UNPROVEN           gate:standards (verdict UNPROVEN (a rule was skipped or had nothing to check))
+                     check:rest-conventions (0/0 routes)
+                     check:zod-boundary (0/0 handlers)
+  n/a                gate:contract-lock
+  human must verify  behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     persistence, performance, security and concurrency beyond what the tests exercise
+verdict    NOT DONE (loop ended error)
+exit=1

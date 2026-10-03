@@ -1,0 +1,27 @@
+
+ RUN  v5.0.3 /work/api
+
+ ❯ test/a.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/a.test.ts [ test/a.test.ts ]
+Error: UsersService needs a table name
+ ❯ new UsersService src/svc.ts:3:29
+      1| export class UsersService {
+      2|   constructor(readonly table: string) {
+      3|     if (table === '') throw new Error('UsersService needs a table name…
+       |                             ^
+      4|   }
+      5| }
+ ❯ makeApp src/app.ts:4:10
+ ❯ test/a.test.ts:4:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  23:30:52
+   Duration  116ms (worker 97%, environment 3%)
+

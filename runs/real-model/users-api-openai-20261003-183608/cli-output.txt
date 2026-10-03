@@ -1,0 +1,45 @@
+run        users-api-openai-20261003-183608
+status     max_turns  turns 50  finish attempts 0  driver openai  model gpt-6-luna (compat)
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  n/a       not applicable to greenfield tasks
+gate  observed-red   pass      13 red observations (1 test files); 2 changed source files covered
+gate  scope          pass      3 changed files, all in scope
+gate  standards      fail      verdict 83%
+    problem-json      FAIL  (runtime)                        8/10 error paths
+        src/routes/users.ts:35:1  GET /users (collection success): expected status 200 or 401 or 403, got 404
+        src/routes/users.ts:41:1  POST /users (invalid body): expected status 422, got 404
+    rest-conventions  FAIL  src/routes/users.ts              0/5 routes
+        src/routes/users.ts:35:1  GET /users: path is not versioned; prefix it with /v1/
+        src/routes/users.ts:41:1  POST /users: path is not versioned; prefix it with /v1/
+        src/routes/users.ts:52:1  GET /users/:userId: path is not versioned; prefix it with /v1/
+        src/routes/users.ts:59:1  PATCH /users/:userId: path is not versioned; prefix it with /v1/
+        src/routes/users.ts:74:1  DELETE /users/:userId: path is not versioned; prefix it with /v1/
+    ────────────────────────────────────────────────────────────
+    problem-json      FAIL    29/31 error paths
+    rest-conventions  FAIL     0/5 routes
+    … 3 more
+gate  tests-green    fail      1 of 31 tests failed in 5 files
+    tests: 1 failed, 30 passed (31) in 5 files
+    FAIL test/users.test.ts > users API > paginates every user once and validates invalid requests as problems: expected [ …(6) ] to have a length of 5 but got 6
+    log: runs/users-api-openai-20261003-183608/logs/024-vitest.txt
+standards  FAIL 83%  problem-json fail, rest-conventions fail, tsc-strict pass, zod-boundary pass
+tokens     actual 278960  baseline 2011066  reduction 86.1%  over 50 turns  (output 5432, provider-reported input 266209)
+evidence   runs/users-api-openai-20261003-183608/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/users-api-openai-20261003-183608.json
+worktree   /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-183608  branch harness/users-api-openai-20261003-183608  (base main @ 4b5175d82f90; /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/tmp/target-oai1 untouched)
+honesty
+  proven             gate:observed-red
+                     gate:scope
+                     check:tsc-strict
+                     check:zod-boundary
+  failed             gate:standards (verdict 83%)
+                     gate:tests-green (1 of 31 tests failed in 5 files)
+                     check:problem-json (29/31 error paths)
+                     check:rest-conventions (0/5 routes)
+  UNPROVEN           (none)
+  n/a                gate:contract-lock
+  human must verify  behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     persistence, performance, security and concurrency beyond what the tests exercise
+verdict    NOT DONE (loop ended max_turns)
+exit=1

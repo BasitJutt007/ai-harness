@@ -1,0 +1,77 @@
+$ vitest run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api
+
+ ❯ test/users.test.ts (3 tests | 3 failed) 7ms
+   ❯ users api (3)
+     × creates, lists, gets, updates, deletes, and enforces idempotency and uniqueness 5ms
+     × returns problem details for validation, conflict, malformed json, and missing routes 1ms
+     × supports cursor pagination across multiple users 0ms
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  23:39:35
+   Duration  1.13s (import 57%, transform 42%, tests 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users api > creates, lists, gets, updates, deletes, and enforces idempotency and uniqueness
+TypeError: argument handler must be a function
+ ❯ router.use ../../../../../node_modules/router/index.js:392:13
+ ❯ app.<anonymous> ../../../../../node_modules/express/lib/application.js:222:21
+ ❯ app.use ../../../../../node_modules/express/lib/application.js:219:7
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use('/v1/users', usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/users.test.ts:7:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  test/users.test.ts > users api > returns problem details for validation, conflict, malformed json, and missing routes
+TypeError: argument handler must be a function
+ ❯ router.use ../../../../../node_modules/router/index.js:392:13
+ ❯ app.<anonymous> ../../../../../node_modules/express/lib/application.js:222:21
+ ❯ app.use ../../../../../node_modules/express/lib/application.js:219:7
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use('/v1/users', usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/users.test.ts:53:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  test/users.test.ts > users api > supports cursor pagination across multiple users
+TypeError: argument handler must be a function
+ ❯ router.use ../../../../../node_modules/router/index.js:392:13
+ ❯ app.<anonymous> ../../../../../node_modules/express/lib/application.js:222:21
+ ❯ app.use ../../../../../node_modules/express/lib/application.js:219:7
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use('/v1/users', usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/users.test.ts:77:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":3,"numPassedTests":0,"numFailedTests":3,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791052775683,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users api"],"fullName":"users api creates, lists, gets, updates, deletes, and enforces idempotency and uniqueness","status":"failed","title":"creates, lists, gets, updates, deletes, and enforces idempotency and uniqueness","duration":4.754292000000078,"failureMessages":["TypeError: argument handler must be a function\n    at router.use (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:392:13)\n    at app.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/express/lib/application.js:222:21)\n    at Array.forEach (<anonymous>)\n    at app.use (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/express/lib/application.js:219:7)\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/src/routes/index.ts:10:7)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/src/app.ts:10:3)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/test/users.test.ts:7:17\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users api"],"fullName":"users api returns problem details for validation, conflict, malformed json, and missing routes","status":"failed","title":"returns problem details for validation, conflict, malformed json, and missing routes","duration":1.1364579999999478,"failureMessages":["TypeError: argument handler must be a function\n    at router.use (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:392:13)\n    at app.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/express/lib/application.js:222:21)\n    at Array.forEach (<anonymous>)\n    at app.use (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/express/lib/application.js:219:7)\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/src/routes/index.ts:10:7)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/src/app.ts:10:3)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/test/users.test.ts:53:17\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users api"],"fullName":"users api supports cursor pagination across multiple users","status":"failed","title":"supports cursor pagination across multiple users","duration":0.35370799999986957,"failureMessages":["TypeError: argument handler must be a function\n    at router.use (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:392:13)\n    at app.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/express/lib/application.js:222:21)\n    at Array.forEach (<anonymous>)\n    at app.use (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/express/lib/application.js:219:7)\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/src/routes/index.ts:10:7)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/src/app.ts:10:3)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/test/users.test.ts:77:17\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791052776799,"endTime":1791052776805.3538,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api/test/users.test.ts"}]}

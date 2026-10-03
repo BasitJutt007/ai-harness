@@ -1,0 +1,31 @@
+{
+  "method": "measured",
+  "definition": "two real runs of the same task: one with JIT context, compact returns and history compaction, one with all three disabled (--baseline)",
+  "task": "users-api",
+  "jit": {
+    "runId": "users-api-scripted-20261003-172502",
+    "driver": "scripted",
+    "model": "scripted:users-api.json",
+    "mode": "jit",
+    "turns": 9,
+    "input_tokens": 19305,
+    "provider_reported_input_tokens": 19305,
+    "output_tokens": 4476,
+    "avg_input_tokens_per_turn": 2145
+  },
+  "baseline": {
+    "runId": "users-api-scripted-20261003-172549",
+    "driver": "scripted",
+    "model": "scripted:users-api.json",
+    "mode": "baseline",
+    "turns": 9,
+    "input_tokens": 178301,
+    "provider_reported_input_tokens": 178301,
+    "output_tokens": 4476,
+    "avg_input_tokens_per_turn": 19811
+  },
+  "reduction_pct": 89.2,
+  "provider_reported_reduction_pct": 89.2,
+  "per_turn_reduction_pct": 89.2,
+  "caveats": []
+}

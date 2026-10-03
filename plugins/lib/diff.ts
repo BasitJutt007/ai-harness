@@ -145,3 +145,30 @@ export function applySingleEdit(text: string, find: string, replace: string): st
 export function formatStats(s: DiffStats): string {
   return `+${s.added} −${s.removed}`;
 }
+
+/** `before` with `text` appended on its own line(s): the exact result of the append_file tool. */
+export function appendText(before: string, text: string): string {
+  if (before.length === 0) return text;
+  return before.endsWith('\n') ? before + text : `${before}\n${text}`;
+}
+
+/**
+ * The file content a write-effect call would produce, from its input: `content` (whole file,
+ * write_file), `find`/`replace` (single exact edit, edit_file) or `append` (append_file).
+ * undefined when it cannot be computed (unknown input shape, or an edit that matches 0 or 2+
+ * times, which the tool itself reports). Shared by every content-checking hook so a new write
+ * tool is checked exactly like the existing ones.
+ */
+export function proposedContent(input: unknown, before: string | null): string | undefined {
+  if (typeof input !== 'object' || input === null) return undefined;
+  const rec = input as Record<string, unknown>;
+  const str = (k: string): string | undefined => (typeof rec[k] === 'string' ? (rec[k] as string) : undefined);
+  const content = str('content');
+  if (content !== undefined) return content;
+  const append = str('append');
+  if (append !== undefined) return appendText(before ?? '', append);
+  const find = str('find');
+  const replace = str('replace');
+  if (find === undefined || replace === undefined || before === null) return undefined;
+  return applySingleEdit(before, find, replace) ?? undefined;
+}

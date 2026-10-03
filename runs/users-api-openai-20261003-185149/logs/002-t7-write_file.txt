@@ -1,0 +1,94 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -1,9 +1,86 @@
+ import type { Router } from 'express';
++import { randomUUID } from 'node:crypto';
++import { z } from 'zod';
++import { idempotency } from '../lib/idempotency.ts';
++import { paginate, pageSchema, CursorQuerySchema, encodeCursor } from '../lib/pagination.ts';
++import { badRequest, conflict, notFound, unprocessable, type Problem } from '../lib/problem.ts';
+ 
+-/**
+- * Mount resource routers here, e.g. `app.use(usersRouter)`.
+- * Routers register full versioned paths (`/v1/users`, `/v1/users/:userId`).
+- */
++const UserRoleSchema = z.enum(['admin', 'member']);
++const UserSchema = z.object({
++  id: z.string().uuid(),
++  email: z.string().email(),
++  name: z.string().min(1).max(100),
++  role: UserRoleSchema,
++  createdAt: z.string().datetime(),
++  updatedAt: z.string().datetime(),
++});
++const UserInputSchema = z.object({ email: z.string().email(), name: z.string().min(1).max(100), role: UserRoleSchema.optional() });
++const UserPatchSchema = z.object({ email: z.string().email().optional(), name: z.string().min(1).max(100).optional(), role: UserRoleSchema.optional() });
++const UserListSchema = pageSchema(UserSchema);
++const UserIdSchema = z.string().uuid();
++
++type User = z.infer<typeof UserSchema>;
++
++type Store = { users: User[]; replay: Map<string, { fingerprint: string; response: { status: number; headers: Record<string, string>; body: unknown } }> };
++
++function sendProblemResponse(res: import('express').Response, problem: Problem): void {
++  res.status(problem.status).type('application/problem+json').json(problem);
++}
++
++function makeStore(): Store {
++  return { users: [], replay: new Map() };
++}
++
++function validationProblem(detail: string) {
++  return unprocessable(detail);
++}
++
+ export function registerRoutes(app: Router): void {
+-  // No resources yet.
++  const store = makeStore();
++
++  app.use('/v1/users', idempotency());
++
++  app.get('/v1/users', (req, res, next) => {
++    try {
++      const query = CursorQuerySchema.parse(req.query);
++      const items = [...store.users].sort((a, b) => a.id.localeCompare(b.id));
++      res.json(UserListSchema.parse(paginate(items, query, (item) => item.id)));
++    } catch (err) { next(err); }
++  });
++
++  app.post('/v1/users', (req, res, next) => { try {
++    const body = UserInputSchema.parse(req.body);
++    if (store.users.some((u) => u.email === body.email)) throw conflict('email already exists');
++    const now = new Date().toISOString();
++    const user: User = { id: randomUUID(), email: body.email, name: body.name, role: body.role ?? 'member', createdAt: now, updatedAt: now };
++    store.users.push(user);
++    res.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user));
++  } catch (err) { next(err); } });
++
++  app.get('/v1/users/:userId', (req, res, next) => { try {
++    const userId = UserIdSchema.parse(req.params.userId);
++    const user = store.users.find((u) => u.id === userId);
++    if (!user) throw notFound('user not found');
++    res.json(UserSchema.parse(user));
++  } catch (err) { next(err); } });
++
++  app.patch('/v1/users/:userId', (req, res, next) => { try {
++    const userId = UserIdSchema.parse(req.params.userId);
++    const patch = UserPatchSchema.parse(req.body);
++    if (Object.keys(patch).length === 0) throw validationProblem('at least one field must be provided');
++    const user = store.users.find((u) => u.id === userId);
++    if (!user) throw notFound('user not found');
++    if (patch.email && store.users.some((u) => u.email === patch.email && u.id !== userId)) throw conflict('email already exists');
++    const updated = UserSchema.parse({ ...user, ...patch, updatedAt: new Date().toISOString() });
++    store.users = store.users.map((u) => (u.id === userId ? updated : u));
++    res.json(updated);
++  } catch (err) { next(err); } });
++
++  app.delete('/v1/users/:userId', (req, res, next) => { try {
++    const userId = UserIdSchema.parse(req.params.userId);
++    const before = store.users.length;
++    store.users = store.users.filter((u) => u.id !== userId);
++    if (store.users.length === before) throw notFound('user not found');
++    res.status(204).end();
++  } catch (err) { next(err); } });
+ }

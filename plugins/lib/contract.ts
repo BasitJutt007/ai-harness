@@ -5,12 +5,15 @@
  * Routes and parse/response sites come from the shared route extractor
  * (api-ast.ts). Schemas are converted to JSON Schema at runtime by
  * contract-runtime.ts (spawned with tsx) so the contract is the real Zod shape,
- * not a guess. When a schema cannot be converted, its source text hash is kept
+ * not a guess, but only from modules that cannot fake that measurement (unchanged
+ * since the base commit, or declarative Zod: schema-purity.ts). When a schema cannot
+ * be converted, its source text hash is kept
  * instead (static fallback): an unchanged text is no change, a changed text is
  * an UNPROVEN change, never a silent pass.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { glob } from 'tinyglobby';
@@ -19,6 +22,8 @@ import { z } from 'zod';
 import type { Exec, JsonSchema, RunContext } from '../../src/core/plugin-api.ts';
 import { extractRoutes, resolveSymbol } from './api-ast.ts';
 import type { RouteInfo, SchemaRef } from './api-ast.ts';
+import { notImportable } from './schema-purity.ts';
+import type { PurityContext } from './schema-purity.ts';
 
 // ───────────────────────────── types ─────────────────────────────
 
@@ -168,12 +173,20 @@ export async function convertAtRuntime(opts: {
   refs: Array<{ module: string; exportName: string }>;
 }): Promise<RuntimeSchemas> {
   if (opts.refs.length === 0) return [];
-  const dir = tmpDir(opts.harnessRoot, 'contract-refs');
+  // Short per-call dir under the OS temp dir: it becomes the confined child's TMPDIR, and tsx puts a
+  // unix socket there whose path must stay under the 104-byte limit (a .harness/tmp path can exceed it).
+  const dir = mkdtempSync(join(tmpdir(), 'harness-contract-'));
   try {
     const listFile = join(dir, 'refs.json');
     writeFileSync(listFile, JSON.stringify(opts.refs));
     const tsx = join(opts.harnessRoot, 'node_modules', '.bin', 'tsx');
-    const res = await opts.exec(tsx, [RUNTIME_SCRIPT, opts.apiRoot, listFile], { cwd: opts.apiRoot, timeoutMs: 60_000 });
+    // Schema modules are agent code: confined, the API read-only, writes only to this per-call dir
+    // (the sandbox points TMPDIR, hence tsx's cache, here), no network at all.
+    const res = await opts.exec(tsx, [RUNTIME_SCRIPT, opts.apiRoot, listFile], {
+      cwd: opts.apiRoot,
+      timeoutMs: 60_000,
+      sandbox: { writable: [dir], network: 'none' },
+    });
     const line = res.stdout.split('\n').reverse().find((l) => l.startsWith('{"contractRuntime"'));
     if (line === undefined) {
       const why = (res.stderr.trim() || res.stdout.trim()).split('\n').slice(0, 3).join(' | ');
@@ -256,6 +269,11 @@ export async function extractContract(opts: {
   harnessRoot: string;
   exec: Exec;
   program?: ts.Program;
+  /**
+   * API-relative modules that are operator code (unchanged since the base commit). Every other module
+   * is imported by the contract runtime only if it is declarative (schema-purity.ts). Default: none.
+   */
+  trusted?: (rel: string) => boolean;
 }): Promise<Contract> {
   const root = resolve(opts.apiRoot);
   const files = await apiSourceFiles(root);
@@ -266,9 +284,18 @@ export async function extractContract(opts: {
 
   const refKey = (m: string, e: string): string => `${m}#${e}`;
   const wanted = new Map<string, { module: string; exportName: string }>();
+  const purity: PurityContext = {
+    read: (rel) => (existsSync(join(root, rel)) ? readFileSync(join(root, rel), 'utf8') : null),
+    trusted: opts.trusted ?? (() => false),
+  };
+  const memo = new Map<string, string | null>();
+  const refused = new Map<string, string>();
   for (const s of slots) {
     if (s.ref.module !== undefined && s.ref.exportName !== undefined) {
-      wanted.set(refKey(s.ref.module, s.ref.exportName), { module: s.ref.module, exportName: s.ref.exportName });
+      // Importing a module executes it: agent code that could fake the measurement is never imported.
+      const why = notImportable(s.ref.module, purity, memo);
+      if (why !== null) refused.set(s.ref.module, why);
+      else wanted.set(refKey(s.ref.module, s.ref.exportName), { module: s.ref.module, exportName: s.ref.exportName });
     }
   }
   let converted: RuntimeSchemas = [];
@@ -286,7 +313,8 @@ export async function extractContract(opts: {
     const schema = hit === undefined ? undefined : s.io === 'input' ? hit.input : hit.output;
     if (schema === undefined) {
       staticCount++;
-      const why = hit?.error ?? (s.ref.module === undefined ? `schema "${s.ref.text}" is not an exported const` : 'no runtime result');
+      const why = hit?.error ?? (s.ref.module === undefined ? `schema "${s.ref.text}" is not an exported const`
+        : refused.get(s.ref.module) !== undefined ? `not imported at runtime: ${refused.get(s.ref.module) ?? ''}` : 'no runtime result');
       warnings.push(`${label}: static fallback (${why})`);
       continue;
     }
@@ -676,8 +704,14 @@ export async function compareWithBase(ctx: RunContext): Promise<BaseComparison> 
     repoRoot: ws.repoRoot, baseSha: ctx.run.baseSha, rootRel: ws.rootRel, harnessRoot, exec: ctx.exec,
   });
   try {
-    const before = await extractContract({ apiRoot: snap, harnessRoot, exec: ctx.exec });
-    const after = await extractContract({ apiRoot: ws.root, harnessRoot, exec: ctx.exec });
+    // The base is operator code; in the worktree only files still identical to the base are.
+    const before = await extractContract({ apiRoot: snap, harnessRoot, exec: ctx.exec, trusted: () => true });
+    const sameAsBase = (rel: string): boolean => {
+      const a = join(snap, rel);
+      const b = join(ws.root, rel);
+      return existsSync(a) && existsSync(b) && readFileSync(a, 'utf8') === readFileSync(b, 'utf8');
+    };
+    const after = await extractContract({ apiRoot: ws.root, harnessRoot, exec: ctx.exec, trusted: sameAsBase });
     return { before, after, diff: diffContracts(before, after) };
   } finally {
     removeSnapshot(snap);

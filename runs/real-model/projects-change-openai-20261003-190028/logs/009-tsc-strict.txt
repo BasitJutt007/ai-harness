@@ -1,0 +1,6 @@
+$ tsc --noEmit -p tsconfig.json --strict --noUncheckedIndexedAccess
+exit=2
+src/modules/projects/routes.ts(37,21): error TS2345: Argument of type 'Response<any, Record<string, any>, number>' is not assignable to parameter of type 'string'.
+src/modules/projects/routes.ts(39,8): error TS2552: Cannot find name 'deleteProject'. Did you mean 'getProject'?
+src/modules/projects/routes.ts(40,21): error TS2345: Argument of type 'Response<any, Record<string, any>, number>' is not assignable to parameter of type 'string'.
+

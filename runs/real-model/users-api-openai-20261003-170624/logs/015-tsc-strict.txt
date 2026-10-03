@@ -1,0 +1,10 @@
+$ tsc --noEmit -p tsconfig.json --strict --noUncheckedIndexedAccess
+exit=2
+src/routes/index.ts(7,10): error TS2305: Module '"./users.ts"' has no exported member 'usersRouter'.
+src/routes/users.ts(104,42): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/users.ts(115,42): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/users.ts(154,42): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+

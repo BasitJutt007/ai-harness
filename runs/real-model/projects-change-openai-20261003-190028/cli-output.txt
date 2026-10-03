@@ -1,0 +1,51 @@
+run        projects-change-openai-20261003-190028
+status     max_turns  turns 40  finish attempts 0  driver openai  model gpt-5.4-mini
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  pass      contract preserved (4 → 5 endpoints, via runtime): 2 additive (GET /v1/projects query.status: new optional property; DELETE /v1/projects/:projectId: new route)
+gate  observed-red   pass      1 red observations (1 test files); 3 changed source files went red -> green on unchanged cases, red again with the original source
+gate  scope          pass      4 changed files, all in scope
+gate  standards      fail      verdict 86%
+    problem-json      FAIL  (runtime)                        9/10 error paths
+        src/modules/projects/routes.ts:34:1  DELETE /v1/projects/00000000-0000-4000-8000-000000000000 (unknown id): expected status 404 or 422, got 500
+    tsc-strict        FAIL  src/modules/projects/routes.ts   4 errors
+        src/modules/projects/routes.ts:37:21  TS2345: Argument of type 'Response<any, Record<string, any>, number>' is not assignable to parameter of type 'string'.
+        src/modules/projects/routes.ts:39:8  TS2552: Cannot find name 'deleteProject'. Did you mean 'getProject'?
+        src/modules/projects/routes.ts:40:21  TS2345: Argument of type 'Response<any, Record<string, any>, number>' is not assignable to parameter of type 'string'.
+        src/modules/projects/routes.ts:39:8  `deleteProject` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type
+    tsc-strict        FAIL  (project)                        0 errors
+    zod-boundary      FAIL  src/modules/projects/routes.ts   4/5 handlers
+        src/modules/projects/routes.ts:37:21  DELETE /v1/projects/:projectId: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler
+        src/modules/projects/routes.ts:40:21  DELETE /v1/projects/:projectId: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler
+    ────────────────────────────────────────────────────────────
+    … 5 more
+gate  tests-green    fail      3 of 21 tests failed in 1 files
+    tests: 3 failed, 18 passed (21) in 1 files
+    FAIL test/projects.test.ts > DELETE /v1/projects/:projectId > deletes a project and returns 204 with no body: expected 500 to be 204 // Object.is equality
+    FAIL test/projects.test.ts > DELETE /v1/projects/:projectId > answers a malformed id with a 422 problem: Error: Test timed out in 5000ms.
+    FAIL test/projects.test.ts > GET /v1/projects with status filters > filters archived and active projects before paginating: expected [ …(3) ] to deeply equal [ …(2) ]
+    log: runs/projects-change-openai-20261003-190028/logs/010-vitest.txt
+standards  FAIL 86%  problem-json fail, rest-conventions pass, tsc-strict fail, zod-boundary fail
+tokens     actual 180284  baseline 1279048  reduction 85.9%  over 40 turns  (output 2966, provider-reported input 168291)
+evidence   runs/projects-change-openai-20261003-190028/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/projects-change-openai-20261003-190028.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190028  branch harness/projects-change-openai-20261003-190028  (base main @ 86fbbdb2e1cb; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/target-final-bf2 untouched)
+honesty
+  proven             gate:contract-lock
+                     gate:observed-red
+                     gate:scope
+                     check:rest-conventions
+                     isolation:sandbox-exec (agent code: API root read-only, writes only to a per-call temp dir; network loopback only)
+  failed             gate:standards (verdict 86%)
+                     gate:tests-green (3 of 21 tests failed in 1 files)
+                     check:problem-json (28/29 error paths)
+                     check:tsc-strict (0/4 errors)
+                     check:zod-boundary (4/5 handlers)
+  UNPROVEN           (none)
+  n/a                (none)
+  human must verify  behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+                     behaviour changes that keep the contract shape (the contract lock compares schemas and status codes only)
+verdict    NOT DONE (loop ended max_turns)
+exit=1

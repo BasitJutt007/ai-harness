@@ -135,6 +135,22 @@ describe('source-boundary: production code cannot depend on freely-writable test
     expect((await pre(sourceBoundary, write('test/a.test.ts', "import { h } from './helpers.ts';\n"), ctx)).decision).toBe('pass');
   });
 
+  it('second review round (12): module-loader APIs and the test runner are refused in source', async () => {
+    const { ctx } = await harness();
+    const cases: Array<[string, string]> = [
+      // createRequire hands out a require that loads test code without the hook seeing a specifier.
+      ['src/util/policy.ts', "import { createRequire } from 'node:module';\nconst load = createRequire(import.meta.url);\nconst impl = load('../../test/impl.ts') as { decide: (n: number) => string };\nexport function decide(n: number): string { return impl.decide(n); }\n"],
+      ['src/util/policy.ts', "import * as mod from 'module';\nexport const r = mod.createRequire(import.meta.url);\n"],
+      ['src/util/policy.ts', "const m = process.getBuiltinModule('module');\nexport const r = m;\n"],
+      ['src/app.ts', "import { expect } from 'vitest';\nexpect.extend({});\n"],
+    ];
+    for (const [file, content] of cases) {
+      const v = await pre(sourceBoundary, write(file, content), ctx);
+      expect(v.decision, content).toBe('block');
+    }
+    expect(reasonOf(await pre(sourceBoundary, write(cases[0]?.[0] ?? '', cases[0]?.[1] ?? ''), ctx))).toContain('module-loader API');
+  });
+
   it('judges edit_file by the edited result, and ignores legacy violations', async () => {
     const legacy = "import { old } from '../test/fixtures.ts';\nexport const v = 1;\n";
     const { ctx } = await harness({ files: { 'src/app.ts': legacy } });
@@ -237,12 +253,19 @@ describe('test-preservation: the existing suite can grow, not shrink', () => {
     expect((await pre(testPreservation, edit, h.ctx)).decision).toBe('block');
   });
 
-  it('allows adding cases and changing bodies, and leaves the agent\'s own new tests alone', async () => {
+  it('allows adding cases and appending to bodies, and leaves the agent\'s own new tests alone', async () => {
     const h = await brown();
     const grown = existing.replace('});\n', "  it('deletes', () => { expect(2).toBe(2); });\n});\n");
     expect((await pre(testPreservation, write('test/projects.test.ts', grown), h.ctx)).decision).toBe('pass');
     expect((await pre(testPreservation, write('test/new.test.ts', ''), h.ctx)).decision).toBe('pass');
-    expect(weakenedCases('t.ts', existing, existing.replace('expect(1).toBe(1); });\n  it(\'404s\'', "expect(2).toBe(2); });\n  it('404s'"))).toEqual([]);
+    const appended = existing.replace("it('404s', () => { expect(1).toBe(1); });", "it('404s', () => { expect(1).toBe(1); expect(2).toBe(2); });");
+    expect(weakenedCases('t.ts', existing, appended)).toEqual([]);
+  });
+
+  it('blocks rewriting the body of an existing case (append-only), unless the task allows breaking changes', () => {
+    const rewritten = existing.replace("it('404s', () => { expect(1).toBe(1); });", "it('404s', () => { expect(2).toBe(2); });");
+    expect(weakenedCases('t.ts', existing, rewritten).join('\n')).toContain('"GET /v1/projects > 404s"');
+    expect(weakenedCases('t.ts', existing, rewritten, { allowBodyChanges: true })).toEqual([]);
   });
 });
 

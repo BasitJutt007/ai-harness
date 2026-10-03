@@ -1,0 +1,256 @@
+RUN  v5.0.3 /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-170624/generated/users-api
+
+ ❯ test/users.test.ts (14 tests | 12 failed) 72ms
+   ❯ Users API (14)
+     × creates a user successfully and returns 201 with Location header 26ms
+     × defaults role to member when role is omitted 5ms
+     × returns 409 conflict when email already exists 3ms
+     × gets a user by id 5ms
+     ✓ returns 404 for non-existent user id on GET, PATCH, DELETE 4ms
+     × validates request body and returns 422 with failing fields 2ms
+     ✓ handles malformed JSON body with 400 4ms
+     × honours Idempotency-Key header on POST 1ms
+     × returns 422 when Idempotency-Key is reused with different body 7ms
+     × updates a user partially with PATCH and returns 200 2ms
+     × returns 422 on empty patch 2ms
+     × returns 409 on PATCH when updating email to one another user has 3ms
+     × deletes a user and returns 204, subsequent GET returns 404 4ms
+     × paginates users with GET /v1/users 3ms
+
+ Test Files  1 failed (1)
+      Tests  12 failed | 2 passed (14)
+   Start at  22:06:45
+   Duration  361ms (import 56%, tests 27%, transform 16%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > Users API > creates a user successfully and returns 201 with Location header
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:13:24
+     11|       .send({ email: 'alice@example.com', name: 'Alice', role: 'admin'…
+     12|
+     13|     expect(res.status).toBe(201);
+       |                        ^
+     14|     expect(res.headers.location).toMatch(/^\/v1\/users\/[0-9a-f-]{36}$…
+     15|     expect(res.body).toEqual({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  test/users.test.ts > Users API > defaults role to member when role is omitted
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:30:24
+     28|       .send({ email: 'bob@example.com', name: 'Bob' });
+     29|
+     30|     expect(res.status).toBe(201);
+       |                        ^
+     31|     expect(res.body.role).toBe('member');
+     32|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  test/users.test.ts > Users API > returns 409 conflict when email already exists
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ test/users.test.ts:43:24
+     41|       .send({ email: 'charlie@example.com', name: 'Another Charlie' });
+     42|
+     43|     expect(res.status).toBe(409);
+       |                        ^
+     44|     expect(res.headers['content-type']).toContain('application/problem…
+     45|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  test/users.test.ts > Users API > gets a user by id
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:55:24
+     53|
+     54|     const res = await request(app).get(`/v1/users/${userId}`);
+     55|     expect(res.status).toBe(200);
+       |                        ^
+     56|     expect(res.body.email).toBe('dave@example.com');
+     57|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+ FAIL  test/users.test.ts > Users API > validates request body and returns 422 with failing fields
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:77:24
+     75|       .send({ email: 'not-an-email', name: '' });
+     76|
+     77|     expect(res.status).toBe(422);
+       |                        ^
+     78|     expect(res.headers['content-type']).toContain('application/problem…
+     79|     expect(res.body.detail).toBeDefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯
+
+ FAIL  test/users.test.ts > Users API > honours Idempotency-Key header on POST
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:101:25
+     99|       .send(payload);
+    100|
+    101|     expect(res1.status).toBe(201);
+       |                         ^
+    102|
+    103|     const res2 = await request(app)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯
+
+ FAIL  test/users.test.ts > Users API > returns 422 when Idempotency-Key is reused with different body
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:125:24
+    123|       .send({ email: 'key2@example.com', name: 'User 2' });
+    124|
+    125|     expect(res.status).toBe(422);
+       |                        ^
+    126|   });
+    127|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯
+
+ FAIL  test/users.test.ts > Users API > updates a user partially with PATCH and returns 200
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:138:29
+    136|       .send({ name: 'Updated Name' });
+    137|
+    138|     expect(patchRes.status).toBe(200);
+       |                             ^
+    139|     expect(patchRes.body.name).toBe('Updated Name');
+    140|     expect(patchRes.body.email).toBe('patch@example.com');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯
+
+ FAIL  test/users.test.ts > Users API > returns 422 on empty patch
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:153:29
+    151|       .send({});
+    152|
+    153|     expect(patchRes.status).toBe(422);
+       |                             ^
+    154|   });
+    155|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/12]⎯
+
+ FAIL  test/users.test.ts > Users API > returns 409 on PATCH when updating email to one another user has
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ test/users.test.ts:165:29
+    163|       .send({ email: 'u1@example.com' });
+    164|
+    165|     expect(patchRes.status).toBe(409);
+       |                             ^
+    166|   });
+    167|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/12]⎯
+
+ FAIL  test/users.test.ts > Users API > deletes a user and returns 204, subsequent GET returns 404
+AssertionError: expected 404 to be 204 // Object.is equality
+
+- Expected
++ Received
+
+- 204
++ 404
+
+ ❯ test/users.test.ts:175:30
+    173|
+    174|     const deleteRes = await request(app).delete(`/v1/users/${userId}`);
+    175|     expect(deleteRes.status).toBe(204);
+       |                              ^
+    176|     expect(deleteRes.text).toBe('');
+    177|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/12]⎯
+
+ FAIL  test/users.test.ts > Users API > paginates users with GET /v1/users
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:189:24
+    187|
+    188|     const res = await request(app).get('/v1/users?limit=2');
+    189|     expect(res.status).toBe(200);
+       |                        ^
+    190|     expect(res.body.data).toHaveLength(2);
+    191|     expect(res.body.nextCursor).toBeTypeOf('string');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/12]⎯
+observed red: test/users.test.ts (source they cover is now writable)

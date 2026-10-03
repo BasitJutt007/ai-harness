@@ -130,7 +130,7 @@ export function makeCtx(opts: { repoRoot: string; rootRel: string; baseSha: stri
     mode: { jit: true, compactReturns: true, compactHistory: true },
     config: loadConfig(),
     exec: isolatedExec,
-    services: { runTests: fail, runChecks: fail, testMap: fail },
+    services: { runTests: fail, runChecks: fail, testMap: fail, runTestsReverted: fail },
     registry: opts.registry ?? { drivers: [], tools: [], hooks: [], gates: [], checks: [], errors: [] },
     emit: () => undefined,
   };

@@ -1,0 +1,72 @@
+RUN  v5.0.3 /work/api
+
+ ✓ test/lib/pagination.test.ts (8 tests) 6ms
+ ✓ test/lib/problem.test.ts (7 tests) 20ms
+ ❯ test/users.test.ts (0 test)
+ ❯ test/lib/errors.test.ts (6 tests | 2 failed) 40ms
+   ❯ createApp error handling (6)
+     × answers unknown routes with a 404 problem 4ms
+     × answers malformed JSON with a 400 problem 0ms
+     ✓ maps a ZodError to a 422 problem listing each issue 24ms
+     ✓ passes valid bodies through 4ms
+     ✓ sends a thrown HttpProblem with its own status 3ms
+     ✓ hides unexpected errors behind a 500 problem without a stack 3ms
+ ✓ test/lib/idempotency.test.ts (6 tests) 102ms
+
+ Test Files  2 failed | 3 passed (5)
+      Tests  2 failed | 25 passed (27)
+   Start at  22:08:29
+   Duration  416ms (import 55%, transform 22%, tests 20%, worker 2%)
+
+JSON report written to /tmp/report.json
+
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts [ test/users.test.ts ]
+TypeError: app.use() requires a middleware function
+ ❯ app.use ../../node_modules/express/lib/application.js:213:11
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use(usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/users.test.ts:6:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/lib/errors.test.ts > createApp error handling > answers unknown routes with a 404 problem
+TypeError: app.use() requires a middleware function
+ ❯ app.use ../../node_modules/express/lib/application.js:213:11
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use(usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/lib/errors.test.ts:46:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  test/lib/errors.test.ts > createApp error handling > answers malformed JSON with a 400 problem
+TypeError: app.use() requires a middleware function
+ ❯ app.use ../../node_modules/express/lib/application.js:213:11
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use(usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/lib/errors.test.ts:53:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯

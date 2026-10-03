@@ -1,0 +1,30 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                5/5 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               5/5 error paths
+problem-json      pass  src/routes/users.ts              8/8 error paths
+problem-json      pass  (runtime)                        10/10 error paths
+rest-conventions  pass  src/routes/users.ts              5/5 routes
+tsc-strict        FAIL  src/routes/users.ts              2 errors
+    src/routes/users.ts:46:27  TS2345: Argument of type 'string | string[] | undefined' is not assignable to parameter of type 'string'.
+    src/routes/users.ts:67:27  TS2345: Argument of type 'string | string[] | undefined' is not assignable to parameter of type 'string'.
+tsc-strict        FAIL  (project)                        0 errors
+zod-boundary      FAIL  src/routes/users.ts              1/5 handlers
+    src/routes/users.ts:46:27  GET /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:45:32  GET /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/users.ts:52:55  POST /v1/users: req.body is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.body)
+    src/routes/users.ts:54:29  POST /v1/users: `req` (destructured or passed along) is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.body)
+    src/routes/users.ts:51:40  POST /v1/users: request body is not parsed; add const body = BodySchema.parse(req.body)
+    src/routes/users.ts:65:55  PATCH /v1/users/:userId: req.body is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.body)
+    src/routes/users.ts:67:27  PATCH /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:64:49  PATCH /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/users.ts:64:49  PATCH /v1/users/:userId: request body is not parsed; add const body = BodySchema.parse(req.body)
+    src/routes/users.ts:75:57  DELETE /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:74:35  DELETE /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+────────────────────────────────────────────────────────────
+problem-json      pass    33/33 error paths
+rest-conventions  pass     5/5 routes
+tsc-strict        FAIL     2 errors
+zod-boundary      FAIL     1/5 handlers
+verdict           86%     → failing: tsc-strict, zod-boundary

@@ -1,0 +1,98 @@
+--- /dev/null
++++ b/src/routes/users.ts
+@@ -0,0 +1,95 @@
++import { randomUUID } from 'node:crypto';
++import { type Request, type Router } from 'express';
++import { z } from 'zod';
++import { badRequest, conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { CursorQuerySchema, encodeCursor, pageSchema, paginate } from '../lib/pagination.ts';
++import { IdempotencyHeadersSchema } from '../lib/idempotency.ts';
++
++const UserRoleSchema = z.enum(['admin', 'member']);
++const UserIdSchema = z.string().uuid();
++const UserSchema = z.object({
++  id: UserIdSchema,
++  email: z.string().email(),
++  name: z.string().min(1).max(100),
++  role: UserRoleSchema,
++  createdAt: z.string().datetime(),
++  updatedAt: z.string().datetime(),
++});
++const UserInputSchema = z.object({
++  email: z.string().email(),
++  name: z.string().min(1).max(100),
++  role: UserRoleSchema.optional(),
++});
++const UserPatchSchema = UserInputSchema.partial();
++const UsersListSchema = pageSchema(UserSchema);
++
++type User = z.infer<typeof UserSchema>;
++
++type IdempotentRecord = { fingerprint: string; status: number; headers: Record<string, string>; body?: unknown };
++
++export function createUsersRouter(): Router {
++  const router = Router();
++  const users: User[] = [];
++  const idempotencyStore = new Map<string, IdempotentRecord>();
++
++  router.post('/', (req, res, next) => {
++    const headerResult = IdempotencyHeadersSchema.safeParse(req.header('Idempotency-Key') ? { 'idempotency-key': req.header('Idempotency-Key') } : {});
++    if (!headerResult.success) return next(unprocessable('detail'));
++    const bodyResult = UserInputSchema.safeParse(req.body);
++    if (!bodyResult.success) return next(unprocessable(bodyResult.error.issues.map((i) => i.path.join('.')).join(', ')));
++    const fingerprint = JSON.stringify(bodyResult.data);
++    const key = req.header('Idempotency-Key');
++    if (key) {
++      const record = idempotencyStore.get(key);
++      if (record) {
++        if (record.fingerprint !== fingerprint) return next(unprocessable('idempotency-key'));
++        res.status(record.status).set(record.headers);
++        return res.json(record.body);
++      }
++    }
++    if (users.some((u) => u.email === bodyResult.data.email)) return next(conflict('email exists'));
++    const now = new Date().toISOString();
++    const user: User = { id: randomUUID(), email: bodyResult.data.email, name: bodyResult.data.name, role: bodyResult.data.role ?? 'member', createdAt: now, updatedAt: now };
++    users.push(user);
++    const headers = { Location: `/v1/users/${user.id}` };
++    if (key) idempotencyStore.set(key, { fingerprint, status: 201, headers, body: user });
++    return res.status(201).set(headers).json(user);
++  });
++
++  router.get('/', (req, res, next) => {
++    const queryResult = CursorQuerySchema.safeParse(req.query);
++    if (!queryResult.success) return next(unprocessable(queryResult.error.issues.map((i) => i.path.join('.')).join(', ')));
++    return res.json(UsersListSchema.parse(paginate(users, queryResult.data, (u) => u.id)));
++  });
++
++  router.get('/:userId', (req, res, next) => {
++    const idResult = UserIdSchema.safeParse(req.params.userId);
++    if (!idResult.success) return next(unprocessable('userId'));
++    const user = users.find((u) => u.id === idResult.data);
++    if (!user) return next(notFound('user not found'));
++    return res.json(UserSchema.parse(user));
++  });
++
++  router.patch('/:userId', (req, res, next) => {
++    const idResult = UserIdSchema.safeParse(req.params.userId);
++    if (!idResult.success) return next(unprocessable('userId'));
++    const bodyResult = UserPatchSchema.safeParse(req.body);
++    if (!bodyResult.success || Object.keys(bodyResult.data).length === 0) return next(unprocessable('body'));
++    const user = users.find((u) => u.id === idResult.data);
++    if (!user) return next(notFound('user not found'));
++    if (bodyResult.data.email && users.some((u) => u.email === bodyResult.data.email && u.id !== user.id)) return next(conflict('email exists'));
++    Object.assign(user, bodyResult.data, { updatedAt: new Date().toISOString() });
++    return res.json(UserSchema.parse(user));
++  });
++
++  router.delete('/:userId', (req, res, next) => {
++    const idResult = UserIdSchema.safeParse(req.params.userId);
++    if (!idResult.success) return next(unprocessable('userId'));
++    const index = users.findIndex((u) => u.id === idResult.data);
++    if (index < 0) return next(notFound('user not found'));
++    users.splice(index, 1);
++    return res.status(204).send();
++  });
++
++  return router;
++}

@@ -1,0 +1,200 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,197 @@
++import { describe, it, expect } from 'vitest';
++import request from 'supertest';
++import { createApp } from '../src/app.ts';
++
++describe('Users API', () => {
++  const app = createApp();
++
++  it('creates a user successfully and returns 201 with Location header', async () => {
++    const res = await request(app)
++      .post('/v1/users')
++      .send({ email: 'alice@example.com', name: 'Alice', role: 'admin' });
++
++    expect(res.status).toBe(201);
++    expect(res.headers.location).toMatch(/^\/v1\/users\/[0-9a-f-]{36}$/);
++    expect(res.body).toEqual({
++      id: expect.any(String),
++      email: 'alice@example.com',
++      name: 'Alice',
++      role: 'admin',
++      createdAt: expect.any(String),
++      updatedAt: expect.any(String),
++    });
++  });
++
++  it('defaults role to member when role is omitted', async () => {
++    const res = await request(app)
++      .post('/v1/users')
++      .send({ email: 'bob@example.com', name: 'Bob' });
++
++    expect(res.status).toBe(201);
++    expect(res.body.role).toBe('member');
++  });
++
++  it('returns 409 conflict when email already exists', async () => {
++    await request(app)
++      .post('/v1/users')
++      .send({ email: 'charlie@example.com', name: 'Charlie' });
++
++    const res = await request(app)
++      .post('/v1/users')
++      .send({ email: 'charlie@example.com', name: 'Another Charlie' });
++
++    expect(res.status).toBe(409);
++    expect(res.headers['content-type']).toContain('application/problem+json');
++  });
++
++  it('gets a user by id', async () => {
++    const createRes = await request(app)
++      .post('/v1/users')
++      .send({ email: 'dave@example.com', name: 'Dave' });
++
++    const userId = createRes.body.id;
++
++    const res = await request(app).get(`/v1/users/${userId}`);
++    expect(res.status).toBe(200);
++    expect(res.body.email).toBe('dave@example.com');
++  });
++
++  it('returns 404 for non-existent user id on GET, PATCH, DELETE', async () => {
++    const fakeId = '00000000-0000-0000-0000-000000000000';
++    const getRes = await request(app).get(`/v1/users/${fakeId}`);
++    expect(getRes.status).toBe(404);
++    expect(getRes.headers['content-type']).toContain('application/problem+json');
++
++    const patchRes = await request(app).patch(`/v1/users/${fakeId}`).send({ name: 'New' });
++    expect(patchRes.status).toBe(404);
++
++    const deleteRes = await request(app).delete(`/v1/users/${fakeId}`);
++    expect(deleteRes.status).toBe(404);
++  });
++
++  it('validates request body and returns 422 with failing fields', async () => {
++    const res = await request(app)
++      .post('/v1/users')
++      .send({ email: 'not-an-email', name: '' });
++
++    expect(res.status).toBe(422);
++    expect(res.headers['content-type']).toContain('application/problem+json');
++    expect(res.body.detail).toBeDefined();
++  });
++
++  it('handles malformed JSON body with 400', async () => {
++    const res = await request(app)
++      .post('/v1/users')
++      .set('Content-Type', 'application/json')
++      .send('{"malformed": ');
++
++    expect(res.status).toBe(400);
++    expect(res.headers['content-type']).toContain('application/problem+json');
++  });
++
++  it('honours Idempotency-Key header on POST', async () => {
++    const key = 'test-idempotency-key-123';
++    const payload = { email: 'idemp@example.com', name: 'Idemp' };
++
++    const res1 = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', key)
++      .send(payload);
++
++    expect(res1.status).toBe(201);
++
++    const res2 = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', key)
++      .send(payload);
++
++    expect(res2.status).toBe(201);
++    expect(res2.headers['idempotent-replayed']).toBe('true');
++    expect(res2.body.id).toBe(res1.body.id);
++  });
++
++  it('returns 422 when Idempotency-Key is reused with different body', async () => {
++    const key = 'test-idempotency-key-456';
++    await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', key)
++      .send({ email: 'key1@example.com', name: 'User 1' });
++
++    const res = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', key)
++      .send({ email: 'key2@example.com', name: 'User 2' });
++
++    expect(res.status).toBe(422);
++  });
++
++  it('updates a user partially with PATCH and returns 200', async () => {
++    const createRes = await request(app)
++      .post('/v1/users')
++      .send({ email: 'patch@example.com', name: 'Patch User' });
++    const userId = createRes.body.id;
++
++    const patchRes = await request(app)
++      .patch(`/v1/users/${userId}`)
++      .send({ name: 'Updated Name' });
++
++    expect(patchRes.status).toBe(200);
++    expect(patchRes.body.name).toBe('Updated Name');
++    expect(patchRes.body.email).toBe('patch@example.com');
++  });
++
++  it('returns 422 on empty patch', async () => {
++    const createRes = await request(app)
++      .post('/v1/users')
++      .send({ email: 'emptypatch@example.com', name: 'Empty Patch' });
++    const userId = createRes.body.id;
++
++    const patchRes = await request(app)
++      .patch(`/v1/users/${userId}`)
++      .send({});
++
++    expect(patchRes.status).toBe(422);
++  });
++
++  it('returns 409 on PATCH when updating email to one another user has', async () => {
++    await request(app).post('/v1/users').send({ email: 'u1@example.com', name: 'U1' });
++    const u2Create = await request(app).post('/v1/users').send({ email: 'u2@example.com', name: 'U2' });
++    const u2Id = u2Create.body.id;
++
++    const patchRes = await request(app)
++      .patch(`/v1/users/${u2Id}`)
++      .send({ email: 'u1@example.com' });
++
++    expect(patchRes.status).toBe(409);
++  });
++
++  it('deletes a user and returns 204, subsequent GET returns 404', async () => {
++    const createRes = await request(app)
++      .post('/v1/users')
++      .send({ email: 'delete@example.com', name: 'Delete Me' });
++    const userId = createRes.body.id;
++
++    const deleteRes = await request(app).delete(`/v1/users/${userId}`);
++    expect(deleteRes.status).toBe(204);
++    expect(deleteRes.text).toBe('');
++
++    const getRes = await request(app).get(`/v1/users/${userId}`);
++    expect(getRes.status).toBe(404);
++  });
++
++  it('paginates users with GET /v1/users', async () => {
++    // create a few users
++    for (let i = 1; i <= 3; i++) {
++      await request(app).post('/v1/users').send({ email: `page${i}@example.com`, name: `Page ${i}` });
++    }
++
++    const res = await request(app).get('/v1/users?limit=2');
++    expect(res.status).toBe(200);
++    expect(res.body.data).toHaveLength(2);
++    expect(res.body.nextCursor).toBeTypeOf('string');
++
++    const nextRes = await request(app).get(`/v1/users?limit=2&cursor=${res.body.nextCursor}`);
++    expect(nextRes.status).toBe(200);
++    expect(nextRes.body.data.length).toBeGreaterThan(0);
++  });
++});
