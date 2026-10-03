@@ -21,10 +21,13 @@
  */
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
-import { isTestFile, isTestSupport } from '../../src/core/plugin-api.ts';
+import { activeLayout, isTestFile, isTestSupport, suggestTestPath } from '../../src/core/plugin-api.ts';
 import type { RunContext, RunState, TestObservation } from '../../src/core/plugin-api.ts';
 
-/** The core's single definition: runnable test = *.test|spec.(c|m)?ts; test support = any other file under test/. */
+/**
+ * The core's single definition (per the API's layout): runnable test = *.test|spec.(c|m)?ts, or what the
+ * runner collects in a dedicated test dir; test support = any other file in a dedicated test dir (test/, tests/, …).
+ */
 export { isTestFile, isTestSupport };
 
 export function sha256(text: string): string {
@@ -33,17 +36,19 @@ export function sha256(text: string): string {
 
 /**
  * Source files the observed-red rule governs: every TypeScript file that is neither a
- * runnable test nor test support (src/** and anything else a broad brownfield scope
- * allows, e.g. scripts/x.ts).
+ * runnable test nor test support of the API's layout (its source roots and anything else
+ * a broad brownfield scope allows, e.g. scripts/x.ts).
  */
 export function isGovernedSource(rel: string): boolean {
-  return /\.[cm]?ts$/.test(rel) && !rel.endsWith('.d.ts') && !isTestFile(rel) && !isTestSupport(rel);
+  return /\.[cm]?tsx?$/.test(rel) && !/\.d\.[cm]?tsx?$/.test(rel) && !isTestFile(rel) && !isTestSupport(rel);
 }
 
-/** The runnable test file to suggest for a source file: test/<name>.test.ts. */
+/**
+ * The runnable test file to suggest for a source file: one the API's runner actually collects
+ * (tests/<name>.test.ts, a colocated <dir>/<name>.test.ts, …; test/<name>.test.ts for the template).
+ */
 export function suggestedTest(source: string): string {
-  const name = posix.basename(source).replace(/\.[cm]?ts$/, '');
-  return `test/${name === 'index' ? posix.basename(posix.dirname(source)) || 'index' : name}.test.ts`;
+  return suggestTestPath(posix.normalize(source), activeLayout());
 }
 
 /** scratch key: governed files the observed-red hook has let through in this run. */

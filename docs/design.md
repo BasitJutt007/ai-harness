@@ -52,7 +52,18 @@ breakdown (`plan`), which context to fetch, test design, and code.
   (refuses the history placeholder `<omitted N chars>` as file content).
 
 A test file is one thing everywhere (`src/core/testmap.ts`): `*.test.ts` / `*.spec.ts` is a
-runnable test; any other file under `test/` is test support, never runnable, never governed.
+runnable test; any other file in a dedicated test dir (`test/` for the template) is test support,
+never runnable, never governed.
+
+**Target profile** (`src/core/target.ts`, computed at preflight, printed and kept in `run.json`):
+the harness reads the target's own layout and toolchain instead of assuming the template: source
+roots from tsconfig (`rootDir`/`include`/references), test globs and dedicated test dirs from the
+runner's config (vitest `include`, jest `testMatch`/`roots`, `node --test` arguments), import
+resolution (tsconfig `paths`/`baseUrl`, package `imports`, vite/jest aliases, `require()`), the
+runner (vitest, jest 29+ or node:test; the target's own binary first), where express, zod, vitest
+and typescript resolve from (every `node_modules` from the API up to the repository top is linked
+into the worktree; the harness's is the fallback) and the zod major (Zod 3 schemas need
+`zod-to-json-schema`). What it cannot support (another framework or runner) is UNPROVEN.
 
 **Gates** (`plugins/gates/`, run fresh at finish and again at ship): `tests-green`;
 `observed-red` (every changed source file has a covering case that was seen red and now passes,

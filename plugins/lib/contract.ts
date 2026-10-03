@@ -12,13 +12,14 @@
  * an UNPROVEN change, never a silent pass.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
 import { z } from 'zod';
+import { isSourcePath, linkDependencies, targetLayout } from '../../src/core/plugin-api.ts';
 import type { Exec, JsonSchema, RunContext } from '../../src/core/plugin-api.ts';
 import { extractRoutes, resolveSymbol } from './api-ast.ts';
 import type { RouteInfo, SchemaRef } from './api-ast.ts';
@@ -71,8 +72,10 @@ export interface ContractDiff {
 
 const IGNORE = ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/*.test.ts', '**/*.spec.ts', '**/*.d.ts'];
 
+/** The API's source files: TypeScript under its source roots (the API's own tsconfig/runner layout, not a fixed src/). */
 export async function apiSourceFiles(root: string): Promise<string[]> {
-  return (await glob(['src/**/*.ts'], { cwd: root, ignore: IGNORE })).map((f) => f.split('\\').join('/')).sort();
+  const layout = await targetLayout(root);
+  return (await glob(['**/*.ts'], { cwd: root, ignore: IGNORE })).map((f) => f.split('\\').join('/')).filter((f) => isSourcePath(f, layout)).sort();
 }
 
 /** Same options as the check runner: the API's tsconfig with strict/noUncheckedIndexedAccess/noEmit forced. */
@@ -336,8 +339,8 @@ const snapshotRoots = new Map<string, string>();
 /**
  * Materialise the base commit's version of the API under <harnessRoot>/.harness/tmp
  * (`git archive <baseSha> <rootRel>`) and return the API directory inside it.
- * node_modules resolution: the temp dir lives under the harness root; an API-level
- * node_modules (if the worktree has one) is symlinked in.
+ * node_modules resolution: the worktree's node_modules at the API level and every ancestor are
+ * linked in (target first); the temp dir lives under the harness root, so the harness's is the fallback.
  */
 export async function snapshotBase(opts: {
   repoRoot: string;
@@ -364,13 +367,8 @@ export async function snapshotBase(opts: {
     rmSync(tar, { force: true });
     const apiDir = rel === '' ? tree : join(tree, rel);
     if (!existsSync(apiDir)) throw new Error(`${rel} does not exist at ${opts.baseSha}`);
-    for (const nm of [join(opts.repoRoot, rel, 'node_modules'), join(opts.repoRoot, 'node_modules')]) {
-      const link = join(apiDir, 'node_modules');
-      if (existsSync(nm) && !existsSync(link)) {
-        symlinkSync(nm, link, 'dir');
-        break;
-      }
-    }
+    // The archive mirrors the repository from its top: link node_modules at the API level and every ancestor.
+    linkDependencies(opts.repoRoot, rel === '' ? '.' : rel, tree);
     snapshotRoots.set(apiDir, dir);
     return apiDir;
   } catch (e) {

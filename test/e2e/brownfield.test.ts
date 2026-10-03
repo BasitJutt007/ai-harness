@@ -5,6 +5,7 @@
  *      changes, but POST stops accepting status "archived": contract-lock fails,
  *      finish is refused, the run is not done.
  */
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, type RunSummary } from '../../src/core/run.ts';
@@ -64,6 +65,21 @@ describe('(b) additive change: projects-change.json', () => {
     expect(r.honesty.proven).toContain('gate:contract-lock');
     expect(r.honesty.unproven).toEqual([]);
     expect(r.honesty.failed).toEqual([]);
+  });
+
+  it('run.json records the target profile computed at preflight (layout, runner, dependency resolution)', () => {
+    const raw: unknown = JSON.parse(readFileSync(join(s.runDir, 'run.json'), 'utf8'));
+    expect(raw).toMatchObject({
+      target: {
+        framework: { name: 'express', supported: true },
+        runner: { kind: 'vitest', supported: true },
+        sourceRoots: ['src'],
+        testSupportRoots: ['test'],
+        unsupported: [],
+        dependencies: { express: { origin: 'harness' }, zod: { origin: 'harness' }, vitest: { origin: 'harness' }, typescript: { origin: 'harness' } },
+        zod: { major: 4, converter: 'toJSONSchema' },
+      },
+    });
   });
 });
 

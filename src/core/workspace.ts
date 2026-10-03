@@ -2,12 +2,13 @@
  * Git worktrees and the sandboxed filesystem view of the governed API.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, realpathSync, symlinkSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
 import { exec } from './exec.ts';
+import { linkDependencies } from './target.ts';
 import type { HarnessConfig, Workspace } from './types.ts';
 
 export function sha256(text: string | Buffer): string {
@@ -63,6 +64,8 @@ export async function createWorktree(opts: {
   repoDir: string;
   runId: string;
   branch: string;
+  /** API root relative to the repository top (default: repoDir's position in its repository). */
+  apiRel?: string;
 }): Promise<{ worktreeRoot: string; baseBranch: string; baseSha: string }> {
   const { harnessRoot, config, repoDir, runId, branch } = opts;
   if (!/^[A-Za-z0-9._/-]+$/.test(branch) || branch.startsWith('-')) throw new Error(`invalid branch name "${branch}"`);
@@ -82,11 +85,12 @@ export async function createWorktree(opts: {
   await mkdir(dirname(worktreeRoot), { recursive: true });
   await git(top, ['worktree', 'add', '-b', branch, worktreeRoot, 'HEAD']);
 
-  const nm = join(top, 'node_modules');
-  if (existsSync(nm) && !isInside(realpathSync(harnessRoot), realpathSync(worktreeRoot))) {
-    const link = join(worktreeRoot, 'node_modules');
-    if (!existsSync(link)) symlinkSync(nm, link, 'dir');
-  }
+  // Dependencies resolve as in the target checkout: the API's own node_modules and every ancestor's up to
+  // the repository top are linked in. The harness's node_modules is the fallback for packages the target
+  // lacks: reached by walking up when the worktree lives inside the harness root, linked at the top otherwise.
+  const apiRel = opts.apiRel ?? (toPosix(relative(top, realpathSync(repoDir))) || '.');
+  const inHarness = isInside(realpathSync(harnessRoot), realpathSync(worktreeRoot));
+  linkDependencies(top, apiRel, worktreeRoot, inHarness ? undefined : join(harnessRoot, 'node_modules'));
   return { worktreeRoot: realpathSync(worktreeRoot), baseBranch, baseSha };
 }
 

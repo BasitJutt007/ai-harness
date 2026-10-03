@@ -13,6 +13,7 @@ import { loadRegistry } from './registry.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
+import { targetLayout } from './target.ts';
 import { buildTestMap } from './testmap.ts';
 import { compareRuns, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
 import { createWorkspace } from './workspace.ts';
@@ -475,7 +476,7 @@ async function cmdShip(p: ParsedArgs, out: Out): Promise<number> {
 async function cmdTestmap(p: ParsedArgs, out: Out): Promise<number> {
   const root = apiDir(p, out);
   if (root === null) return 2;
-  const map = await buildTestMap(createWorkspace(root, '.'));
+  const map = await buildTestMap(createWorkspace(root, '.'), await targetLayout(root));
   const text = testMapSummary(map, 500);
   out(text.length > 0 ? text : '(no test files)');
   return 0;

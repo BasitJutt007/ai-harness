@@ -7,6 +7,7 @@
 import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
@@ -18,6 +19,7 @@ import { deserializeState, newRunId, newRunState, RunStore, serializeState } fro
 import { isolationHonesty, isolationInfo, isolationUnavailable, setSandboxMode } from './sandbox.ts';
 import { saveInitial } from './initial.ts';
 import { createServices } from './services.ts';
+import { computeTargetProfile, defaultScopeAllow, formatProfile, profileRecord, type TargetProfile } from './target.ts';
 import { loadTask } from './task.ts';
 import { TokenLedger, type TokenReport } from './tokens.ts';
 import { createWorkspace, createWorktree, gitToplevel, sha256 } from './workspace.ts';
@@ -102,6 +104,8 @@ export function buildContext(opts: {
   registry: RegistryView;
   /** Subprocess runner (default: the core exec). */
   exec?: Exec;
+  /** The API's profile (layout, runner) from preflight. */
+  profile?: TargetProfile;
 }): RunContext {
   const { state, store } = opts;
   const run = opts.exec ?? exec;
@@ -115,6 +119,7 @@ export function buildContext(opts: {
     taskKind: opts.task.kind,
     baseSha: opts.run.baseSha,
     runDir: opts.run.runDir,
+    ...(opts.profile !== undefined ? { profile: opts.profile } : {}),
   });
   return {
     run: opts.run,
@@ -133,6 +138,37 @@ export function buildContext(opts: {
       store.appendEvent(full);
     },
   };
+}
+
+/**
+ * Preflight: the target profile of the API in the worktree (target.ts). A brownfield task that does not
+ * declare `scope` gets the profile's roots as its default allow list (the schema default assumes src/ +
+ * test/). Never throws: a profile that cannot be computed is reported, and the run keeps the template layout.
+ */
+export async function preflight(task: Task, taskFile: string, ws: Workspace): Promise<{ profile?: TargetProfile; error?: string; scopeFromProfile: boolean }> {
+  let profile: TargetProfile;
+  try {
+    profile = await computeTargetProfile({ apiRoot: ws.root, repoRoot: ws.repoRoot, harnessRoot: HARNESS_ROOT });
+  } catch (e) {
+    return { error: `target profile could not be computed (template layout assumed): ${errMsg(e)}`, scopeFromProfile: false };
+  }
+  let scopeFromProfile = false;
+  if (task.kind === 'brownfield' && !(await taskDeclaresScope(taskFile))) {
+    task.scope = { allow: defaultScopeAllow(profile), deny: task.scope.deny };
+    scopeFromProfile = true;
+  }
+  return { profile, scopeFromProfile };
+}
+
+/** Whether the task file itself names a `scope` (unreadable or unknown shapes count as declared: never overridden). */
+async function taskDeclaresScope(file: string): Promise<boolean> {
+  try {
+    const text = await readFile(file, 'utf8');
+    const data: unknown = /\.json$/i.test(file) ? JSON.parse(text) : parseYaml(text);
+    return typeof data !== 'object' || data === null || 'scope' in data;
+  } catch {
+    return true;
+  }
 }
 
 async function loadRegistryOrThrow(config: HarnessConfig): Promise<RegistryView> {
@@ -422,7 +458,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const branch = `harness/${runId}`;
   let wt: { worktreeRoot: string; baseBranch: string; baseSha: string };
   try {
-    wt = await createWorktree({ harnessRoot: HARNESS_ROOT, config, repoDir, runId, branch });
+    wt = await createWorktree({ harnessRoot: HARNESS_ROOT, config, repoDir, runId, branch, apiRel: rootRel });
   } finally {
     claim.release();
   }
@@ -442,6 +478,11 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const state = newRunState();
   state.initialHashes = await snapshotHashes(ws, store.runDir);
   const mode = opts.baseline ? BASELINE_MODE : JIT_MODE;
+  // Preflight, before the first model turn: what the target looks like and what the harness cannot prove on it.
+  const target = await preflight(task, loaded.file, ws);
+  const targetLines = target.profile !== undefined ? formatProfile(target.profile) : [`target     UNPROVEN: ${target.error ?? 'no profile'}`];
+  if (target.scopeFromProfile && task.kind === 'brownfield') targetLines.push(`           scope (task declares none; from the target layout): ${task.scope.allow.join(', ')}`);
+  log(targetLines.join('\n'));
   const ctx = buildContext({
     run: {
       id: runId,
@@ -462,6 +503,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     config,
     registry,
     exec: run,
+    ...(target.profile !== undefined ? { profile: target.profile } : {}),
   });
 
   // The tool list exactly as the model will be offered it (order included), recorded in run.json.
@@ -493,6 +535,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     toolsOffered: (offered ?? []).map((t) => t.name),
     checksRegistered: registry.checks.map((r) => r.plugin.id),
     isolation,
+    target: target.profile !== undefined
+      ? { ...profileRecord(target.profile), ...(target.scopeFromProfile && task.kind === 'brownfield' ? { defaultScope: task.scope.allow } : {}) }
+      : { error: target.error ?? 'no profile' },
   };
   store.writeJson('run.json', { ...runRecordBase, status: 'running' });
   if (dirty.length > 0) {
@@ -611,7 +656,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const notes = abortedRun
     ? [final.results.length > 0 || report !== null ? 'run stopped by signal after the loop ended: the remaining post-loop steps did not run' : 'gates and checks: not run because the run was aborted']
     : [];
-  const h = honesty(task, final.results, report, notes);
+  const targetNotes = target.profile !== undefined ? target.profile.unsupported.map((u) => `target: ${u}`) : [`target: ${target.error ?? 'no profile'}`];
+  const h = honesty(task, final.results, report, [...notes, ...targetNotes]);
   const iso = isolationHonesty(isolation);
   (iso.proven ? h.proven : h.unproven).push(iso.line);
   const evidence = {
@@ -724,6 +770,8 @@ export async function openRun(
   if (!existsSync(record.worktreeRoot)) throw new Error(`worktree no longer exists: ${record.worktreeRoot}`);
   const loaded = await loadTask(record.taskFile);
   const ws = createWorkspace(record.worktreeRoot, record.rootRel);
+  // Same profile and default scope as the run itself, so ship re-runs every gate on the same layout.
+  const target = await preflight(loaded.task, loaded.file, ws);
   const savedState = store.readJson<unknown>('state.json');
   const state = savedState === null ? newRunState() : deserializeState(savedState);
   const ctx = buildContext({
@@ -746,6 +794,7 @@ export async function openRun(
     config,
     registry,
     ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
+    ...(target.profile !== undefined ? { profile: target.profile } : {}),
   });
   return { ctx, registry, store, record };
 }
