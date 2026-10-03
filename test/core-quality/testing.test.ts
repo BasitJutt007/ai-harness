@@ -2,10 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { exec } from '../../src/core/exec.ts';
 import { capBytes, checkFileArgs, MAX_CONSOLE_BYTES, missingSourceModule, parseReport, runnerEnv, runVitest } from '../../src/core/testing.ts';
-import type { LogStore, TestObservation } from '../../src/core/types.ts';
+import type { Exec, ExecOptions, LogStore, TestObservation } from '../../src/core/types.ts';
 
 const HARNESS_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const base = join(HARNESS_ROOT, '.harness', 'tmp', `core-quality-testing-${randomBytes(4).toString('hex')}`);
@@ -62,11 +63,20 @@ describe('runVitest (real vitest runs)', () => {
     const content = await readFile(join(api, 'test/pass.test.ts'));
     expect(pass.hash).toBe(createHash('sha256').update(content).digest('hex'));
 
-    expect(byFile(obs, 'test/fail.test.ts')).toMatchObject({ status: 'fail', collected: 2, failed: 1, validRed: true });
+    // expect(201).toBe(409) asserts constants only and uses nothing from src/: a failure, but not a red.
+    const fail = byFile(obs, 'test/fail.test.ts');
+    expect(fail).toMatchObject({ status: 'fail', collected: 2, failed: 1, validRed: false });
+    expect(fail.reason).toBe('1 of 2 tests failed; red rejected: the failing cases only assert constants');
+    expect(fail.cases?.map((c) => [c.name, c.status, c.exercisesSource, c.constantOnly])).toEqual([
+      ['POST /v1/users > returns 409 on duplicate', 'fail', false, true],
+      ['POST /v1/users > passes', 'pass', false, true],
+    ]);
 
     const missing = byFile(obs, 'test/missing.test.ts');
     expect(missing).toMatchObject({ status: 'error', collected: 0, validRed: true });
     expect(missing.reason).toContain('src/missing.ts');
+    expect(missing.cases).toEqual([expect.objectContaining({ name: 'thing', status: 'error', exercisesSource: true, constantOnly: false })]);
+    expect(pass.cases?.map((c) => [c.name, c.status, c.exercisesSource, c.constantOnly])).toEqual([['one', 'pass', true, false], ['two', 'pass', false, true]]);
 
     const nested = byFile(obs, 'test/nested.test.ts');
     expect(nested).toMatchObject({ status: 'error', validRed: true });
@@ -108,7 +118,7 @@ describe('runVitest: green semantics, argument safety, isolation, console', () =
       "it('home is isolated', () => {",
       "  console.log('HOME_SEEN=' + process.env.HOME);",
       "  expect(homedir()).toBe(process.env.HOME);",
-      "  expect(process.env.HOME).toContain('.harness');",
+      "  expect(process.env.HOME).toContain('harness-vitest-');",
       "  expect(process.env.XDG_CONFIG_HOME?.startsWith(process.env.HOME ?? '-')).toBe(true);",
       "  expect(process.env.USERPROFILE).toBe(process.env.HOME);",
       "});",
@@ -135,12 +145,12 @@ describe('runVitest: green semantics, argument safety, isolation, console', () =
     expect(report.ok).toBe(false);
   });
 
-  it('runs with an isolated HOME/XDG under .harness/tmp that is removed afterwards; console holds the real output', async () => {
+  it('runs with an isolated HOME/XDG under a per-run OS temp dir that is removed afterwards; console holds the real output', async () => {
     const report = await runVitest({ root: api2, files: ['test/home.test.ts'], exec, harnessRoot: HARNESS_ROOT, logs, turn: 1 });
     expect(report.ok).toBe(true);
     const out = report.console ?? '';
     const seen = /HOME_SEEN=(\S+)/.exec(out)?.[1] ?? '';
-    expect(seen.startsWith(join(HARNESS_ROOT, '.harness', 'tmp'))).toBe(true);
+    expect(seen.startsWith(join(tmpdir(), 'harness-vitest-'))).toBe(true);
     expect(seen).not.toBe(process.env['HOME']);
     await expect(readFile(seen)).rejects.toThrow(); // removed after the run
     // the default reporter's console output, without colour and without our JSON-file notice
@@ -149,6 +159,25 @@ describe('runVitest: green semantics, argument safety, isolation, console', () =
     expect(out).not.toMatch(/\u001b\[/);
     expect(out).not.toContain('JSON report written to');
     expect(Buffer.byteLength(out)).toBeLessThanOrEqual(MAX_CONSOLE_BYTES);
+  });
+
+  it('runs the runner sandboxed: writable = only a per-run tmp dir holding TMPDIR (API root read-only), JSON report over the fd-3 channel; network localhost', async () => {
+    const calls: Array<{ args: string[]; opts: ExecOptions }> = [];
+    const spy: Exec = (cmd, args, opts) => {
+      calls.push({ args, opts });
+      return exec(cmd, args, opts);
+    };
+    const report = await runVitest({ root: api2, files: ['test/mixed.test.ts'], exec: spy, harnessRoot: HARNESS_ROOT, logs, turn: 1 });
+    expect(report.totals.tests).toBe(2);
+    const call = calls[0];
+    const tmp = call?.opts.sandbox?.writable[0] ?? '';
+    expect(call?.opts.sandbox).toEqual({ writable: [tmp], network: 'localhost' });
+    expect(tmp.startsWith(join(tmpdir(), 'harness-vitest-'))).toBe(true);
+    expect(call?.opts.env).toMatchObject({ TMPDIR: tmp, TMP: tmp, TEMP: tmp });
+    // The JSON report goes over the private fd-3 channel, never to a file the confined child can write.
+    expect(call?.args).toContain('--outputFile.json=/dev/fd/3');
+    expect(call?.args).toContain('--pool=forks');
+    expect(call?.opts.channel).toBe(true);
   });
 
   it('rejects option-looking, absolute and escaping file entries before running anything', async () => {
@@ -162,6 +191,7 @@ describe('runVitest: green semantics, argument safety, isolation, console', () =
   });
 
   it('runnerEnv points HOME/USERPROFILE/XDG_* at the given dir and drops config pointers', () => {
+    expect(runnerEnv('/tmp/h', '/tmp/run')).toMatchObject({ TMPDIR: '/tmp/run', TMP: '/tmp/run', TEMP: '/tmp/run' });
     const env = runnerEnv('/tmp/h');
     expect(env['HOME']).toBe('/tmp/h');
     expect(env['USERPROFILE']).toBe('/tmp/h');

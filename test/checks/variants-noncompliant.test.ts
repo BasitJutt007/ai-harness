@@ -104,8 +104,8 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
       { rule: 'tsc-strict', at: ['src/util/casts.ts', 'Record<string, any>'], message: '`any` type' },
       { rule: 'tsc-strict', at: ['src/util/casts.ts', '<any>raw'], message: '`any` type' },
     ],
-    // `raw as unknown as User` is allowed: exactly the three any forms
-    exactViolations: { 'tsc-strict': 3 },
+    // `raw as unknown as User` is allowed: the three any forms, plus `v` (typed any by Array<any>; type checker)
+    exactViolations: { 'tsc-strict': 4 },
   },
   'bad-types-file': {
     fails: ['zod-boundary'],
@@ -121,8 +121,12 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
     expect: [{ rule: 'zod-boundary', at: [ROUTES, 'res.json(toDto(user))'], message: 'GET /v1/users/:userId: response body is not parsed with a Zod schema' }],
   },
   'bad-zod-any-schema': {
-    fails: ['zod-boundary'],
-    expect: [{ rule: 'zod-boundary', at: [ROUTES, 'z.any().parse(req.body)'], message: 'z.any() accepts anything' }],
+    fails: ['zod-boundary', 'tsc-strict'],
+    expect: [
+      { rule: 'zod-boundary', at: [ROUTES, 'z.any().parse(req.body)'], message: 'z.any() accepts anything' },
+      // the parsed value is `any` without the keyword: the type checker finds it
+      { rule: 'tsc-strict', at: [ROUTES, 'z.any().parse(req.body)'], message: '`input` has type `any`' },
+    ],
   },
   'bad-error-leak': {
     fails: ['problem-json'],

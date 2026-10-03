@@ -8,10 +8,11 @@ import { ProblemSchema } from '../src/lib/problem.ts';
 
 const app = createApp();
 
-/** The public contract, restated independently of the implementation (description is no longer exposed). */
+/** The public contract, restated independently of the implementation. */
 const ProjectBody = z.strictObject({
   id: z.uuid(),
   name: z.string(),
+  description: z.string().optional(),
   status: z.enum(['active', 'archived']),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -57,8 +58,7 @@ describe('POST /v1/projects', () => {
     expect(res.status).toBe(201);
     const project = ProjectBody.parse(res.body);
     expect(res.headers['location']).toBe(`/v1/projects/${project.id}`);
-    expect(project).toMatchObject({ name: 'Apollo', status: 'active' });
-    expect(res.body).not.toHaveProperty('description');
+    expect(project).toMatchObject({ name: 'Apollo', description: 'moon', status: 'active' });
     expect(project.createdAt).toBe(project.updatedAt);
   });
 
@@ -151,7 +151,7 @@ describe('PATCH /v1/projects/:projectId', () => {
     const res = await request(app).patch(`/v1/projects/${project.id}`).send({ status: 'archived' });
     expect(res.status).toBe(200);
     const updated = ProjectBody.parse(res.body);
-    expect(updated).toMatchObject({ id: project.id, name: project.name, status: 'archived' });
+    expect(updated).toMatchObject({ id: project.id, name: project.name, description: 'keep me', status: 'archived' });
     expect(updated.createdAt).toBe(project.createdAt);
   });
 
@@ -176,11 +176,9 @@ describe('PATCH /v1/projects/:projectId', () => {
   });
 });
 
-describe('description is internal', () => {
-  it('is accepted on create but never returned by GET', async () => {
-    const project = await createProject({ description: 'internal notes' });
-    const res = await request(app).get(`/v1/projects/${project.id}`);
-    expect(res.status).toBe(200);
-    expect(res.body).not.toHaveProperty('description');
+describe('POST /v1/projects status on create', () => {
+  it('rejects creating a project that is already archived with a 422 problem', async () => {
+    const problem = expectProblem(await request(app).post('/v1/projects').send({ name: 'born archived', status: 'archived' }), 422);
+    expect(problem.detail).toContain('status');
   });
 });

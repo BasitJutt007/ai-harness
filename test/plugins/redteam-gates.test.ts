@@ -129,13 +129,38 @@ describe('standards: the diff-aware policy cannot be used to hide violations', (
   });
 });
 
+/** The fake runner's observations, with one case per file whose body hash is the file's hash (edit = new body). */
+function withCases(h: Awaited<ReturnType<typeof harness>>, revertStatus: 'fail' | 'pass' = 'fail'): void {
+  const inner = h.services.runTests;
+  h.ctx.services.runTests = async (files) => {
+    const report = await inner(files);
+    for (const o of report.observations) {
+      o.cases = [{ name: 'case', status: o.status, bodyHash: o.hash, exercisesSource: true, constantOnly: false }];
+    }
+    return report;
+  };
+  // The revert check's run (run-start source back in place): by default the case is red again.
+  h.ctx.services.runTestsReverted = async (files) => {
+    const observations = await Promise.all(files.map(async (file) => {
+      const hash = sha((await h.ws.read(file)) ?? '');
+      return {
+        file, hash, status: revertStatus, collected: 1, failed: revertStatus === 'fail' ? 1 : 0, validRed: false, reason: '', turn: 1, at: '',
+        cases: [{ name: 'case', status: revertStatus, bodyHash: hash, exercisesSource: true, constantOnly: false }],
+      };
+    }));
+    return { ok: revertStatus === 'pass', totals: { files: files.length, tests: files.length, passed: 0, failed: 0 }, observations, summary: '', logPath: '' };
+  };
+}
+
 describe('observed-red gate: nothing changes source behind the hook', () => {
   it('fails when a source file changed without the hook letting it through (e.g. test code wrote it)', async () => {
     const files = { 'test/a.test.ts': "import { a } from '../src/a.ts';\n", 'src/a.ts': 'export const a = 2;\n' };
     const h = await harness({ files, task: brownfieldTask() });
+    withCases(h);
     h.ctx.state.initialHashes.set('src/a.ts', sha('export const a = 1;\n'));
     h.outcomes.set('test/a.test.ts', 'fail');
-    await h.services.runTests();
+    await h.ctx.services.runTests();
+    h.outcomes.set('test/a.test.ts', 'pass');
     const r = await run(observedRedGate, h.ctx);
     expect(r.status).toBe('fail');
     expect(r.details?.[0]).toContain('src/a.ts: changed without passing the observed-red hook');
@@ -146,21 +171,29 @@ describe('observed-red gate: nothing changes source behind the hook', () => {
   it('a missing-module red does not cover a file that existed at run start', async () => {
     const t = "import { a } from '../src/a.ts';\n";
     const h = await harness({ files: { 'test/a.test.ts': t, 'src/a.ts': 'export const a = 2;\n' }, task: brownfieldTask() });
+    withCases(h);
     h.ctx.state.initialHashes.set('src/a.ts', sha('export const a = 1;\n'));
-    h.ctx.state.tests.push({ file: 'test/a.test.ts', hash: sha(t), status: 'error', collected: 0, failed: 0, validRed: true, reason: 'missing', turn: 1, at: '' });
+    h.ctx.state.tests.push({
+      file: 'test/a.test.ts', hash: sha(t), status: 'error', collected: 0, failed: 0, validRed: true, reason: 'missing', turn: 1, at: '',
+      cases: [{ name: 'case', status: 'error', bodyHash: sha(t), exercisesSource: true, constantOnly: false }],
+    });
     recordUnlocked(h.ctx.state, 'src/a.ts');
     const r = await run(observedRedGate, h.ctx);
     expect(r.status).toBe('fail');
-    expect(r.details?.[0]).toContain('covering tests never observed red');
+    expect(r.details?.[0]).toBe('src/a.ts: test/a.test.ts: only a missing-module red (the file existed at run start)');
   });
 
   it('governs non-src TypeScript a broad scope allowed (scripts/x.ts)', async () => {
-    const h = await harness({ files: { 'test/a.test.ts': "import { a } from '../src/a.ts';\n", 'src/a.ts': 'x\n', 'scripts/x.ts': 'y\n' } });
+    const h = await harness({ files: { 'test/a.test.ts': "import { a } from '../src/a.ts';\n", 'src/a.ts': 'x\n', 'scripts/x.ts': 'y\n', 'test/helpers.ts': 'z\n' } });
+    withCases(h);
     h.outcomes.set('test/a.test.ts', 'fail');
-    await h.services.runTests();
+    await h.ctx.services.runTests();
+    h.outcomes.set('test/a.test.ts', 'pass');
     recordUnlocked(h.ctx.state, 'src/a.ts');
     const r = await run(observedRedGate, h.ctx);
-    expect(r.details).toEqual(['scripts/x.ts: changed without passing the observed-red hook (not written by a write tool, e.g. modified by test code)']);
+    // test support code (test/helpers.ts) is not governed; scripts/x.ts is
+    expect(r.details?.[0]).toBe('scripts/x.ts: changed without passing the observed-red hook (not written by a write tool, e.g. modified by test code)');
+    expect(r.details).toHaveLength(2);
   });
 });
 

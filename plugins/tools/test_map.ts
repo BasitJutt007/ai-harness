@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineTool } from '../../src/core/plugin-api.ts';
 import { toApiRel } from '../lib/path-policy.ts';
-import { describeTest, isGovernedSource, isTestFile, lockState, testRedStatus } from '../lib/red.ts';
+import { describeTest, isGovernedSource, isTestFile, isTestSupport, lockState, suggestedTest, testRedStatus } from '../lib/red.ts';
 
 const Input = z.object({
   path: z.string().optional().describe('Omit for the whole map'),
@@ -31,10 +31,14 @@ export default defineTool({
       const summary = `${r.rel}: ${describeTest(status)}\ncovers: ${covers.length ? covers.join(', ') : '(nothing under src/)'}`;
       return { ok: true, summary, raw: summary };
     }
+    if (isTestSupport(r.rel)) {
+      const summary = `${r.rel}: test support code (writable without red; not a runnable test, never covered). Runnable tests are test/<name>.test.ts`;
+      return { ok: true, summary, raw: summary };
+    }
     const lock = await lockState(ctx, r.rel);
     const state = !isGovernedSource(r.rel) ? 'not governed by observed-red' : lock.unlocked ? `UNLOCKED (by ${lock.unlockedBy.join(', ')})` : 'LOCKED';
     const lines = [`${r.rel}: ${state}`];
-    if (lock.tests.length === 0) lines.push('covering tests: none (write a test that imports it)');
+    if (lock.tests.length === 0) lines.push(`covering tests: none (write ${suggestedTest(r.rel)} that imports it)`);
     else lines.push('covering tests:', ...lock.tests.map((t) => `  ${t.test}: ${describeTest(t)}`));
     const summary = lines.join('\n');
     return { ok: true, summary, raw: summary, data: lock };
