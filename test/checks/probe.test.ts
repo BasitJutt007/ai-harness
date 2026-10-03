@@ -21,6 +21,8 @@ describe('probe helpers', () => {
       'GET /v1/users collection success 200|401|403',
       'POST /v1/users malformed JSON body 400 body={"__harness_probe__": ',
       'POST /v1/users invalid body 422 body=[]',
+      // POST to a collection without Idempotency-Key: 428/400 if the API requires one, 422 (invalid body) if not
+      'POST /v1/users missing Idempotency-Key 400|422|428 body=[]',
       `GET ${id} unknown id 404|422`,
       `PATCH ${id} malformed JSON body 400 body={"__harness_probe__": `,
       `PATCH ${id} invalid body 422|404 body=[]`,
@@ -30,6 +32,7 @@ describe('probe helpers', () => {
     ]);
     expect(probes.find((p) => p.name === 'collection success')?.kind).toBe('success');
     expect(probes.find((p) => p.name === 'internal error')?.throwMarker).toMatch(/^harness-probe-secret-/);
+    expect(probes.filter((p) => p.omitIdempotencyKey === true).map((p) => p.name)).toEqual(['missing Idempotency-Key']);
   });
 
   it('success probes: a 2xx must be JSON and not problem+json; 401/403 must be problems', () => {

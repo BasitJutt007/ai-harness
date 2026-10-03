@@ -2,7 +2,7 @@
  * problem-json: every error leaves the API as RFC 9457 application/problem+json.
  * Static: no ad-hoc error bodies, error statuses only with problem bodies, problem
  * producers supply type/title/status, an error middleware and a final not-found
- * handler are registered. Runtime: probes against createApp (UNPROVEN if it cannot start).
+ * handler are registered. Runtime: probes against the API's app, wherever it lives (UNPROVEN if none starts).
  */
 import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
@@ -40,12 +40,17 @@ Static rules (per src file):
 - Every problem producer (new HttpProblem(...), notFound(...), conflict(...), ...) yields type, title, status.
 - Handlers never throw / next() a non-problem error (new Error('not found') becomes a 500).
 - The app registers an error-handling middleware (err, req, res, next) and a final not-found handler.
-Runtime (src/app.ts exports createApp): probes must get Content-Type application/problem+json and a body
-with string type/title/detail/instance and integer status equal to the HTTP status:
+Runtime: the harness finds the app (an exported factory such as createApp/buildApp, an exported or default
+app, or a server the entry file starts with listen(); in src/{app,index,server,main}.ts or what package.json
+main/start names) and probes it; POST/PUT/PATCH probes carry an Idempotency-Key. Each response must have
+Content-Type application/problem+json and a body with string type/title/detail/instance and integer status
+equal to the HTTP status:
   GET <base>/__harness_probe__/does-not-exist -> 404; POST/PUT/PATCH malformed JSON -> 400, invalid body -> 422;
-  GET/PATCH/DELETE on :param routes with an unknown uuid -> 404 (422 accepted); a route that throws a plain
-  Error -> 500 problem without the error message or stack; collection GET -> 200 JSON that is NOT a problem.
-  App cannot start -> UNPROVEN.
+  POST to a collection without Idempotency-Key -> 400/422/428; GET/PATCH/DELETE on :param routes with an
+  unknown uuid -> 404 (422 accepted); a route that throws a plain Error -> 500 problem without the error
+  message or stack; collection GET -> 200 JSON that is NOT a problem.
+  No app found or it cannot start -> UNPROVEN; a non-Express app the throwing route cannot be injected into
+  leaves the 500 probe UNPROVEN.
 Passing example:
   usersRouter.get('/v1/users/:userId', (req, res) => {
     const { userId } = UserParamsSchema.parse(req.params);
@@ -283,31 +288,41 @@ function handlerUnits(ctx: CheckContext, program: ts.Program, routes: RouteInfo[
   }
 }
 
-async function runtimeFinding(ctx: CheckContext, routes: RouteInfo[]): Promise<CheckFinding> {
+/** The judged probes as one finding, plus an UNPROVEN (skip) finding for any probe that could not be carried out. */
+async function runtimeFinding(ctx: CheckContext, routes: RouteInfo[]): Promise<CheckFinding[]> {
   const base: Omit<CheckFinding, 'status' | 'units' | 'violations'> = { rule: RULE, file: '(runtime)' };
-  if (!ctx.sourceFiles.includes('src/app.ts')) {
-    return { ...base, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: 'src/app.ts not found: runtime problem+json behaviour is unproven' };
-  }
   const run = await runProbe(ctx, routes);
-  if (!run.ok) return { ...base, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: run.reason };
+  if (!run.ok) return [{ ...base, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: run.reason }];
   const locs = new Map<string, string>();
   for (const r of routes) {
     const key = `${r.method.toUpperCase()} ${substituteParams(r.path)}`;
     if (!locs.has(key)) locs.set(key, location(ctx.root, r.registration));
   }
+  const appLoc = run.entryModule !== undefined ? `${run.entryModule}:1:1` : '(runtime)';
+  const app = run.entry !== undefined ? ` [app: ${run.entry}]` : '';
   const violations: Violation[] = [];
+  const unproven: string[] = [];
   let passed = 0;
+  let total = 0;
   for (const o of run.outcomes) {
+    if (o.unproven !== undefined) {
+      unproven.push(`${o.probe.method} ${o.probe.path} (${o.probe.name}): ${o.unproven}`);
+      continue;
+    }
+    total++;
     if (o.ok) {
       passed++;
       continue;
     }
+    const routeLoc = locs.get(`${o.probe.method} ${o.probe.path}`);
     violations.push({
-      location: locs.get(`${o.probe.method} ${o.probe.path}`) ?? 'src/app.ts:1:1',
-      message: `${o.probe.method} ${o.probe.path} (${o.probe.name}): ${o.problems.join('; ')}`,
+      location: routeLoc ?? appLoc,
+      message: `${o.probe.method} ${o.probe.path} (${o.probe.name}): ${o.problems.join('; ')}${routeLoc === undefined ? app : ''}`,
     });
   }
-  return { ...base, status: violations.length === 0 ? 'pass' : 'fail', units: { passed, total: run.outcomes.length }, violations };
+  const findings: CheckFinding[] = [{ ...base, status: violations.length === 0 ? 'pass' : 'fail', units: { passed, total }, violations }];
+  if (unproven.length > 0) findings.push({ ...base, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: `${unproven.join('; ')}${app}` });
+  return findings;
 }
 
 async function run(ctx: CheckContext): Promise<CheckFinding[]> {
@@ -321,7 +336,7 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
     .filter(([, t]) => t.total > 0)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([file, t]) => ({ rule: RULE, file, status: t.violations.length === 0 ? 'pass' : 'fail', units: { passed: t.passed, total: t.total }, violations: t.violations }));
-  findings.push(await runtimeFinding(ctx, routes));
+  findings.push(...(await runtimeFinding(ctx, routes)));
   return findings;
 }
 

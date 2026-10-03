@@ -36,6 +36,7 @@ describe('compliant variants', () => {
     // the users resource: 5 handlers and 5 routes, and the runtime probes really ran
     expect(byRule.get('zod-boundary')).toMatchObject({ status: 'pass', passed: 5, total: 5 });
     expect(byRule.get('rest-conventions')).toMatchObject({ status: 'pass', passed: 5, total: 5 });
-    expect(findings.find((f) => f.rule === 'problem-json' && f.file === '(runtime)')?.units).toEqual({ passed: 10, total: 10 });
+    // 11 probes: the 10 of before plus POST /v1/users without Idempotency-Key (must still be a problem)
+    expect(findings.find((f) => f.rule === 'problem-json' && f.file === '(runtime)')?.units).toEqual({ passed: 11, total: 11 });
   });
 });
