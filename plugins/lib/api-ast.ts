@@ -1203,20 +1203,25 @@ function reqRead(checker: ts.TypeChecker, id: ts.Identifier, env: Env): { target
 
 /** Whether `expr` is (a const holding) the data of an active parse: `S.parse(x)`, `await S.parseAsync(x)`, `S.safeParse(x).data`. */
 function isParseResult(m: ApiModel, expr: ts.Expression, env: Env, depth = 0): boolean {
-  let e = unwrap(expr);
-  if (ts.isIdentifier(e) && depth < 3) {
+  if (depth > 4) return false;
+  const e = unwrap(expr);
+  const active = (call: ts.Expression, methods: ReadonlySet<string>): boolean => {
+    const c = unwrap(call);
+    const info = ts.isCallExpression(c) ? parseCallInfo(m.checker, m.root, c, env, methods) : undefined;
+    return info !== undefined && info !== 'inactive';
+  };
+  if (ts.isIdentifier(e)) {
     const init = constInitializer(m.checker, e);
     return init !== undefined && isParseResult(m, init, env, depth + 1);
   }
-  if (ts.isPropertyAccessExpression(e) && e.name.text === 'data') {
-    let recv = unwrap(e.expression);
-    if (ts.isIdentifier(recv)) recv = unwrap(constInitializer(m.checker, recv) ?? recv);
-    if (!ts.isCallExpression(recv)) return false;
-    e = recv;
+  if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) {
+    // `S.safeParse(x).data`, or a member of a parsed value (`parsed.body`).
+    const recv = unwrap(e.expression);
+    const recvValue = ts.isIdentifier(recv) ? (constInitializer(m.checker, recv) ?? recv) : recv;
+    if (ts.isPropertyAccessExpression(e) && e.name.text === 'data' && active(recvValue, PARSE_METHODS)) return true;
+    return isParseResult(m, recv, env, depth + 1);
   }
-  if (!ts.isCallExpression(e)) return false;
-  const info = parseCallInfo(m.checker, m.root, e, env);
-  return info !== undefined && info !== 'inactive';
+  return active(e, DATA_PARSE_METHODS);
 }
 
 /** JSON.stringify of the standard library: it serialises a value without trusting its shape. */
@@ -1382,15 +1387,17 @@ function analyseFunction(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, 
         }
       }
       // `S.parse({ body: req.body, query: req.query })`: the member of the schema output is the part's schema.
-      if (ts.isPropertyAssignment(parent) && parent.initializer === arg && ts.isObjectLiteralExpression(parent.parent)) {
+      // Only a whole part under its own name counts (`{ id: req.body.id }` builds a value from raw input).
+      if (ts.isPropertyAssignment(parent) && parent.initializer === arg && arg === read.node && ts.isObjectLiteralExpression(parent.parent)) {
         const call = parent.parent.parent;
         const key = propName(parent.name);
-        if (ts.isCallExpression(call) && call.arguments[0] === parent.parent && key !== undefined) {
+        if (ts.isCallExpression(call) && call.arguments[0] === parent.parent && key === read.target) {
           const info = parseCallInfo(checker, root, call, env);
           if (info === 'inactive') return;
+          // A schema without that member strips the part: it is not validated, and not used either.
           if (info !== undefined) {
             const pt = info.parsedType !== undefined ? propertyType(checker, info.parsedType, key, call) : undefined;
-            addParse(read.target, call, { ...info, member: key, ...noOrigin, ...(pt !== undefined ? { parsedType: pt } : {}) });
+            if (pt !== undefined) addParse(read.target, call, { ...info, member: key, ...noOrigin, parsedType: pt });
             return;
           }
         }
@@ -1516,17 +1523,17 @@ function resolveCallable(m: ApiModel, expr: ts.Expression, env: Env, depth = 0):
   return wrapped;
 }
 
-/** Handler arguments with arrays (`[auth, validate(...)]`, or a const holding one) flattened. */
+/** Handler arguments with arrays (`[auth, validate(...)]`, `...handlers`, or a const holding one) flattened. */
 function flattenArgs(checker: ts.TypeChecker, args: readonly ts.Expression[]): ts.Expression[] {
   const out: ts.Expression[] = [];
   for (const a of args) {
-    let e = unwrap(a);
+    let e = unwrap(ts.isSpreadElement(a) ? a.expression : a);
     if (ts.isIdentifier(e)) {
       const init = constInitializer(checker, e);
       if (init !== undefined && ts.isArrayLiteralExpression(unwrap(init))) e = unwrap(init);
     }
     if (ts.isArrayLiteralExpression(e)) out.push(...flattenArgs(checker, e.elements));
-    else out.push(a);
+    else out.push(ts.isSpreadElement(a) ? a.expression : a);
   }
   return out;
 }
@@ -1711,15 +1718,17 @@ function pathCovers(prefix: string, fullPath: string): boolean {
 /**
  * Middleware registered with `.use()` on the route's router before the route, or on a router/app it is
  * mounted on before that mount (same file; other files: included), whose path covers the route.
+ * Outermost (app-level) middleware first, as Express runs it.
  */
 function scopeMiddlewareFor(m: ApiModel, mounts: Mount[], reg: Registration, fullPath: string): ts.Expression[] {
-  const out: ts.Expression[] = [];
+  const levels: ts.Expression[][] = [];
   const visited = new Set<ts.Symbol>();
-  const queue: Array<{ sym: ts.Symbol; anchor: ts.CallExpression; child?: ts.Symbol }> = [];
+  const queue: Array<{ sym: ts.Symbol; anchor: ts.CallExpression; child?: ts.Symbol; level: number }> = [];
   const receiver = rootSymbol(m.checker, reg.receiver);
-  if (receiver !== undefined) queue.push({ sym: receiver, anchor: reg.call });
+  if (receiver !== undefined) queue.push({ sym: receiver, anchor: reg.call, level: 0 });
   for (let item = queue.shift(); item !== undefined; item = queue.shift()) {
     const { sym, anchor } = item;
+    const out = (levels[item.level] ??= []);
     if (visited.has(sym)) continue;
     visited.add(sym);
     const factory = factoryOf(m.checker, sym);
@@ -1742,10 +1751,12 @@ function scopeMiddlewareFor(m: ApiModel, mounts: Mount[], reg: Registration, ful
       }
     }
     for (const mount of mounts) {
-      if ((mount.child === sym || mount.child === factory) && mount.parent !== undefined) queue.push({ sym: mount.parent, anchor: mount.call, child: mount.child });
+      if ((mount.child === sym || mount.child === factory) && mount.parent !== undefined && !isDeadRouter(m, mount.parent)) {
+        queue.push({ sym: mount.parent, anchor: mount.call, child: mount.child, level: item.level + 1 });
+      }
     }
   }
-  return out;
+  return levels.reverse().flat();
 }
 
 // ───────────────────────────── extraction ─────────────────────────────
@@ -1757,11 +1768,20 @@ function asMethod(name: string): HttpMethod | undefined {
 interface Registration {
   call: ts.CallExpression;
   method: HttpMethod;
-  /** undefined: the path could not be resolved to a constant. */
-  path: string | undefined;
+  /** The constant path(s) (an array of paths registers each); undefined: not a constant. */
+  paths: string[] | undefined;
   pathNode: ts.Expression;
   receiver: ts.Expression;
+  /** Handlers, preceded by middleware from `.all(...)` earlier in a `route()` chain. */
   handlerArgs: ts.Expression[];
+}
+
+/** A route path argument: one constant, or an array of constants (Express accepts both). */
+function routePaths(checker: ts.TypeChecker, arg: ts.Expression): string[] | undefined {
+  const e = unwrap(arg);
+  if (ts.isArrayLiteralExpression(e)) return pathValues(checker, e) ?? undefined;
+  const v = constString(checker, e);
+  return v === undefined ? undefined : [v];
 }
 
 function isCallable(checker: ts.TypeChecker, expr: ts.Expression): boolean {
@@ -1775,17 +1795,19 @@ function registrationOf(checker: ts.TypeChecker, call: ts.CallExpression): Regis
   if (method === undefined) return undefined;
   const first = call.arguments[0];
   if (first !== undefined && call.arguments.length >= 2 && isExpressReceiver(checker, callee.expression) && !isCallable(checker, first)) {
-    return { call, method, path: constString(checker, first), pathNode: first, receiver: callee.expression, handlerArgs: call.arguments.slice(1) };
+    return { call, method, paths: routePaths(checker, first), pathNode: first, receiver: callee.expression, handlerArgs: call.arguments.slice(1) };
   }
-  // router.route('/x').get(h).post(h)
+  // router.route('/x').get(h).all(mw).post(h): `.all(mw)` before a method runs first for it.
   let base: ts.Expression = callee.expression;
-  while (ts.isCallExpression(base) && ts.isPropertyAccessExpression(base.expression) && asMethod(base.expression.name.text) !== undefined) {
+  const before: ts.Expression[] = [];
+  while (ts.isCallExpression(base) && ts.isPropertyAccessExpression(base.expression) && (asMethod(base.expression.name.text) !== undefined || base.expression.name.text === 'all')) {
+    if (base.expression.name.text === 'all') before.unshift(...base.arguments);
     base = base.expression.expression;
   }
   if (ts.isCallExpression(base) && ts.isPropertyAccessExpression(base.expression) && base.expression.name.text === 'route') {
     const routeArg = base.arguments[0];
     if (routeArg !== undefined && call.arguments.length >= 1 && isExpressReceiver(checker, base.expression.expression)) {
-      return { call, method, path: constString(checker, routeArg), pathNode: routeArg, receiver: base.expression.expression, handlerArgs: [...call.arguments] };
+      return { call, method, paths: routePaths(checker, routeArg), pathNode: routeArg, receiver: base.expression.expression, handlerArgs: [...before, ...call.arguments] };
     }
   }
   return undefined;
@@ -1833,14 +1855,16 @@ export function extractRouteTable(program: ts.Program, root: string, files: stri
       const calleeProblemSites = handler !== undefined ? calleeProblems(m, handler) : [];
       const lc = sf.getLineAndCharacterOfPosition(node.getStart(sf));
       const targets: Array<{ path: string; unresolvedPath?: RouteInfo['unresolvedPath'] }> = [];
-      if (reg.path === undefined) {
+      if (reg.paths === undefined) {
         targets.push({ path: `<${reg.pathNode.getText()}>`, unresolvedPath: { node: reg.pathNode, reason: `route path ${reg.pathNode.getText()} is not a constant string` } });
       } else {
         const prefixes = prefixesOf(m, mounts, rootSymbol(checker, reg.receiver));
-        for (const p of prefixes.values) targets.push({ path: joinPaths(p, reg.path) });
-        if (prefixes.unresolved !== undefined) {
-          const text = prefixes.unresolved.getText();
-          targets.push({ path: `<${text}>${reg.path}`, unresolvedPath: { node: prefixes.unresolved, reason: `mount prefix ${text} is not a constant string` } });
+        for (const path of reg.paths) {
+          for (const p of prefixes.values) targets.push({ path: joinPaths(p, path) });
+          if (prefixes.unresolved !== undefined) {
+            const text = prefixes.unresolved.getText();
+            targets.push({ path: `<${text}>${path}`, unresolvedPath: { node: prefixes.unresolved, reason: `mount prefix ${text} is not a constant string` } });
+          }
         }
       }
       for (const t of targets) {

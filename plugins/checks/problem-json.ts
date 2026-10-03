@@ -258,12 +258,17 @@ function producesNotFound(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env)
   return found;
 }
 
+/** A use path that matches every request: none, '/', or a catch-all ('*', '/*', '/*splat', '/{*splat}', '(.*)'). */
+function matchesEverything(path: string | undefined): boolean {
+  return path === undefined || /^\/?(\*\w*|\{\*\w*\}|\(\.\*\))?$/.test(path);
+}
+
 function appUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): void {
   const uses = useRegistrations(m.program, ctx.root, ctx.sourceFiles);
   const errorRegs = uses.filter((u) => u.params === 4);
   const notFoundRegs = uses.filter(
     (u): u is UseRegistration & { fn: ts.FunctionLikeDeclaration } =>
-      u.fn !== undefined && u.path === undefined && u.fn.parameters.length >= 2 && u.fn.parameters.length <= 3 && producesNotFound(m, u.fn, u.env),
+      u.fn !== undefined && matchesEverything(u.path) && u.fn.parameters.length >= 2 && u.fn.parameters.length <= 3 && producesNotFound(m, u.fn, u.env),
   );
   const anchor = errorRegs[0]?.call ?? notFoundRegs[0]?.call;
   const file = anchor !== undefined ? location(ctx.root, anchor).replace(/:\d+:\d+$/, '') : ctx.sourceFiles.includes('src/app.ts') ? 'src/app.ts' : (ctx.sourceFiles[0] ?? '(project)');

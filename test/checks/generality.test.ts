@@ -6,10 +6,12 @@
  */
 import ts from 'typescript';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { staticProblemFindings } from '../../plugins/checks/problem-json.ts';
 import { isActionRoute } from '../../plugins/checks/rest-conventions.ts';
 import restConventions from '../../plugins/checks/rest-conventions.ts';
 import zodBoundary, { handWrittenTypes, zodEnumValueSets } from '../../plugins/checks/zod-boundary.ts';
 import { constString, extractRouteTable, programFile, statusValues } from '../../plugins/lib/api-ast.ts';
+import { constString as helperConstString, hasProperty } from '../../plugins/lib/plugin-helpers.ts';
 import type { RouteInfo } from '../../plugins/lib/api-ast.ts';
 import type { CheckContext, CheckFinding } from '../../src/core/plugin-api.ts';
 import { contextFor, removeTempApi, tempApi } from './_ctx.ts';
@@ -441,5 +443,139 @@ r.post(where(), (req, res) => { res.status(201).json(Item.parse({ ...req.body })
     expect(rest.filter((f) => f.status === 'skip')).toHaveLength(2);
     expect(rest.find((f) => f.status !== 'skip')?.violations.map((v) => v.message.split(':')[0])).toEqual(['POST <where()>']);
     expect(extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).routes).toEqual([]);
+  });
+});
+
+describe('handler lists in every Express shape', () => {
+  it('route() chains with .all() middleware, path arrays and spread handler lists', async () => {
+    const ctx = await api({
+      'src/routes.ts': `import { Router, type RequestHandler } from 'express';
+import { z } from 'zod';
+const Item = z.object({ id: z.string() });
+const Body = z.object({ name: z.string() });
+const parseBody: RequestHandler = (req, _res, next) => { req.body = Body.parse(req.body); next(); };
+const keyed: RequestHandler = (req, _res, next) => { void req.get('Idempotency-Key'); next(); };
+const createChain: RequestHandler[] = [keyed, parseBody];
+export const r = Router();
+r.route('/v1/widgets')
+  .get((_req, res) => { res.json(Item.parse({ id: 'w' })); })
+  .all(keyed, parseBody)
+  .post((req, res) => { res.status(201).json(Item.parse({ id: String(req.body.name) })); });
+r.get(['/v1/gadgets', '/v1/gizmos'], (_req, res) => { res.json(Item.parse({ id: 'g' })); });
+r.post('/v1/parts', ...createChain, (req, res) => { res.status(201).json(Item.parse({ id: String(req.body.name) })); });
+`,
+    });
+    const routes = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).routes;
+    const view = routes.map((x) => [`${x.method} ${x.path}`, x.parses.map((p) => p.target).join(','), x.unparsedReads.map((u) => u.target).join(','), x.readsIdempotencyKey]).sort((p, q) => String(p[0]).localeCompare(String(q[0])));
+    expect(view).toEqual([
+      ['get /v1/gadgets', '', '', false],
+      ['get /v1/gizmos', '', '', false],
+      ['get /v1/widgets', '', '', false],
+      // req.body in the handler follows the write-back; the raw req.get() in `keyed` is still a boundary read
+      ['post /v1/parts', 'body', 'headers', true],
+      ['post /v1/widgets', 'body', 'headers', true],
+    ]);
+  });
+});
+
+describe('request-wide schemas', () => {
+  it('S.parse({ body: req.body, params: req.params }) and S.parse(req) count per declared member; a member read builds no parse', async () => {
+    const ctx = await api({
+      'src/routes.ts': `import { Router, type RequestHandler } from 'express';
+import { z } from 'zod';
+const Item = z.object({ id: z.string() });
+const Req = z.object({ body: z.object({ name: z.string() }), params: z.object({ id: z.string() }) });
+const validateRequest = (schema: typeof Req): RequestHandler => (req, _res, next) => {
+  const parsed = schema.parse({ body: req.body, query: req.query, params: req.params });
+  req.body = parsed.body;
+  next();
+};
+const validateAll = (schema: typeof Req): RequestHandler => (req, _res, next) => {
+  schema.parse(req);
+  next();
+};
+export const r = Router();
+r.put('/v1/things/:id', validateRequest(Req), (req, res) => { res.json(Item.parse({ id: String(req.body.name) })); });
+r.patch('/v1/things/:id', validateAll(Req), (req, res) => { res.json(Item.parse({ id: String(req.body.name) })); });
+r.post('/v1/things', (req, res) => { res.status(201).json(Item.parse({ id: req.body.id })); });
+`,
+    });
+    const routes = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).routes;
+    const view = Object.fromEntries(routes.map((x) => [`${x.method} ${x.path}`, [x.parses.map((p) => `${p.target}:${p.schema.member ?? ''}`).join(','), x.unparsedReads.map((u) => u.target).join(',')]]));
+    expect(view).toEqual({
+      // written back from parsed.body: the handler's req.body read is covered; the stripped query is not read
+      'put /v1/things/:id': ['body:body,params:params', ''],
+      // validation only (no write-back): the handler's raw req.body read stays a violation
+      'patch /v1/things/:id': ['params:params,body:body', 'body'],
+      // { id: req.body.id } builds a value from raw input: not a parse of the body
+      'post /v1/things': ['', 'body'],
+    });
+  });
+});
+
+describe('middleware runs in Express order', () => {
+  it('app-level middleware runs before router-level middleware: a later write-back does not cover an earlier read', async () => {
+    const ctx = await api({
+      'src/app.ts': `import express, { Router } from 'express';
+import { z } from 'zod';
+const Body = z.object({ name: z.string() });
+const Item = z.object({ id: z.string() });
+export const app = express();
+app.use((req, _res, next) => { process.stdout.write(String(req.body.trace)); next(); });
+const r = Router();
+r.use((req, _res, next) => { req.body = Body.parse(req.body); next(); });
+r.post('/v1/things', (req, res) => { res.status(201).json(Item.parse({ id: req.body.name })); });
+app.use(r);
+app.use((req, _res, next) => { process.stdout.write(String(req.query.late)); next(); });
+`,
+    });
+    const [post] = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).routes;
+    expect(post?.parses.map((p) => p.target)).toEqual(['body']);
+    // the app-level read (line 6) runs first and stays raw; the handler's read follows the write-back;
+    // the middleware registered after the mount (line 11) does not run for the route
+    expect(post?.unparsedReads.map((u) => [u.target, u.node.getSourceFile().getLineAndCharacterOfPosition(u.node.getStart()).line + 1])).toEqual([['body', 6]]);
+  });
+});
+
+describe('the final not-found handler is recognised by behaviour', () => {
+  it.each([
+    ['path-less', 'app.use((req: Request, _res: Response, next: NextFunction) => { next(notFound(req.path)); });', true],
+    ['a catch-all path', "app.use('/{*splat}', (req: Request, _res: Response, next: NextFunction) => { next(notFound(req.path)); });", true],
+    ['a status constant', "app.use((_req: Request, res: Response) => { res.status(NOT_FOUND).type('application/problem+json').json(ProblemSchema.parse({ type: 'about:blank', title: 'Not Found', status: NOT_FOUND, detail: 'x', instance: '/' })); });", true],
+    ['a prefix-scoped handler', "app.use('/v1', (req: Request, _res: Response, next: NextFunction) => { next(notFound(req.path)); });", false],
+    ['a middleware that never produces a 404', 'app.use((_req: Request, _res: Response, next: NextFunction) => { next(); });', false],
+  ])('%s → %s', async (_name, line, ok) => {
+    const ctx = await api(
+      {
+        'src/app.ts': `import express, { type NextFunction, type Request, type Response } from 'express';
+import { errorHandler } from './lib/errors.js';
+import { ProblemSchema, notFound } from './lib/problem.js';
+const NOT_FOUND = 404;
+export const app = express();
+${line}
+app.use(errorHandler);
+`,
+      },
+      true,
+    );
+    const app = staticProblemFindings(ctx).find((f) => f.file === 'src/app.ts');
+    const missing = (app?.violations ?? []).some((v) => v.message.startsWith('no final not-found handler'));
+    expect(missing, JSON.stringify(app?.violations)).toBe(!ok);
+  });
+});
+
+describe('plugin-helpers conveniences', () => {
+  it('hasProperty sees every spelling of a key; constString is available to plugin authors', () => {
+    const sf = ts.createSourceFile('x.ts', "const o = { a: 1, 'b': 2, ['c']: 3, d, e() { return 1; }, ...rest };", ts.ScriptTarget.ES2022, true);
+    let obj: ts.ObjectLiteralExpression | undefined;
+    const visit = (n: ts.Node): void => {
+      if (ts.isObjectLiteralExpression(n)) obj = n;
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    if (obj === undefined) throw new Error('no object');
+    const o = obj;
+    expect(['a', 'b', 'c', 'd', 'e', 'rest', 'f'].map((k) => hasProperty(o, k))).toEqual([true, true, true, true, true, false, false]);
+    expect(helperConstString).toBe(constString);
   });
 });

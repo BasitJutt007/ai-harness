@@ -14,6 +14,12 @@ import ts from 'typescript';
 import type { CheckFinding, Violation } from '../../src/core/plugin-api.ts';
 
 export * from '../../src/core/plugin-api.ts';
+/**
+ * Read code by value, not by spelling: constString(checker, expr) / evalConst(checker, expr) give the
+ * constant an expression evaluates to (a literal, a const across imports, a template or `+` of constants,
+ * an `as const` member, an enum member, a literal type), or undefined.
+ */
+export { constString, evalConst } from './api-ast.ts';
 
 /** "src/x.ts:12:5" (1-based) for a node of `sf`, labelled with the API-relative path `rel`. */
 export function nodeLocation(sf: ts.SourceFile, node: ts.Node, rel: string): string {
@@ -55,13 +61,14 @@ export function lastName(expr: ts.Expression): string | undefined {
   return undefined;
 }
 
-/** Whether an object literal declares property `name` (`name: …`, shorthand `name`, or method `name()`). */
+/** Whether an object literal declares property `name` (`name: …`, `'name': …`, `['name']: …`, shorthand `name`, or method `name()`). */
 export function hasProperty(obj: ts.ObjectLiteralExpression, name: string): boolean {
   return obj.properties.some((p) => {
     if (ts.isSpreadAssignment(p)) return false;
     const n = p.name;
     if (n === undefined) return false;
     if (ts.isIdentifier(n) || ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) return n.text === name;
+    if (ts.isComputedPropertyName(n) && (ts.isStringLiteral(n.expression) || ts.isNoSubstitutionTemplateLiteral(n.expression))) return n.expression.text === name;
     return false;
   });
 }
