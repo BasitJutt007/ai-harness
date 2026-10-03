@@ -1,0 +1,34 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                5/5 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               5/5 error paths
+problem-json      pass  src/routes/users.ts              9/9 error paths
+problem-json      skip  (runtime)                        skipped: app could not be started: SyntaxError: The requested module './users.ts' does not provide an export named 'usersRouter'
+rest-conventions  FAIL  src/routes/users.ts              0/5 routes
+    src/routes/users.ts:54:3  GET /users: path is not versioned; prefix it with /v1/
+    src/routes/users.ts:70:3  POST /users: path is not versioned; prefix it with /v1/
+    src/routes/users.ts:102:3  GET /users/:userId: path is not versioned; prefix it with /v1/
+    src/routes/users.ts:113:3  PATCH /users/:userId: path is not versioned; prefix it with /v1/
+    src/routes/users.ts:152:3  DELETE /users/:userId: path is not versioned; prefix it with /v1/
+tsc-strict        FAIL  src/routes/index.ts              1 errors
+    src/routes/index.ts:7:10  TS2305: Module '"./users.ts"' has no exported member 'usersRouter'.
+tsc-strict        FAIL  src/routes/users.ts              3 errors
+    src/routes/users.ts:104:42  TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+    src/routes/users.ts:115:42  TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+    src/routes/users.ts:154:42  TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+tsc-strict        FAIL  (project)                        0 errors
+zod-boundary      FAIL  src/routes/users.ts              2/6 handlers
+    src/routes/users.ts:103:20  GET /users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:102:32  GET /users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/users.ts:114:20  PATCH /users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:113:49  PATCH /users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/users.ts:153:20  DELETE /users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:152:35  DELETE /users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/users.ts:37:11  interface UserRecord: hand-written type: infer it from a Zod schema (z.infer)
+────────────────────────────────────────────────────────────
+problem-json      unproven 24/24 error paths
+rest-conventions  FAIL     0/5 routes
+tsc-strict        FAIL     4 errors
+zod-boundary      FAIL     2/6 handlers
+verdict           UNPROVEN → not proven: problem-json (skipped); failing: rest-conventions, tsc-strict, zod-boundary

@@ -1,0 +1,267 @@
+--- a/test/users.test.ts
++++ b/test/users.test.ts
+@@ -11,51 +11,230 @@
+     app = createApp();
+   });
+ 
+-  it('POST /v1/users creates a user', async () => {
+-    const res = await request(app)
+-      .post('/v1/users')
+-      .send({
++  describe('POST /v1/users', () => {
++    it('creates a user and returns 201 with Location header', async () => {
++      const res = await request(app)
++        .post('/v1/users')
++        .send({
++          email: 'test@example.com',
++          name: 'Test User',
++        });
++
++      expect(res.status).toBe(201);
++      expect(res.headers.location).toMatch(/\/v1\/users\/[a-f0-9-]{36}/);
++      expect(res.body).toMatchObject({
+         email: 'test@example.com',
+         name: 'Test User',
++        role: 'member',
+       });
++      expect(res.body.id).toBeDefined();
++      expect(res.body.createdAt).toBeDefined();
++      expect(res.body.updatedAt).toBeDefined();
++    });
+ 
+-    expect(res.status).toBe(201);
+-    expect(res.headers.location).toContain('/v1/users/');
+-    expect(res.body.email).toBe('test@example.com');
+-    expect(res.body.name).toBe('Test User');
+-    expect(res.body.role).toBe('member');
++    it('allows specifying a role', async () => {
++      const res = await request(app)
++        .post('/v1/users')
++        .send({
++          email: 'admin@example.com',
++          name: 'Admin User',
++          role: 'admin',
++        });
++
++      expect(res.status).toBe(201);
++      expect(res.body.role).toBe('admin');
++    });
++
++    it('returns 409 if email already exists', async () => {
++      const user = { email: 'dup@example.com', name: 'User 1' };
++      await request(app).post('/v1/users').send(user);
++      const res = await request(app).post('/v1/users').send(user);
++
++      expect(res.status).toBe(409);
++      expect(res.body.type).toContain('conflict');
++    });
++
++    it('honours Idempotency-Key header', async () => {
++      const user = { email: 'idem@example.com', name: 'Idempotent User' };
++      const key = 'test-key-123';
++
++      const res1 = await request(app)
++        .post('/v1/users')
++        .set('Idempotency-Key', key)
++        .send(user);
++
++      expect(res1.status).toBe(201);
++
++      const res2 = await request(app)
++        .post('/v1/users')
++        .set('Idempotency-Key', key)
++        .send(user);
++
++      expect(res2.status).toBe(201);
++      expect(res2.headers['idempotent-replayed']).toBe('true');
++      expect(res2.body).toEqual(res1.body);
++    });
++
++    it('returns 422 when Idempotency-Key is reused with different body', async () => {
++      const key = 'test-key-456';
++      await request(app)
++        .post('/v1/users')
++        .set('Idempotency-Key', key)
++        .send({ email: 'u1@example.com', name: 'User 1' });
++
++      const res = await request(app)
++        .post('/v1/users')
++        .set('Idempotency-Key', key)
++        .send({ email: 'u2@example.com', name: 'User 2' });
++
++      expect(res.status).toBe(422);
++    });
++
++    it('returns 422 for invalid input', async () => {
++      const res = await request(app)
++        .post('/v1/users')
++        .send({ email: 'not-an-email', name: '' });
++
++      expect(res.status).toBe(422);
++      expect(res.body.detail).toBeDefined();
++    });
++
++    it('returns 400 for malformed JSON', async () => {
++      const res = await request(app)
++        .post('/v1/users')
++        .set('Content-Type', 'application/json')
++        .send('{ invalid json }');
++
++      expect(res.status).toBe(400);
++    });
+   });
+ 
+-  it('GET /v1/users lists users', async () => {
+-    await request(app).post('/v1/users').send({ email: '1@ex.com', name: '1' });
+-    const res = await request(app).get('/v1/users');
+-    expect(res.status).toBe(200);
+-    expect(res.body).toHaveProperty('data');
+-    expect(res.body).toHaveProperty('nextCursor');
++  describe('GET /v1/users', () => {
++    it('returns a paginated list of users', async () => {
++      for (let i = 0; i < 25; i++) {
++        await request(app).post('/v1/users').send({
++          email: `user${i}@example.com`,
++          name: `User ${i}`,
++        });
++      }
++
++      const res = await request(app).get('/v1/users?limit=20');
++      expect(res.status).toBe(200);
++      expect(res.body.data).toHaveLength(20);
++      expect(res.body.nextCursor).toBeDefined();
++    });
++
++    it('respects the limit parameter', async () => {
++      for (let i = 0; i < 5; i++) {
++        await request(app).post('/v1/users').send({
++          email: `limit${i}@example.com`,
++          name: `Limit ${i}`,
++        });
++      }
++      const res = await request(app).get('/v1/users?limit=3');
++      expect(res.body.data).toHaveLength(3);
++    });
++
++    it('uses cursor for pagination', async () => {
++      for (let i = 0; i < 5; i++) {
++        await request(app).post('/v1/users').send({
++          email: `cur${i}@example.com`,
++          name: `Cursor ${i}`,
++        });
++      }
++      const res1 = await request(app).get('/v1/users?limit=2');
++      const cursor = res1.body.nextCursor;
++      const res2 = await request(app).get(`/v1/users?limit=2&cursor=${cursor}`);
++      
++      expect(res1.body.data).toHaveLength(2);
++      expect(res2.body.data).toHaveLength(2);
++      expect(res1.body.data[0].id).not.toBe(res2.body.data[0].id);
++    });
+   });
+ 
+-  it('GET /v1/users/{id} gets a user', async () => {
+-    const createRes = await request(app).post('/v1/users').send({ email: '2@ex.com', name: '2' });
+-    const userId = createRes.headers.location.split('/').pop();
+-    const res = await request(app).get(`/v1/users/${userId}`);
+-    expect(res.status).toBe(200);
+-    expect(res.body.email).toBe('2@ex.com');
++  describe('GET /v1/users/{userId}', () => {
++    it('returns 200 for existing user', async () => {
++      const createRes = await request(app).post('/v1/users').send({
++        email: 'get@example.com',
++        name: 'Get User',
++      });
++      const userId = createRes.body.id;
++
++      const res = await request(app).get(`/v1/users/${userId}`);
++      expect(res.status).toBe(200);
++      expect(res.body.email).toBe('get@example.com');
++    });
++
++    it('returns 404 for non-existent user', async () => {
++      const res = await request(app).get('/v1/users/00000000-0000-0000-0000-000000000000');
++      expect(res.status).toBe(404);
++    });
+   });
+ 
+-  it('PATCH /v1/users/{id} updates a user', async () => {
+-    const createRes = await request(app).post('/v1/users').send({ email: '3@ex.com', name: '3' });
+-    const userId = createRes.headers.location.split('/').pop();
+-    const res = await request(app).patch(`/v1/users/${userId}`).send({ name: 'Updated' });
+-    expect(res.status).toBe(200);
+-    expect(res.body.name).toBe('Updated');
++  describe('PATCH /v1/users/{userId}', () => {
++    it('updates fields and returns 200', async () => {
++      const createRes = await request(app).post('/v1/users').send({
++        email: 'patch@example.com',
++        name: 'Old Name',
++      });
++      const userId = createRes.body.id;
++
++      const res = await request(app)
++        .patch(`/v1/users/${userId}`)
++        .send({ name: 'New Name' });
++
++      expect(res.status).toBe(200);
++      expect(res.body.name).toBe('New Name');
++      expect(res.body.email).toBe('patch@example.com');
++    });
++
++    it('returns 409 if updating email to one already in use', async () => {
++      await request(app).post('/v1/users').send({ email: 'u1@example.com', name: 'U1' });
++      const createRes = await request(app).post('/v1/users').send({ email: 'u2@example.com', name: 'U2' });
++      const userId = createRes.body.id;
++
++      const res = await request(app)
++        .patch(`/v1/users/${userId}`)
++        .send({ email: 'u1@example.com' });
++
++      expect(res.status).toBe(409);
++    });
++
++    it('returns 422 for empty patch', async () => {
++      const createRes = await request(app).post('/v1/users').send({
++        email: 'empty@example.com',
++        name: 'Empty',
++      });
++      const userId = createRes.body.id;
++
++      const res = await request(app).patch(`/v1/users/${userId}`).send({});
++      expect(res.status).toBe(422);
++    });
++
++    it('returns 404 for non-existent user', async () => {
++      const res = await request(app).patch('/v1/users/00000000-0000-0000-0000-000000000000').send({ name: 'None' });
++      expect(res.status).toBe(404);
++    });
+   });
+ 
+-  it('DELETE /v1/users/{id} deletes a user', async () => {
+-    const createRes = await request(app).post('/v1/users').send({ email: '4@ex.com', name: '4' });
+-    const userId = createRes.headers.location.split('/').pop();
+-    const delRes = await request(app).delete(`/v1/users/${userId}`);
+-    expect(delRes.status).toBe(204);
+-    const getRes = await request(app).get(`/v1/users/${userId}`);
+-    expect(getRes.status).toBe(404);
++  describe('DELETE /v1/users/{userId}', () => {
++    it('returns 204 and deletes user', async () => {
++      const createRes = await request(app).post('/v1/users').send({
++        email: 'del@example.com',
++        name: 'Del User',
++      });
++      const userId = createRes.body.id;
++
++      const res = await request(app).delete(`/v1/users/${userId}`);
++      expect(res.status).toBe(204);
++
++      const getRes = await request(app).get(`/v1/users/${userId}`);
++      expect(getRes.status).toBe(404);
++    });
++
++    it('returns 404 for non-existent user', async () => {
++      const res = await request(app).delete('/v1/users/00000000-0000-0000-0000-000000000000');
++      expect(res.status).toBe(404);
++    });
+   });
+ });

@@ -1,0 +1,19 @@
+$ vitest run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184627/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 0
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184627/generated/users-api
+
+ ✓ test/users.test.ts (2 tests) 46ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  23:48:10
+   Duration  248ms (import 53%, tests 27%, transform 19%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":2,"numFailedTestSuites":0,"numPendingTestSuites":0,"numTotalTests":2,"numPassedTests":2,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791053290299,"success":true,"testResults":[{"assertionResults":[{"ancestorTitles":["users api"],"fullName":"users api supports the users lifecycle and cursor pagination","status":"passed","title":"supports the users lifecycle and cursor pagination","duration":33.751125,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users api"],"fullName":"users api rejects duplicate emails, invalid input, malformed json, and idempotency misuse","status":"passed","title":"rejects duplicate emails, invalid input, malformed json, and idempotency misuse","duration":11.142291999999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791053290503,"endTime":1791053290548.1423,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184627/generated/users-api/test/users.test.ts"}]}

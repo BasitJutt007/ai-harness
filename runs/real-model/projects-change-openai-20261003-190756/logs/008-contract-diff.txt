@@ -1,0 +1,4 @@
+BREAKING  GET /v1/projects  route removed
+BREAKING  POST /v1/projects  route removed
+BREAKING  GET /v1/projects/:projectId  route removed
+BREAKING  PATCH /v1/projects/:projectId  route removed

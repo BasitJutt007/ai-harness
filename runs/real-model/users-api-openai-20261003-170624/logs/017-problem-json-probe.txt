@@ -1,0 +1,7 @@
+$ tsx probe-runtime.ts /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-170624/generated/users-api
+exit=0 timedOut=false
+--- stdout
+
+{"__harnessProbe":1,"ok":false,"error":"SyntaxError: The requested module './users.ts' does not provide an export named 'usersRouter'"}
+
+--- stderr

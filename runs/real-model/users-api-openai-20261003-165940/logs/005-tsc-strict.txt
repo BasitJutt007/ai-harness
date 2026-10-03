@@ -1,0 +1,4 @@
+$ tsc --noEmit -p tsconfig.json --strict --noUncheckedIndexedAccess
+exit=2
+test/users.test.ts(5,29): error TS2307: Cannot find module '../src/services/user-service.ts' or its corresponding type declarations.
+

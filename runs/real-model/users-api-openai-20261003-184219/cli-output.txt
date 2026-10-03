@@ -1,0 +1,23 @@
+SIGINT: stopping after the current step and writing the evidence (send it again to exit now)
+run        users-api-openai-20261003-184219
+status     aborted  turns 43  finish attempts 0  driver openai  model gpt-5.4-mini
+error      aborted by the operator
+gates      fresh final run (phase finish): not run
+gates     not run: the run was aborted (UNPROVEN)
+standards  UNPROVEN (not run: the run was aborted)
+tokens     actual 241075  baseline 1582497  reduction 84.8%  over 43 turns  (output 12493, provider-reported input 230334)
+evidence   runs/users-api-openai-20261003-184219/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/users-api-openai-20261003-184219.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-184219  branch harness/users-api-openai-20261003-184219  (base main @ 12e176836cd5; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/target-final-gf2 untouched)
+honesty
+  proven             isolation:sandbox-exec (agent code: API root read-only, writes only to a per-call temp dir; network loopback only)
+  failed             (none)
+  UNPROVEN           gates and checks: not run because the run was aborted
+                     checks: the standards report could not be produced
+  n/a                (none)
+  human must verify  behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+resume     the worktree and evidence are kept; 'harness ship users-api-openai-20261003-184219 --dry-run' re-runs every gate fresh on it
+verdict    NOT DONE (loop ended aborted)

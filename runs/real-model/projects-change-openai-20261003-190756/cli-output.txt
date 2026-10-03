@@ -1,0 +1,59 @@
+run        projects-change-openai-20261003-190756
+status     max_turns  turns 40  finish attempts 0  driver openai  model gpt-5.4-mini
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  fail      4 breaking contract changes (4 → 0 endpoints); set allowBreaking only if intended
+    GET /v1/projects  route removed
+    POST /v1/projects  route removed
+    GET /v1/projects/:projectId  route removed
+    PATCH /v1/projects/:projectId  route removed
+    log: runs/projects-change-openai-20261003-190756/logs/008-contract-diff.txt
+gate  observed-red   fail      3 of 3 changed source files lack a red -> green test case
+    src/modules/projects/routes.ts: test/projects.test.ts: still failing ("GET /v1/projects?status= > returns a 422 problem for an unknown status")
+    src/modules/projects/schema.ts: no covering test
+    src/modules/projects/store.ts: test/store.test.ts: never red
+    Each changed file needs a covering case that was seen failing and now passes, and that fails again with the original source (a case edited after its red counts only through that revert check).
+    log: runs/projects-change-openai-20261003-190756/logs/009-vitest.txt
+gate  scope          pass      5 changed files, all in scope
+gate  standards      unproven  verdict UNPROVEN (a rule was skipped or had nothing to check)
+    problem-json      skip  (runtime)                        skipped: app could not be started (exit 1): probe runtime: TransformError: Transform failed with 1 error: | /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190…
+    rest-conventions  unproven  (none)                           0/0 routes
+    tsc-strict        FAIL  src/modules/projects/routes.ts   3 errors
+        src/modules/projects/routes.ts:1:10  TS1005: '>' expected.
+        src/modules/projects/routes.ts:1:15  TS1005: ';' expected.
+        src/modules/projects/routes.ts:1:21  TS1109: Expression expected.
+    tsc-strict        FAIL  src/modules/projects/schema.ts   3 errors
+        src/modules/projects/schema.ts:1:10  TS1005: '>' expected.
+        src/modules/projects/schema.ts:1:15  TS1005: ';' expected.
+        src/modules/projects/schema.ts:1:21  TS1109: Expression expected.
+    tsc-strict        FAIL  src/modules/projects/store.ts    3 errors
+        src/modules/projects/store.ts:1:10  TS1005: '>' expected.
+    … 10 more
+gate  tests-green    fail      2 of 2 test files failed to load (0/0 tests passed)
+    tests: 0 failed, 0 passed (0) in 2 files, 2 failed to load
+    ERROR test/projects.test.ts: suite error: Transform failed with 1 error: [PARSE_ERROR] Expected `>` but found `decimal` [ src/modules/projects/routes.ts:1:10 ]
+    ERROR test/store.test.ts: suite error: Transform failed with 1 error: [PARSE_ERROR] Expected `>` but found `decimal` [ src/modules/projects/store.ts:1:10 ]
+    log: runs/projects-change-openai-20261003-190756/logs/012-vitest.txt
+standards  UNPROVEN (a rule was skipped or had nothing to check; 62% of checked units passed)  problem-json unproven, rest-conventions unproven, tsc-strict fail, zod-boundary unproven
+tokens     actual 147114  baseline 1122854  reduction 86.9%  over 40 turns  (output 4672, provider-reported input 134723)
+evidence   runs/projects-change-openai-20261003-190756/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/projects-change-openai-20261003-190756.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756  branch harness/projects-change-openai-20261003-190756  (base main @ 902b7c20820c; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/target-final-bf3 untouched)
+honesty
+  proven             gate:scope
+                     isolation:sandbox-exec (agent code: API root read-only, writes only to a per-call temp dir; network loopback only)
+  failed             gate:contract-lock (4 breaking contract changes (4 → 0 endpoints); set allowBreaking only if intended)
+                     gate:observed-red (3 of 3 changed source files lack a red -> green test case)
+                     gate:tests-green (2 of 2 test files failed to load (0/0 tests passed))
+                     check:tsc-strict (0/9 errors)
+  UNPROVEN           gate:standards (verdict UNPROVEN (a rule was skipped or had nothing to check))
+                     check:problem-json (15/15 error paths)
+                     check:rest-conventions (0/0 routes)
+                     check:zod-boundary (0/0 handlers)
+  n/a                (none)
+  human must verify  behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+                     behaviour changes that keep the contract shape (the contract lock compares schemas and status codes only)
+verdict    NOT DONE (loop ended max_turns)
+exit=1

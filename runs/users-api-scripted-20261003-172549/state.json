@@ -1,0 +1,2978 @@
+{
+  "turn": 9,
+  "tests": [
+    {
+      "file": "test/users.test.ts",
+      "hash": "70079ff6875ee00c8a6d27cafc5993910bb8db7cd015bbfff5058dd922c174fe",
+      "collected": 27,
+      "failed": 23,
+      "turn": 3,
+      "at": "2026-10-03T17:25:50.976Z",
+      "cases": [
+        {
+          "name": "POST /v1/users > creates a user: 201, Location header, role defaults to member",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "58113f5060aa290e14fc60775d0d8944dcffa16358bc4eb1e5d616961557c855"
+        },
+        {
+          "name": "POST /v1/users > accepts an explicit role",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ea833b92a8f44417207179a1adbb6d0280ae074cbe8199934bb358c277f6a9ea"
+        },
+        {
+          "name": "POST /v1/users > returns 409 when the email already exists",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "2411b6d3a13a84630fec531355f45b3a53bad5873ea16c9739ffe02953ff572c"
+        },
+        {
+          "name": "POST /v1/users > rejects an invalid body (%s) with a 422 problem",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "40e5f6b41080b3e0ee67afd5d8c626a228707a507c90fc19c181a2daaa5593bf"
+        },
+        {
+          "name": "POST /v1/users > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36c4d07ec6e9e18fec6f5da9bd40a5fef5218eb647caf6539764d37a9fefe21c"
+        },
+        {
+          "name": "POST /v1/users > honours Idempotency-Key: same key and body replays the first response",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ebbfa15ba0df662df5afb7c690d4c078098db4ba7dacfa5faed138bc1780e2a"
+        },
+        {
+          "name": "POST /v1/users > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b6a20f7ecdcd96b849ba8ca75a8dd55fa60376ec6d1c3f2dd1958cba754d83e7"
+        },
+        {
+          "name": "GET /v1/users > is cursor-paginated: following nextCursor visits every user once",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f70185ed7f37790d1de926785fec18db46f590c23d1e8fa857743a604d8c5df0"
+        },
+        {
+          "name": "GET /v1/users > defaults limit to 20",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f7b5a1824f2ae7fe999cfbef9503d78f66d61ddde503cbdf3de35712e871f4d5"
+        },
+        {
+          "name": "GET /v1/users > allows limit up to 100 and rejects anything outside 1..100 with a 422 problem",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8740458202e7f778191cc8c750bd8563f28512bba5508f81c4a6cc54a65db9ac"
+        },
+        {
+          "name": "GET /v1/users > rejects a cursor it did not issue with a 422 problem",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "111282820017fab678c0d34e7adf0f3ee9a93b43801b5dff4c7c8e7d2cd97ccc"
+        },
+        {
+          "name": "GET /v1/users/:userId > returns the user",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4378dda412c186fdc556ef613b0b0a85a6c22fbecc619cde035b12fdd7899694"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8a3924a46e0dba63fa2dff9504cbb7076469da9a98f857adf6bf4948108a757c"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers a malformed id with a 422 problem",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "299d25902b20738d42e8af027632c6608cb18c429ed1014d6c0b76723b06273a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > updates only the given fields",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "facdac2505b9f070aecf719a7c911a5da1508d87b62eb76ac7f23df746707f1c"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > returns 409 when changing the email to one that already exists",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ba80c350278d8d45b75c947b25d8ece8e9a60d03d38305d4a1b0e40e577fbb4a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > allows keeping the same email",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "da6ed889d83ac78b4b056896bc3452ea49f7864bf2ad27efca427d19ead62d38"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > rejects an empty or invalid patch with a 422 problem",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "60574b03a125f7af5f06288f15bd24f28f0c015b61ea80023e0d543d060ba7e0"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3052af9c81cd2a0d48a2ad78e83908c3e3b9605d4b9de506b996a1258e65231c"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > deletes the user: 204 with no body, then 404",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5b8069db53b2369b3701fdbc434763bdccad6a19db934cc4eff65576d4bb261f"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > frees the email for reuse",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f4708fc5ba3a43748589840fa32f19f1c1edcf7d43561c6701371e9ca601b670"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "291c382142769c2f896bf9788973e4fc7c80454b6e8cdb71d65392f079f52335"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "23 of 27 tests failed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "70079ff6875ee00c8a6d27cafc5993910bb8db7cd015bbfff5058dd922c174fe",
+      "collected": 27,
+      "failed": 0,
+      "turn": 7,
+      "at": "2026-10-03T17:25:51.760Z",
+      "cases": [
+        {
+          "name": "POST /v1/users > creates a user: 201, Location header, role defaults to member",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "58113f5060aa290e14fc60775d0d8944dcffa16358bc4eb1e5d616961557c855"
+        },
+        {
+          "name": "POST /v1/users > accepts an explicit role",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ea833b92a8f44417207179a1adbb6d0280ae074cbe8199934bb358c277f6a9ea"
+        },
+        {
+          "name": "POST /v1/users > returns 409 when the email already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "2411b6d3a13a84630fec531355f45b3a53bad5873ea16c9739ffe02953ff572c"
+        },
+        {
+          "name": "POST /v1/users > rejects an invalid body (%s) with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "40e5f6b41080b3e0ee67afd5d8c626a228707a507c90fc19c181a2daaa5593bf"
+        },
+        {
+          "name": "POST /v1/users > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36c4d07ec6e9e18fec6f5da9bd40a5fef5218eb647caf6539764d37a9fefe21c"
+        },
+        {
+          "name": "POST /v1/users > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ebbfa15ba0df662df5afb7c690d4c078098db4ba7dacfa5faed138bc1780e2a"
+        },
+        {
+          "name": "POST /v1/users > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b6a20f7ecdcd96b849ba8ca75a8dd55fa60376ec6d1c3f2dd1958cba754d83e7"
+        },
+        {
+          "name": "GET /v1/users > is cursor-paginated: following nextCursor visits every user once",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f70185ed7f37790d1de926785fec18db46f590c23d1e8fa857743a604d8c5df0"
+        },
+        {
+          "name": "GET /v1/users > defaults limit to 20",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f7b5a1824f2ae7fe999cfbef9503d78f66d61ddde503cbdf3de35712e871f4d5"
+        },
+        {
+          "name": "GET /v1/users > allows limit up to 100 and rejects anything outside 1..100 with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8740458202e7f778191cc8c750bd8563f28512bba5508f81c4a6cc54a65db9ac"
+        },
+        {
+          "name": "GET /v1/users > rejects a cursor it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "111282820017fab678c0d34e7adf0f3ee9a93b43801b5dff4c7c8e7d2cd97ccc"
+        },
+        {
+          "name": "GET /v1/users/:userId > returns the user",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4378dda412c186fdc556ef613b0b0a85a6c22fbecc619cde035b12fdd7899694"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8a3924a46e0dba63fa2dff9504cbb7076469da9a98f857adf6bf4948108a757c"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "299d25902b20738d42e8af027632c6608cb18c429ed1014d6c0b76723b06273a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > updates only the given fields",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "facdac2505b9f070aecf719a7c911a5da1508d87b62eb76ac7f23df746707f1c"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > returns 409 when changing the email to one that already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ba80c350278d8d45b75c947b25d8ece8e9a60d03d38305d4a1b0e40e577fbb4a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > allows keeping the same email",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "da6ed889d83ac78b4b056896bc3452ea49f7864bf2ad27efca427d19ead62d38"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "60574b03a125f7af5f06288f15bd24f28f0c015b61ea80023e0d543d060ba7e0"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3052af9c81cd2a0d48a2ad78e83908c3e3b9605d4b9de506b996a1258e65231c"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > deletes the user: 204 with no body, then 404",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5b8069db53b2369b3701fdbc434763bdccad6a19db934cc4eff65576d4bb261f"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > frees the email for reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f4708fc5ba3a43748589840fa32f19f1c1edcf7d43561c6701371e9ca601b670"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "291c382142769c2f896bf9788973e4fc7c80454b6e8cdb71d65392f079f52335"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "27 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 7,
+      "at": "2026-10-03T17:25:51.760Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "317560daa107328b185c1a63efb96619025588578bdbdbbccb0c30c8969157ac",
+      "collected": 6,
+      "failed": 0,
+      "turn": 7,
+      "at": "2026-10-03T17:25:51.760Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 7,
+      "at": "2026-10-03T17:25:51.760Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 7,
+      "at": "2026-10-03T17:25:51.760Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "70079ff6875ee00c8a6d27cafc5993910bb8db7cd015bbfff5058dd922c174fe",
+      "collected": 27,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:54.086Z",
+      "cases": [
+        {
+          "name": "POST /v1/users > creates a user: 201, Location header, role defaults to member",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "58113f5060aa290e14fc60775d0d8944dcffa16358bc4eb1e5d616961557c855"
+        },
+        {
+          "name": "POST /v1/users > accepts an explicit role",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ea833b92a8f44417207179a1adbb6d0280ae074cbe8199934bb358c277f6a9ea"
+        },
+        {
+          "name": "POST /v1/users > returns 409 when the email already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "2411b6d3a13a84630fec531355f45b3a53bad5873ea16c9739ffe02953ff572c"
+        },
+        {
+          "name": "POST /v1/users > rejects an invalid body (%s) with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "40e5f6b41080b3e0ee67afd5d8c626a228707a507c90fc19c181a2daaa5593bf"
+        },
+        {
+          "name": "POST /v1/users > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36c4d07ec6e9e18fec6f5da9bd40a5fef5218eb647caf6539764d37a9fefe21c"
+        },
+        {
+          "name": "POST /v1/users > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ebbfa15ba0df662df5afb7c690d4c078098db4ba7dacfa5faed138bc1780e2a"
+        },
+        {
+          "name": "POST /v1/users > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b6a20f7ecdcd96b849ba8ca75a8dd55fa60376ec6d1c3f2dd1958cba754d83e7"
+        },
+        {
+          "name": "GET /v1/users > is cursor-paginated: following nextCursor visits every user once",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f70185ed7f37790d1de926785fec18db46f590c23d1e8fa857743a604d8c5df0"
+        },
+        {
+          "name": "GET /v1/users > defaults limit to 20",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f7b5a1824f2ae7fe999cfbef9503d78f66d61ddde503cbdf3de35712e871f4d5"
+        },
+        {
+          "name": "GET /v1/users > allows limit up to 100 and rejects anything outside 1..100 with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8740458202e7f778191cc8c750bd8563f28512bba5508f81c4a6cc54a65db9ac"
+        },
+        {
+          "name": "GET /v1/users > rejects a cursor it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "111282820017fab678c0d34e7adf0f3ee9a93b43801b5dff4c7c8e7d2cd97ccc"
+        },
+        {
+          "name": "GET /v1/users/:userId > returns the user",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4378dda412c186fdc556ef613b0b0a85a6c22fbecc619cde035b12fdd7899694"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8a3924a46e0dba63fa2dff9504cbb7076469da9a98f857adf6bf4948108a757c"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "299d25902b20738d42e8af027632c6608cb18c429ed1014d6c0b76723b06273a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > updates only the given fields",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "facdac2505b9f070aecf719a7c911a5da1508d87b62eb76ac7f23df746707f1c"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > returns 409 when changing the email to one that already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ba80c350278d8d45b75c947b25d8ece8e9a60d03d38305d4a1b0e40e577fbb4a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > allows keeping the same email",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "da6ed889d83ac78b4b056896bc3452ea49f7864bf2ad27efca427d19ead62d38"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "60574b03a125f7af5f06288f15bd24f28f0c015b61ea80023e0d543d060ba7e0"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3052af9c81cd2a0d48a2ad78e83908c3e3b9605d4b9de506b996a1258e65231c"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > deletes the user: 204 with no body, then 404",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5b8069db53b2369b3701fdbc434763bdccad6a19db934cc4eff65576d4bb261f"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > frees the email for reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f4708fc5ba3a43748589840fa32f19f1c1edcf7d43561c6701371e9ca601b670"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "291c382142769c2f896bf9788973e4fc7c80454b6e8cdb71d65392f079f52335"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "27 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:54.086Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "317560daa107328b185c1a63efb96619025588578bdbdbbccb0c30c8969157ac",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:54.086Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:54.086Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:54.086Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "70079ff6875ee00c8a6d27cafc5993910bb8db7cd015bbfff5058dd922c174fe",
+      "collected": 27,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.526Z",
+      "cases": [
+        {
+          "name": "POST /v1/users > creates a user: 201, Location header, role defaults to member",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "58113f5060aa290e14fc60775d0d8944dcffa16358bc4eb1e5d616961557c855"
+        },
+        {
+          "name": "POST /v1/users > accepts an explicit role",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ea833b92a8f44417207179a1adbb6d0280ae074cbe8199934bb358c277f6a9ea"
+        },
+        {
+          "name": "POST /v1/users > returns 409 when the email already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "2411b6d3a13a84630fec531355f45b3a53bad5873ea16c9739ffe02953ff572c"
+        },
+        {
+          "name": "POST /v1/users > rejects an invalid body (%s) with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "40e5f6b41080b3e0ee67afd5d8c626a228707a507c90fc19c181a2daaa5593bf"
+        },
+        {
+          "name": "POST /v1/users > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36c4d07ec6e9e18fec6f5da9bd40a5fef5218eb647caf6539764d37a9fefe21c"
+        },
+        {
+          "name": "POST /v1/users > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ebbfa15ba0df662df5afb7c690d4c078098db4ba7dacfa5faed138bc1780e2a"
+        },
+        {
+          "name": "POST /v1/users > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b6a20f7ecdcd96b849ba8ca75a8dd55fa60376ec6d1c3f2dd1958cba754d83e7"
+        },
+        {
+          "name": "GET /v1/users > is cursor-paginated: following nextCursor visits every user once",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f70185ed7f37790d1de926785fec18db46f590c23d1e8fa857743a604d8c5df0"
+        },
+        {
+          "name": "GET /v1/users > defaults limit to 20",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f7b5a1824f2ae7fe999cfbef9503d78f66d61ddde503cbdf3de35712e871f4d5"
+        },
+        {
+          "name": "GET /v1/users > allows limit up to 100 and rejects anything outside 1..100 with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8740458202e7f778191cc8c750bd8563f28512bba5508f81c4a6cc54a65db9ac"
+        },
+        {
+          "name": "GET /v1/users > rejects a cursor it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "111282820017fab678c0d34e7adf0f3ee9a93b43801b5dff4c7c8e7d2cd97ccc"
+        },
+        {
+          "name": "GET /v1/users/:userId > returns the user",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4378dda412c186fdc556ef613b0b0a85a6c22fbecc619cde035b12fdd7899694"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8a3924a46e0dba63fa2dff9504cbb7076469da9a98f857adf6bf4948108a757c"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "299d25902b20738d42e8af027632c6608cb18c429ed1014d6c0b76723b06273a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > updates only the given fields",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "facdac2505b9f070aecf719a7c911a5da1508d87b62eb76ac7f23df746707f1c"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > returns 409 when changing the email to one that already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ba80c350278d8d45b75c947b25d8ece8e9a60d03d38305d4a1b0e40e577fbb4a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > allows keeping the same email",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "da6ed889d83ac78b4b056896bc3452ea49f7864bf2ad27efca427d19ead62d38"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "60574b03a125f7af5f06288f15bd24f28f0c015b61ea80023e0d543d060ba7e0"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3052af9c81cd2a0d48a2ad78e83908c3e3b9605d4b9de506b996a1258e65231c"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > deletes the user: 204 with no body, then 404",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5b8069db53b2369b3701fdbc434763bdccad6a19db934cc4eff65576d4bb261f"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > frees the email for reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f4708fc5ba3a43748589840fa32f19f1c1edcf7d43561c6701371e9ca601b670"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "291c382142769c2f896bf9788973e4fc7c80454b6e8cdb71d65392f079f52335"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "27 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.526Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "317560daa107328b185c1a63efb96619025588578bdbdbbccb0c30c8969157ac",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.526Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.526Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.526Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "70079ff6875ee00c8a6d27cafc5993910bb8db7cd015bbfff5058dd922c174fe",
+      "collected": 27,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:57.087Z",
+      "cases": [
+        {
+          "name": "POST /v1/users > creates a user: 201, Location header, role defaults to member",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "58113f5060aa290e14fc60775d0d8944dcffa16358bc4eb1e5d616961557c855"
+        },
+        {
+          "name": "POST /v1/users > accepts an explicit role",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ea833b92a8f44417207179a1adbb6d0280ae074cbe8199934bb358c277f6a9ea"
+        },
+        {
+          "name": "POST /v1/users > returns 409 when the email already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "2411b6d3a13a84630fec531355f45b3a53bad5873ea16c9739ffe02953ff572c"
+        },
+        {
+          "name": "POST /v1/users > rejects an invalid body (%s) with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "40e5f6b41080b3e0ee67afd5d8c626a228707a507c90fc19c181a2daaa5593bf"
+        },
+        {
+          "name": "POST /v1/users > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36c4d07ec6e9e18fec6f5da9bd40a5fef5218eb647caf6539764d37a9fefe21c"
+        },
+        {
+          "name": "POST /v1/users > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ebbfa15ba0df662df5afb7c690d4c078098db4ba7dacfa5faed138bc1780e2a"
+        },
+        {
+          "name": "POST /v1/users > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b6a20f7ecdcd96b849ba8ca75a8dd55fa60376ec6d1c3f2dd1958cba754d83e7"
+        },
+        {
+          "name": "GET /v1/users > is cursor-paginated: following nextCursor visits every user once",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f70185ed7f37790d1de926785fec18db46f590c23d1e8fa857743a604d8c5df0"
+        },
+        {
+          "name": "GET /v1/users > defaults limit to 20",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f7b5a1824f2ae7fe999cfbef9503d78f66d61ddde503cbdf3de35712e871f4d5"
+        },
+        {
+          "name": "GET /v1/users > allows limit up to 100 and rejects anything outside 1..100 with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8740458202e7f778191cc8c750bd8563f28512bba5508f81c4a6cc54a65db9ac"
+        },
+        {
+          "name": "GET /v1/users > rejects a cursor it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "111282820017fab678c0d34e7adf0f3ee9a93b43801b5dff4c7c8e7d2cd97ccc"
+        },
+        {
+          "name": "GET /v1/users/:userId > returns the user",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4378dda412c186fdc556ef613b0b0a85a6c22fbecc619cde035b12fdd7899694"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8a3924a46e0dba63fa2dff9504cbb7076469da9a98f857adf6bf4948108a757c"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "299d25902b20738d42e8af027632c6608cb18c429ed1014d6c0b76723b06273a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > updates only the given fields",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "facdac2505b9f070aecf719a7c911a5da1508d87b62eb76ac7f23df746707f1c"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > returns 409 when changing the email to one that already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ba80c350278d8d45b75c947b25d8ece8e9a60d03d38305d4a1b0e40e577fbb4a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > allows keeping the same email",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "da6ed889d83ac78b4b056896bc3452ea49f7864bf2ad27efca427d19ead62d38"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "60574b03a125f7af5f06288f15bd24f28f0c015b61ea80023e0d543d060ba7e0"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3052af9c81cd2a0d48a2ad78e83908c3e3b9605d4b9de506b996a1258e65231c"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > deletes the user: 204 with no body, then 404",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5b8069db53b2369b3701fdbc434763bdccad6a19db934cc4eff65576d4bb261f"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > frees the email for reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f4708fc5ba3a43748589840fa32f19f1c1edcf7d43561c6701371e9ca601b670"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "291c382142769c2f896bf9788973e4fc7c80454b6e8cdb71d65392f079f52335"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "27 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:57.087Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "317560daa107328b185c1a63efb96619025588578bdbdbbccb0c30c8969157ac",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:57.087Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:57.087Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:57.087Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "70079ff6875ee00c8a6d27cafc5993910bb8db7cd015bbfff5058dd922c174fe",
+      "collected": 27,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:59.573Z",
+      "cases": [
+        {
+          "name": "POST /v1/users > creates a user: 201, Location header, role defaults to member",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "58113f5060aa290e14fc60775d0d8944dcffa16358bc4eb1e5d616961557c855"
+        },
+        {
+          "name": "POST /v1/users > accepts an explicit role",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ea833b92a8f44417207179a1adbb6d0280ae074cbe8199934bb358c277f6a9ea"
+        },
+        {
+          "name": "POST /v1/users > returns 409 when the email already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "2411b6d3a13a84630fec531355f45b3a53bad5873ea16c9739ffe02953ff572c"
+        },
+        {
+          "name": "POST /v1/users > rejects an invalid body (%s) with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "40e5f6b41080b3e0ee67afd5d8c626a228707a507c90fc19c181a2daaa5593bf"
+        },
+        {
+          "name": "POST /v1/users > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36c4d07ec6e9e18fec6f5da9bd40a5fef5218eb647caf6539764d37a9fefe21c"
+        },
+        {
+          "name": "POST /v1/users > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ebbfa15ba0df662df5afb7c690d4c078098db4ba7dacfa5faed138bc1780e2a"
+        },
+        {
+          "name": "POST /v1/users > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b6a20f7ecdcd96b849ba8ca75a8dd55fa60376ec6d1c3f2dd1958cba754d83e7"
+        },
+        {
+          "name": "GET /v1/users > is cursor-paginated: following nextCursor visits every user once",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f70185ed7f37790d1de926785fec18db46f590c23d1e8fa857743a604d8c5df0"
+        },
+        {
+          "name": "GET /v1/users > defaults limit to 20",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f7b5a1824f2ae7fe999cfbef9503d78f66d61ddde503cbdf3de35712e871f4d5"
+        },
+        {
+          "name": "GET /v1/users > allows limit up to 100 and rejects anything outside 1..100 with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8740458202e7f778191cc8c750bd8563f28512bba5508f81c4a6cc54a65db9ac"
+        },
+        {
+          "name": "GET /v1/users > rejects a cursor it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "111282820017fab678c0d34e7adf0f3ee9a93b43801b5dff4c7c8e7d2cd97ccc"
+        },
+        {
+          "name": "GET /v1/users/:userId > returns the user",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4378dda412c186fdc556ef613b0b0a85a6c22fbecc619cde035b12fdd7899694"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8a3924a46e0dba63fa2dff9504cbb7076469da9a98f857adf6bf4948108a757c"
+        },
+        {
+          "name": "GET /v1/users/:userId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "299d25902b20738d42e8af027632c6608cb18c429ed1014d6c0b76723b06273a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > updates only the given fields",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "facdac2505b9f070aecf719a7c911a5da1508d87b62eb76ac7f23df746707f1c"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > returns 409 when changing the email to one that already exists",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ba80c350278d8d45b75c947b25d8ece8e9a60d03d38305d4a1b0e40e577fbb4a"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > allows keeping the same email",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "da6ed889d83ac78b4b056896bc3452ea49f7864bf2ad27efca427d19ead62d38"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "60574b03a125f7af5f06288f15bd24f28f0c015b61ea80023e0d543d060ba7e0"
+        },
+        {
+          "name": "PATCH /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3052af9c81cd2a0d48a2ad78e83908c3e3b9605d4b9de506b996a1258e65231c"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > deletes the user: 204 with no body, then 404",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5b8069db53b2369b3701fdbc434763bdccad6a19db934cc4eff65576d4bb261f"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > frees the email for reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f4708fc5ba3a43748589840fa32f19f1c1edcf7d43561c6701371e9ca601b670"
+        },
+        {
+          "name": "DELETE /v1/users/:userId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "291c382142769c2f896bf9788973e4fc7c80454b6e8cdb71d65392f079f52335"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "27 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:59.573Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "317560daa107328b185c1a63efb96619025588578bdbdbbccb0c30c8969157ac",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:59.573Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:59.573Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T17:25:59.573Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    }
+  ],
+  "written": [
+    "src/routes/index.ts",
+    "src/routes/users.ts",
+    "src/schemas/user.ts",
+    "src/store/users.ts",
+    "test/users.test.ts"
+  ],
+  "initialHashes": [
+    [
+      "package.json",
+      "3e73b50e6a8153e1641b64a23433a41af067a235482a97428ddd2ac09434f63f"
+    ],
+    [
+      "src/app.ts",
+      "6d5c2ae6e9f164edeaeba76e5689340d68bee79ac335c3650571334d772c7338"
+    ],
+    [
+      "src/lib/errors.ts",
+      "bce991cc5bd1bc681160921a1659305140ed410b64385a68c90bdbc3a79f212b"
+    ],
+    [
+      "src/lib/idempotency.ts",
+      "c72d09c8789ce128dc79d39c4144ad2346b0b05913c5880c50dd0e2230effcf5"
+    ],
+    [
+      "src/lib/pagination.ts",
+      "f1c2475d67fac9c192856971a7ff739ab4aae17ceccadce4b2b29f658cfd0f7b"
+    ],
+    [
+      "src/lib/problem.ts",
+      "b78071a0ec3d77f4694630176ccdade5a31c14e6873089d4b58793ed3fc333b9"
+    ],
+    [
+      "src/routes/index.ts",
+      "4398579c158f8624282d3c76591c4177efc0c17846b6eab2f9a6d60e63c63887"
+    ],
+    [
+      "src/server.ts",
+      "3322918a60dedb7b17737ac0a22e9352d1558c55d4cd1a64ffd8d70160200b5e"
+    ],
+    [
+      "test/lib/errors.test.ts",
+      "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f"
+    ],
+    [
+      "test/lib/idempotency.test.ts",
+      "317560daa107328b185c1a63efb96619025588578bdbdbbccb0c30c8969157ac"
+    ],
+    [
+      "test/lib/pagination.test.ts",
+      "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d"
+    ],
+    [
+      "test/lib/problem.test.ts",
+      "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5"
+    ],
+    [
+      "tsconfig.json",
+      "a86c3e105465e1256eb624e94222f2031f7faf83bad0680101b5207acd8dd882"
+    ],
+    [
+      "vitest.config.ts",
+      "0651404096ec7c71a24635adb6bf78321e361d023e97b4b8ee2b775404bc6ad5"
+    ]
+  ],
+  "plan": [
+    "Write test/users.test.ts with supertest against createApp() covering every behaviour (201 + Location, role default, 409 duplicate email, 422 invalid body, 400 malformed JSON, Idempotency-Key replay and reuse, cursor pagination with default 20 and max 100, 404 unknown id, PATCH, DELETE 204)",
+    "Run the test and observe it fail (routes do not exist yet)",
+    "Mount usersRouter in src/routes/index.ts",
+    "Implement src/routes/users.ts with every request part parsed by Zod and every 2xx body parsed by a schema",
+    "Add src/schemas/user.ts (Zod schemas, types via z.infer) and src/store/users.ts (in-memory, unique email -> conflict)",
+    "Run the tests until green, then check_standards, then finish"
+  ],
+  "events": [
+    {
+      "kind": "tool",
+      "source": "plan",
+      "decision": "pass",
+      "message": "plan recorded (6 steps)",
+      "data": {
+        "callId": "call_1_0",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 1,
+      "at": "2026-10-03T17:25:50.413Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/routes/index.ts (lines 1-9 of 9)",
+      "data": {
+        "callId": "call_1_1",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 1,
+      "at": "2026-10-03T17:25:50.414Z"
+    },
+    {
+      "kind": "tool",
+      "source": "outline",
+      "decision": "pass",
+      "message": "src/lib/problem.ts (73 lines)",
+      "data": {
+        "callId": "call_1_2",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 1,
+      "at": "2026-10-03T17:25:50.423Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2_0",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-03T17:25:50.445Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2_0",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-03T17:25:50.446Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2_0",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-03T17:25:50.452Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2_0",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-03T17:25:50.452Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2_0",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-03T17:25:50.452Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2_0",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-03T17:25:50.463Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote test/users.test.ts (new, 200 lines)",
+      "data": {
+        "callId": "call_2_0",
+        "ok": true,
+        "paths": [
+          "test/users.test.ts"
+        ],
+        "logPath": "runs/users-api-scripted-20261003-172549/logs/001-t2-write_file.txt"
+      },
+      "turn": 2,
+      "at": "2026-10-03T17:25:50.466Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 23 failed, 4 passed (27) in 1 files",
+      "data": {
+        "callId": "call_3_0",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/users-api-scripted-20261003-172549/logs/003-t3-run_tests.txt"
+      },
+      "turn": 3,
+      "at": "2026-10-03T17:25:51.003Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_4_0",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-03T17:25:51.053Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_4_0",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-03T17:25:51.053Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_4_0",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-03T17:25:51.054Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_4_0",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-03T17:25:51.055Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_4_0",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-03T17:25:51.055Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_4_0",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-03T17:25:51.056Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote src/routes/index.ts (+2 −1 lines)",
+      "data": {
+        "callId": "call_4_0",
+        "ok": true,
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-03T17:25:51.057Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_5_0",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T17:25:51.106Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_5_0",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T17:25:51.107Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_5_0",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T17:25:51.107Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_5_0",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T17:25:51.108Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_5_0",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T17:25:51.108Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_5_0",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T17:25:51.109Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote src/routes/users.ts (new, 46 lines)",
+      "data": {
+        "callId": "call_5_0",
+        "ok": true,
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T17:25:51.110Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_0",
+        "paths": [
+          "src/schemas/user.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.162Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_0",
+        "paths": [
+          "src/schemas/user.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.162Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_0",
+        "paths": [
+          "src/schemas/user.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.163Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_0",
+        "paths": [
+          "src/schemas/user.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.163Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_0",
+        "paths": [
+          "src/schemas/user.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.164Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_0",
+        "paths": [
+          "src/schemas/user.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.164Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote src/schemas/user.ts (new, 38 lines)",
+      "data": {
+        "callId": "call_6_0",
+        "ok": true,
+        "paths": [
+          "src/schemas/user.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.166Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_1",
+        "paths": [
+          "src/store/users.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.175Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_1",
+        "paths": [
+          "src/store/users.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.175Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_1",
+        "paths": [
+          "src/store/users.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.176Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_1",
+        "paths": [
+          "src/store/users.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.177Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_1",
+        "paths": [
+          "src/store/users.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.177Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_6_1",
+        "paths": [
+          "src/store/users.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.178Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote src/store/users.ts (new, 47 lines)",
+      "data": {
+        "callId": "call_6_1",
+        "ok": true,
+        "paths": [
+          "src/store/users.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-03T17:25:51.179Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "pass",
+      "message": "tests: 0 failed, 54 passed (54) in 5 files",
+      "data": {
+        "callId": "call_7_0",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 7,
+      "at": "2026-10-03T17:25:51.778Z"
+    },
+    {
+      "kind": "tool",
+      "source": "check_standards",
+      "decision": "pass",
+      "message": "────────────────────────────────────────────────────────────",
+      "data": {
+        "callId": "call_8_0",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 8,
+      "at": "2026-10-03T17:25:53.417Z"
+    },
+    {
+      "kind": "tool",
+      "source": "finish",
+      "decision": "pass",
+      "message": "finish requested",
+      "data": {
+        "callId": "call_9_0",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:53.469Z"
+    },
+    {
+      "kind": "gate",
+      "source": "contract-lock",
+      "decision": "pass",
+      "message": "finish: n/a not applicable to greenfield tasks",
+      "data": {
+        "phase": "finish",
+        "status": "n/a"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:53.469Z"
+    },
+    {
+      "kind": "gate",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "finish: pass 1 red observations (1 test files); 4 changed source files went red -> green on unchanged cases, red again with the original source",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:54.580Z"
+    },
+    {
+      "kind": "gate",
+      "source": "scope",
+      "decision": "pass",
+      "message": "finish: pass 5 changed files, all in scope",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:54.618Z"
+    },
+    {
+      "kind": "gate",
+      "source": "standards",
+      "decision": "pass",
+      "message": "finish: pass verdict 100% (4 rules)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.014Z"
+    },
+    {
+      "kind": "gate",
+      "source": "tests-green",
+      "decision": "pass",
+      "message": "finish: pass 54/54 tests passed in 5 files",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "details": [
+          "tests: 0 failed, 54 passed (54) in 5 files"
+        ],
+        "logPath": "runs/users-api-scripted-20261003-172549/logs/011-vitest.txt"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.540Z"
+    },
+    {
+      "kind": "note",
+      "source": "finish",
+      "decision": "pass",
+      "message": "FINISH ACCEPTED",
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.540Z"
+    },
+    {
+      "kind": "gate",
+      "source": "contract-lock",
+      "decision": "pass",
+      "message": "finish: n/a not applicable to greenfield tasks",
+      "data": {
+        "phase": "finish",
+        "status": "n/a"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:56.541Z"
+    },
+    {
+      "kind": "gate",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "finish: pass 1 red observations (1 test files); 4 changed source files went red -> green on unchanged cases, red again with the original source",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:57.594Z"
+    },
+    {
+      "kind": "gate",
+      "source": "scope",
+      "decision": "pass",
+      "message": "finish: pass 5 changed files, all in scope",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:57.628Z"
+    },
+    {
+      "kind": "gate",
+      "source": "standards",
+      "decision": "pass",
+      "message": "finish: pass verdict 100% (4 rules)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:59.047Z"
+    },
+    {
+      "kind": "gate",
+      "source": "tests-green",
+      "decision": "pass",
+      "message": "finish: pass 54/54 tests passed in 5 files",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "details": [
+          "tests: 0 failed, 54 passed (54) in 5 files"
+        ],
+        "logPath": "runs/users-api-scripted-20261003-172549/logs/016-vitest.txt"
+      },
+      "turn": 9,
+      "at": "2026-10-03T17:25:59.593Z"
+    }
+  ],
+  "scratch": [
+    [
+      "observed-red.unlocked",
+      [
+        "src/routes/index.ts",
+        "src/routes/users.ts",
+        "src/schemas/user.ts",
+        "src/store/users.ts"
+      ]
+    ]
+  ],
+  "finishAttempts": 1
+}

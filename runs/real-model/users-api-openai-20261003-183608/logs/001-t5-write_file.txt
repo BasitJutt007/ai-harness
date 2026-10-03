@@ -1,0 +1,74 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,71 @@
++import { describe, expect, it } from 'vitest';
++import request from 'supertest';
++import { createApp } from '../src/app.ts';
++import { ProblemSchema } from '../src/lib/problem.ts';
++import { z } from 'zod';
++
++const UserSchema = z.object({ id: z.uuid(), email: z.email(), name: z.string(), role: z.enum(['admin', 'member']), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
++const PageSchema = z.object({ data: z.array(UserSchema), nextCursor: z.string().nullable() });
++
++describe('users API', () => {
++  it('creates, gets, patches, and deletes users; enforces email uniqueness', async () => {
++    const app = createApp();
++    const first = await request(app).post('/v1/users').send({ email: 'a@example.com', name: 'A' }).expect(201);
++    const user = UserSchema.parse(first.body);
++    expect(user.role).toBe('member');
++    expect(first.headers.location).toBe(`/v1/users/${user.id}`);
++    await request(app).get(`/v1/users/${user.id}`).expect(200);
++    const duplicate = await request(app).post('/v1/users').send({ email: 'a@example.com', name: 'Other' }).expect(409);
++    expect(ProblemSchema.parse(duplicate.body).status).toBe(409);
++    const second = await request(app).post('/v1/users').send({ email: 'b@example.com', name: 'B' }).expect(201);
++    const collision = await request(app).patch(`/v1/users/${UserSchema.parse(second.body).id}`).send({ email: 'a@example.com' }).expect(409);
++    expect(ProblemSchema.parse(collision.body).status).toBe(409);
++    const updated = await request(app).patch(`/v1/users/${user.id}`).send({ name: 'Updated' }).expect(200);
++    expect(UserSchema.parse(updated.body).name).toBe('Updated');
++    await request(app).delete(`/v1/users/${user.id}`).expect(204);
++    await request(app).get(`/v1/users/${user.id}`).expect(404);
++  });
++
++  it('paginates every user once and validates invalid requests as problems', async () => {
++    const app = createApp();
++    for (let i = 0; i < 5; i += 1) await request(app).post('/v1/users').send({ email: `u${i}@example.com`, name: `U${i}` }).expect(201);
++    const seen: string[] = [];
++    let cursor: string | undefined;
++    do {
++      const response = await request(app).get('/v1/users').query({ limit: 2, ...(cursor === undefined ? {} : { cursor }) }).expect(200);
++      const page = PageSchema.parse(response.body);
++      seen.push(...page.data.map((user) => user.id));
++      cursor = page.nextCursor ?? undefined;
++    } while (cursor !== undefined);
++    expect(new Set(seen).size).toBe(5);
++    const invalid = await request(app).post('/v1/users').send({ email: 'nope', name: '' }).expect(422);
++    expect(ProblemSchema.parse(invalid.body).detail).toContain('email');
++    const emptyPatch = await request(app).patch(`/v1/users/${seen[0]}`).send({}).expect(422);
++    expect(ProblemSchema.parse(emptyPatch.body).detail).toContain('body');
++    const invalidPath = await request(app).get('/v1/users/not-a-uuid').expect(422);
++    expect(ProblemSchema.parse(invalidPath.body).detail).toContain('userId');
++    const malformed = await request(app).post('/v1/users').set('Content-Type', 'application/json').send('{').expect(400);
++    expect(ProblemSchema.parse(malformed.body).status).toBe(400);
++  });
++
++  it('replays idempotent creates and rejects key reuse with another body', async () => {
++    const app = createApp();
++    const first = await request(app).post('/v1/users').set('Idempotency-Key', 'same').send({ email: 'a@example.com', name: 'A' }).expect(201);
++    const replay = await request(app).post('/v1/users').set('Idempotency-Key', 'same').send({ email: 'a@example.com', name: 'A' }).expect(201);
++    expect(replay.headers['idempotent-replayed']).toBe('true');
++    expect(replay.body).toEqual(first.body);
++    const reused = await request(app).post('/v1/users').set('Idempotency-Key', 'same').send({ email: 'b@example.com', name: 'B' }).expect(422);
++    expect(ProblemSchema.parse(reused.body).status).toBe(422);
++  });
++
++  it('returns problem 404s for missing users and rejects invalid query', async () => {
++    const app = createApp();
++    for (const response of await Promise.all([
++      request(app).get('/v1/users/00000000-0000-4000-8000-000000000000'),
++      request(app).patch('/v1/users/00000000-0000-4000-8000-000000000000').send({ name: 'x' }),
++      request(app).delete('/v1/users/00000000-0000-4000-8000-000000000000'),
++    ])) expect(ProblemSchema.parse(response.body).status).toBe(404);
++    const invalid = await request(app).get('/v1/users?limit=101').expect(422);
++    expect(ProblemSchema.parse(invalid.body).detail).toContain('limit');
++  });
++});

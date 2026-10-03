@@ -1,0 +1,302 @@
+$ vitest run --root /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api --reporter=default --reporter=json --outputFile.json=/private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/tmp/vitest-1791049492525-46ee5518/report.json
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api
+
+ ✓ test/lib/pagination.test.ts (8 tests) 6ms
+ ✓ test/lib/problem.test.ts (7 tests) 21ms
+ ✓ test/lib/errors.test.ts (6 tests) 39ms
+ ✓ test/lib/idempotency.test.ts (6 tests) 93ms
+ ❯ test/users.test.ts (18 tests | 14 failed) 82ms
+   ❯ Users API (18)
+     ❯ POST /v1/users (7)
+       × creates a user and returns 201 with Location header 24ms
+       × allows specifying a role 4ms
+       × returns 409 if email already exists 3ms
+       × honours Idempotency-Key header 2ms
+       × returns 422 when Idempotency-Key is reused with different body 2ms
+       × returns 422 for invalid input 1ms
+       ✓ returns 400 for malformed JSON 3ms
+     ❯ GET /v1/users (3)
+       × returns a paginated list of users 19ms
+       × respects the limit parameter 5ms
+       × uses cursor for pagination 5ms
+     ❯ GET /v1/users/{userId} (2)
+       × returns 200 for existing user 2ms
+       ✓ returns 404 for non-existent user 1ms
+     ❯ PATCH /v1/users/{userId} (4)
+       × updates fields and returns 200 2ms
+       × returns 409 if updating email to one already in use 3ms
+       × returns 422 for empty patch 2ms
+       ✓ returns 404 for non-existent user 1ms
+     ❯ DELETE /v1/users/{userId} (2)
+       × returns 204 and deletes user 2ms
+       ✓ returns 404 for non-existent user 1ms
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  14 failed | 31 passed (45)
+   Start at  22:44:52
+   Duration  358ms (import 55%, tests 25%, transform 19%, worker 1%)
+
+JSON report written to /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/tmp/vitest-1791049492525-46ee5518/report.json
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > Users API > POST /v1/users > creates a user and returns 201 with Location header
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:23:26
+     21|         });
+     22|
+     23|       expect(res.status).toBe(201);
+       |                          ^
+     24|       expect(res.headers.location).toMatch(/\/v1\/users\/[a-f0-9-]{36}…
+     25|       expect(res.body).toMatchObject({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  test/users.test.ts > Users API > POST /v1/users > allows specifying a role
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:44:26
+     42|         });
+     43|
+     44|       expect(res.status).toBe(201);
+       |                          ^
+     45|       expect(res.body.role).toBe('admin');
+     46|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+ FAIL  test/users.test.ts > Users API > POST /v1/users > returns 409 if email already exists
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ test/users.test.ts:53:26
+     51|       const res = await request(app).post('/v1/users').send(user);
+     52|
+     53|       expect(res.status).toBe(409);
+       |                          ^
+     54|       expect(res.body.type).toContain('conflict');
+     55|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  test/users.test.ts > Users API > POST /v1/users > honours Idempotency-Key header
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:66:27
+     64|         .send(user);
+     65|
+     66|       expect(res1.status).toBe(201);
+       |                           ^
+     67|
+     68|       const res2 = await request(app)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  test/users.test.ts > Users API > POST /v1/users > returns 422 when Idempotency-Key is reused with different body
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:90:26
+     88|         .send({ email: 'u2@example.com', name: 'User 2' });
+     89|
+     90|       expect(res.status).toBe(422);
+       |                          ^
+     91|     });
+     92|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  test/users.test.ts > Users API > POST /v1/users > returns 422 for invalid input
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:98:26
+     96|         .send({ email: 'not-an-email', name: '' });
+     97|
+     98|       expect(res.status).toBe(422);
+       |                          ^
+     99|       expect(res.body.detail).toBeDefined();
+    100|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+ FAIL  test/users.test.ts > Users API > GET /v1/users > returns a paginated list of users
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:122:26
+    120|
+    121|       const res = await request(app).get('/v1/users?limit=20');
+    122|       expect(res.status).toBe(200);
+       |                          ^
+    123|       expect(res.body.data).toHaveLength(20);
+    124|       expect(res.body.nextCursor).toBeDefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/14]⎯
+
+ FAIL  test/users.test.ts > Users API > GET /v1/users > respects the limit parameter
+AssertionError: Target cannot be null or undefined.
+ ❯ test/users.test.ts:135:29
+    133|       }
+    134|       const res = await request(app).get('/v1/users?limit=3');
+    135|       expect(res.body.data).toHaveLength(3);
+       |                             ^
+    136|     });
+    137|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/14]⎯
+
+ FAIL  test/users.test.ts > Users API > GET /v1/users > uses cursor for pagination
+AssertionError: Target cannot be null or undefined.
+ ❯ test/users.test.ts:149:30
+    147|       const res2 = await request(app).get(`/v1/users?limit=2&cursor=${…
+    148|
+    149|       expect(res1.body.data).toHaveLength(2);
+       |                              ^
+    150|       expect(res2.body.data).toHaveLength(2);
+    151|       expect(res1.body.data[0].id).not.toBe(res2.body.data[0].id);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/14]⎯
+
+ FAIL  test/users.test.ts > Users API > GET /v1/users/{userId} > returns 200 for existing user
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:164:26
+    162|
+    163|       const res = await request(app).get(`/v1/users/${userId}`);
+    164|       expect(res.status).toBe(200);
+       |                          ^
+    165|       expect(res.body.email).toBe('get@example.com');
+    166|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/14]⎯
+
+ FAIL  test/users.test.ts > Users API > PATCH /v1/users/{userId} > updates fields and returns 200
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:186:26
+    184|         .send({ name: 'New Name' });
+    185|
+    186|       expect(res.status).toBe(200);
+       |                          ^
+    187|       expect(res.body.name).toBe('New Name');
+    188|       expect(res.body.email).toBe('patch@example.com');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/14]⎯
+
+ FAIL  test/users.test.ts > Users API > PATCH /v1/users/{userId} > returns 409 if updating email to one already in use
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ test/users.test.ts:200:26
+    198|         .send({ email: 'u1@example.com' });
+    199|
+    200|       expect(res.status).toBe(409);
+       |                          ^
+    201|     });
+    202|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/14]⎯
+
+ FAIL  test/users.test.ts > Users API > PATCH /v1/users/{userId} > returns 422 for empty patch
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:211:26
+    209|
+    210|       const res = await request(app).patch(`/v1/users/${userId}`).send…
+    211|       expect(res.status).toBe(422);
+       |                          ^
+    212|     });
+    213|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯
+
+ FAIL  test/users.test.ts > Users API > DELETE /v1/users/{userId} > returns 204 and deletes user
+AssertionError: expected 404 to be 204 // Object.is equality
+
+- Expected
++ Received
+
+- 204
++ 404
+
+ ❯ test/users.test.ts:229:26
+    227|
+    228|       const res = await request(app).delete(`/v1/users/${userId}`);
+    229|       expect(res.status).toBe(204);
+       |                          ^
+    230|
+    231|       const getRes = await request(app).get(`/v1/users/${userId}`);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/14]⎯
+
+
+--- json ---
+{"numTotalTestSuites":17,"numPassedTestSuites":10,"numFailedTestSuites":7,"numPendingTestSuites":0,"numTotalTests":45,"numPassedTests":31,"numFailedTests":14,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791049492725,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["Users API","POST /v1/users"],"fullName":"Users API POST /v1/users creates a user and returns 201 with Location header","status":"failed","title":"creates a user and returns 201 with Location header","duration":24.080874999999992,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:23:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","POST /v1/users"],"fullName":"Users API POST /v1/users allows specifying a role","status":"failed","title":"allows specifying a role","duration":3.984624999999994,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:44:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","POST /v1/users"],"fullName":"Users API POST /v1/users returns 409 if email already exists","status":"failed","title":"returns 409 if email already exists","duration":2.9032499999999573,"failureMessages":["AssertionError: expected 404 to be 409 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:53:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","POST /v1/users"],"fullName":"Users API POST /v1/users honours Idempotency-Key header","status":"failed","title":"honours Idempotency-Key header","duration":1.740333000000021,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:66:27\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","POST /v1/users"],"fullName":"Users API POST /v1/users returns 422 when Idempotency-Key is reused with different body","status":"failed","title":"returns 422 when Idempotency-Key is reused with different body","duration":2.2442499999999654,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:90:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","POST /v1/users"],"fullName":"Users API POST /v1/users returns 422 for invalid input","status":"failed","title":"returns 422 for invalid input","duration":1.1087499999999864,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:98:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","POST /v1/users"],"fullName":"Users API POST /v1/users returns 400 for malformed JSON","status":"passed","title":"returns 400 for malformed JSON","duration":2.52800000000002,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","GET /v1/users"],"fullName":"Users API GET /v1/users returns a paginated list of users","status":"failed","title":"returns a paginated list of users","duration":19.448500000000024,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:122:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","GET /v1/users"],"fullName":"Users API GET /v1/users respects the limit parameter","status":"failed","title":"respects the limit parameter","duration":5.0717089999999985,"failureMessages":["AssertionError: Target cannot be null or undefined.\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:2147:20)\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:1944:14)\n    at Proxy.methodWrapper (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/chai/index.js:1737:25)\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:135:29\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","GET /v1/users"],"fullName":"Users API GET /v1/users uses cursor for pagination","status":"failed","title":"uses cursor for pagination","duration":5.058207999999979,"failureMessages":["AssertionError: Target cannot be null or undefined.\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:2147:20)\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:1944:14)\n    at Proxy.methodWrapper (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/chai/index.js:1737:25)\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:149:30\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","GET /v1/users/{userId}"],"fullName":"Users API GET /v1/users/{userId} returns 200 for existing user","status":"failed","title":"returns 200 for existing user","duration":1.6724590000000035,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:164:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","GET /v1/users/{userId}"],"fullName":"Users API GET /v1/users/{userId} returns 404 for non-existent user","status":"passed","title":"returns 404 for non-existent user","duration":0.7990409999999883,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","PATCH /v1/users/{userId}"],"fullName":"Users API PATCH /v1/users/{userId} updates fields and returns 200","status":"failed","title":"updates fields and returns 200","duration":2.117334000000028,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:186:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","PATCH /v1/users/{userId}"],"fullName":"Users API PATCH /v1/users/{userId} returns 409 if updating email to one already in use","status":"failed","title":"returns 409 if updating email to one already in use","duration":3.122624999999971,"failureMessages":["AssertionError: expected 404 to be 409 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:200:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","PATCH /v1/users/{userId}"],"fullName":"Users API PATCH /v1/users/{userId} returns 422 for empty patch","status":"failed","title":"returns 422 for empty patch","duration":1.6567499999999882,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:211:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","PATCH /v1/users/{userId}"],"fullName":"Users API PATCH /v1/users/{userId} returns 404 for non-existent user","status":"passed","title":"returns 404 for non-existent user","duration":0.9784999999999968,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","DELETE /v1/users/{userId}"],"fullName":"Users API DELETE /v1/users/{userId} returns 204 and deletes user","status":"failed","title":"returns 204 and deletes user","duration":1.71225000000004,"failureMessages":["AssertionError: expected 404 to be 204 // Object.is equality\n    at /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts:229:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API","DELETE /v1/users/{userId}"],"fullName":"Users API DELETE /v1/users/{userId} returns 404 for non-existent user","status":"passed","title":"returns 404 for non-existent user","duration":1.0507499999999936,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791049492989,"endTime":1791049493071.0508,"status":"failed","message":"","name":"/private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/users.test.ts"},{"assertionResults":[{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers unknown routes with a 404 problem","status":"passed","title":"answers unknown routes with a 404 problem","duration":17.442583000000013,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers malformed JSON with a 400 problem","status":"passed","title":"answers malformed JSON with a 400 problem","duration":9.336707999999987,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling maps a ZodError to a 422 problem listing each issue","status":"passed","title":"maps a ZodError to a 422 problem listing each issue","duration":3.3940000000000055,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling passes valid bodies through","status":"passed","title":"passes valid bodies through","duration":2.1297500000000014,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling sends a thrown HttpProblem with its own status","status":"passed","title":"sends a thrown HttpProblem with its own status","duration":1.64308299999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling hides unexpected errors behind a 500 problem without a stack","status":"passed","title":"hides unexpected errors behind a 500 problem without a stack","duration":3.771792000000005,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791049492969,"endTime":1791049493006.7717,"status":"passed","message":"","name":"/private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/lib/errors.test.ts"},{"assertionResults":[{"ancestorTitles":["idempotency()"],"fullName":"idempotency() runs every request when no Idempotency-Key is sent","status":"passed","title":"runs every request when no Idempotency-Key is sent","duration":26.614833000000004,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() replays the stored response for the same key and body","status":"passed","title":"replays the stored response for the same key and body","duration":4.338125000000019,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() rejects reuse of a key with a different body as a 422 problem","status":"passed","title":"rejects reuse of a key with a different body as a 422 problem","duration":3.5653749999999604,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() answers a duplicate that arrives while the first is in flight with a 409 problem","status":"passed","title":"answers a duplicate that arrives while the first is in flight with a 409 problem","duration":52.25475,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() does not remember failed requests, so a corrected retry may reuse the key","status":"passed","title":"does not remember failed requests, so a corrected retry may reuse the key","duration":3.924082999999996,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() validates the header: keys longer than 255 characters are a 422 problem","status":"passed","title":"validates the header: keys longer than 255 characters are a 422 problem","duration":1.5172079999999823,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791049492970,"endTime":1791049493062.517,"status":"passed","message":"","name":"/private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/lib/idempotency.test.ts"},{"assertionResults":[{"ancestorTitles":["CursorQuerySchema"],"fullName":"CursorQuerySchema defaults limit to 20 and coerces query strings","status":"passed","title":"defaults limit to 20 and coerces query strings","duration":2.1637079999999855,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["CursorQuerySchema"],"fullName":"CursorQuerySchema rejects limits outside 1..100 and empty cursors","status":"passed","title":"rejects limits outside 1..100 and empty cursors","duration":0.348165999999992,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["cursors"],"fullName":"cursors round-trips a key through an opaque base64url cursor","status":"passed","title":"round-trips a key through an opaque base64url cursor","duration":0.3397080000000017,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["cursors"],"fullName":"cursors rejects cursors it did not issue with a 422 problem","status":"passed","title":"rejects cursors it did not issue with a 422 problem","duration":0.5457079999999905,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate walks every item exactly once, in key order","status":"passed","title":"walks every item exactly once, in key order","duration":0.3318749999999966,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate returns nextCursor null on the last page","status":"passed","title":"returns nextCursor null on the last page","duration":0.47562499999997954,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate does not depend on input order and survives deletion of the cursor item","status":"passed","title":"does not depend on input order and survives deletion of the cursor item","duration":0.18345800000000168,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate builds a page schema with data and nextCursor","status":"passed","title":"builds a page schema with data and nextCursor","duration":0.856583999999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791049492899,"endTime":1791049492903.8567,"status":"passed","message":"","name":"/private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/lib/pagination.test.ts"},{"assertionResults":[{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":1.2025830000000042,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.12674999999998704,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.13700000000000045,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.11687499999999318,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers accepts a custom problem type slug","status":"passed","title":"accepts a custom problem type slug","duration":0.16920799999999758,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers turns an HttpProblem into a Problem with an instance","status":"passed","title":"turns an HttpProblem into a Problem with an instance","duration":1.8530000000000086,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers sends a problem as application/problem+json","status":"passed","title":"sends a problem as application/problem+json","duration":16.410584,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791049492964,"endTime":1791049492983.4106,"status":"passed","message":"","name":"/private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api/test/lib/problem.test.ts"}]}

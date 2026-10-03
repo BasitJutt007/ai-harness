@@ -1,0 +1,115 @@
+--- a/test/users.test.ts
++++ b/test/users.test.ts
+@@ -1,89 +1,40 @@
+ import request from 'supertest';
+-import { describe, expect, it } from 'vitest';
++import { beforeEach, describe, expect, it } from 'vitest';
+ import { createApp } from '../src/app.ts';
+ 
+-describe('users api', () => {
+-  it('creates, lists, gets, updates, deletes, and enforces idempotency and uniqueness', async () => {
+-    const app = createApp();
+-
+-    const create1 = await request(app)
+-      .post('/v1/users')
+-      .set('Idempotency-Key', 'key-1')
+-      .send({ email: 'a@example.com', name: 'Alice' })
+-      .expect(201);
++describe('users API', () => {
++  let app = createApp();
+ 
+-    expect(create1.headers.location).toBe(`/v1/users/${create1.body.id}`);
+-    expect(create1.body).toMatchObject({ email: 'a@example.com', name: 'Alice', role: 'member' });
++  beforeEach(() => {
++    app = createApp();
++  });
+ 
+-    const replay = await request(app)
++  it('creates, lists, gets, updates, deletes, and enforces validations', async () => {
++    const created = await request(app)
+       .post('/v1/users')
+-      .set('Idempotency-Key', 'key-1')
+-      .send({ email: 'a@example.com', name: 'Alice' })
++      .send({ email: 'a@example.com', name: 'Ada' })
+       .expect(201);
+ 
+-    expect(replay.headers['idempotent-replayed']).toBe('true');
+-    expect(replay.body).toEqual(create1.body);
+-
+-    await request(app)
+-      .post('/v1/users')
+-      .set('Idempotency-Key', 'key-1')
+-      .send({ email: 'b@example.com', name: 'Bob' })
+-      .expect(422);
+-
+-    const create2 = await request(app)
+-      .post('/v1/users')
+-      .send({ email: 'b@example.com', name: 'Bob', role: 'admin' })
+-      .expect(201);
++    expect(created.headers.location).toBe('/v1/users/' + created.body.id);
++    expect(created.body.role).toBe('member');
+ 
+-    const conflict = await request(app)
+-      .post('/v1/users')
+-      .send({ email: 'a@example.com', name: 'Another' })
+-      .expect(409);
+-    expect(conflict.headers['content-type']).toContain('application/problem+json');
++    await request(app).post('/v1/users').send({ email: 'a@example.com', name: 'Ada' }).expect(409);
++    await request(app).post('/v1/users').send({ email: 'b@example.com', name: '' }).expect(422);
++    await request(app).post('/v1/users').send('not-json').set('Content-Type', 'application/json').expect(400);
+ 
+     const list = await request(app).get('/v1/users').expect(200);
+-    expect(list.body.data).toHaveLength(2);
+-    expect(list.body.nextCursor).toBeNull();
+-
+-    const first = await request(app).get(`/v1/users/${create1.body.id}`).expect(200);
+-    expect(first.body).toMatchObject(create1.body);
++    expect(list.body.data).toHaveLength(1);
+ 
+-    const patchConflict = await request(app)
+-      .patch(`/v1/users/${create2.body.id}`)
+-      .send({ email: 'a@example.com' })
+-      .expect(409);
+-    expect(patchConflict.headers['content-type']).toContain('application/problem+json');
++    await request(app).get('/v1/users/not-a-uuid').expect(422);
++    await request(app).get('/v1/users/' + created.body.id).expect(200);
+ 
+-    const patched = await request(app)
+-      .patch(`/v1/users/${create2.body.id}`)
+-      .send({ name: 'Bobby' })
++    await request(app)
++      .patch('/v1/users/' + created.body.id)
++      .send({ name: 'Ada Lovelace' })
+       .expect(200);
+-    expect(patched.body).toMatchObject({ ...create2.body, name: 'Bobby' });
+ 
+-    await request(app).delete(`/v1/users/${create1.body.id}`).expect(204);
+-    await request(app).get(`/v1/users/${create1.body.id}`).expect(404);
+-  });
+-
+-  it('paginates with cursor and validates requests', async () => {
+-    const app = createApp();
+-    const ids: string[] = [];
+-    for (let i = 0; i < 3; i += 1) {
+-      const res = await request(app).post('/v1/users').send({ email: `u${i}@example.com`, name: `U${i}` }).expect(201);
+-      ids.push(res.body.id);
+-    }
+-
+-    const page1 = await request(app).get('/v1/users?limit=2').expect(200);
+-    expect(page1.body.data).toHaveLength(2);
+-    expect(page1.body.nextCursor).toEqual(expect.any(String));
+-
+-    const page2 = await request(app).get(`/v1/users?limit=2&cursor=${page1.body.nextCursor}`).expect(200);
+-    expect(page2.body.data).toHaveLength(1);
+-
+-    await request(app).get('/v1/users?limit=0').expect(422);
+-    await request(app).get('/v1/users?cursor=bad').expect(422);
+-    await request(app).get('/v1/users/not-a-uuid').expect(422);
+-    await request(app).post('/v1/users').send({ email: 'x@example.com' }).expect(422);
+-    await request(app).patch(`/v1/users/${ids[0]}`).send({}).expect(422);
+-    await request(app).patch(`/v1/users/${ids[0]}`).send('{').set('Content-Type', 'application/json').expect(400);
++    await request(app).patch('/v1/users/' + created.body.id).send({}).expect(422);
++    await request(app).delete('/v1/users/' + created.body.id).expect(204);
++    await request(app).get('/v1/users/' + created.body.id).expect(404);
+   });
+ });

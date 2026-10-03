@@ -1,0 +1,8 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756/samples/existing-api (port 51711)
+exit=1 timedOut=false served=false
+--- responses (sent and recorded by the harness)
+--- stdout
+
+--- stderr
+probe runtime: TransformError: Transform failed with 1 error:
+/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261003-190756/samples/existing-api/src/modules/projects/routes.ts:1:9: ERROR: Expected ">" but found "1033"

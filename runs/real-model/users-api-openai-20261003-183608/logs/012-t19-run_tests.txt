@@ -1,0 +1,90 @@
+RUN  v5.0.3 /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-183608/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 4 failed) 31ms
+   ❯ users API (4)
+     × creates, gets, patches, and deletes users; enforces email uniqueness 21ms
+     × paginates every user once and validates invalid requests as problems 4ms
+     × replays idempotent creates and rejects key reuse with another body 1ms
+     × returns problem 404s for missing users and rejects invalid query 4ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  23:36:59
+   Duration  243ms (import 55%, transform 25%, tests 19%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, patches, and deletes users; enforces email uniqueness
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:13:100
+     11|   it('creates, gets, patches, and deletes users; enforces email unique…
+     12|     const app = createApp();
+     13|     const first = await request(app).post('/v1/users').send({ email: '…
+       |                                                                                                    ^
+     14|     const user = UserSchema.parse(first.body);
+     15|     expect(user.role).toBe('member');
+ ❯ Test._assertStatus ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > paginates every user once and validates invalid requests as problems
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:31:125
+     29|   it('paginates every user once and validates invalid requests as prob…
+     30|     const app = createApp();
+     31|     for (let i = 0; i < 5; i += 1) await request(app).post('/v1/users'…
+       |                                                                                                                             ^
+     32|     const seen: string[] = [];
+     33|     let cursor: string | undefined;
+ ❯ Test._assertStatus ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects key reuse with another body
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:53:131
+     51|   it('replays idempotent creates and rejects key reuse with another bo…
+     52|     const app = createApp();
+     53|     const first = await request(app).post('/v1/users').set('Idempotenc…
+       |                                                                                                                                   ^
+     54|     const replay = await request(app).post('/v1/users').set('Idempoten…
+     55|     expect(replay.headers['idempotent-replayed']).toBe('true');
+ ❯ Test._assertStatus ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > returns problem 404s for missing users and rejects invalid query
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:68:67
+     66|       request(app).delete('/v1/users/00000000-0000-4000-8000-000000000…
+     67|     ])) expect(ProblemSchema.parse(response.body).status).toBe(404);
+     68|     const invalid = await request(app).get('/v1/users?limit=101').expe…
+       |                                                                   ^
+     69|     expect(ProblemSchema.parse(invalid.body).detail).toContain('limit'…
+     70|   });
+ ❯ Test._assertStatus ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../../../../../../../../Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+observed red: test/users.test.ts (source they cover is now writable)

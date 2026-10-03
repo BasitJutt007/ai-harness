@@ -1,0 +1,15 @@
+Real-provider smoke test (2026-10-03), harness commit cb49d13, via OpenRouter
+(ANTHROPIC_BASE_URL=https://openrouter.ai/api, OPENAI_BASE_URL=https://openrouter.ai/api/v1; key from env, not stored).
+One driver.complete() call per driver with the neutral request: system prompt + one user message + the `finish` tool.
+
+claude driver  model=anthropic/claude-haiku-4.5 (compat)
+  - first request (betas, fallbacks:"default", adaptive thinking + block_binding, cache_control) -> 400 from the
+    proxy ("fallbacks: expected array"); the driver switched to its compat request and retried automatically
+  - stop=tool_calls  parts=[tool_call finish {"summary":"ok"}]  usage={"inputTokens":566,"outputTokens":52}
+  - countTokens -> 404 (the proxy has no /v1/messages/count_tokens); the loop falls back to a chars/4 estimate
+openai driver  model=openai/gpt-5.4-mini
+  - stop=tool_calls  parts=[tool_call finish {"summary":"ok"}]  usage={"inputTokens":55,"outputTokens":17}
+  - countTokens (local o200k_base) = 53
+
+Not done: full harness runs. The account behind the key had only cents of credit
+(HTTP 402 "can only afford 2000 tokens" for claude-opus-5.5, 1333 for gpt-5.5).

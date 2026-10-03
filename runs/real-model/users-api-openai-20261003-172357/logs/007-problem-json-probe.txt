@@ -1,0 +1,18 @@
+$ tsx probe-runtime.ts /private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/.harness/worktrees/users-api-openai-20261003-172357/generated/users-api
+exit=0 timedOut=false
+--- stdout
+
+{"__harnessProbe":1,"ok":true,"responses":[{"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"No route matches GET /__harness_probe__/does-not-exist.\",\"instance\":\"/__harness_probe__/does-not-exist\"}"},{"status":500,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/internal\",\"title\":\"Internal Server Error\",\"status\":500,\"detail\":\"An unexpected error occurred.\",\"instance\":\"/__harness_probe__/internal-error\"}"}]}
+
+--- stderr
+Error: harness-probe-secret-d24bd368a2b6
+    at <anonymous> (/private/tmp/claude-501/-Users-abdulbasit-Documents-GitHub-ai-harness/d678a530-c4ed-48eb-a66e-f870038f9bc9/scratchpad/snap/plugins/lib/probe-runtime.ts:65:13)
+    at Layer.handleRequest (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/layer.js:152:17)
+    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:295:15
+    at processParams (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:582:12)
+    at next (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:291:5)
+    at router.handle (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:186:3)

@@ -1,4 +1,0 @@
-BREAKING  GET /v1/projects response.200.data[].description  property removed from response
-BREAKING  POST /v1/projects response.201.description  property removed from response
-BREAKING  GET /v1/projects/:projectId response.200.description  property removed from response
-BREAKING  PATCH /v1/projects/:projectId response.200.description  property removed from response

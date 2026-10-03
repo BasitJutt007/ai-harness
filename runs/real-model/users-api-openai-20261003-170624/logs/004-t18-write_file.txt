@@ -1,0 +1,164 @@
+--- /dev/null
++++ b/src/routes/users.ts
+@@ -0,0 +1,161 @@
++import { randomUUID } from 'node:crypto';
++import type { Request, Response, Router } from 'express';
++import { z } from 'zod';
++import { idempotency } from '../lib/idempotency.ts';
++import { CursorQuerySchema, paginate } from '../lib/pagination.ts';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++
++export const UserRoleSchema = z.enum(['admin', 'member']);
++export type UserRole = z.infer<typeof UserRoleSchema>;
++
++export const UserSchema = z.object({
++  id: z.string().uuid(),
++  email: z.string().email(),
++  name: z.string().min(1).max(100),
++  role: UserRoleSchema,
++  createdAt: z.string().datetime(),
++  updatedAt: z.string().datetime(),
++});
++export type User = z.infer<typeof UserSchema>;
++
++export const CreateUserSchema = z.object({
++  email: z.string().email(),
++  name: z.string().min(1).max(100),
++  role: UserRoleSchema.default('member'),
++});
++export type CreateUser = z.infer<typeof CreateUserSchema>;
++
++export const PatchUserSchema = z.object({
++  email: z.string().email().optional(),
++  name: z.string().min(1).max(100).optional(),
++  role: UserRoleSchema.optional(),
++}).refine(data => Object.keys(data).length > 0, {
++  message: 'At least one field must be provided for update',
++});
++export type PatchUser = z.infer<typeof PatchUserSchema>;
++
++interface UserRecord {
++  id: string;
++  email: string;
++  name: string;
++  role: UserRole;
++  createdAt: string;
++  updatedAt: string;
++}
++
++const usersStore = new Map<string, UserRecord>();
++
++export function resetUsersStore(): void {
++  usersStore.clear();
++}
++
++export function registerUsersRoutes(router: Router): void {
++  // GET /v1/users
++  router.get('/users', (req: Request, res: Response) => {
++    const queryResult = CursorQuerySchema.safeParse(req.query);
++    if (!queryResult.success) {
++      throw unprocessable('Invalid query parameters', 'validation');
++    }
++    const query = queryResult.data;
++    const allUsers = Array.from(usersStore.values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
++    const page = paginate(allUsers, query, (user) => user.id);
++    const parsed = z.object({
++      data: z.array(UserSchema),
++      nextCursor: z.string().nullable(),
++    }).parse(page);
++    res.json(parsed);
++  });
++
++  // POST /v1/users
++  router.post('/users', idempotency(), (req: Request, res: Response) => {
++    const bodyResult = CreateUserSchema.safeParse(req.body);
++    if (!bodyResult.success) {
++      throw unprocessable('Invalid request body', 'validation');
++    }
++    const data = bodyResult.data;
++
++    // Check email uniqueness
++    for (const existing of usersStore.values()) {
++      if (existing.email.toLowerCase() === data.email.toLowerCase()) {
++        throw conflict('User with this email already exists', 'conflict');
++      }
++    }
++
++    const now = new Date().toISOString();
++    const newUser: UserRecord = {
++      id: randomUUID(),
++      email: data.email,
++      name: data.name,
++      role: data.role,
++      createdAt: now,
++      updatedAt: now,
++    };
++
++    usersStore.set(newUser.id, newUser);
++
++    const parsed = UserSchema.parse(newUser);
++    res.setHeader('Location', `/v1/users/${newUser.id}`);
++    res.status(201).json(parsed);
++  });
++
++  // GET /v1/users/{userId}
++  router.get('/users/:userId', (req: Request, res: Response) => {
++    const userId = req.params['userId'];
++    const user = userId ? usersStore.get(userId) : undefined;
++    if (!user) {
++      throw notFound('User not found', 'not-found');
++    }
++    const parsed = UserSchema.parse(user);
++    res.json(parsed);
++  });
++
++  // PATCH /v1/users/{userId}
++  router.patch('/users/:userId', idempotency(), (req: Request, res: Response) => {
++    const userId = req.params['userId'];
++    const user = userId ? usersStore.get(userId) : undefined;
++    if (!user) {
++      throw notFound('User not found', 'not-found');
++    }
++
++    const bodyResult = PatchUserSchema.safeParse(req.body);
++    if (!bodyResult.success) {
++      throw unprocessable('Invalid request body', 'validation');
++    }
++    const updates = bodyResult.data;
++
++    if (Object.keys(updates).length === 0) {
++      throw unprocessable('Empty patch is not allowed', 'validation');
++    }
++
++    if (updates.email && updates.email.toLowerCase() !== user.email.toLowerCase()) {
++      for (const existing of usersStore.values()) {
++        if (existing.id !== user.id && existing.email.toLowerCase() === updates.email.toLowerCase()) {
++          throw conflict('Email already used by another user', 'conflict');
++        }
++      }
++    }
++
++    const now = new Date().toISOString();
++    const updatedUser: UserRecord = {
++      ...user,
++      ...updates,
++      updatedAt: now,
++    };
++
++    usersStore.set(user.id, updatedUser);
++
++    const parsed = UserSchema.parse(updatedUser);
++    res.json(parsed);
++  });
++
++  // DELETE /v1/users/{userId}
++  router.delete('/users/:userId', (req: Request, res: Response) => {
++    const userId = req.params['userId'];
++    const user = userId ? usersStore.get(userId) : undefined;
++    if (!user) {
++      throw notFound('User not found', 'not-found');
++    }
++    usersStore.delete(user.id);
++    res.status(204).send();
++  });
++}

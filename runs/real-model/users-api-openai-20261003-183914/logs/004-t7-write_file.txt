@@ -1,0 +1,75 @@
+--- /dev/null
++++ b/src/routes/users.ts
+@@ -0,0 +1,72 @@
++import { randomUUID } from 'node:crypto';
++import type { Request, Response } from 'express';
++import { Router } from 'express';
++import { z } from 'zod';
++import { idempotency } from '../lib/idempotency.ts';
++import { CursorQuerySchema, pageSchema, paginate } from '../lib/pagination.ts';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++
++const UserRoleSchema = z.enum(['admin', 'member']);
++const UserSchema = z.object({
++  id: z.string().uuid(),
++  email: z.string().email(),
++  name: z.string().min(1).max(100),
++  role: UserRoleSchema,
++  createdAt: z.string().datetime(),
++  updatedAt: z.string().datetime(),
++});
++const CreateUserBodySchema = z.object({ email: z.string().email(), name: z.string().min(1).max(100), role: UserRoleSchema.optional() });
++const UpdateUserBodySchema = CreateUserBodySchema.partial().refine((value) => Object.keys(value).length > 0, { message: 'At least one field must be provided.' });
++const UserListResponseSchema = pageSchema(UserSchema);
++
++type User = z.infer<typeof UserSchema>;
++
++const users: User[] = [];
++const idempotencyStore = new Map<string, { fingerprint: string; response: { status: number; headers: Record<string, string>; body?: unknown } }>();
++
++function now(): string { return new Date().toISOString(); }
++function toUserResponse(user: User): User { return user; }
++function validateBody<T>(schema: z.ZodType<T>, body: unknown) { return schema.safeParse(body); }
++function findUser(id: string) { return users.find((user) => user.id === id); }
++
++export function registerUsersRoutes(app: Router): void {
++  app.get('/v1/users', (req: Request, res: Response) => {
++    const queryResult = CursorQuerySchema.safeParse(req.query);
++    if (!queryResult.success) throw unprocessable(queryResult.error.issues.map((issue) => issue.path.join('.') + ': ' + issue.message).join('; '));
++    const sorted = [...users].sort((a, b) => a.id.localeCompare(b.id));
++    const page = paginate(sorted, queryResult.data, (user) => user.id);
++    res.json(UserListResponseSchema.parse(page));
++  });
++
++  app.get('/v1/users/:userId', (req: Request, res: Response) => {
++    const user = findUser(req.params.userId);
++    if (!user) throw notFound('User not found.');
++    res.json(UserSchema.parse(user));
++  });
++
++  app.post('/v1/users', idempotency(), (req: Request, res: Response) => {
++    const parsed = validateBody(CreateUserBodySchema, req.body);
++    if (!parsed.success) throw unprocessable(parsed.error.issues.map((issue) => issue.path.join('.') + ': ' + issue.message).join('; '));
++    if (users.some((user) => user.email === parsed.data.email)) throw conflict('Email already exists.');
++    const user: User = { id: randomUUID(), email: parsed.data.email, name: parsed.data.name, role: parsed.data.role ?? 'member', createdAt: now(), updatedAt: now() };
++    users.push(user);
++    res.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user));
++  });
++
++  app.patch('/v1/users/:userId', idempotency(), (req: Request, res: Response) => {
++    const parsed = validateBody(UpdateUserBodySchema, req.body);
++    if (!parsed.success) throw unprocessable(parsed.error.issues.map((issue) => issue.path.join('.') + ': ' + issue.message).join('; '));
++    const user = findUser(req.params.userId);
++    if (!user) throw notFound('User not found.');
++    if (parsed.data.email && users.some((other) => other.id !== user.id && other.email === parsed.data.email)) throw conflict('Email already exists.');
++    Object.assign(user, parsed.data, { updatedAt: now() });
++    res.json(UserSchema.parse(user));
++  });
++
++  app.delete('/v1/users/:userId', (req: Request, res: Response) => {
++    const index = users.findIndex((user) => user.id === req.params.userId);
++    if (index < 0) throw notFound('User not found.');
++    users.splice(index, 1);
++    res.status(204).send();
++  });
++}

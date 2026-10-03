@@ -1,0 +1,105 @@
+{
+  "runId": "projects-change-scripted-20261003-172537",
+  "task": "projects-change",
+  "driver": "scripted",
+  "model": "scripted:projects-breaking.json",
+  "mode": "jit",
+  "counter": "js-tiktoken o200k_base (scripted driver: estimate)",
+  "method": "shadow-baseline",
+  "baselineDefinition": "same request with JIT fetchers and compaction disabled: system = same system prompt + every text file under the API root at run start (node_modules/.git/dist and binary files excluded, 200 KB cap) + every standards doc in full; same tools array (tool schemas counted once, not repeated in the system prompt) and same task brief; history = same assistant turns verbatim with each tool result replaced by its raw (naive, uncapped) return: whole files with line numbers, full listings and search hits, the test runner console output, the full standards report, the full contract diff; no input elision, no history compaction; same token counter",
+  "turns": [
+    {
+      "turn": 1,
+      "actual_input_tokens": 1701,
+      "baseline_input_tokens": 9612,
+      "reduction_pct": 82.3,
+      "provider_reported_input_tokens": 1701,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 59
+    },
+    {
+      "turn": 2,
+      "actual_input_tokens": 2226,
+      "baseline_input_tokens": 10137,
+      "reduction_pct": 78,
+      "provider_reported_input_tokens": 2226,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 2360
+    },
+    {
+      "turn": 3,
+      "actual_input_tokens": 2290,
+      "baseline_input_tokens": 12638,
+      "reduction_pct": 81.9,
+      "provider_reported_input_tokens": 2290,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 19
+    },
+    {
+      "turn": 4,
+      "actual_input_tokens": 1965,
+      "baseline_input_tokens": 13437,
+      "reduction_pct": 85.4,
+      "provider_reported_input_tokens": 1965,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 51
+    },
+    {
+      "turn": 5,
+      "actual_input_tokens": 2003,
+      "baseline_input_tokens": 13603,
+      "reduction_pct": 85.3,
+      "provider_reported_input_tokens": 2003,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 13
+    },
+    {
+      "turn": 6,
+      "actual_input_tokens": 1967,
+      "baseline_input_tokens": 13739,
+      "reduction_pct": 85.7,
+      "provider_reported_input_tokens": 1967,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 23
+    },
+    {
+      "turn": 7,
+      "actual_input_tokens": 2148,
+      "baseline_input_tokens": 13943,
+      "reduction_pct": 84.6,
+      "provider_reported_input_tokens": 2148,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 2
+    },
+    {
+      "turn": 8,
+      "actual_input_tokens": 2164,
+      "baseline_input_tokens": 13980,
+      "reduction_pct": 84.5,
+      "provider_reported_input_tokens": 2164,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 2
+    },
+    {
+      "turn": 9,
+      "actual_input_tokens": 2036,
+      "baseline_input_tokens": 14017,
+      "reduction_pct": 85.5,
+      "provider_reported_input_tokens": 2036,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 2
+    }
+  ],
+  "totals": {
+    "actual_input_tokens": 18500,
+    "baseline_input_tokens": 115106,
+    "reduction_pct": 83.9,
+    "provider_reported_input_tokens": 18500,
+    "output_tokens": 2531
+  },
+  "attribution_chars": {
+    "front_load_avoided": 283104,
+    "raw_returns_avoided": 18260,
+    "history_compacted": 68180
+  }
+}

@@ -1,0 +1,68 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261003-183914/generated/users-api
+
+ ❯ test/users.test.ts (3 tests | 3 failed) 7ms
+   ❯ users api (3)
+     × creates, lists, gets, updates, deletes, and enforces idempotency and uniqueness 5ms
+     × returns problem details for validation, conflict, malformed json, and missing routes 1ms
+     × supports cursor pagination across multiple users 0ms
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  23:39:35
+   Duration  1.13s (import 57%, transform 42%, tests 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users api > creates, lists, gets, updates, deletes, and enforces idempotency and uniqueness
+TypeError: argument handler must be a function
+ ❯ router.use ../../../../../node_modules/router/index.js:392:13
+ ❯ app.<anonymous> ../../../../../node_modules/express/lib/application.js:222:21
+ ❯ app.use ../../../../../node_modules/express/lib/application.js:219:7
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use('/v1/users', usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/users.test.ts:7:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  test/users.test.ts > users api > returns problem details for validation, conflict, malformed json, and missing routes
+TypeError: argument handler must be a function
+ ❯ router.use ../../../../../node_modules/router/index.js:392:13
+ ❯ app.<anonymous> ../../../../../node_modules/express/lib/application.js:222:21
+ ❯ app.use ../../../../../node_modules/express/lib/application.js:219:7
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use('/v1/users', usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/users.test.ts:53:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  test/users.test.ts > users api > supports cursor pagination across multiple users
+TypeError: argument handler must be a function
+ ❯ router.use ../../../../../node_modules/router/index.js:392:13
+ ❯ app.<anonymous> ../../../../../node_modules/express/lib/application.js:222:21
+ ❯ app.use ../../../../../node_modules/express/lib/application.js:219:7
+ ❯ registerRoutes src/routes/index.ts:10:7
+      8|
+      9| export function registerRoutes(app: Router): void {
+     10|   app.use('/v1/users', usersRouter);
+       |       ^
+     11| }
+     12|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/users.test.ts:77:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+observed red: test/users.test.ts (source they cover is now writable)

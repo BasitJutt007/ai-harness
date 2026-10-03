@@ -1,0 +1,40 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "n/a",
+      "summary": "not applicable to greenfield tasks"
+    },
+    {
+      "gate": "observed-red",
+      "status": "fail",
+      "summary": "1 of 1 changed source files lack a red -> green test case",
+      "details": [
+        "src/routes/index.ts: test/users.test.ts: edited after red (\"users api > creates, gets, lists, updates, deletes, and enforces problems/idempotency\")",
+        "Each changed file needs a covering case that was seen failing, now passes with its body unchanged, and fails again with the original source."
+      ],
+      "logPath": "runs/users-api-openai-20261003-184627/logs/062-vitest.txt"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "2 changed files, all in scope"
+    },
+    {
+      "gate": "standards",
+      "status": "pass",
+      "summary": "verdict 100% (4 rules)"
+    },
+    {
+      "gate": "tests-green",
+      "status": "pass",
+      "summary": "29/29 tests passed in 5 files",
+      "details": [
+        "tests: 0 failed, 29 passed (29) in 5 files"
+      ],
+      "logPath": "runs/users-api-openai-20261003-184627/logs/065-vitest.txt"
+    }
+  ]
+}

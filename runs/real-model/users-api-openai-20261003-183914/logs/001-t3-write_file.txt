@@ -1,0 +1,97 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,94 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++
++describe('users api', () => {
++  it('creates, lists, gets, updates, deletes, and enforces idempotency and uniqueness', async () => {
++    const app = createApp();
++
++    const createOne = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'create-user-1')
++      .send({ email: 'alice@example.com', name: 'Alice' });
++
++    expect(createOne.status).toBe(201);
++    expect(createOne.headers.location).toBe('/v1/users/' + createOne.body.id);
++    expect(createOne.body.email).toBe('alice@example.com');
++    expect(createOne.body.role).toBe('member');
++
++    const replay = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'create-user-1')
++      .send({ email: 'alice@example.com', name: 'Alice' });
++
++    expect(replay.status).toBe(201);
++    expect(replay.headers['idempotent-replayed']).toBe('true');
++    expect(replay.body).toEqual(createOne.body);
++
++    const list = await request(app).get('/v1/users');
++    expect(list.status).toBe(200);
++    expect(list.body.data).toHaveLength(1);
++    expect(list.body.nextCursor).toBeNull();
++
++    const got = await request(app).get(`/v1/users/${createOne.body.id}`);
++    expect(got.status).toBe(200);
++    expect(got.body).toEqual(createOne.body);
++
++    const patch = await request(app)
++      .patch(`/v1/users/${createOne.body.id}`)
++      .set('Idempotency-Key', 'patch-user-1')
++      .send({ name: 'Alice Updated' });
++    expect(patch.status).toBe(200);
++    expect(patch.body.name).toBe('Alice Updated');
++
++    const deleteRes = await request(app).delete(`/v1/users/${createOne.body.id}`);
++    expect(deleteRes.status).toBe(204);
++    expect(deleteRes.text).toBe('');
++
++    const gone = await request(app).get(`/v1/users/${createOne.body.id}`);
++    expect(gone.status).toBe(404);
++  });
++
++  it('returns problem details for validation, conflict, malformed json, and missing routes', async () => {
++    const app = createApp();
++
++    const invalid = await request(app).post('/v1/users').send({ email: 'not-an-email', name: '' });
++    expect(invalid.status).toBe(422);
++    expect(invalid.headers['content-type']).toContain('application/problem+json');
++    expect(invalid.body.detail).toContain('email');
++    expect(invalid.body.detail).toContain('name');
++
++    const created = await request(app).post('/v1/users').set('Idempotency-Key', 'x').send({ email: 'bob@example.com', name: 'Bob' });
++    expect(created.status).toBe(201);
++
++    const dup = await request(app).post('/v1/users').send({ email: 'bob@example.com', name: 'Other Bob' });
++    expect(dup.status).toBe(409);
++
++    const badJson = await request(app).post('/v1/users').set('Content-Type', 'application/json').send('{');
++    expect(badJson.status).toBe(400);
++    expect(badJson.headers['content-type']).toContain('application/problem+json');
++
++    const missing = await request(app).get('/v1/does-not-exist');
++    expect(missing.status).toBe(404);
++    expect(missing.headers['content-type']).toContain('application/problem+json');
++  });
++
++  it('supports cursor pagination across multiple users', async () => {
++    const app = createApp();
++    const emails = ['a@example.com', 'b@example.com', 'c@example.com'];
++    for (const [index, email] of emails.entries()) {
++      const res = await request(app).post('/v1/users').set('Idempotency-Key', `k-${index}`).send({ email, name: email });
++      expect(res.status).toBe(201);
++    }
++
++    const page1 = await request(app).get('/v1/users').query({ limit: 2 });
++    expect(page1.status).toBe(200);
++    expect(page1.body.data).toHaveLength(2);
++    expect(page1.body.nextCursor).toEqual(expect.any(String));
++
++    const page2 = await request(app).get('/v1/users').query({ cursor: page1.body.nextCursor, limit: 2 });
++    expect(page2.status).toBe(200);
++    expect(page2.body.data).toHaveLength(1);
++    expect(page2.body.nextCursor).toBeNull();
++  });
++});

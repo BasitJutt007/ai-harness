@@ -1,0 +1,36 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                5/5 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               5/5 error paths
+problem-json      pass  src/routes/index.ts              5/5 error paths
+problem-json      skip  (runtime)                        skipped: app could not be started (exit 1): probe runtime: ReferenceError: require is not defined
+rest-conventions  FAIL  src/routes/index.ts              4/5 routes
+    src/routes/index.ts:45:3  GET /v1/users: collection GET must parse req.query with a cursor schema that has cursor and limit
+tsc-strict        FAIL  src/routes/index.ts              6 errors
+    src/routes/index.ts:44:9  `router` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type
+    src/routes/index.ts:45:3  `router.get` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type
+    src/routes/index.ts:46:3  `router.post` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type
+    src/routes/index.ts:47:3  `router.get` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type
+    src/routes/index.ts:48:3  `router.patch` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type
+    src/routes/index.ts:49:3  `router.delete` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type
+tsc-strict        FAIL  (project)                        0 errors
+zod-boundary      FAIL  src/routes/index.ts              0/6 handlers
+    src/routes/index.ts:45:111  GET /v1/users: req.query is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.query)
+    src/routes/index.ts:46:129  POST /v1/users: req.body is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.body)
+    src/routes/index.ts:46:43  POST /v1/users: request body is not parsed; add const body = BodySchema.parse(req.body)
+    src/routes/index.ts:47:111  GET /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/index.ts:47:35  GET /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/index.ts:48:128  PATCH /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/index.ts:48:295  PATCH /v1/users/:userId: req.body is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.body)
+    src/routes/index.ts:48:52  PATCH /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/index.ts:48:52  PATCH /v1/users/:userId: request body is not parsed; add const body = BodySchema.parse(req.body)
+    src/routes/index.ts:49:114  DELETE /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/index.ts:49:38  DELETE /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/index.ts:34:6  type Store: hand-written type: infer it from a Zod schema (z.infer)
+────────────────────────────────────────────────────────────
+problem-json      unproven 20/20 error paths
+rest-conventions  FAIL     4/5 routes
+tsc-strict        FAIL     6 errors
+zod-boundary      FAIL     0/6 handlers
+verdict           UNPROVEN → not proven: problem-json (skipped); failing: rest-conventions, tsc-strict, zod-boundary

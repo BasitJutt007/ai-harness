@@ -1,0 +1,40 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -5,7 +5,7 @@
+ import { paginate, pageSchema, CursorQuerySchema as SharedCursorQuerySchema } from '../lib/pagination.ts';
+ import { idempotency } from '../lib/idempotency.ts';
+ 
+-const UserIdSchema = z.string().uuid();
++const UserIdSchema = z.object({ userId: z.string().uuid() });
+ const UserRoleSchema = z.enum(['admin', 'member']);
+ const UserSchema = z.object({
+   id: z.string().uuid(),
+@@ -30,8 +30,10 @@
+ export type User = z.infer<typeof UserSchema>;
+ type CreateUserBody = z.infer<typeof CreateUserBodySchema>;
+ type UpdateUserBody = z.infer<typeof UpdateUserBodySchema>;
++type UserIdParams = z.infer<typeof UserIdSchema>;
++type Store = z.infer<typeof StoreSchema>;
+ 
+-type Store = { users: User[] };
++const StoreSchema = z.object({ users: z.array(UserSchema) });
+ 
+ function nowIso(): string { return new Date().toISOString(); }
+ function createStore(): Store { return { users: [] }; }
+@@ -42,11 +44,11 @@
+ 
+ function buildUsersRouter(store: Store): Router {
+   const router: Router = express.Router();
+-  router.get('/v1/users', (req: Request, res: Response) => { const query = validateRequest(SharedCursorQuerySchema, req.query, 'Invalid query'); const page = paginate(store.users, query, (user) => user.id); res.json(UsersListResponseSchema.parse(page)); });
+-  router.post('/v1/users', idempotency(), (req: Request, res: Response) => { const body = validateRequest(CreateUserBodySchema, req.body, 'Invalid body'); ensureUniqueEmail(store, body.email); const user = createUser(body); store.users.push(user); res.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user)); });
+-  router.get('/v1/users/:userId', (req: Request, res: Response) => { const id = validateRequest(UserIdSchema, req.params.userId, 'Invalid path'); const user = findUser(store, id); if (!user) throw notFound('User not found.'); res.json(UserSchema.parse(user)); });
+-  router.patch('/v1/users/:userId', idempotency(), (req: Request, res: Response) => { const id = validateRequest(UserIdSchema, req.params.userId, 'Invalid path'); const user = findUser(store, id); if (!user) throw notFound('User not found.'); const body = validateRequest(UpdateUserBodySchema, req.body, 'Invalid body'); if (body.email !== undefined) ensureUniqueEmail(store, body.email, id); const updated = { ...user, ...body, updatedAt: nowIso() }; store.users = store.users.map((u) => (u.id === id ? updated : u)); res.json(UserSchema.parse(updated)); });
+-  router.delete('/v1/users/:userId', (req: Request, res: Response) => { const id = validateRequest(UserIdSchema, req.params.userId, 'Invalid path'); const before = store.users.length; store.users = store.users.filter((u) => u.id !== id); if (store.users.length === before) throw notFound('User not found.'); res.status(204).end(); });
++  router.get('/v1/users', (req: Request, res: Response) => { const query = SharedCursorQuerySchema.parse(req.query); const page = paginate(store.users, query, (user) => user.id); res.json(UsersListResponseSchema.parse(page)); });
++  router.post('/v1/users', idempotency(), (req: Request, res: Response) => { const body = CreateUserBodySchema.parse(req.body); ensureUniqueEmail(store, body.email); const user = createUser(body); store.users.push(user); res.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user)); });
++  router.get('/v1/users/:userId', (req: Request, res: Response) => { const { userId } = UserIdSchema.parse(req.params); const user = findUser(store, userId); if (!user) throw notFound('User not found.'); res.json(UserSchema.parse(user)); });
++  router.patch('/v1/users/:userId', idempotency(), (req: Request, res: Response) => { const { userId } = UserIdSchema.parse(req.params); const user = findUser(store, userId); if (!user) throw notFound('User not found.'); const body = UpdateUserBodySchema.parse(req.body) as UpdateUserBody; if (body.email !== undefined) ensureUniqueEmail(store, body.email, userId); const updated = { ...user, ...body, updatedAt: nowIso() }; store.users = store.users.map((u) => (u.id === userId ? updated : u)); res.json(UserSchema.parse(updated)); });
++  router.delete('/v1/users/:userId', (req: Request, res: Response) => { const { userId } = UserIdSchema.parse(req.params); const before = store.users.length; store.users = store.users.filter((u) => u.id !== userId); if (store.users.length === before) throw notFound('User not found.'); res.status(204).end(); });
+   return router;
+ }
+ 

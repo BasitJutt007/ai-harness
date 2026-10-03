@@ -1,0 +1,1491 @@
+{
+  "turn": 40,
+  "tests": [
+    {
+      "file": "test/projects.test.ts",
+      "hash": "988512f4691f9ed602362500b5bb7e4f92ccdda2363f47312384d167824c7b5e",
+      "collected": 17,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-03T18:53:23.566Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "17 tests passed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "988512f4691f9ed602362500b5bb7e4f92ccdda2363f47312384d167824c7b5e",
+      "collected": 17,
+      "failed": 0,
+      "turn": 40,
+      "at": "2026-10-03T18:54:17.103Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "17 tests passed"
+    }
+  ],
+  "written": [],
+  "initialHashes": [
+    [
+      "package.json",
+      "3dee9d365c84a8f182206d79599678da95325c5fc0ade4c6c6984f27ded4ceb9"
+    ],
+    [
+      "src/app.ts",
+      "835bf5ae43c1665f84b7c59242e4987b8007ce3c303272356a74b1d78e651f34"
+    ],
+    [
+      "src/lib/errors.ts",
+      "bce991cc5bd1bc681160921a1659305140ed410b64385a68c90bdbc3a79f212b"
+    ],
+    [
+      "src/lib/idempotency.ts",
+      "c72d09c8789ce128dc79d39c4144ad2346b0b05913c5880c50dd0e2230effcf5"
+    ],
+    [
+      "src/lib/pagination.ts",
+      "f1c2475d67fac9c192856971a7ff739ab4aae17ceccadce4b2b29f658cfd0f7b"
+    ],
+    [
+      "src/lib/problem.ts",
+      "b78071a0ec3d77f4694630176ccdade5a31c14e6873089d4b58793ed3fc333b9"
+    ],
+    [
+      "src/modules/projects/routes.ts",
+      "02dd6cf354a47d8d64c73b4fb97ed22d2dfcf2cd9214418a1af38d8e44950f13"
+    ],
+    [
+      "src/modules/projects/schema.ts",
+      "2125f39e0f2425b001ce52a6a23e9c47f800e11cdc37e726f84bfbf39f8aaa7e"
+    ],
+    [
+      "src/modules/projects/store.ts",
+      "0ecaa716009bf91391c36d7f681c0f801b6c195516d9037f100675499a6433c7"
+    ],
+    [
+      "src/server.ts",
+      "3322918a60dedb7b17737ac0a22e9352d1558c55d4cd1a64ffd8d70160200b5e"
+    ],
+    [
+      "test/projects.test.ts",
+      "988512f4691f9ed602362500b5bb7e4f92ccdda2363f47312384d167824c7b5e"
+    ],
+    [
+      "tsconfig.json",
+      "a86c3e105465e1256eb624e94222f2031f7faf83bad0680101b5207acd8dd882"
+    ],
+    [
+      "vitest.config.ts",
+      "0651404096ec7c71a24635adb6bf78321e361d023e97b4b8ee2b775404bc6ad5"
+    ]
+  ],
+  "plan": [
+    "Add failing tests for DELETE /v1/projects/:projectId and GET /v1/projects?status filtering.",
+    "Run the project tests to observe red and unlock the src files.",
+    "Implement schema, store, and route changes for deletion and status filtering.",
+    "Re-run the project tests until green.",
+    "Run standards checks and contract diff, then finish if all gates pass."
+  ],
+  "events": [
+    {
+      "kind": "tool",
+      "source": "plan",
+      "decision": "pass",
+      "message": "plan recorded (5 steps)",
+      "data": {
+        "callId": "call_NjogXML22ohKREaBDJklmYVk",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 1,
+      "at": "2026-10-03T18:53:06.170Z"
+    },
+    {
+      "kind": "tool",
+      "source": "outline",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (41 lines)",
+      "data": {
+        "callId": "call_fVKvSF7ojdvGbk8RcxnY2Bpg",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-03T18:53:07.264Z"
+    },
+    {
+      "kind": "tool",
+      "source": "outline",
+      "decision": "pass",
+      "message": "src/modules/projects/schema.ts (39 lines)",
+      "data": {
+        "callId": "call_1EWHfKez4K3lxF1jC0DJqn2C",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-03T18:53:07.268Z"
+    },
+    {
+      "kind": "tool",
+      "source": "outline",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (32 lines)",
+      "data": {
+        "callId": "call_vzeFaU5XSlzEckiovtonaVjS",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-03T18:53:07.270Z"
+    },
+    {
+      "kind": "tool",
+      "source": "outline",
+      "decision": "pass",
+      "message": "test/projects.test.ts (178 lines)",
+      "data": {
+        "callId": "call_tFQHP4NATq67XhGDw9Zd7xwg",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-03T18:53:07.275Z"
+    },
+    {
+      "kind": "tool",
+      "source": "contract_diff",
+      "decision": "pass",
+      "message": "contract: 4 → 4 endpoints; 0 breaking, 0 unproven, 0 additive",
+      "data": {
+        "callId": "call_jUmDJQv2nfHRmdORNKwvkY2v",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-03T18:53:08.406Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-40 of 40)",
+      "data": {
+        "callId": "call_0l8Ug6FanxtEBVLTaJDV9qib",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 3,
+      "at": "2026-10-03T18:53:09.524Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/schema.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_xpHM6Ipo7Ezzs37l8440uDUD",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 3,
+      "at": "2026-10-03T18:53:09.525Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-31 of 31)",
+      "data": {
+        "callId": "call_DXPyIoZozPW4y9L5vXutx03L",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 3,
+      "at": "2026-10-03T18:53:09.526Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-160 of 177)",
+      "data": {
+        "callId": "call_jTxHPLlXDOSk9ygg5K0hNLWk",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 3,
+      "at": "2026-10-03T18:53:09.527Z"
+    },
+    {
+      "kind": "tool",
+      "source": "plan",
+      "decision": "pass",
+      "message": "plan recorded (5 steps)",
+      "data": {
+        "callId": "call_tnVPqFFc5FFQFLp4oSNh0X7L",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 4,
+      "at": "2026-10-03T18:53:10.803Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_DwQKtzhQqQ5iu9tejPwG4s3P",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T18:53:18.738Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_DwQKtzhQqQ5iu9tejPwG4s3P",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T18:53:18.740Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_DwQKtzhQqQ5iu9tejPwG4s3P",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T18:53:18.742Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_DwQKtzhQqQ5iu9tejPwG4s3P",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T18:53:18.742Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "block",
+      "message": "test-preservation: test/projects.test.ts existed before this run; its test cases are append-only:\n  test/projects.test.ts:123  existing test \"GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:176  existing test \"PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem\": original statement 3 of 3 `expectProblem(await request(app).patch(`/v1/projects/${project.id}`).send({ s...` was changed, removed or moved (statements may only be appended after the last original one); append new statements at the end of the case, or add a new test case\n  test/projects.test.ts:168  existing test \"PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH\" would be removed or renamed\nKeep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block). If existing behaviour must change, the task has to set allowBreaking.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_DwQKtzhQqQ5iu9tejPwG4s3P",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-03T18:53:18.760Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-160 of 177)",
+      "data": {
+        "callId": "call_Vm2ABqhLIJkUrLnErv24BXl4",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 6,
+      "at": "2026-10-03T18:53:19.943Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 161-177 of 177)",
+      "data": {
+        "callId": "call_Xe0lJTgdweyMRnKDsHeDHxPx",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 7,
+      "at": "2026-10-03T18:53:20.997Z"
+    },
+    {
+      "kind": "tool",
+      "source": "plan",
+      "decision": "pass",
+      "message": "plan recorded (5 steps)",
+      "data": {
+        "callId": "call_vtYejcksFW75MzD1k06XljYo",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 8,
+      "at": "2026-10-03T18:53:22.154Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "pass",
+      "message": "tests: 0 failed, 17 passed (17) in 1 files",
+      "data": {
+        "callId": "call_LuxCdDDtvGogdQB6UtWH1VSe",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 9,
+      "at": "2026-10-03T18:53:23.581Z"
+    },
+    {
+      "kind": "tool",
+      "source": "search_code",
+      "decision": "pass",
+      "message": "src/lib/idempotency.ts:76: if (res.statusCode < 200 || res.statusCode > 299) store.delete(key);",
+      "data": {
+        "callId": "call_urmaRhx3O2wwFvn4H7hpNTxZ",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 10,
+      "at": "2026-10-03T18:53:24.541Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2bLFTDkJkJ84NAhdOkA3FZJI",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 11,
+      "at": "2026-10-03T18:53:28.204Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2bLFTDkJkJ84NAhdOkA3FZJI",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 11,
+      "at": "2026-10-03T18:53:28.205Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2bLFTDkJkJ84NAhdOkA3FZJI",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 11,
+      "at": "2026-10-03T18:53:28.205Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2bLFTDkJkJ84NAhdOkA3FZJI",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 11,
+      "at": "2026-10-03T18:53:28.206Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "block",
+      "message": "test-preservation: test/projects.test.ts existed before this run; its test cases are append-only:\n  test/projects.test.ts:56  existing test \"POST /v1/projects > creates a project: 201, Location header, status defaults to active\" would be removed or renamed\n  test/projects.test.ts:65  existing test \"POST /v1/projects > rejects an invalid body with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:71  existing test \"POST /v1/projects > rejects unknown properties with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:75  existing test \"POST /v1/projects > rejects malformed JSON with a 400 problem\" would be removed or renamed\n  test/projects.test.ts:79  existing test \"POST /v1/projects > honours Idempotency-Key: same key and body replays the first response\" would be removed or renamed\n  test/projects.test.ts:92  existing test \"POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)\" would be removed or renamed\n  test/projects.test.ts:100  existing test \"GET /v1/projects > pages through every project with an opaque cursor\" would be removed or renamed\n  test/projects.test.ts:107  existing test \"GET /v1/projects > returns at most `limit` items and a nextCursor while more remain\" would be removed or renamed\n  test/projects.test.ts:116  existing test \"GET /v1/projects > defaults to 20 items per page\" would be removed or renamed\n  test/projects.test.ts:123  existing test \"GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:131  existing test \"GET /v1/projects/:projectId > returns the project\" would be removed or renamed\n  test/projects.test.ts:138  existing test \"GET /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:143  existing test \"GET /v1/projects/:projectId > answers a malformed id with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:149  existing test \"PATCH /v1/projects/:projectId > updates the given fields only\" would be removed or renamed\n  test/projects.test.ts:158  existing test \"PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:164  existing test \"PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:168  existing test \"PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH\" would be removed or renamed\n  test/projects.test.ts:8  new beforeEach at the top level would run around existing cases; put it inside a new describe block together with the new cases\n  test/projects.test.ts:12  new afterEach at the top level would run around existing cases; put it inside a new describe block together with the new cases\n  test/projects.test.ts:1  existing import of \"node:crypto\" (randomUUID) would be removed; existing cases depend on it\nKeep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block). If existing behaviour must change, the task has to set allowBreaking.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2bLFTDkJkJ84NAhdOkA3FZJI",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 11,
+      "at": "2026-10-03T18:53:28.212Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-160 of 177)",
+      "data": {
+        "callId": "call_HupeJGvSRcMyOafDMvKG561H",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 12,
+      "at": "2026-10-03T18:53:29.173Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "block",
+      "message": "observed-red: src/modules/projects/schema.ts is locked: no covering test has an observed red at its current content.\nCovering tests:\n  test/projects.test.ts: no red observed (last run: pass), unchanged since last run\nNext: add or change a case in test/projects.test.ts that asserts on a value imported from src/ and fails on a non-constant assertion for the missing behaviour, then run run_tests { \"files\": [\"test/projects.test.ts\"] } to observe red.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_ZBWXZxd1fOxhr7mLcWSxfgf4",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 13,
+      "at": "2026-10-03T18:53:31.399Z"
+    },
+    {
+      "kind": "tool",
+      "source": "plan",
+      "decision": "pass",
+      "message": "plan recorded (5 steps)",
+      "data": {
+        "callId": "call_uQ2hQbFqNTsa1NsSPb8cIPSu",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 14,
+      "at": "2026-10-03T18:53:34.140Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_Qv9TsUGkFf1dEt9AvoNkQ8KA",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-10-03T18:53:39.074Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_Qv9TsUGkFf1dEt9AvoNkQ8KA",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-10-03T18:53:39.075Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_Qv9TsUGkFf1dEt9AvoNkQ8KA",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-10-03T18:53:39.075Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_Qv9TsUGkFf1dEt9AvoNkQ8KA",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-10-03T18:53:39.076Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "block",
+      "message": "test-preservation: test/projects.test.ts existed before this run; its test cases are append-only:\n  test/projects.test.ts:56  existing test \"POST /v1/projects > creates a project: 201, Location header, status defaults to active\" would be removed or renamed\n  test/projects.test.ts:65  existing test \"POST /v1/projects > rejects an invalid body with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:71  existing test \"POST /v1/projects > rejects unknown properties with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:75  existing test \"POST /v1/projects > rejects malformed JSON with a 400 problem\" would be removed or renamed\n  test/projects.test.ts:79  existing test \"POST /v1/projects > honours Idempotency-Key: same key and body replays the first response\" would be removed or renamed\n  test/projects.test.ts:92  existing test \"POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)\" would be removed or renamed\n  test/projects.test.ts:100  existing test \"GET /v1/projects > pages through every project with an opaque cursor\" would be removed or renamed\n  test/projects.test.ts:107  existing test \"GET /v1/projects > returns at most `limit` items and a nextCursor while more remain\" would be removed or renamed\n  test/projects.test.ts:116  existing test \"GET /v1/projects > defaults to 20 items per page\" would be removed or renamed\n  test/projects.test.ts:123  existing test \"GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:131  existing test \"GET /v1/projects/:projectId > returns the project\" would be removed or renamed\n  test/projects.test.ts:138  existing test \"GET /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:143  existing test \"GET /v1/projects/:projectId > answers a malformed id with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:149  existing test \"PATCH /v1/projects/:projectId > updates the given fields only\" would be removed or renamed\n  test/projects.test.ts:158  existing test \"PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:164  existing test \"PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:168  existing test \"PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH\" would be removed or renamed\n  test/projects.test.ts:12  existing top-level statement `const ProjectBody = z.strictObject({ id: z.uuid(), name: z.string(), descript...` would be changed or removed; existing cases depend on it\n  test/projects.test.ts:24  existing top-level statement `function expectProblem(res: Response, status: number) { expect(res.status).to...` would be changed or removed; existing cases depend on it\n  test/projects.test.ts:32  existing top-level statement `async function createProject(body: Record<string, unknown> = {}) { const res ...` would be changed or removed; existing cases depend on it\nKeep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block). If existing behaviour must change, the task has to set allowBreaking.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_Qv9TsUGkFf1dEt9AvoNkQ8KA",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-10-03T18:53:39.084Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_tcz75fO2hTO2D2Ku3lC1ZQJ6",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 16,
+      "at": "2026-10-03T18:53:40.679Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_tcz75fO2hTO2D2Ku3lC1ZQJ6",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 16,
+      "at": "2026-10-03T18:53:40.680Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_tcz75fO2hTO2D2Ku3lC1ZQJ6",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 16,
+      "at": "2026-10-03T18:53:40.680Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_tcz75fO2hTO2D2Ku3lC1ZQJ6",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 16,
+      "at": "2026-10-03T18:53:40.681Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "block",
+      "message": "test-preservation: test/projects.test.ts existed before this run; its test cases are append-only:\n  test/projects.test.ts:56  existing test \"POST /v1/projects > creates a project: 201, Location header, status defaults to active\" would be removed or renamed\n  test/projects.test.ts:65  existing test \"POST /v1/projects > rejects an invalid body with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:71  existing test \"POST /v1/projects > rejects unknown properties with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:75  existing test \"POST /v1/projects > rejects malformed JSON with a 400 problem\" would be removed or renamed\n  test/projects.test.ts:79  existing test \"POST /v1/projects > honours Idempotency-Key: same key and body replays the first response\" would be removed or renamed\n  test/projects.test.ts:92  existing test \"POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)\" would be removed or renamed\n  test/projects.test.ts:100  existing test \"GET /v1/projects > pages through every project with an opaque cursor\" would be removed or renamed\n  test/projects.test.ts:107  existing test \"GET /v1/projects > returns at most `limit` items and a nextCursor while more remain\" would be removed or renamed\n  test/projects.test.ts:116  existing test \"GET /v1/projects > defaults to 20 items per page\" would be removed or renamed\n  test/projects.test.ts:123  existing test \"GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:131  existing test \"GET /v1/projects/:projectId > returns the project\" would be removed or renamed\n  test/projects.test.ts:138  existing test \"GET /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:143  existing test \"GET /v1/projects/:projectId > answers a malformed id with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:149  existing test \"PATCH /v1/projects/:projectId > updates the given fields only\" would be removed or renamed\n  test/projects.test.ts:158  existing test \"PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:164  existing test \"PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:168  existing test \"PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH\" would be removed or renamed\n  test/projects.test.ts:1  existing import of \"node:crypto\" (randomUUID) would be removed; existing cases depend on it\n  test/projects.test.ts:2  existing import of \"supertest\" (request) would be removed; existing cases depend on it\n  test/projects.test.ts:3  existing import of \"supertest\" would be removed; existing cases depend on it\nKeep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block). If existing behaviour must change, the task has to set allowBreaking.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_tcz75fO2hTO2D2Ku3lC1ZQJ6",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 16,
+      "at": "2026-10-03T18:53:40.686Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-160 of 177)",
+      "data": {
+        "callId": "call_wZtQSbKd2P2IOI4tVN8fXqH2",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 17,
+      "at": "2026-10-03T18:53:41.794Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2KnbNAroGtUWYTox05eJOBdN",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 18,
+      "at": "2026-10-03T18:53:49.496Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2KnbNAroGtUWYTox05eJOBdN",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 18,
+      "at": "2026-10-03T18:53:49.497Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2KnbNAroGtUWYTox05eJOBdN",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 18,
+      "at": "2026-10-03T18:53:49.498Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2KnbNAroGtUWYTox05eJOBdN",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 18,
+      "at": "2026-10-03T18:53:49.499Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "block",
+      "message": "test-preservation: test/projects.test.ts existed before this run; its test cases are append-only:\n  test/projects.test.ts:187  existing test \"PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem\": original statement 3 of 3 `expectProblem(await request(app).patch(`/v1/projects/${project.id}`).send({ s...` was changed, removed or moved (statements may only be appended after the last original one); append new statements at the end of the case, or add a new test case\n  test/projects.test.ts:195  existing test \"PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH\": original statement 1 of 7 `const project = await createProject();` was changed, removed or moved (statements may only be appended after the last original one); append new statements at the end of the case, or add a new test case\nKeep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block). If existing behaviour must change, the task has to set allowBreaking.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_2KnbNAroGtUWYTox05eJOBdN",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 18,
+      "at": "2026-10-03T18:53:49.513Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_1YctZhy2j7gfGUeKAoOCOnhF",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 19,
+      "at": "2026-10-03T18:53:50.526Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_1YctZhy2j7gfGUeKAoOCOnhF",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 19,
+      "at": "2026-10-03T18:53:50.528Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_1YctZhy2j7gfGUeKAoOCOnhF",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 19,
+      "at": "2026-10-03T18:53:50.529Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_1YctZhy2j7gfGUeKAoOCOnhF",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 19,
+      "at": "2026-10-03T18:53:50.529Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "block",
+      "message": "test-preservation: test/projects.test.ts existed before this run; its test cases are append-only:\n  test/projects.test.ts:56  existing test \"POST /v1/projects > creates a project: 201, Location header, status defaults to active\" would be removed or renamed\n  test/projects.test.ts:65  existing test \"POST /v1/projects > rejects an invalid body with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:71  existing test \"POST /v1/projects > rejects unknown properties with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:75  existing test \"POST /v1/projects > rejects malformed JSON with a 400 problem\" would be removed or renamed\n  test/projects.test.ts:79  existing test \"POST /v1/projects > honours Idempotency-Key: same key and body replays the first response\" would be removed or renamed\n  test/projects.test.ts:92  existing test \"POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)\" would be removed or renamed\n  test/projects.test.ts:100  existing test \"GET /v1/projects > pages through every project with an opaque cursor\" would be removed or renamed\n  test/projects.test.ts:107  existing test \"GET /v1/projects > returns at most `limit` items and a nextCursor while more remain\" would be removed or renamed\n  test/projects.test.ts:116  existing test \"GET /v1/projects > defaults to 20 items per page\" would be removed or renamed\n  test/projects.test.ts:123  existing test \"GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:131  existing test \"GET /v1/projects/:projectId > returns the project\" would be removed or renamed\n  test/projects.test.ts:138  existing test \"GET /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:143  existing test \"GET /v1/projects/:projectId > answers a malformed id with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:149  existing test \"PATCH /v1/projects/:projectId > updates the given fields only\" would be removed or renamed\n  test/projects.test.ts:158  existing test \"PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:164  existing test \"PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:168  existing test \"PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH\" would be removed or renamed\n  test/projects.test.ts:1  existing import of \"node:crypto\" (randomUUID) would be removed; existing cases depend on it\n  test/projects.test.ts:2  existing import of \"supertest\" (request) would be removed; existing cases depend on it\n  test/projects.test.ts:3  existing import of \"supertest\" would be removed; existing cases depend on it\nKeep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block). If existing behaviour must change, the task has to set allowBreaking.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_1YctZhy2j7gfGUeKAoOCOnhF",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 19,
+      "at": "2026-10-03T18:53:50.538Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/schema.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_QAqSrLXAQaGSfyB3pu7o0AC5",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 20,
+      "at": "2026-10-03T18:53:51.885Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-40 of 40)",
+      "data": {
+        "callId": "call_NWDkqF54DkXTN17byFBo58Aw",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 21,
+      "at": "2026-10-03T18:53:53.121Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-31 of 31)",
+      "data": {
+        "callId": "call_fvYFhNxhLCPAfn9a2U71mwuf",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 22,
+      "at": "2026-10-03T18:53:54.032Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/schema.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_fEokkseNvQSxnBkuxMmSoFPw",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 23,
+      "at": "2026-10-03T18:53:54.886Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-40 of 40)",
+      "data": {
+        "callId": "call_YY4O0XxtWrdzfEHvKqmKyUCW",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 24,
+      "at": "2026-10-03T18:53:55.754Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-31 of 31)",
+      "data": {
+        "callId": "call_KfIjBxEnEQOtmAPjVz576YK4",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 25,
+      "at": "2026-10-03T18:53:56.654Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/schema.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_yR0Vx4oco8bSUAXGd3HFJEc4",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 26,
+      "at": "2026-10-03T18:53:57.523Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-40 of 40)",
+      "data": {
+        "callId": "call_BGcCSb96EIzgoq4yUXvhDugF",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 27,
+      "at": "2026-10-03T18:53:58.415Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-31 of 31)",
+      "data": {
+        "callId": "call_JB5qivVYlDSaKhIPmnSXces6",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 28,
+      "at": "2026-10-03T18:53:59.253Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "block",
+      "message": "observed-red: src/modules/projects/schema.ts is locked: no covering test has an observed red at its current content.\nCovering tests:\n  test/projects.test.ts: no red observed (last run: pass), unchanged since last run\nNext: add or change a case in test/projects.test.ts that asserts on a value imported from src/ and fails on a non-constant assertion for the missing behaviour, then run run_tests { \"files\": [\"test/projects.test.ts\"] } to observe red.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_4E6HBX51qsoCm5ceMYqcZScP",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 29,
+      "at": "2026-10-03T18:54:01.235Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_dwsZ4kait177fCA3tc7GB1bE",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-10-03T18:54:02.101Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_dwsZ4kait177fCA3tc7GB1bE",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-10-03T18:54:02.102Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_dwsZ4kait177fCA3tc7GB1bE",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-10-03T18:54:02.102Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_dwsZ4kait177fCA3tc7GB1bE",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-10-03T18:54:02.102Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "block",
+      "message": "test-preservation: test/projects.test.ts existed before this run; its test cases are append-only:\n  test/projects.test.ts:56  existing test \"POST /v1/projects > creates a project: 201, Location header, status defaults to active\" would be removed or renamed\n  test/projects.test.ts:65  existing test \"POST /v1/projects > rejects an invalid body with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:71  existing test \"POST /v1/projects > rejects unknown properties with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:75  existing test \"POST /v1/projects > rejects malformed JSON with a 400 problem\" would be removed or renamed\n  test/projects.test.ts:79  existing test \"POST /v1/projects > honours Idempotency-Key: same key and body replays the first response\" would be removed or renamed\n  test/projects.test.ts:92  existing test \"POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)\" would be removed or renamed\n  test/projects.test.ts:100  existing test \"GET /v1/projects > pages through every project with an opaque cursor\" would be removed or renamed\n  test/projects.test.ts:107  existing test \"GET /v1/projects > returns at most `limit` items and a nextCursor while more remain\" would be removed or renamed\n  test/projects.test.ts:116  existing test \"GET /v1/projects > defaults to 20 items per page\" would be removed or renamed\n  test/projects.test.ts:123  existing test \"GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:131  existing test \"GET /v1/projects/:projectId > returns the project\" would be removed or renamed\n  test/projects.test.ts:138  existing test \"GET /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:143  existing test \"GET /v1/projects/:projectId > answers a malformed id with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:149  existing test \"PATCH /v1/projects/:projectId > updates the given fields only\" would be removed or renamed\n  test/projects.test.ts:158  existing test \"PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem\" would be removed or renamed\n  test/projects.test.ts:164  existing test \"PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem\" would be removed or renamed\n  test/projects.test.ts:168  existing test \"PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH\" would be removed or renamed\n  test/projects.test.ts:1  existing import of \"node:crypto\" (randomUUID) would be removed; existing cases depend on it\n  test/projects.test.ts:2  existing import of \"supertest\" (request) would be removed; existing cases depend on it\n  test/projects.test.ts:3  existing import of \"supertest\" would be removed; existing cases depend on it\nKeep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block). If existing behaviour must change, the task has to set allowBreaking.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_dwsZ4kait177fCA3tc7GB1bE",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-10-03T18:54:02.107Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "block",
+      "message": "observed-red: src/modules/projects/routes.ts is locked: no covering test has an observed red at its current content.\nCovering tests:\n  test/projects.test.ts: no red observed (last run: pass), unchanged since last run\nNext: add or change a case in test/projects.test.ts that asserts on a value imported from src/ and fails on a non-constant assertion for the missing behaviour, then run run_tests { \"files\": [\"test/projects.test.ts\"] } to observe red.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_tV8bSt6eeGr1RMOYNEuJLQ5y",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 31,
+      "at": "2026-10-03T18:54:02.944Z"
+    },
+    {
+      "kind": "tool",
+      "source": "check_standards",
+      "decision": "pass",
+      "message": "────────────────────────────────────────────────────────────",
+      "data": {
+        "callId": "call_XKFoiUfHVcBDsacFDOeXdt0q",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 32,
+      "at": "2026-10-03T18:54:05.216Z"
+    },
+    {
+      "kind": "tool",
+      "source": "contract_diff",
+      "decision": "pass",
+      "message": "contract: 4 → 4 endpoints; 0 breaking, 0 unproven, 0 additive",
+      "data": {
+        "callId": "call_0dgWvesnPSClXqppAMkMZ5mR",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 33,
+      "at": "2026-10-03T18:54:06.969Z"
+    },
+    {
+      "kind": "tool",
+      "source": "list_files",
+      "decision": "pass",
+      "message": "13 files under . matching **/*",
+      "data": {
+        "callId": "call_FWe0JsGnKPqWyB0wBtPsLCFg",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 35,
+      "at": "2026-10-03T18:54:08.888Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/schema.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_bdES9eqyqju6cWFwhAF107g8",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 36,
+      "at": "2026-10-03T18:54:09.948Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-40 of 40)",
+      "data": {
+        "callId": "call_8xcjhjuLvixPGY58UK1xeg8J",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 37,
+      "at": "2026-10-03T18:54:10.824Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-31 of 31)",
+      "data": {
+        "callId": "call_Rtz85VQ7O305v86ftQVCOV4t",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 38,
+      "at": "2026-10-03T18:54:11.878Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-160 of 177)",
+      "data": {
+        "callId": "call_g09oTpYlQ22nH7imhsoFE3KR",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 39,
+      "at": "2026-10-03T18:54:12.871Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 161-177 of 177)",
+      "data": {
+        "callId": "call_uvnyvhkZlXu39B0cW7wkZhhr",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 40,
+      "at": "2026-10-03T18:54:14.349Z"
+    },
+    {
+      "kind": "gate",
+      "source": "contract-lock",
+      "decision": "pass",
+      "message": "finish: pass contract preserved (4 → 4 endpoints, via runtime): no additive changes",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "logPath": "runs/projects-change-openai-20261003-185304/logs/006-contract-diff.txt"
+      },
+      "turn": 40,
+      "at": "2026-10-03T18:54:15.280Z"
+    },
+    {
+      "kind": "gate",
+      "source": "observed-red",
+      "decision": "block",
+      "message": "finish: fail no observed red in this run",
+      "data": {
+        "phase": "finish",
+        "status": "fail",
+        "details": [
+          "Write test/<name>.test.ts for the behaviour, run it with run_tests and see it fail before changing source."
+        ]
+      },
+      "turn": 40,
+      "at": "2026-10-03T18:54:15.281Z"
+    },
+    {
+      "kind": "gate",
+      "source": "scope",
+      "decision": "pass",
+      "message": "finish: pass 0 changed files, all in scope",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 40,
+      "at": "2026-10-03T18:54:15.299Z"
+    },
+    {
+      "kind": "gate",
+      "source": "standards",
+      "decision": "pass",
+      "message": "finish: pass verdict 100% (4 rules)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 40,
+      "at": "2026-10-03T18:54:16.632Z"
+    },
+    {
+      "kind": "gate",
+      "source": "tests-green",
+      "decision": "pass",
+      "message": "finish: pass 17/17 tests passed in 1 files",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "details": [
+          "tests: 0 failed, 17 passed (17) in 1 files"
+        ],
+        "logPath": "runs/projects-change-openai-20261003-185304/logs/009-vitest.txt"
+      },
+      "turn": 40,
+      "at": "2026-10-03T18:54:17.112Z"
+    }
+  ],
+  "scratch": [
+    [
+      "test-preservation.base",
+      {
+        "$map": [
+          [
+            "test/projects.test.ts",
+            "import { randomUUID } from 'node:crypto';\nimport request from 'supertest';\nimport type { Response } from 'supertest';\nimport { describe, expect, it } from 'vitest';\nimport { z } from 'zod';\nimport { createApp } from '../src/app.ts';\nimport { ProblemSchema } from '../src/lib/problem.ts';\n\nconst app = createApp();\n\n/** The public contract, restated independently of the implementation. */\nconst ProjectBody = z.strictObject({\n  id: z.uuid(),\n  name: z.string(),\n  description: z.string().optional(),\n  status: z.enum(['active', 'archived']),\n  createdAt: z.iso.datetime(),\n  updatedAt: z.iso.datetime(),\n});\nconst PageBody = z.strictObject({ data: z.array(ProjectBody), nextCursor: z.string().nullable() });\n\nconst UNKNOWN_ID = '00000000-0000-4000-8000-000000000000';\n\nfunction expectProblem(res: Response, status: number) {\n  expect(res.status).toBe(status);\n  expect(res.headers['content-type']).toMatch(/^application\\/problem\\+json/);\n  const problem = ProblemSchema.parse(res.body);\n  expect(problem.status).toBe(status);\n  return problem;\n}\n\nasync function createProject(body: Record<string, unknown> = {}) {\n  const res = await request(app)\n    .post('/v1/projects')\n    .send({ name: `project ${randomUUID()}`, ...body });\n  expect(res.status).toBe(201);\n  return ProjectBody.parse(res.body);\n}\n\nasync function listAll(query: Record<string, string>) {\n  const ids: string[] = [];\n  let cursor: string | null = null;\n  do {\n    const res = await request(app)\n      .get('/v1/projects')\n      .query(cursor === null ? query : { ...query, cursor });\n    expect(res.status).toBe(200);\n    const page = PageBody.parse(res.body);\n    ids.push(...page.data.map((p) => p.id));\n    cursor = page.nextCursor;\n  } while (cursor !== null);\n  return ids;\n}\n\ndescribe('POST /v1/projects', () => {\n  it('creates a project: 201, Location header, status defaults to active', async () => {\n    const res = await request(app).post('/v1/projects').send({ name: 'Apollo', description: 'moon' });\n    expect(res.status).toBe(201);\n    const project = ProjectBody.parse(res.body);\n    expect(res.headers['location']).toBe(`/v1/projects/${project.id}`);\n    expect(project).toMatchObject({ name: 'Apollo', description: 'moon', status: 'active' });\n    expect(project.createdAt).toBe(project.updatedAt);\n  });\n\n  it('rejects an invalid body with a 422 problem', async () => {\n    const problem = expectProblem(await request(app).post('/v1/projects').send({ name: '', status: 'deleted' }), 422);\n    expect(problem.detail).toContain('name');\n    expect(problem.detail).toContain('status');\n  });\n\n  it('rejects unknown properties with a 422 problem', async () => {\n    expectProblem(await request(app).post('/v1/projects').send({ name: 'x', owner: 'me' }), 422);\n  });\n\n  it('rejects malformed JSON with a 400 problem', async () => {\n    expectProblem(await request(app).post('/v1/projects').set('Content-Type', 'application/json').send('{\"name\"'), 400);\n  });\n\n  it('honours Idempotency-Key: same key and body replays the first response', async () => {\n    const key = randomUUID();\n    const body = { name: `idem ${key}` };\n    const first = await request(app).post('/v1/projects').set('Idempotency-Key', key).send(body);\n    const second = await request(app).post('/v1/projects').set('Idempotency-Key', key).send(body);\n    expect(first.status).toBe(201);\n    expect(second.status).toBe(201);\n    expect(second.headers['idempotent-replayed']).toBe('true');\n    expect(ProjectBody.parse(second.body).id).toBe(ProjectBody.parse(first.body).id);\n    const all = await listAll({ limit: '100' });\n    expect(all.filter((id) => id === ProjectBody.parse(first.body).id)).toHaveLength(1);\n  });\n\n  it('rejects reuse of an Idempotency-Key with a different body (422)', async () => {\n    const key = randomUUID();\n    await request(app).post('/v1/projects').set('Idempotency-Key', key).send({ name: 'one' }).expect(201);\n    expectProblem(await request(app).post('/v1/projects').set('Idempotency-Key', key).send({ name: 'two' }), 422);\n  });\n});\n\ndescribe('GET /v1/projects', () => {\n  it('pages through every project with an opaque cursor', async () => {\n    const created = [await createProject(), await createProject(), await createProject()];\n    const ids = await listAll({ limit: '2' });\n    expect(new Set(ids).size).toBe(ids.length);\n    for (const project of created) expect(ids).toContain(project.id);\n  });\n\n  it('returns at most `limit` items and a nextCursor while more remain', async () => {\n    await createProject();\n    await createProject();\n    const res = await request(app).get('/v1/projects').query({ limit: '1' });\n    const page = PageBody.parse(res.body);\n    expect(page.data).toHaveLength(1);\n    expect(page.nextCursor).not.toBeNull();\n  });\n\n  it('defaults to 20 items per page', async () => {\n    for (let i = 0; i < 21; i += 1) await createProject();\n    const page = PageBody.parse((await request(app).get('/v1/projects')).body);\n    expect(page.data).toHaveLength(20);\n    expect(page.nextCursor).not.toBeNull();\n  });\n\n  it('rejects limit outside 1..100 and foreign cursors with a 422 problem', async () => {\n    expectProblem(await request(app).get('/v1/projects').query({ limit: '0' }), 422);\n    expectProblem(await request(app).get('/v1/projects').query({ limit: '101' }), 422);\n    expectProblem(await request(app).get('/v1/projects').query({ cursor: 'nope' }), 422);\n  });\n});\n\ndescribe('GET /v1/projects/:projectId', () => {\n  it('returns the project', async () => {\n    const project = await createProject({ description: 'details' });\n    const res = await request(app).get(`/v1/projects/${project.id}`);\n    expect(res.status).toBe(200);\n    expect(ProjectBody.parse(res.body)).toEqual(project);\n  });\n\n  it('answers an unknown id with a 404 problem', async () => {\n    const problem = expectProblem(await request(app).get(`/v1/projects/${UNKNOWN_ID}`), 404);\n    expect(problem.instance).toBe(`/v1/projects/${UNKNOWN_ID}`);\n  });\n\n  it('answers a malformed id with a 422 problem', async () => {\n    expectProblem(await request(app).get('/v1/projects/not-a-uuid'), 422);\n  });\n});\n\ndescribe('PATCH /v1/projects/:projectId', () => {\n  it('updates the given fields only', async () => {\n    const project = await createProject({ description: 'keep me' });\n    const res = await request(app).patch(`/v1/projects/${project.id}`).send({ status: 'archived' });\n    expect(res.status).toBe(200);\n    const updated = ProjectBody.parse(res.body);\n    expect(updated).toMatchObject({ id: project.id, name: project.name, description: 'keep me', status: 'archived' });\n    expect(updated.createdAt).toBe(project.createdAt);\n  });\n\n  it('rejects an empty or invalid patch with a 422 problem', async () => {\n    const project = await createProject();\n    expectProblem(await request(app).patch(`/v1/projects/${project.id}`).send({}), 422);\n    expectProblem(await request(app).patch(`/v1/projects/${project.id}`).send({ status: 'gone' }), 422);\n  });\n\n  it('answers an unknown id with a 404 problem', async () => {\n    expectProblem(await request(app).patch(`/v1/projects/${UNKNOWN_ID}`).send({ name: 'x' }), 404);\n  });\n\n  it('honours Idempotency-Key on PATCH', async () => {\n    const project = await createProject();\n    const key = randomUUID();\n    const first = await request(app).patch(`/v1/projects/${project.id}`).set('Idempotency-Key', key).send({ name: 'renamed' });\n    const second = await request(app).patch(`/v1/projects/${project.id}`).set('Idempotency-Key', key).send({ name: 'renamed' });\n    expect(first.status).toBe(200);\n    expect(second.headers['idempotent-replayed']).toBe('true');\n    expect(second.body).toEqual(first.body);\n  });\n});\n"
+          ]
+        ]
+      }
+    ]
+  ],
+  "finishAttempts": 0
+}

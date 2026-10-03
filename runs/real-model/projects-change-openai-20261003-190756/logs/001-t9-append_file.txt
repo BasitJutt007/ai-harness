@@ -1,0 +1,50 @@
+--- a/test/projects.test.ts
++++ b/test/projects.test.ts
+@@ -175,3 +175,47 @@
+     expect(second.body).toEqual(first.body);
+   });
+ });
++
++
++describe('DELETE /v1/projects/:projectId', () => {
++  it('deletes the project with a 204 and empty body', async () => {
++    const project = await createProject();
++    const res = await request(app).delete(`/v1/projects/${project.id}`);
++    expect(res.status).toBe(204);
++    expect(res.text).toBe('');
++    await expectProblem(request(app).get(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('returns a 404 problem for an unknown id and on repeated delete', async () => {
++    const project = await createProject();
++    await request(app).delete(`/v1/projects/${project.id}`).expect(204);
++    expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
++    expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
++  });
++
++  it('returns a 422 problem for a malformed id', async () => {
++    expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
++  });
++});
++
++describe('GET /v1/projects?status=', () => {
++  it('filters by status and keeps cursor pagination within the filtered set', async () => {
++    const archived = [await createProject({ status: 'archived' }), await createProject({ status: 'archived' }), await createProject({ status: 'archived' })];
++    const active = [await createProject({ status: 'active' }), await createProject({ status: 'active' })];
++
++    const archivedIds = await listAll({ status: 'archived', limit: '2' });
++    expect(archivedIds).toEqual(archived.map((project) => project.id));
++    const activeIds = await listAll({ status: 'active', limit: '1' });
++    expect(activeIds).toEqual(active.map((project) => project.id));
++  });
++
++  it('returns a 422 problem for an unknown status', async () => {
++    expectProblem(await request(app).get('/v1/projects').query({ status: 'deleted' }), 422);
++  });
++
++  it('without status still returns all projects', async () => {
++    const project = await createProject({ status: 'archived' });
++    const ids = await listAll({ limit: '100' });
++    expect(ids).toContain(project.id);
++  });
++});
