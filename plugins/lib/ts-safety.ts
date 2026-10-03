@@ -1,6 +1,6 @@
 /**
- * Syntactic unsafe-code detection for proposed TypeScript content: the `any`
- * keyword, non-null assertions (`x!`), definite-assignment assertions
+ * Syntactic unsafe-code detection for TypeScript content (.ts, .tsx, .mts, .cts and
+ * declaration files alike): the `any` keyword, non-null assertions (`x!`), definite-assignment assertions
  * (`id!: string` on a property, `let x!: T`; reported as non-null too, since they
  * assert away the same undefined) and ts-ignore family comments. Purely
  * syntactic (ts.createSourceFile + scanner), so it works on files that do not
@@ -24,8 +24,13 @@ function pos(sf: ts.SourceFile, at: number): { line: number; col: number } {
   return { line: lc.line + 1, col: lc.character + 1 };
 }
 
+/** .tsx parses as TSX (JSX syntax); every other name (.ts, .mts, .cts, .d.ts) as TypeScript. */
+function scriptKind(fileName: string): ts.ScriptKind {
+  return /\.tsx$/i.test(fileName) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+}
+
 export function findUnsafeCode(fileName: string, content: string): SafetyViolation[] {
-  const sf = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const sf = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, scriptKind(fileName));
   const out: SafetyViolation[] = [];
 
   const visit = (node: ts.Node): void => {

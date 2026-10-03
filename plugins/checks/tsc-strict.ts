@@ -1,25 +1,34 @@
 /**
- * tsc-strict: the API type-checks under strict + noUncheckedIndexedAccess (flags
- * forced), and no file under src/ or test/ uses `any`, non-null or definite-assignment
- * assertions, or ts-ignore family comments. tsc cannot run → UNPROVEN.
+ * tsc-strict: every TypeScript file of the API type-checks under the strict set (every strict-family
+ * flag, noUncheckedIndexedAccess and noEmit forced one by one, whatever the tsconfig says), and none
+ * uses `any`, non-null or definite-assignment assertions, or ts-ignore family comments.
+ *
+ * The file set is not the tsconfig's `include`: it is every .ts/.tsx/.mts/.cts and own .d.ts under the
+ * API plus whatever the program loads, each checked by the project (tsconfig, its references, side
+ * configs) that lists it (see src/core/typecheck.ts). Anything the type check cannot decide (an
+ * unusable tsconfig, no tsconfig and settings-dependent errors, a declared dependency that does not
+ * resolve, no TypeScript at all) is UNPROVEN, with the reason; syntactic violations are still reported.
  */
-import { existsSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
-import ts from 'typescript';
-import { defineCheck } from '../../src/core/plugin-api.ts';
-import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
-import { toPosix } from '../lib/api-ast.ts';
+import { resolve } from 'node:path';
+import { defineCheck, FORCED_FLAGS, isTestFile, isTestSupport, typecheckOf } from '../../src/core/plugin-api.ts';
+import type { CheckContext, CheckFinding, TypecheckResult, Violation } from '../../src/core/plugin-api.ts';
 import { findImplicitAny, findUnsafeCode } from '../lib/ts-safety.ts';
 
 const RULE = 'tsc-strict';
 const PROJECT = '(project)';
+/** Directory names that hold test code (tests may read untyped library values such as supertest's res.body). */
+const TEST_DIRS = new Set(['test', 'tests', '__tests__', 'spec', 'specs', '__mocks__', 'e2e', 'fixtures', '__fixtures__']);
 
 const DOC = `tsc-strict (unit: errors; the summary prints "N errors")
-The API must type-check with: tsc --noEmit -p tsconfig.json --strict --noUncheckedIndexedAccess
-(the flags are forced even if tsconfig.json relaxes them), over src/ and test/.
-Banned in every .ts file under src/ and test/ (reported with file:line:col):
-- the \`any\` keyword (annotations, \`as any\`, generic arguments): use unknown and narrow, or a precise type
-- in src/ also \`any\` without the keyword (type checker): a variable, parameter, function result or type alias
+Every TypeScript file of the API must type-check with
+  ${FORCED_FLAGS}
+forced, whatever tsconfig.json says (an explicit "strictNullChecks": false, "noCheck": true or a narrow
+"include" changes nothing). Checked: every .ts/.tsx/.mts/.cts and own .d.ts under the API (tests, config
+files and files no tsconfig lists included), each with the options of the tsconfig (or referenced project)
+that lists it; node_modules and build output are not.
+Banned in every checked file (reported with file:line:col):
+- the \`any\` keyword (annotations, \`as any\`, generic arguments, declarations in .d.ts): use unknown and narrow, or a precise type
+- outside test code also \`any\` without the keyword (type checker): a variable, parameter, function result or type alias
   whose type is any (e.g. \`type T = ReturnType<typeof JSON.parse>\`, \`const x = JSON.parse(s)\`, an untyped
   \`(err, req, res, next) =>\` parameter), and member access or calls on an any-typed value
 - non-null assertions \`expr!\` and definite-assignment assertions (\`id!: string\`, \`let x!: T\`): check for null/undefined explicitly, or initialise
@@ -30,72 +39,34 @@ Passing example:
   if (first === undefined) throw notFound('no items');
   const parsed: unknown = JSON.parse(text);
   const body = BodySchema.parse(parsed);   // narrow unknown with a Zod schema
-If tsc cannot run, the rule is UNPROVEN (never green).`;
+UNPROVEN (never green) when the type check cannot decide: an unusable tsconfig, no tsconfig.json and errors
+that depend on the harness's default settings, a declared dependency that does not resolve, or no TypeScript files.`;
 
-const DIAG = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.*)$/;
-const GLOBAL_DIAG = /^error (TS\d+): (.*)$/;
-
-interface Diag {
-  file: string | null;
-  location: string;
-  message: string;
+/** Test code: a test file, test support, or anything under a test-named directory. */
+function isTestCode(rel: string): boolean {
+  return isTestFile(rel) || isTestSupport(rel) || rel.split('/').slice(0, -1).some((seg) => TEST_DIRS.has(seg));
 }
 
-export function parseTscOutput(out: string, root: string): Diag[] {
-  const diags: Diag[] = [];
-  for (const line of out.split(/\r?\n/)) {
-    const m = DIAG.exec(line);
-    if (m) {
-      const [, f = '', l = '0', c = '0', code = '', msg = ''] = m;
-      const rel = toPosix(isAbsolute(f) ? relative(root, f) : f);
-      const inside = !rel.startsWith('../') && rel !== '..';
-      diags.push({ file: inside ? rel : null, location: `${inside ? rel : f}:${l}:${c}`, message: `${code}: ${msg}` });
-      continue;
-    }
-    const g = GLOBAL_DIAG.exec(line);
-    if (g) diags.push({ file: null, location: PROJECT, message: `${g[1] ?? ''}: ${g[2] ?? ''}` });
-  }
-  return diags;
-}
-
-function programDiags(ctx: CheckContext): Diag[] {
-  const program = ctx.program();
-  return ts.getPreEmitDiagnostics(program).map((d): Diag => {
-    const msg = `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, '\n').split('\n')[0] ?? ''}`;
-    if (d.file === undefined || d.start === undefined) return { file: null, location: PROJECT, message: msg };
-    const rel = toPosix(relative(ctx.root, d.file.fileName));
-    const lc = d.file.getLineAndCharacterOfPosition(d.start);
-    const inside = !rel.startsWith('../');
-    return { file: inside ? rel : null, location: `${inside ? rel : d.file.fileName}:${lc.line + 1}:${lc.character + 1}`, message: msg };
-  });
-}
-
-type TscRun = { ok: true; diags: Diag[] } | { ok: false; reason: string };
-
-async function runTsc(ctx: CheckContext): Promise<TscRun> {
-  const tsconfig = join(ctx.root, 'tsconfig.json');
-  if (!existsSync(tsconfig)) return { ok: true, diags: programDiags(ctx) };
-  const tsc = join(ctx.harnessRoot, 'node_modules', '.bin', 'tsc');
-  const res = await ctx.exec(tsc, ['--noEmit', '-p', tsconfig, '--strict', '--noUncheckedIndexedAccess', '--pretty', 'false'], {
-    cwd: ctx.root,
-    timeoutMs: 180_000,
-  });
-  const output = `${res.stdout}\n${res.stderr}`;
-  await ctx.logs.write('tsc-strict.txt', `$ tsc --noEmit -p tsconfig.json --strict --noUncheckedIndexedAccess\nexit=${String(res.code)}\n${output}`);
-  if (res.timedOut) return { ok: false, reason: 'tsc timed out' };
-  const diags = parseTscOutput(output, ctx.root);
-  if (res.code === 0) return { ok: true, diags };
-  if (res.code === null || diags.length === 0) {
-    return { ok: false, reason: `tsc could not run (exit ${String(res.code)}): ${output.trim().split('\n').slice(0, 3).join(' | ').slice(0, 300)}` };
-  }
-  return { ok: true, diags };
+/** "file:line:col" order within one file. */
+function byPosition(a: Violation, b: Violation): number {
+  const at = (v: Violation): number[] => v.location.split(':').slice(-2).map(Number);
+  const [al = 0, ac = 0] = at(a);
+  const [bl = 0, bc = 0] = at(b);
+  return al - bl || ac - bc;
 }
 
 async function run(ctx: CheckContext): Promise<CheckFinding[]> {
-  const tsc = await runTsc(ctx);
-  if (!tsc.ok) {
-    return [{ rule: RULE, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: tsc.reason }];
+  const tc = typecheckOf(ctx);
+  let result: TypecheckResult | undefined;
+  const problems: string[] = [];
+  try {
+    result = tc.result();
+    problems.push(...result.problems);
+  } catch (e) {
+    problems.push(`the type check could not run: ${e instanceof Error ? e.message : String(e)}`);
   }
+  const files = result?.files ?? [...tc.files];
+
   const byFile = new Map<string, Violation[]>();
   const add = (file: string, v: Violation): void => {
     const list = byFile.get(file) ?? [];
@@ -103,12 +74,13 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
     byFile.set(file, list);
   };
   const projectViolations: Violation[] = [];
-  for (const d of tsc.diags) {
+  for (const d of result?.errors ?? []) {
     if (d.file === null) projectViolations.push({ location: d.location, message: d.message });
     else add(d.file, { location: d.location, message: d.message });
   }
+  // Syntactic: needs no configuration, so it is reported even when the type check is unproven.
   const keywordAny = new Set<string>();
-  for (const file of [...ctx.sourceFiles, ...ctx.testFiles]) {
+  for (const file of files) {
     const text = await ctx.read(file);
     for (const v of findUnsafeCode(resolve(ctx.root, file), text)) {
       add(file, { location: `${file}:${v.line}:${v.col}`, message: v.message });
@@ -116,36 +88,48 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
     }
   }
   // `any` without the keyword (ReturnType<typeof JSON.parse>, an unannotated JSON.parse result, an untyped
-  // callback parameter): found with the type checker, in production code (tests may read untyped library
-  // values such as supertest's res.body).
-  const program = ctx.program();
-  for (const file of ctx.sourceFiles) {
-    const sf = program.getSourceFile(resolve(ctx.root, file));
-    if (sf === undefined) continue;
-    for (const v of findImplicitAny(program, sf)) {
-      if (!keywordAny.has(`${file}:${v.line}`)) add(file, { location: `${file}:${v.line}:${v.col}`, message: v.message });
+  // callback parameter): found with the type checker, outside test code.
+  if (result?.usable === true) {
+    for (const file of files.filter((f) => !isTestCode(f))) {
+      const source = result.sourceOf(file);
+      if (source === undefined) continue;
+      for (const v of findImplicitAny(source.program, source.sf)) {
+        if (!keywordAny.has(`${file}:${v.line}`)) add(file, { location: `${file}:${v.line}:${v.col}`, message: v.message });
+      }
     }
   }
+  if (files.length === 0 && problems.length === 0) problems.push('the API has no TypeScript files: nothing was type-checked');
+
   const findings: CheckFinding[] = [...byFile.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([file, violations]) => ({ rule: RULE, file, status: 'fail', units: { passed: 0, total: violations.length }, violations }));
+    .map(([file, violations]) => ({ rule: RULE, file, status: 'fail', units: { passed: 0, total: violations.length }, violations: violations.sort(byPosition) }));
   const errors = findings.reduce((n, f) => n + f.violations.length, 0) + projectViolations.length;
-  findings.push({
-    rule: RULE,
-    file: PROJECT,
-    status: errors === 0 ? 'pass' : 'fail',
-    // A clean project is one passing unit; otherwise each project-level diagnostic is one failing unit,
-    // so sum(total - passed) over all findings is always the error count.
-    units: errors === 0 ? { passed: 1, total: 1 } : { passed: 0, total: projectViolations.length },
-    violations: projectViolations,
-  });
+  if (problems.length > 0) {
+    findings.push({ rule: RULE, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: projectViolations, skipReason: problems.join('; ') });
+  } else {
+    findings.push({
+      rule: RULE,
+      file: PROJECT,
+      status: errors === 0 ? 'pass' : 'fail',
+      // A clean project is one passing unit; otherwise each project-level diagnostic is one failing unit,
+      // so sum(total - passed) over all findings is always the error count.
+      units: errors === 0 ? { passed: 1, total: 1 } : { passed: 0, total: projectViolations.length },
+      violations: projectViolations,
+    });
+  }
+  await ctx.logs.write('tsc-strict.txt', [
+    ...(result?.log ?? []),
+    `files: ${files.length}, errors: ${errors}`,
+    ...problems.map((p) => `UNPROVEN: ${p}`),
+    ...findings.flatMap((f) => f.violations.map((v) => `${v.location}  ${v.message}`)),
+  ].join('\n'));
   return findings;
 }
 
 export default defineCheck({
   id: RULE,
   category: 'standards',
-  description: 'tsc --strict --noUncheckedIndexedAccess is clean over src+test; no `any`, no `x!` / `id!: T`, no @ts-ignore/@ts-expect-error/@ts-nocheck.',
+  description: 'Every TypeScript file of the API type-checks with all strict flags + noUncheckedIndexedAccess forced; no `any`, no `x!` / `id!: T`, no @ts-ignore/@ts-expect-error/@ts-nocheck.',
   unit: 'errors',
   doc: DOC,
   run,
