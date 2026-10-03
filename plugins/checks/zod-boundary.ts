@@ -8,7 +8,7 @@ import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
 import { constString, dynamicRouteReason, extractRouteTable, hasPathParams, isZodSchemaType, location, permissiveReason, programFile, routeLabel, walk } from '../lib/api-ast.ts';
-import type { RouteInfo, SchemaRef } from '../lib/api-ast.ts';
+import type { ParseSite, RouteInfo, SchemaRef } from '../lib/api-ast.ts';
 import { unprovenFinding } from '../lib/plugin-helpers.ts';
 
 const RULE = 'zod-boundary';
@@ -62,7 +62,7 @@ export function handlerViolations(root: string, r: RouteInfo, checker: ts.TypeCh
     const what = READ_TEXT[read.target] ?? `req.${read.target}`;
     out.push({ location: location(root, read.node), message: `${label}: ${what} is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(${read.target === 'req' ? 'req.body' : read.target === 'headers' ? 'req.headers' : `req.${read.target}`})` });
   }
-  const permissive = new Set<ParseLike>();
+  const permissive = new Set<ParseSite>();
   for (const p of r.parses) {
     const why = gap(p.schema);
     if (why !== undefined) {
@@ -92,8 +92,6 @@ export function handlerViolations(root: string, r: RouteInfo, checker: ts.TypeCh
   }
   return out;
 }
-
-type ParseLike = RouteInfo['parses'][number];
 
 // ───────────────────────────── hand-written types ─────────────────────────────
 
@@ -195,7 +193,6 @@ export function handWrittenTypes(root: string, sf: ts.SourceFile, checker?: ts.T
 }
 
 // ───────────────────────────── run ─────────────────────────────
-
 
 function unresolvedRouteFinding(root: string, r: RouteInfo, file: string): CheckFinding {
   const why = r.unresolvedPath?.reason ?? 'path could not be resolved';
