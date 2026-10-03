@@ -10,6 +10,7 @@ import { main } from '../../src/core/cli.ts';
 import { loadConfig } from '../../src/core/config.ts';
 import { loadRegistry, toolSpecs } from '../../src/core/registry.ts';
 import { executeRun, openRun, type RunSummary } from '../../src/core/run.ts';
+import { detectMechanism, POLICY_SUMMARY } from '../../src/core/sandbox.ts';
 import { ship } from '../../src/core/ship.ts';
 import {
   changedFiles,
@@ -104,6 +105,11 @@ describe('greenfield users-api (scripted) in a throwaway repo', () => {
     expect(run.honesty.notApplicable).toContain('gate:contract-lock');
     expect(run.honesty.failed).toEqual([]);
     expect(run.honesty.unproven).toEqual([]);
+    // agent code (tests, probes, contract runtime) ran confined by the OS sandbox, and the run says so
+    const mechanism = detectMechanism();
+    expect(mechanism).not.toBe('none');
+    expect(run['isolation']).toEqual({ mode: 'auto', mechanism, policy: POLICY_SUMMARY });
+    expect(run.honesty.proven).toContain(`isolation:${mechanism} (${POLICY_SUMMARY})`);
     for (const f of ['events.jsonl', 'transcript.jsonl', 'gates.json', 'standards.txt', 'state.json']) {
       expect(existsSync(join(summary.runDir, f)), f).toBe(true);
     }

@@ -82,11 +82,23 @@ export function reductionPct(actual: number, baseline: number): number {
 
 export class TokenLedger {
   private readonly rows: TurnTokens[] = [];
+  /** Counts where the driver's counter failed and a chars/4 estimate was used instead. */
+  private estimated = 0;
 
   constructor(readonly meta: TokenLedgerMeta) {}
 
   record(t: TurnTokens): void {
     this.rows.push(t);
+  }
+
+  /** Record that one count (actual or baseline) fell back to the chars/4 estimate. */
+  noteEstimated(): void {
+    this.estimated += 1;
+  }
+
+  /** The counter label, honest about fallbacks: never name a counter that did not produce the numbers. */
+  counterLabel(): string {
+    return this.estimated === 0 ? this.meta.counter : `chars/4 estimate for ${this.estimated} count(s): ${this.meta.counter} was unavailable`;
   }
 
   report(): TokenReport {
@@ -108,7 +120,7 @@ export class TokenLedger {
       driver: this.meta.driver,
       model: this.meta.model,
       mode: this.meta.mode,
-      counter: this.meta.counter,
+      counter: this.counterLabel(),
       method: 'shadow-baseline',
       baselineDefinition: BASELINE_DEFINITION,
       turns,

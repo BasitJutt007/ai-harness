@@ -11,6 +11,7 @@ import { exec } from './exec.ts';
 import { testMapSummary } from './prompt.ts';
 import { loadRegistry } from './registry.ts';
 import { RunStore } from './run-store.ts';
+import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
 import { buildTestMap } from './testmap.ts';
 import { compareRuns, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
@@ -28,7 +29,7 @@ commands:
       the worktree always lives under the harness's .harness/worktrees.
       Evidence dirs: HARNESS_RUNS_DIR (default runs/) and HARNESS_TOKENS_DIR (default tokens/)
       override where runs/<id>/ and tokens/<id>.json are written (relative to the harness root).
-      Ctrl-C stops between steps and still writes the evidence (exit 130).
+      Ctrl-C or SIGTERM stops between steps and still writes the evidence (exit 130 / 143).
       exit 0 = DONE (all gates green; with --ship: shipped), 1 = not done / refused
   check --api <dir> [--rule r]... [--category c]... [--json]
       Standards checks on any API directory (absolute or relative; no run needed), one line
@@ -45,11 +46,14 @@ commands:
                                   re-run every gate fresh, then commit/push/PR the run branch
                                   (the harness ships; the agent never does). exit 0 iff shipped/dry-run
   testmap --api <dir>             print the test -> source import map
-  doctor                          environment, plugin load and provider-leak scan
+  doctor                          environment, plugin load, provider-leak scan and an isolation
+                                  self-test (exit 1 if agent code cannot be confined in auto mode)
 
-exit codes: 0 success, 1 failure / not green, 2 usage error, 130 interrupted.
+exit codes: 0 success, 1 failure / not green, 2 usage error, 130 interrupted (143 on SIGTERM).
 env: HARNESS_RUNS_DIR, HARNESS_TOKENS_DIR override where evidence is written and read
      (run, ship, tokens, agnostic); relative values resolve against the harness root.
+     HARNESS_SANDBOX=off|auto overrides harness.config.json "sandbox" (off = agent code runs
+     unconfined, recorded as UNPROVEN isolation).
 `;
 
 const BOOL_FLAGS = new Set(['baseline', 'ship', 'json', 'dry-run', 'help']);
@@ -164,19 +168,23 @@ async function cmdRun(p: ParsedArgs, out: Out): Promise<number> {
   }
   const model = one(p, 'model');
 
-  // Ctrl-C: first press stops the loop between steps (evidence is still written); second press exits now.
+  // Ctrl-C or SIGTERM (kill, a CI timeout): the first signal stops the loop between steps and the
+  // evidence is still written; a second one exits now. Exit code 128 + signal number (130 / 143).
   const controller = new AbortController();
   let interrupts = 0;
-  const onSigint = (): void => {
+  let stoppedBy: NodeJS.Signals | undefined;
+  const onSignal = (signal: NodeJS.Signals): void => {
     interrupts += 1;
+    stoppedBy ??= signal;
     if (interrupts > 1) {
-      out('interrupted again: exiting now (the worktree and partial evidence are kept)');
-      process.exit(130);
+      out(`${signal} again: exiting now (the worktree and partial evidence are kept)`);
+      process.exit(signal === 'SIGTERM' ? 143 : 130);
     }
-    out('interrupt: stopping after the current step and writing the evidence (Ctrl-C again to exit now)');
+    out(`${signal}: stopping after the current step and writing the evidence (send it again to exit now)`);
     controller.abort();
   };
-  process.on('SIGINT', onSigint);
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
   try {
     const summary = await executeRun({
       taskFile,
@@ -191,9 +199,12 @@ async function cmdRun(p: ParsedArgs, out: Out): Promise<number> {
       signal: controller.signal,
       log: out,
     });
+    // A stop requested at any point (even after `finish` was accepted) is an interrupted run, whatever its status.
+    if (stoppedBy !== undefined) return stoppedBy === 'SIGTERM' ? 143 : 130;
     return runExitCode(summary);
   } finally {
-    process.removeListener('SIGINT', onSigint);
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
   }
 }
 
@@ -207,6 +218,7 @@ export function runExitCode(summary: Pick<RunSummary, 'ok' | 'status' | 'ship'>)
 
 async function loadAll(): Promise<{ config: HarnessConfig; registry: RegistryView }> {
   const config = loadConfig(HARNESS_ROOT);
+  setSandboxMode(config.sandbox);
   return { config, registry: await loadRegistry(config, HARNESS_ROOT) };
 }
 
@@ -607,6 +619,34 @@ async function toolVersion(cmd: string): Promise<string | null> {
   }
 }
 
+/**
+ * Isolation line + self-test: a confined node child must fail both to write outside its writable
+ * dir and to open an outbound socket. False (doctor fails) iff isolation is unavailable in auto mode.
+ */
+export async function doctorIsolation(out: Out): Promise<boolean> {
+  const mode = sandboxMode();
+  if (mode === 'off') {
+    out('isolation warn  sandbox off (HARNESS_SANDBOX / harness.config.json): agent code runs unconfined, recorded as UNPROVEN');
+    return true;
+  }
+  const mechanism = detectMechanism();
+  if (mechanism === 'none') {
+    out(`isolation FAIL  no working sandbox on ${process.platform} (need sandbox-exec on macOS or bwrap on Linux); runs are refused. HARNESS_SANDBOX=off runs unconfined (UNPROVEN)`);
+    return false;
+  }
+  const scratch = join(HARNESS_ROOT, '.harness', 'tmp', `doctor-isolation-${process.pid}-${Date.now()}`);
+  try {
+    const r = await isolationSelfTest(exec, scratch);
+    out(`isolation ${r.ok ? 'ok  ' : 'FAIL'}  ${mechanism} (${POLICY_SUMMARY}); self-test: ${r.detail}`);
+    return r.ok;
+  } catch (e) {
+    out(`isolation FAIL  ${mechanism}: self-test crashed: ${errMsg(e)}`);
+    return false;
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
 async function cmdDoctor(out: Out): Promise<number> {
   let ok = true;
   const major = Number(process.versions.node.split('.')[0]);
@@ -647,6 +687,7 @@ async function cmdDoctor(out: Out): Promise<number> {
   out(`git       ${git === null ? 'FAIL  not found' : `ok    ${git}`}`);
   const gh = await toolVersion('gh');
   out(`gh        ${gh === null ? 'warn  not found (ship will commit but cannot open a PR)' : `ok    ${gh}`}`);
+  if (!(await doctorIsolation(out))) ok = false;
   out(ok ? 'doctor: ok' : 'doctor: problems found');
   return ok ? 0 : 1;
 }

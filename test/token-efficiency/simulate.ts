@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { countRequest } from '../../plugins/lib/tokenize.ts';
 import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
 import { runAgent, type AgentStore } from '../../src/core/loop.ts';
-import { compactTree, frontLoad, systemPrompt, taskBrief } from '../../src/core/prompt.ts';
+import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief } from '../../src/core/prompt.ts';
 import { loadRegistry, toolSpecs } from '../../src/core/registry.ts';
 import { shippedOnly } from './shipped.ts';
 import { loadTask } from '../../src/core/task.ts';
@@ -141,6 +141,9 @@ function services(state: RunState): RunContext['services'] {
   let testRun = 0;
   let checkRun = 0;
   const svc: RunContext['services'] = {
+    async runTestsReverted(): Promise<TestRunReport> {
+      throw new Error('not simulated');
+    },
     async runTests(files?: string[]): Promise<TestRunReport> {
       const [failed, total] = TEST_RUNS[testRun] ?? [0, 63];
       testRun += 1;
@@ -313,6 +316,8 @@ const passGate: GatePlugin = {
 export interface SimOptions {
   keepRecentTurns?: number;
   mode?: ContextMode;
+  /** false: leave the scaffold API out of the brief (to measure what it costs); default true, as run.ts does. */
+  scaffoldApi?: boolean;
 }
 
 export async function simulate(opts: SimOptions = {}): Promise<SimResult> {
@@ -354,7 +359,10 @@ export async function simulate(opts: SimOptions = {}): Promise<SimResult> {
     const checks = registry.checks.map((r) => r.plugin);
     const system = systemPrompt({ task, checks, tools });
     const baselineSystem = `${system}\n\n${await frontLoad({ ws, checks })}`;
-    const first = { role: 'user' as const, parts: [{ type: 'text' as const, text: taskBrief(task, { tree: compactTree(await ws.list(['**/*'])) }) }] };
+    // The same brief run.ts sends for a greenfield task: tree plus the scaffold's exported signatures.
+    const tree = compactTree(await ws.list(['**/*']));
+    const brief = taskBrief(task, opts.scaffoldApi === false ? { tree } : { tree, scaffoldApi: await scaffoldApiOf(ws) });
+    const first = { role: 'user' as const, parts: [{ type: 'text' as const, text: brief }] };
     const ledger = new RecordingLedger({ runId: 'sim', task: task.id, driver: 'sim', model: 'sim', counter: 'js-tiktoken o200k_base', mode: 'jit' });
     const store: AgentStore = { logs: ctx.logs, appendTranscript: () => undefined, writeJson: () => undefined };
     const requests: ModelRequest[] = [];

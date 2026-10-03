@@ -4,7 +4,8 @@
  * systemPrompt  ~1.7 KB: role, completion contract, hook-enforced rules, workflow, how to
  *               fetch context, and a one-line-per-rule index (descriptions come from the
  *               check registry, so a new rule plugin shows up automatically).
- * taskBrief     the first user message: the task, compactly, plus a compact file tree.
+ * taskBrief     the first user message: the task, compactly, plus a compact file tree (and, for
+ *               greenfield, the scaffold's exported signatures: scaffoldApi).
  * frontLoad     BASELINE ONLY: what a non-JIT harness would front-load (every text file under
  *               the API root, every standards doc in full), exactly as tokens.ts
  *               BASELINE_DEFINITION states. Tool schemas are NOT repeated here: both requests
@@ -64,7 +65,37 @@ function resourceBlock(r: ResourceSpec): string[] {
   ];
 }
 
-export function taskBrief(task: Task, extras: { tree: string; testMap?: string }): string {
+/** Scaffold files whose exported signatures go into the greenfield brief. */
+export const SCAFFOLD_API_GLOBS = ['src/lib/**/*.ts', 'src/app.ts', 'src/routes/index.ts'];
+
+/**
+ * Exported signatures of scaffold files, one `path:line  export …` line each (bodies and
+ * trailing `{` dropped): the model learns the helper API from a few hundred characters instead
+ * of reading every scaffold file up front.
+ */
+export function scaffoldApi(files: Array<{ path: string; content: string }>): string {
+  const out: string[] = [];
+  for (const f of [...files].sort((a, b) => (a.path < b.path ? -1 : 1))) {
+    f.content.split('\n').forEach((l, i) => {
+      if (!/^export\b/.test(l)) return;
+      const sig = l.length > 150 ? `${l.slice(0, 150)}…` : l.replace(/\s*\{\s*$/, '').replace(/\($/, '(…)');
+      out.push(`${f.path}:${i + 1}  ${sig}`);
+    });
+  }
+  return out.join('\n');
+}
+
+/** scaffoldApi over the SCAFFOLD_API_GLOBS files of a workspace. */
+export async function scaffoldApiOf(ws: Workspace): Promise<string> {
+  const files: Array<{ path: string; content: string }> = [];
+  for (const path of await ws.list(SCAFFOLD_API_GLOBS)) {
+    const content = await ws.read(path);
+    if (content !== null) files.push({ path, content });
+  }
+  return scaffoldApi(files);
+}
+
+export function taskBrief(task: Task, extras: { tree: string; testMap?: string; scaffoldApi?: string }): string {
   const out: string[] = [`Task ${task.id} (${task.kind}): ${task.title}`];
   if (task.kind === 'greenfield') {
     out.push(`Base path: ${task.basePath}`, '');
@@ -81,8 +112,12 @@ export function taskBrief(task: Task, extras: { tree: string; testMap?: string }
     out.push(
       'Scaffold: read-only helpers in src/lib to use (do not edit): problem.ts (HttpProblem, notFound, conflict, unprocessable, badRequest), errors.ts (errorHandler, notFoundHandler), pagination.ts (CursorQuerySchema, paginate, pageSchema), idempotency.ts (idempotency() middleware for POST/PATCH).',
       'Mount routers in src/routes/index.ts (registerRoutes). Tests live in test/*.test.ts and use supertest against createApp() from src/app.ts.',
+      'Every createApp() call must start with empty state: create stores inside the function that builds/registers the router (called per app), never at module level, so tests stay independent.',
       '',
     );
+    if (extras.scaffoldApi !== undefined && extras.scaffoldApi.length > 0) {
+      out.push('Scaffold API (exported signatures; read_file a line range only when you need a body):', extras.scaffoldApi, '');
+    }
   } else {
     out.push(`Scope: allow ${task.scope.allow.join(', ') || '(none)'}; deny ${task.scope.deny.join(', ') || '(none)'}`);
     out.push(

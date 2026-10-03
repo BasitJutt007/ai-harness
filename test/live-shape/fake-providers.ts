@@ -530,11 +530,36 @@ function openaiMessages(messages: unknown, toolNames: Set<string>): string[] {
 export interface FakeOpenAIOptions {
   /** Answer the first request with a 400 unsupported_parameter for max_completion_tokens (once); afterwards that parameter is refused. */
   rejectMaxCompletionTokens?: boolean;
+  /**
+   * Behave like an OpenAI-compatible gateway with thinking signatures: the first tool call of
+   * every response carries an `extra_content` field, and a later request that replays that call
+   * without the identical field is answered 400 ("missing a thought_signature").
+   */
+  signToolCalls?: boolean;
 }
 
 export interface FakeOpenAI extends FakeEndpoint {
   /** prompt_tokens reported per completion, in order. */
   reportedInput: number[];
+  /** signToolCalls: call id -> the extra_content issued with it (JSON). */
+  signed: Map<string, string>;
+}
+
+/** signToolCalls rule: every replayed call that was issued with an extra field carries it unchanged. */
+function missingSignatures(body: Record<string, unknown>, signed: ReadonlyMap<string, string>): string[] {
+  const problems: string[] = [];
+  const messages = Array.isArray(body['messages']) ? body['messages'] : [];
+  messages.forEach((m: unknown, i) => {
+    if (!isRecord(m) || m['role'] !== 'assistant' || !Array.isArray(m['tool_calls'])) return;
+    m['tool_calls'].forEach((c: unknown, j) => {
+      if (!isRecord(c) || typeof c['id'] !== 'string') return;
+      const want = signed.get(c['id']);
+      if (want !== undefined && JSON.stringify(c['extra_content'] ?? null) !== want) {
+        problems.push(`messages.${i}.tool_calls.${j}: Function call is missing a thought_signature (${c['id']})`);
+      }
+    });
+  });
+  return problems;
 }
 
 export function validateOpenAIChat(req: WireRequest, opts: { legacyOnly: boolean }): string[] {
@@ -568,6 +593,7 @@ export function fakeOpenAI(turns: FakeTurn[], opts: FakeOpenAIOptions = {}): Fak
   const rejections: Rejection[] = [];
   const injected: WireRequest[] = [];
   const reportedInput: number[] = [];
+  const signed = new Map<string, string>();
   let served = 0;
   let rejectPending = opts.rejectMaxCompletionTokens === true;
   const legacyOnly = opts.rejectMaxCompletionTokens === true;
@@ -595,16 +621,19 @@ export function fakeOpenAI(turns: FakeTurn[], opts: FakeOpenAIOptions = {}): Fak
         },
       });
     }
-    const problems = validateOpenAIChat(req, { legacyOnly });
+    const problems = [...validateOpenAIChat(req, { legacyOnly }), ...(opts.signToolCalls === true ? missingSignatures(req.body, signed) : [])];
     if (problems.length > 0) return reject(req, problems);
 
     served += 1;
     const turn = turns[served - 1];
-    const calls = (turn?.calls ?? []).map((c, i) => ({
-      id: `call_${served}${i}${Math.random().toString(36).slice(2, 14)}`,
-      type: 'function',
-      function: { name: c.name, arguments: JSON.stringify(c.input) },
-    }));
+    const calls = (turn?.calls ?? []).map((c, i) => {
+      const id = `call_${served}${i}${Math.random().toString(36).slice(2, 14)}`;
+      const call = { id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.input) } };
+      if (opts.signToolCalls !== true || i > 0) return call;
+      const extra = { gateway: { thought_signature: `sig_${id}_${'s'.repeat(40)}` } };
+      signed.set(id, JSON.stringify(extra));
+      return { ...call, extra_content: extra };
+    });
     const text = turn === undefined ? 'Trajectory exhausted.' : (turn.text ?? null);
     const prompt = approxTokens({ m: req.body['messages'], t: req.body['tools'] });
     reportedInput.push(prompt);
@@ -634,5 +663,5 @@ export function fakeOpenAI(turns: FakeTurn[], opts: FakeOpenAIOptions = {}): Fak
     });
   };
 
-  return { fetch, requests, rejections, injected, reportedInput, served: () => served };
+  return { fetch, requests, rejections, injected, reportedInput, signed, served: () => served };
 }
