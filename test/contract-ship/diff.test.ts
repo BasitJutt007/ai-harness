@@ -50,7 +50,7 @@ function find(c: Contract, method: string, path: string): ContractEndpoint {
 
 describe('diffContracts', () => {
   it('identical contracts have no changes', () => {
-    expect(diffContracts(base(), base())).toEqual({ breaking: [], additive: [], unproven: [] });
+    expect(diffContracts(base(), base())).toEqual({ breaking: [], additive: [], unproven: [], informational: [] });
   });
 
   it('removed route is breaking; added route is additive', () => {
@@ -157,7 +157,7 @@ describe('diffContracts', () => {
 
   it('static fallback: same source hash is no change; changed source is unproven', () => {
     const b = contract(ep('GET', '/v1/x', { request: { query: null }, sources: { query: 'h1' } }));
-    expect(diffContracts(b, structuredClone(b))).toEqual({ breaking: [], additive: [], unproven: [] });
+    expect(diffContracts(b, structuredClone(b))).toEqual({ breaking: [], additive: [], unproven: [], informational: [] });
     const a = contract(ep('GET', '/v1/x', { request: { query: null }, sources: { query: 'h2' } }));
     const d = diffContracts(b, a);
     expect(d.unproven).toHaveLength(1);

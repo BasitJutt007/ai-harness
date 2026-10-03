@@ -288,6 +288,7 @@ export function honesty(task: Task, gates: NamedGateResult[], report: CheckRepor
     else if (g.status === 'fail') h.failed.push(`${name} (${g.summary})`);
     else if (g.status === 'unproven') h.unproven.push(`${name} (${g.summary})`);
     else h.notApplicable.push(name);
+    for (const item of g.humanMustVerify ?? []) h.humanMustVerify.push(`${name}: ${item}`);
   }
   if (report === null) {
     h.unproven.push('checks: the standards report could not be produced');
@@ -330,18 +331,23 @@ export function formatHonesty(h: Honesty): string[] {
 }
 
 /** The run summary's standards line: verdict, then every rule with its status (n/a rules print `n/a`). */
-export function standardsLine(report: CheckReport | null, aborted: boolean): string {
+export function standardsLine(report: CheckReport | null, aborted: boolean, kind?: Task['kind']): string {
   if (report === null) return `UNPROVEN (${aborted ? 'not run: the run was aborted' : 'the checks could not run'})`;
   const rules = report.rules.map((r) => `${r.rule} ${r.status}`).join(', ');
   const v = report.verdict;
   if (v.status === 'pass') return `pass ${v.percent}%  ${rules}`;
+  // Whole-API numbers stay as measured; in brownfield the gate blocks only what the run introduced.
+  const brownfield = kind === 'brownfield'
+    ? '  (brownfield: the standards gate blocks only what this run introduced versus the base commit; see gate:standards)'
+    : '';
   if (v.status === 'fail') {
     const failing = report.rules.filter((r) => r.status === 'fail');
     const onlyOthers = failing.length > 0 && failing.every((r) => r.category !== 'standards');
     // ORM/lint rules are diff-aware in the standards gate: violations in files the run did not change are pre-existing.
-    return `FAIL ${v.percent}%  ${rules}${onlyOthers ? '  (only non-standards rules fail: the standards gate blocks only their violations in files this run changed)' : ''}`;
+    const note = brownfield !== '' ? brownfield : onlyOthers ? '  (only non-standards rules fail: the standards gate blocks only their violations in files this run changed)' : '';
+    return `FAIL ${v.percent}%  ${rules}${note}`;
   }
-  return `UNPROVEN (a rule was skipped or had nothing to check; ${v.percent}% of checked units passed)  ${rules}`;
+  return `UNPROVEN (a rule was skipped or had nothing to check; ${v.percent}% of checked units passed)  ${rules}${brownfield}`;
 }
 
 // ───────────────────────────── executeRun ─────────────────────────────
@@ -651,7 +657,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     ...(error !== undefined ? [`error      ${error}`] : []),
     `gates      fresh final run (phase finish): ${final.results.length === 0 && abortedRun ? 'not run' : final.ok ? 'all green' : 'NOT green'}`,
     ...(final.results.length > 0 ? formatGates(final.results, true).split('\n') : [final.text]),
-    `standards  ${standardsLine(report, abortedRun && report === null)}`,
+    `standards  ${standardsLine(report, abortedRun && report === null, task.kind)}`,
     `tokens     actual ${t.actual_input_tokens}  baseline ${t.baseline_input_tokens}  reduction ${t.reduction_pct}%  over ${tokenReport.turns.length} turns  (output ${t.output_tokens}, provider-reported input ${t.provider_reported_input_tokens})`,
     `evidence   ${harnessRel(runDir)}/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}`,
     `           ${evidence.tokens}`,

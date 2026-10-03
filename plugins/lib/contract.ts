@@ -41,10 +41,22 @@ export interface ContractEndpoint {
   request: Partial<Record<RequestPart, JsonSchema | null>>;
   /** 2xx status -> JSON Schema of the body (io: output); null = no body, or a body whose shape is unknown (see `sources`). */
   responses: Record<string, JsonSchema | null>;
-  /** sha256 of the schema source text per location ("query", "response.200"). Used by the static fallback. */
+  /**
+   * sha256 of the schema source tokens per location ("query", "response.200"); whitespace and comments
+   * do not count. Used by the static fallback and to see validation JSON Schema cannot show (.refine).
+   */
   sources: Record<string, string>;
-  /** Every literal status code the handler can produce (informational). */
+  /**
+   * Every literal status code the handler (or a program function it calls) can produce. Non-2xx codes
+   * are diffed as a set: a new 4xx is breaking, anything else is informational.
+   */
   statuses: number[];
+  /**
+   * Request parts the endpoint may consume without a schema the extractor can see: read unparsed in the
+   * handler, or (body) possibly read by route-level middleware or by a handler that could not be
+   * resolved. Absent = none.
+   */
+  opaque?: RequestPart[];
 }
 
 export interface Contract {
@@ -63,8 +75,13 @@ export interface Change {
 export interface ContractDiff {
   breaking: Change[];
   additive: Change[];
-  /** Schema text changed but no runtime shape exists on one side: cannot be proven either way. */
+  /**
+   * Cannot be proven either way: schema text changed but no runtime shape exists on one side, the source
+   * changed in a way JSON Schema cannot show, validation moved out of sight, or a body is not extractable.
+   */
   unproven: Change[];
+  /** Cannot break a client (a removed error status, a changed response default): reported, never blocking. */
+  informational: Change[];
 }
 
 // ───────────────────────────── program ─────────────────────────────
@@ -107,12 +124,29 @@ function sha(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
-/** Source text of a schema expression plus the initialisers of the consts it references (transitively). */
+/** Token texts of `node` joined by single spaces: whitespace, comments and line breaks do not change it. */
+export function tokenText(node: ts.Node): string {
+  const out: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (n.kind >= ts.SyntaxKind.FirstJSDocNode && n.kind <= ts.SyntaxKind.LastJSDocNode) return;
+    const kids = n.getChildren();
+    if (kids.length === 0) {
+      const t = n.getText();
+      if (t !== '') out.push(t);
+      return;
+    }
+    for (const k of kids) visit(k);
+  };
+  visit(node);
+  return out.join(' ');
+}
+
+/** Source tokens of a schema expression plus the initialisers of the consts it references (transitively). */
 export function schemaSourceText(checker: ts.TypeChecker, expr: ts.Expression): string {
   const parts: string[] = [];
   const seen = new Set<ts.Node>();
   const visit = (node: ts.Node, depth: number): void => {
-    parts.push(node.getText());
+    parts.push(tokenText(node));
     if (depth >= 8) return;
     const scan = (n: ts.Node): void => {
       if (ts.isIdentifier(n)) {
@@ -204,6 +238,21 @@ function endpointFor(route: RouteInfo): ContractEndpoint {
   return { method: route.method.toUpperCase(), path: route.path, request: {}, responses: {}, sources: {}, statuses: [] };
 }
 
+/**
+ * Request parts the route may consume without an extractable schema: unparsed reads in the handler (a bare
+ * or computed `req` use counts for every part), and the body when route-level middleware may read it or
+ * the handler could not be resolved.
+ */
+function opaqueParts(route: RouteInfo): RequestPart[] {
+  const out = new Set<RequestPart>();
+  for (const u of route.unparsedReads) {
+    if (isRequestPart(u.target)) out.add(u.target);
+    else if (u.target === 'req' || u.target.startsWith('req[')) for (const p of REQUEST_PARTS) out.add(p);
+  }
+  if (route.handler === undefined || route.middleware.length > 0) out.add('body');
+  return REQUEST_PARTS.filter((p) => out.has(p));
+}
+
 function collect(routes: RouteInfo[], checker: ts.TypeChecker, warnings: string[]): { endpoints: ContractEndpoint[]; slots: Slot[] } {
   const endpoints: ContractEndpoint[] = [];
   const seen = new Set<string>();
@@ -226,9 +275,12 @@ function collect(routes: RouteInfo[], checker: ts.TypeChecker, warnings: string[
       ep.sources[p.target] = sha(schemaSourceText(checker, p.schema.expr));
       slots.push({ endpoint: ep, key: p.target, io: 'input', ref: p.schema });
     }
+    const opaque = opaqueParts(route);
+    if (opaque.length > 0) ep.opaque = opaque;
     const statuses = new Set<number>();
     for (const s of route.statusLiterals) statuses.add(s.status);
-    for (const s of route.problemSites) if (s.status !== null) statuses.add(s.status);
+    // Callee sites too, so moving a `throw notFound()` between the handler and a service is not a status change.
+    for (const s of [...route.problemSites, ...route.calleeProblemSites]) if (s.status !== null) statuses.add(s.status);
     for (const r of route.responses) {
       if (r.status === null) {
         warnings.push(`${label}: response with a non-literal status ignored`);
@@ -247,7 +299,7 @@ function collect(routes: RouteInfo[], checker: ts.TypeChecker, warnings: string[
         ep.responses[status] = null;
         if (r.hasBody) {
           const body = r.call.arguments[0];
-          ep.sources[key] = sha(body !== undefined ? body.getText() : r.call.getText());
+          ep.sources[key] = sha(tokenText(body ?? r.call));
           warnings.push(`${label}: ${status} body is not parsed with a schema; tracked by source text only`);
         }
       }
@@ -520,6 +572,202 @@ function join2(loc: string, prop: string): string {
   return /\s$/.test(loc) || loc.endsWith('.') ? `${loc}${prop}` : `${loc}.${prop}`;
 }
 
+// ── constraint keywords ──
+//
+// Rule (request = what the API accepts, response = what clients receive):
+// - request: a narrowing (bound added or tightened, pattern/format added, unknown keys newly rejected)
+//   rejects input that was accepted, so it is breaking; a widening is additive.
+// - response: reversed. A widening (bound loosened or removed, format/pattern removed) lets a response fall
+//   outside what clients were promised and validate against, so it is breaking; a narrowing is additive.
+//   Undeclared response properties are the exception: tolerant readers ignore unknown fields (a new
+//   response property is additive too), so they are informational.
+// - a changed pattern, format or incompatible multipleOf is breaking both ways (neither contains the other).
+// - default: on a request it decides what an omitted value becomes (changed or removed = breaking, added =
+//   additive); on a response it only documents a value (informational).
+// Constraints of a union are compared only on its single non-null branch (a nullable or optional value).
+
+/** A numeric bound; `exclusive` = the bound value itself is not allowed. */
+interface Bound {
+  value: number;
+  exclusive: boolean;
+}
+
+type Side = 'min' | 'max';
+
+/** Keywords that constrain a value of a single type. */
+const CONSTRAINT_KEYS: readonly string[] = [
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minLength', 'maxLength', 'pattern',
+  'format', 'minItems', 'maxItems', 'uniqueItems', 'minProperties', 'maxProperties',
+];
+const COUNT_KEYS: readonly string[] = ['minLength', 'maxLength', 'minItems', 'maxItems', 'minProperties', 'maxProperties'];
+const OBJECT_KEYS: readonly string[] = ['properties', 'additionalProperties', 'propertyNames'];
+
+/** A finite number below 2^53 - 1 (the implicit bound of every integer schema, e.g. z.int(): it constrains nothing). */
+function finite(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < Number.MAX_SAFE_INTEGER ? v : undefined;
+}
+
+/** The schema that carries `keys`: itself, or the single non-null branch of a nullable/optional union. */
+function carrier(s: JsonSchema, root: JsonSchema, keys: readonly string[], depth = 0): JsonSchema {
+  if (depth > 8 || keys.some((k) => k in s)) return s;
+  const bs = branches(s, root).filter((x) => x.type !== 'null');
+  const only = bs.length === 1 ? bs[0] : undefined;
+  return only === undefined ? s : carrier(only, root, keys, depth + 1);
+}
+
+function stricter(a: Bound, b: Bound, side: Side): boolean {
+  if (a.value !== b.value) return side === 'min' ? a.value > b.value : a.value < b.value;
+  return a.exclusive && !b.exclusive;
+}
+
+/**
+ * Effective lower or upper bound of a number schema: minimum/maximum, draft 2020-12 numeric and draft-04
+ * boolean exclusive bounds, the stricter one when several are given. On an integer-only schema every bound
+ * becomes the equivalent inclusive integer (> 0 and >= 0.5 are both >= 1).
+ */
+function numericBound(s: JsonSchema, side: Side, integer: boolean): Bound | null {
+  const exclusiveKeyword = side === 'min' ? s.exclusiveMinimum : s.exclusiveMaximum;
+  const found: Bound[] = [];
+  const inclusive = finite(side === 'min' ? s.minimum : s.maximum);
+  if (inclusive !== undefined) found.push({ value: inclusive, exclusive: exclusiveKeyword === true });
+  const exclusive = finite(exclusiveKeyword);
+  if (exclusive !== undefined) found.push({ value: exclusive, exclusive: true });
+  let best: Bound | null = null;
+  for (const raw of found) {
+    const bound = !integer ? raw : {
+      value: side === 'min'
+        ? (raw.exclusive ? Math.floor(raw.value) + 1 : Math.ceil(raw.value))
+        : (raw.exclusive ? Math.ceil(raw.value) - 1 : Math.floor(raw.value)),
+      exclusive: false,
+    };
+    if (best === null || stricter(bound, best, side)) best = bound;
+  }
+  return best;
+}
+
+/** Request: a narrowing is breaking, a widening additive. Response: reversed (see the rule above). */
+function byDirection(narrows: boolean, dir: Dir, location: string, message: string, acc: Acc): void {
+  ((dir === 'request') === narrows ? acc.breaking : acc.additive).push({ location, message });
+}
+
+function compareBound(
+  label: string, side: Side, b: Bound | null, a: Bound | null, show: (x: Bound) => string, loc: string, dir: Dir, acc: Acc,
+): void {
+  if (b === null && a !== null) byDirection(true, dir, loc, `${label} added: ${show(a)}`, acc);
+  else if (b !== null && a === null) byDirection(false, dir, loc, `${label} removed (was ${show(b)})`, acc);
+  else if (b !== null && a !== null) {
+    if (stricter(a, b, side)) byDirection(true, dir, loc, `${label} narrows: ${show(b)} → ${show(a)}`, acc);
+    else if (stricter(b, a, side)) byDirection(false, dir, loc, `${label} widens: ${show(b)} → ${show(a)}`, acc);
+  }
+}
+
+function short(s: string): string {
+  return s.length > 40 ? `${s.slice(0, 39)}…` : s;
+}
+
+/** pattern / format: added narrows, removed widens, changed is breaking both ways. */
+function compareRestriction(label: string, bv: unknown, av: unknown, loc: string, dir: Dir, acc: Acc): void {
+  const b = typeof bv === 'string' ? bv : undefined;
+  const a = typeof av === 'string' ? av : undefined;
+  if (b === a) return;
+  if (b === undefined && a !== undefined) byDirection(true, dir, loc, `${label} added: ${short(a)}`, acc);
+  else if (b !== undefined && a === undefined) byDirection(false, dir, loc, `${label} removed (was ${short(b)})`, acc);
+  else if (b !== undefined && a !== undefined) acc.breaking.push({ location: loc, message: `${label} changes: ${short(b)} → ${short(a)}` });
+}
+
+function isMultiple(x: number, of: number): boolean {
+  const q = x / of;
+  return Math.abs(q - Math.round(q)) < 1e-9;
+}
+
+/** multipleOf: a new step that is a multiple of the old one narrows; a divisor of it widens; anything else changes. */
+function compareMultipleOf(bv: unknown, av: unknown, loc: string, dir: Dir, acc: Acc): void {
+  const step = (v: unknown): number | undefined => {
+    const n = finite(v);
+    return n !== undefined && n > 0 ? n : undefined;
+  };
+  const b = step(bv);
+  const a = step(av);
+  if (b === a) return;
+  if (b === undefined && a !== undefined) byDirection(true, dir, loc, `multipleOf added: ${String(a)}`, acc);
+  else if (b !== undefined && a === undefined) byDirection(false, dir, loc, `multipleOf removed (was ${String(b)})`, acc);
+  else if (b !== undefined && a !== undefined) {
+    if (isMultiple(a, b)) byDirection(true, dir, loc, `multipleOf narrows: ${String(b)} → ${String(a)}`, acc);
+    else if (isMultiple(b, a)) byDirection(false, dir, loc, `multipleOf widens: ${String(b)} → ${String(a)}`, acc);
+    else acc.breaking.push({ location: loc, message: `multipleOf changes: ${String(b)} → ${String(a)}` });
+  }
+}
+
+function integerOnly(s: JsonSchema, root: JsonSchema): boolean {
+  const t = typesOf(s, root);
+  return t !== null && t.size === 1 && t.has('integer');
+}
+
+/** Bounds, lengths, counts, multipleOf, format, pattern and uniqueItems of one value. */
+function compareConstraints(bIn: JsonSchema, aIn: JsonSchema, roots: { b: JsonSchema; a: JsonSchema }, loc: string, dir: Dir, acc: Acc): void {
+  const b = carrier(bIn, roots.b, CONSTRAINT_KEYS);
+  const a = carrier(aIn, roots.a, CONSTRAINT_KEYS);
+  for (const side of ['min', 'max'] as const) {
+    const show = (x: Bound): string => `${side === 'min' ? '>' : '<'}${x.exclusive ? '' : '='} ${String(x.value)}`;
+    const label = side === 'min' ? 'minimum' : 'maximum';
+    compareBound(label, side, numericBound(b, side, integerOnly(b, roots.b)), numericBound(a, side, integerOnly(a, roots.a)), show, loc, dir, acc);
+  }
+  for (const keyword of COUNT_KEYS) {
+    const count = (s: JsonSchema): Bound | null => {
+      const v = finite(s[keyword]);
+      return v === undefined ? null : { value: v, exclusive: false };
+    };
+    compareBound(keyword, keyword.startsWith('min') ? 'min' : 'max', count(b), count(a), (x) => String(x.value), loc, dir, acc);
+  }
+  compareMultipleOf(b.multipleOf, a.multipleOf, loc, dir, acc);
+  compareRestriction('format', b.format, a.format, loc, dir, acc);
+  compareRestriction('pattern', b.pattern, a.pattern, loc, dir, acc);
+  const bu = b.uniqueItems === true;
+  const au = a.uniqueItems === true;
+  if (bu !== au) byDirection(au, dir, loc, au ? 'items must now be unique' : 'items no longer need to be unique', acc);
+}
+
+/** default: request = behaviour for an omitted value; response = documentation only (see the rule above). */
+function compareDefault(b: JsonSchema, a: JsonSchema, loc: string, dir: Dir, acc: Acc): void {
+  const bd = 'default' in b ? JSON.stringify(b.default) : undefined;
+  const ad = 'default' in a ? JSON.stringify(a.default) : undefined;
+  if (bd === ad) return;
+  const change = `${bd ?? 'none'} → ${ad ?? 'none'}`;
+  if (dir === 'response') acc.informational.push({ location: loc, message: `default changes: ${change}` });
+  else if (bd === undefined) acc.additive.push({ location: loc, message: `default added: ${ad ?? ''}` });
+  else acc.breaking.push({ location: loc, message: `default changes: ${change} (an omitted value now behaves differently)` });
+}
+
+/** additionalProperties: false = closed; otherwise the schema undeclared keys must match ({} when absent or true). */
+function extraKeys(s: JsonSchema): JsonSchema | false {
+  const v = s.additionalProperties;
+  if (v === false) return false;
+  return isRecord(v) ? v : {};
+}
+
+/** Undeclared keys (closed vs open, record value schemas) and record key schemas of an object. */
+function compareExtraKeys(
+  bIn: JsonSchema, aIn: JsonSchema, roots: { b: JsonSchema; a: JsonSchema }, loc: string, dir: Dir, acc: Acc, depth: number,
+): void {
+  const b = carrier(bIn, roots.b, OBJECT_KEYS);
+  const a = carrier(aIn, roots.a, OBJECT_KEYS);
+  if (!(typesOf(b, roots.b)?.has('object') ?? false) || !(typesOf(a, roots.a)?.has('object') ?? false)) return;
+  const be = extraKeys(b);
+  const ae = extraKeys(a);
+  if (be !== false && ae === false) {
+    byDirection(true, dir, loc, dir === 'request' ? 'undeclared properties are now rejected' : 'response no longer carries undeclared properties', acc);
+  } else if (be === false && ae !== false) {
+    if (dir === 'request') acc.additive.push({ location: loc, message: 'undeclared properties are now accepted' });
+    else acc.informational.push({ location: loc, message: 'response may now include undeclared properties' });
+  } else if (be !== false && ae !== false) {
+    compareSchemas(be, ae, roots, `${loc}.*`, dir, acc, depth + 1);
+  }
+  // Keys are strings anyway: a key schema is compared only when both sides declare one.
+  if (isRecord(b.propertyNames) && isRecord(a.propertyNames)) {
+    compareSchemas(b.propertyNames, a.propertyNames, roots, `${loc}{keys}`, dir, acc, depth + 1);
+  }
+}
+
 function compareSchemas(
   bIn: unknown, aIn: unknown, roots: { b: JsonSchema; a: JsonSchema }, loc: string, dir: Dir, acc: Acc, depth: number,
 ): void {
@@ -552,8 +800,12 @@ function compareSchemas(
       if (eb !== null && ea === null) acc.breaking.push({ location: loc, message: 'enum restriction removed (any value may be returned)' });
       if (gained.length > 0) acc.breaking.push({ location: loc, message: `enum gains values: ${fmtValues(gained)}` });
       if (lost.length > 0) acc.additive.push({ location: loc, message: `enum loses values: ${fmtValues(lost)}` });
+      if (eb === null && ea !== null) acc.additive.push({ location: loc, message: `now restricted to values: ${fmtValues([...ea])}` });
     }
   }
+
+  compareConstraints(b, a, roots, loc, dir, acc);
+  compareDefault(b, a, loc, dir, acc);
 
   const ob = objectView(b, roots.b);
   const oa = objectView(a, roots.a);
@@ -572,10 +824,14 @@ function compareSchemas(
       for (const p of oa.properties.keys()) {
         if (!ob.properties.has(p) && !oa.required.has(p)) acc.additive.push({ location: join2(loc, p), message: 'new optional property' });
       }
+      for (const p of ob.required) {
+        if (!oa.required.has(p) && oa.properties.has(p)) acc.additive.push({ location: join2(loc, p), message: 'property becomes optional' });
+      }
     } else {
       for (const p of ob.properties.keys()) {
         if (!oa.properties.has(p)) acc.breaking.push({ location: join2(loc, p), message: 'property removed from response' });
         else if (ob.required.has(p) && !oa.required.has(p)) acc.breaking.push({ location: join2(loc, p), message: 'property becomes optional' });
+        else if (!ob.required.has(p) && oa.required.has(p)) acc.additive.push({ location: join2(loc, p), message: 'property now always present' });
       }
       for (const p of oa.properties.keys()) {
         if (!ob.properties.has(p)) acc.additive.push({ location: join2(loc, p), message: 'new response property' });
@@ -585,6 +841,7 @@ function compareSchemas(
       if (oa.properties.has(p)) compareSchemas(bs, oa.properties.get(p), roots, join2(loc, p), dir, acc, depth + 1);
     }
   }
+  compareExtraKeys(b, a, roots, loc, dir, acc, depth);
 
   const ib = itemsOf(b, roots.b);
   const ia = itemsOf(a, roots.a);
@@ -593,6 +850,31 @@ function compareSchemas(
 
 function requiredCount(s: JsonSchema): number {
   return objectView(s, s)?.required.size ?? 0;
+}
+
+function emptyDiff(): ContractDiff {
+  return { breaking: [], additive: [], unproven: [], informational: [] };
+}
+
+const SET_KEYWORDS = new Set(['required', 'enum', 'type', 'anyOf', 'oneOf', 'allOf']);
+/** Keywords that only annotate: they never change what is accepted or returned. */
+const ANNOTATIONS = new Set(['description', 'title', 'examples', 'deprecated', '$comment', '$schema', '$id', 'id']);
+
+/**
+ * Key-sorted JSON without annotations; arrays with set semantics (required, enum, type, anyOf, oneOf,
+ * allOf) sorted; `additionalProperties: true` or `{}` dropped (the same as absent).
+ */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (!isRecord(v)) return JSON.stringify(v) ?? 'null';
+  const open = (x: unknown): boolean => x === true || (isRecord(x) && Object.keys(x).length === 0);
+  const keys = Object.keys(v).filter((k) => !ANNOTATIONS.has(k) && !(k === 'additionalProperties' && open(v[k])));
+  const entries = keys.sort().map((k) => {
+    const x = v[k];
+    const value = Array.isArray(x) && SET_KEYWORDS.has(k) ? `[${x.map(canonical).sort().join(',')}]` : canonical(x);
+    return `${JSON.stringify(k)}:${value}`;
+  });
+  return `{${entries.join(',')}}`;
 }
 
 function compareSlot(
@@ -609,7 +891,8 @@ function compareSlot(
     return;
   }
   if (a === undefined) {
-    acc.additive.push({ location: loc, message: 'no longer validated' });
+    // The parse may have moved (into middleware, a helper) or been dropped: nothing to compare against.
+    acc.unproven.push({ location: loc, message: 'no longer validated where the harness can see it (moved or removed); the request contract cannot be compared' });
     return;
   }
   const bUnknown = b === null && bSrc !== undefined;
@@ -628,7 +911,56 @@ function compareSlot(
     acc.breaking.push({ location: loc, message: 'response body removed' });
     return;
   }
-  compareSchemas(b, a, { b, a }, loc, dir, acc, 0);
+  const slot = emptyDiff();
+  compareSchemas(b, a, { b, a }, loc, dir, slot, 0);
+  if (slot.breaking.length + slot.additive.length + slot.unproven.length + slot.informational.length > 0) {
+    acc.breaking.push(...slot.breaking);
+    acc.additive.push(...slot.additive);
+    acc.unproven.push(...slot.unproven);
+    acc.informational.push(...slot.informational);
+  } else if (canonical(b) !== canonical(a)) {
+    acc.unproven.push({ location: loc, message: 'JSON Schema changed in keywords the contract diff does not classify' });
+  } else if (bSrc !== undefined && aSrc !== undefined && bSrc !== aSrc) {
+    acc.unproven.push({
+      location: loc,
+      message: 'schema source changed but its JSON Schema is identical: validation changed in a way the contract cannot see (e.g. .refine, .transform)',
+    });
+  }
+}
+
+const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
+
+/**
+ * A POST/PUT/PATCH whose body has no schema on either side but is read without one (unparsed, by route
+ * middleware, or by a handler that could not be resolved): its request contract is never "preserved".
+ */
+function compareOpaqueBody(b: ContractEndpoint, a: ContractEndpoint, label: string, acc: Acc): void {
+  if (!BODY_METHODS.has(a.method) || 'body' in b.request || 'body' in a.request) return;
+  if (!(b.opaque ?? []).includes('body') && !(a.opaque ?? []).includes('body')) return;
+  acc.unproven.push({
+    location: `${label} body`,
+    message: 'request contract not extractable: the body is read without a schema the harness can see (unparsed, in route middleware, or by an unresolved handler)',
+  });
+}
+
+/**
+ * Non-2xx statuses as a set (2xx are compared as responses). A new 4xx may reject requests that were
+ * accepted: breaking. A removed status, or a new 3xx/5xx, cannot fail a request that works today:
+ * informational. Which condition produces which error status is not visible statically.
+ */
+function compareStatuses(b: ContractEndpoint, a: ContractEndpoint, label: string, acc: Acc): void {
+  const before = new Set(b.statuses);
+  const after = new Set(a.statuses);
+  for (const s of after) {
+    if (s < 300 || before.has(s)) continue;
+    const location = `${label} response.${String(s)}`;
+    if (s >= 400 && s < 500) acc.breaking.push({ location, message: `new ${String(s)} response: may reject requests that were accepted` });
+    else acc.informational.push({ location, message: `new ${String(s)} response` });
+  }
+  for (const s of before) {
+    if (s < 300 || after.has(s)) continue;
+    acc.informational.push({ location: `${label} response.${String(s)}`, message: `${String(s)} response no longer produced` });
+  }
 }
 
 function endpointKey(e: ContractEndpoint): string {
@@ -646,7 +978,7 @@ function dedupe(list: Change[]): Change[] {
 }
 
 export function diffContracts(before: Contract, after: Contract): ContractDiff {
-  const acc: Acc = { breaking: [], additive: [], unproven: [] };
+  const acc = emptyDiff();
   const bMap = new Map(before.endpoints.map((e) => [endpointKey(e), e]));
   const aMap = new Map(after.endpoints.map((e) => [endpointKey(e), e]));
   for (const [k, b] of bMap) {
@@ -660,6 +992,7 @@ export function diffContracts(before: Contract, after: Contract): ContractDiff {
     for (const part of REQUEST_PARTS) {
       compareSlot(aLabel, part, 'request', b.request[part], a.request[part], b.sources[part], a.sources[part], acc);
     }
+    compareOpaqueBody(b, a, aLabel, acc);
     for (const status of Object.keys(b.responses)) {
       const key = `response.${status}`;
       if (!(status in a.responses)) {
@@ -671,11 +1004,17 @@ export function diffContracts(before: Contract, after: Contract): ContractDiff {
     for (const status of Object.keys(a.responses)) {
       if (!(status in b.responses)) acc.additive.push({ location: `${aLabel} response.${status}`, message: `new ${status} response` });
     }
+    compareStatuses(b, a, aLabel, acc);
   }
   for (const [k, a] of aMap) {
     if (!bMap.has(k)) acc.additive.push({ location: `${a.method} ${a.path}`, message: 'new route' });
   }
-  return { breaking: dedupe(acc.breaking), additive: dedupe(acc.additive), unproven: dedupe(acc.unproven) };
+  return {
+    breaking: dedupe(acc.breaking),
+    additive: dedupe(acc.additive),
+    unproven: dedupe(acc.unproven),
+    informational: dedupe(acc.informational),
+  };
 }
 
 /** Compact lines: `BREAKING  GET /v1/x query.status  enum loses values: "a"`. */
@@ -684,6 +1023,7 @@ export function formatDiff(diff: ContractDiff, max = 40): string[] {
     ...diff.breaking.map((c) => `BREAKING  ${c.location}  ${c.message}`),
     ...diff.unproven.map((c) => `UNPROVEN  ${c.location}  ${c.message}`),
     ...diff.additive.map((c) => `additive  ${c.location}  ${c.message}`),
+    ...diff.informational.map((c) => `info      ${c.location}  ${c.message}`),
   ];
   return lines.length > max ? [...lines.slice(0, max), `… ${lines.length - max} more`] : lines;
 }

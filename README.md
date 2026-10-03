@@ -141,7 +141,11 @@ clients: `plugins/lib/contract.ts` extracts the public contract (every route, pl
 JSON Schemas of params/query/body/headers and of each 2xx response, generated from the
 actual Zod schemas at runtime) from both the base commit and the worktree, then diffs them.
 Removed routes, new required request fields, narrowed enums, removed or now-optional
-response fields and changed types are **breaking**. The `contract-lock` gate refuses finish
+response fields, changed types, request constraints that narrow (bounds, lengths, pattern, format,
+multipleOf, a closed object, a changed default) or response constraints that widen, and a new 4xx
+on an existing endpoint are **breaking**. A schema change JSON Schema cannot show (`.refine`),
+validation that moves out of sight and a POST/PUT/PATCH body read without an extractable schema
+are UNPROVEN, never "preserved". The `contract-lock` gate refuses finish
 and ship unless the task sets `allowBreaking: true`. The model can check itself first with
 the `contract_diff` tool. Evidence: the scripted run `projects-change-scripted-…172537`
 (script `projects-breaking.json`) appends one red test, leaves every existing test untouched,

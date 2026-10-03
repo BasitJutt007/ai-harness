@@ -61,9 +61,10 @@ run-start content, kept in `runs/<id>/initial/`, that case must fail again, so a
 by a new mock, a changed constant, the clock or randomness does not count. The case is hashed
 over its whole call: title, callback, options, timeout, `.each` table. A case edited after its
 red counts only through this differential proof, on its current body: an edit that makes it
-pass regardless of the source fails the revert check (F10)); `standards` (the
+pass regardless of the source fails the revert check (F10)); `standards` (greenfield: the
 four standards rules 100% over the whole API; any other check, e.g. a dropped-in ORM or lint
-rule, blocks only in files the run changed); `scope`; `contract-lock` (brownfield); `secrets`
+rule, blocks only in files the run changed; brownfield: every rule is compared with a baseline
+measured on the base commit and only what the run introduced blocks); `scope`; `contract-lock` (brownfield); `secrets`
 (ship only).
 
 **Isolation** (`src/core/sandbox.ts`). Agent-written code runs in three places: the Vitest
@@ -267,8 +268,10 @@ Residual risks, documented rather than hidden:
   (no pid namespace; `bwrap` uses `--unshare-pid --die-with-parent`). It stays confined (writes
   only its deleted temp dir, loopback only) and cannot reach the report pipe, but it is not
   killed and could interfere with later loopback calls (e.g. race to bind a probe's port).
-- **Contract shape only.** Constraints that only live in refinements (`.refine`, `.transform`)
-  are invisible to JSON Schema, so a narrowing expressed that way is not detected.
+- **Refinements are opaque to the contract.** Constraints that only live in refinements
+  (`.refine`, `.transform`) are invisible to JSON Schema: a changed schema source with an identical
+  JSON Schema is UNPROVEN, but what changed is not classified. Error statuses are diffed as a set
+  per endpoint; which condition produces which status is not visible.
 - **`any` without the keyword** is found by the type checker in `src/` only (tests may read
   untyped library values such as supertest's `res.body`), and the write-time
   `unsafe-code-guard` stays syntactic; the finish gate (`tsc-strict`) is the authority.

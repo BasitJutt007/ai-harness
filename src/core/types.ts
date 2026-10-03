@@ -429,8 +429,11 @@ export interface CheckReport {
 export interface CoreServices {
   /** Run tests with the harness's own runner and record observations in RunState. */
   runTests(files?: string[]): Promise<TestRunReport>;
-  /** Run registered checks against the workspace API root. */
-  runChecks(opts?: { categories?: string[]; rules?: string[] }): Promise<CheckReport>;
+  /**
+   * Run registered checks against the workspace API root, or against `root` (an absolute directory
+   * holding another copy of the API, e.g. a base-commit snapshot for a brownfield baseline).
+   */
+  runChecks(opts?: { categories?: string[]; rules?: string[]; root?: string }): Promise<CheckReport>;
   /** Current import graph (recomputed from disk on each call). */
   testMap(): Promise<TestMap>;
   /**
@@ -561,6 +564,8 @@ export interface GateResult {
   details?: string[];
   /** Harness-root-relative path of the raw log, if any. */
   logPath?: string;
+  /** What the gate saw but neither proved nor blocked on (e.g. pre-existing violations): listed under "human must verify". */
+  humanMustVerify?: string[];
 }
 
 export interface GatePlugin {

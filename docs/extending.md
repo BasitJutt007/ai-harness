@@ -333,8 +333,11 @@ The core guarantees:
   snapshot). Violations in unchanged files (a greenfield scaffold, brownfield files the task
   scope denies, which path-guard keeps read-only) are listed in the gate details as
   `pre-existing (not blocking): <rule> <location>` and the gate summary says how many there
-  are. The four `standards` rules stay strict over the whole API: 100% or refuse. A skipped
-  rule of any category still makes the gate `unproven`.
+  are. In greenfield the four `standards` rules stay strict over the whole API: 100% or refuse.
+  In brownfield every rule, any category, is compared with a baseline measured on the base
+  commit: only what the run introduced blocks (a violation the base did not have, wherever it is,
+  more failing units, a rule that becomes unproven); pre-existing violations are listed and named
+  under "human must verify". A skipped rule of any category still makes the gate `unproven`.
 - `harness check --rule <id>` with an id no check has, or `--category <c>` that no check has, is a
   usage error (exit 2) that lists the registered rule ids.
 - Its `description` appears in the agent's system prompt rules index, and its `doc` is

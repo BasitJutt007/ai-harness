@@ -36,6 +36,9 @@ function normalise(name: string, v: unknown): GateResult {
   const r: GateResult = { status, summary: v.summary };
   if ('details' in v && Array.isArray(v.details)) r.details = v.details.filter((d): d is string => typeof d === 'string');
   if ('logPath' in v && typeof v.logPath === 'string') r.logPath = v.logPath;
+  if ('humanMustVerify' in v && Array.isArray(v.humanMustVerify)) {
+    r.humanMustVerify = v.humanMustVerify.filter((d): d is string => typeof d === 'string');
+  }
   return r;
 }
 

@@ -45,7 +45,7 @@ export function createServices(opts: {
     },
     async runChecks(o) {
       return runChecks({
-        root: ws.root,
+        root: o?.root ?? ws.root,
         checks: registry.checks.map((r) => r.plugin),
         exec,
         harnessRoot,

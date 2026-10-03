@@ -150,6 +150,6 @@ describe.runIf(existsSync(join(SAMPLE, 'src')))('extractContract on samples/exis
     const c = await extractContract({ apiRoot: SAMPLE, harnessRoot: HARNESS_ROOT, exec: isolatedExec, trusted: () => true });
     expect(c.endpoints.length).toBeGreaterThan(0);
     expect(c.extractedWith).toBe('runtime');
-    expect(diffContracts(c, structuredClone(c))).toEqual({ breaking: [], additive: [], unproven: [] });
+    expect(diffContracts(c, structuredClone(c))).toEqual({ breaking: [], additive: [], unproven: [], informational: [] });
   });
 });
