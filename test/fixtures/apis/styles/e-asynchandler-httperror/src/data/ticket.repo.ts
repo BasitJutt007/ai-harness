@@ -3,16 +3,16 @@ import type { Ticket } from '../schemas/ticket.schema.ts';
 
 export class TicketRepo {
   private readonly rows: Ticket[] = [];
-  private readonly keys = new Map<string, string>();
+  /** The response of each keyed insert, as first sent: a retry replays it even after the ticket changed. */
+  private readonly keys = new Map<string, Ticket>();
   private readonly updates = new Map<string, Ticket>();
 
   async insert(input: Pick<Ticket, 'subject' | 'priority'>, key: string): Promise<{ ticket: Ticket; replayed: boolean }> {
     const prior = this.keys.get(key);
-    const existing = prior === undefined ? undefined : this.rows.find((t) => t.id === prior);
-    if (existing !== undefined) return { ticket: existing, replayed: true };
+    if (prior !== undefined) return { ticket: prior, replayed: true };
     const ticket: Ticket = { id: randomUUID(), status: 'open', ...input };
     this.rows.push(ticket);
-    this.keys.set(key, ticket.id);
+    this.keys.set(key, { ...ticket });
     return { ticket, replayed: false };
   }
   async byId(id: string): Promise<Ticket | undefined> {

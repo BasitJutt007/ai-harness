@@ -210,8 +210,13 @@ describe('non-compliant variants', () => {
     const root = await assembleVariant(name);
     roots.push(root);
     const ctx = await contextFor(root);
-    const findings: CheckFinding[] = [];
-    for (const c of STANDARD_CHECKS) findings.push(...(await c.run(ctx)));
+    const all: CheckFinding[] = [];
+    for (const c of STANDARD_CHECKS) all.push(...(await c.run(ctx)));
+    // A planted defect (a 404 for every route, an unparsed body, a rejected create) also keeps the runtime
+    // replay probe from confirming a statically accepted replay: that route is UNPROVEN, by design, and is
+    // set aside here; every other skip and every failure is still asserted exactly.
+    const unconfirmed = all.filter((f) => f.rule === 'rest-conventions' && f.status === 'skip' && /its replay looks right in the code, but it was not confirmed at runtime/.test(f.skipReason ?? ''));
+    const findings = all.filter((f) => !unconfirmed.includes(f));
     const report = formatReport(findings, STANDARD_CHECKS, root);
     expect(findings.some((f) => f.status === 'skip'), report.compact).toBe(false);
     expect(report.verdict.status, report.compact).toBe('fail');

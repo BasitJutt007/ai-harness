@@ -8,7 +8,7 @@
  * the first request is not a 2xx, the probe is inconclusive and the static verdict stands (a note is logged).
  *
  * Request bodies come from the route's body schema: converted to JSON Schema by the contract runtime when the
- * schema is an exported const of a module it may import (contract.ts, schema-purity.ts), else translated
+ * schema is an exported const (converted in a confined child, contract.ts), else translated
  * statically from a supported subset of Zod; then a valid instance is generated (every property, optional
  * ones included, so object-level refinements such as "at least one field" hold).
  */
@@ -21,7 +21,6 @@ import type { RouteInfo, SchemaRef } from './api-ast.ts';
 import { convertAtRuntime } from './contract.ts';
 import { request, serveApp } from './probe.ts';
 import type { HttpResponse, ProbeHost } from './probe.ts';
-import { notImportable } from './schema-purity.ts';
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 type Schema = Record<string, unknown>;
@@ -365,12 +364,13 @@ interface Prepared {
 /** Bodies for `routes`: JSON Schema from the contract runtime (importable exported schemas) or the static subset. */
 async function bodiesFor(ctx: ProbeHost, routes: RouteInfo[]): Promise<Map<RouteInfo, (salt: string) => { body?: string; why?: string }>> {
   const checker = ctx.program().getTypeChecker();
-  const purity = { read: (rel: string): string | null => (existsSync(join(ctx.root, rel)) ? readFileSync(join(ctx.root, rel), 'utf8') : null), trusted: (): boolean => false };
-  const memo = new Map<string, string | null>();
   const wanted = new Map<string, { module: string; exportName: string }>();
   for (const r of routes) {
     const s = bodySchemaOf(r);
-    if (s !== undefined && s !== 'none' && s.module !== undefined && s.exportName !== undefined && notImportable(s.module, purity, memo) === null) {
+    // No purity gate here (unlike Contract Lock): the schema only shapes an INPUT. A module that lied about
+    // it would get a body the real app rejects, an inconclusive probe, and UNPROVEN, never a pass; the
+    // conversion itself runs confined (no network, writes only to its own temp dir).
+    if (s !== undefined && s !== 'none' && s.module !== undefined && s.exportName !== undefined) {
       wanted.set(`${s.module}#${s.exportName}`, { module: s.module, exportName: s.exportName });
     }
   }
@@ -421,46 +421,98 @@ function locationPath(loc: string | undefined): string | undefined {
   }
 }
 
+/** The file in the API root where a person can supply valid request bodies for the replay probe. */
+export const PROBE_INPUT_FILE = 'harness.probe.json';
+
+/**
+ * Request bodies supplied by a person in PROBE_INPUT_FILE, keyed "METHOD /path" exactly as the route is
+ * registered (e.g. "POST /v1/items", "PATCH /v1/items/:itemId"): `{ "POST /v1/items": { "body": { … } } }`.
+ * Every "{{unique}}" inside a string value is replaced with a fresh value per request, so fields a route
+ * requires to be unique never collide. The model cannot write this file (only .ts files are writable during a
+ * run), so it is evidence a person supplied, not something the run produced. Absent file: an empty map;
+ * a file that is not valid: an error, and every route that would use it is inconclusive.
+ */
+export function suppliedBodies(root: string): { bodies: Map<string, unknown>; error?: string } {
+  const file = join(root, PROBE_INPUT_FILE);
+  if (!existsSync(file)) return { bodies: new Map() };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    return { bodies: new Map(), error: `${PROBE_INPUT_FILE} is not valid JSON: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (!isRecord(raw)) return { bodies: new Map(), error: `${PROBE_INPUT_FILE} must be an object keyed "METHOD /path"` };
+  const bodies = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(raw)) {
+    if (!/^(POST|PATCH) \/\S*$/.test(k) || !isRecord(v) || !('body' in v)) {
+      return { bodies: new Map(), error: `${PROBE_INPUT_FILE}: entry "${k}" must be keyed "POST /path" or "PATCH /path" and hold { "body": … }` };
+    }
+    bodies.set(k, v['body']);
+  }
+  return { bodies };
+}
+
+function withUnique(v: unknown, unique: string): unknown {
+  if (typeof v === 'string') return v.split('{{unique}}').join(unique);
+  if (Array.isArray(v)) return v.map((x) => withUnique(x, unique));
+  if (isRecord(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, withUnique(x, unique)]));
+  return v;
+}
+
 /**
  * Probe `routes` (POST/PATCH routes rest-conventions accepts as idempotent). `all` is every route of the API
  * (a PATCH /x/:id needs the POST /x that creates its resource).
  */
 export async function runReplayProbe(ctx: ProbeHost, routes: RouteInfo[], all: RouteInfo[]): Promise<ReplayRun> {
   const nonce = randomBytes(3).toString('hex');
-  const creators = new Map<RouteInfo, RouteInfo>();
+  // Every `:param` of a path is filled by creating that resource first, through the POST of its collection
+  // (the path up to the parameter), left to right: PATCH /x/:id, POST /x/:id/action, /a/:aId/b/:bId/c alike.
+  const creators = new Map<RouteInfo, RouteInfo[]>();
   const prepared: Prepared[] = [];
   const needBodies = new Set<RouteInfo>();
   for (const r of routes) {
     const segs = r.path.split('/');
-    const params = segs.filter((s) => s.startsWith(':')).length;
-    if (r.method === 'post' && params === 0) {
-      prepared.push({ route: r });
-      needBodies.add(r);
-    } else if (r.method === 'patch' && params === 1 && (segs[segs.length - 1] ?? '').startsWith(':')) {
-      const collection = segs.slice(0, -1).join('/');
+    const chain: RouteInfo[] = [];
+    let missing: string | undefined;
+    segs.forEach((seg, i) => {
+      if (missing !== undefined || !seg.startsWith(':')) return;
+      const collection = segs.slice(0, i).join('/');
       const creator = all.find((x) => x.method === 'post' && x.path === collection);
-      if (creator === undefined) prepared.push({ route: r, why: `no POST ${collection} to create a resource to patch` });
-      else {
-        creators.set(r, creator);
-        prepared.push({ route: r });
-        needBodies.add(r);
-        needBodies.add(creator);
-      }
-    } else prepared.push({ route: r, why: 'its path has parameters the probe cannot fill' });
+      if (creator === undefined) missing = `no POST ${collection} to create the resource for ${seg}`;
+      else chain.push(creator);
+    });
+    if (missing !== undefined) {
+      prepared.push({ route: r, why: missing });
+      continue;
+    }
+    creators.set(r, chain);
+    prepared.push({ route: r });
+    needBodies.add(r);
+    for (const c of chain) needBodies.add(c);
   }
   const bodies = await bodiesFor(ctx, [...needBodies]);
   let salt = 0;
-  const bodyOf = (r: RouteInfo): { body?: string; why?: string } | undefined => bodies.get(r)?.(`${nonce}${String(++salt)}`);
-  const made = new Map<RouteInfo, string>();
+  const supplied = suppliedBodies(ctx.root);
+  const bodyOf = (r: RouteInfo): { body?: string; why?: string } | undefined => {
+    const unique = `${nonce}${String(++salt)}`;
+    const key = `${r.method.toUpperCase()} ${r.path}`;
+    if (supplied.error !== undefined) return { why: supplied.error };
+    if (supplied.bodies.has(key)) return { body: JSON.stringify(withUnique(supplied.bodies.get(key), unique)) };
+    return bodies.get(r)?.(unique);
+  };
+  const made = new Map<RouteInfo, string[]>();
   for (const p of prepared) {
     if (p.why !== undefined) continue;
     const own = bodyOf(p.route);
-    const creator = creators.get(p.route);
-    const create = creator !== undefined ? bodyOf(creator) : undefined;
-    if (create?.body !== undefined) made.set(p.route, create.body);
+    const chain = creators.get(p.route) ?? [];
+    const creates = chain.map((c) => ({ creator: c, made: bodyOf(c) }));
+    const failed = creates.find((c) => c.made?.body === undefined);
     if (own?.body === undefined) p.why = own?.why ?? 'no body';
-    else if (creator !== undefined && create?.body === undefined) p.why = `the resource to patch cannot be created: ${create?.why ?? 'no body'}`;
-    else p.body = own.body;
+    else if (failed !== undefined) p.why = `the resource for its path cannot be created (POST ${failed.creator.path}): ${failed.made?.why ?? 'no body'}`;
+    else {
+      p.body = own.body;
+      made.set(p.route, creates.map((c) => c.made?.body ?? ''));
+    }
   }
   const runnable = prepared.filter((p) => p.body !== undefined);
   const outcomes: ReplayOutcome[] = prepared.filter((p) => p.body === undefined).map((p) => ({ route: p.route, result: 'inconclusive', detail: p.why ?? 'not probed' }));
@@ -473,15 +525,33 @@ export async function runReplayProbe(ctx: ProbeHost, routes: RouteInfo[], all: R
         results.push({ route: p.route, result: 'inconclusive', detail: 'the probe ran out of time' });
         continue;
       }
-      let path = p.route.path;
-      const creator = creators.get(p.route);
-      if (creator !== undefined) {
-        const body = made.get(p.route);
-        const created = await request(app.base, { method: 'POST', path: creator.path, ...(body !== undefined ? { body } : {}), headers: { 'idempotency-key': randomUUID() } });
-        log.push(`${label}: create POST ${creator.path} ${body ?? ''} -> ${JSON.stringify(created)}`);
-        const at = 'error' in created || created.status < 200 || created.status > 299 ? undefined : locationPath(created.location);
+      // Fill the path: literal segments as they are, each parameter by creating its resource first.
+      const segs = p.route.path.split('/');
+      const chain = creators.get(p.route) ?? [];
+      const bodiesForChain = made.get(p.route) ?? [];
+      let path = '';
+      let step = 0;
+      let unfilled: string | undefined;
+      for (const seg of segs) {
+        if (seg === '') continue;
+        if (!seg.startsWith(':')) {
+          path += `/${seg}`;
+          continue;
+        }
+        const creator = chain[step];
+        const body = bodiesForChain[step];
+        step += 1;
+        if (creator === undefined) {
+          unfilled = `no resource could be created for ${seg}`;
+          break;
+        }
+        const collection = path;
+        const created = await request(app.base, { method: 'POST', path: collection, ...(body !== undefined ? { body } : {}), headers: { 'idempotency-key': randomUUID() } });
+        log.push(`${label}: create POST ${collection} ${body ?? ''} -> ${JSON.stringify(created)}`);
+        const ok = !('error' in created) && created.status >= 200 && created.status <= 299;
+        const at = ok ? locationPath(created.location) : undefined;
         let id: unknown;
-        if (at === undefined && !('error' in created)) {
+        if (ok && at === undefined) {
           try {
             const parsed: unknown = JSON.parse(created.body);
             id = isRecord(parsed) ? parsed['id'] : undefined;
@@ -489,16 +559,20 @@ export async function runReplayProbe(ctx: ProbeHost, routes: RouteInfo[], all: R
             id = undefined;
           }
         }
-        const collection = creator.path;
         const resolved = at !== undefined && at.startsWith(`${collection}/`) && !at.slice(collection.length + 1).includes('/') ? at
           : typeof id === 'string' || typeof id === 'number' ? `${collection}/${encodeURIComponent(String(id))}` : undefined;
         if (resolved === undefined) {
-          results.push({ route: p.route, result: 'inconclusive', detail: `creating a resource to patch (POST ${collection}) answered ${show(created)} without a usable Location or id` });
-          continue;
+          unfilled = `creating the resource for ${seg} (POST ${collection}) answered ${show(created)} without a usable Location or id`;
+          break;
         }
         path = resolved;
       }
-      const key = `harness-replay-${randomUUID()}`;
+      if (unfilled !== undefined) {
+        results.push({ route: p.route, result: 'inconclusive', detail: unfilled });
+        continue;
+      }
+      // A bare UUID: the most widely accepted Idempotency-Key format (APIs often validate it as a uuid).
+      const key = randomUUID();
       const method = p.route.method === 'post' ? 'POST' : 'PATCH';
       const send = (): Promise<HttpResponse | { error: string }> => request(app.base, { method, path, ...(p.body !== undefined ? { body: p.body } : {}), headers: { 'idempotency-key': key } });
       const first = await send();

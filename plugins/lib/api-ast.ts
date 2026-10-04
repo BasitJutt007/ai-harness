@@ -2163,14 +2163,19 @@ function idempotencyUse(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, c
 interface KeyFlow {
   /** Receivers of keyed store writes, as the abstract objects each may be. */
   writes: Array<readonly Val[]>;
-  /** Lookups (ids into KeyShared.lookups) whose value a response sends. */
+  /** Lookups (ids into KeyShared.lookups) whose stored value a response sends as its body, exactly (see exactLookup). */
   replays: Set<number>;
   /** The key flows somewhere other than a test, a keyed store or lookup, or the return value. */
   escapes: boolean;
   /** The function returns the key (or a value built from it). */
   returnsKey: boolean;
-  /** Lookups whose value the function returns. */
+  /** Lookups whose value the function returns (or a value built from one). */
   returnsLookup: Set<number>;
+  /**
+   * Lookups whose stored value the function returns exactly at a property path of its return value: path []
+   * for `return stored`, ['ticket'] for `return { ticket: stored, … }`. Undefined: nothing exact there.
+   */
+  exactReturn: (path: readonly string[]) => Set<number> | undefined;
 }
 
 /** State shared by every function keyFlow follows for one request function. */
@@ -2315,6 +2320,103 @@ function keyFlow(checker: ts.TypeChecker, model: StoreModel, body: ts.Node, read
       }
     }
   }
+  /**
+   * The stored value itself, unchanged, at a property path of `e` (path [] is `e` itself): a lookup
+   * (`store.get(key)`, `store[key]`) or any property of the looked-up record; a followed helper that returns
+   * one there; a variable every binding of which is exact there (destructuring included: `const { ticket } =
+   * repo.insert(…)`); an object literal whose property on the path is exact (`{ ticket: prior }`); a
+   * conditional or `??`/`||` whose branches are exact or nullish; `Schema.parse(exact)`. Anything built from a
+   * stored value (a spread, a template, a changed field, another call) is not: replaying it is not replaying
+   * the original.
+   */
+  const exactBindings = new Map<ts.Symbol, Array<{ value: ts.Expression; path: string[] } | 'unknown'>>();
+  {
+    const add = (sym: ts.Symbol | undefined, b: { value: ts.Expression; path: string[] } | 'unknown'): void => {
+      if (sym !== undefined) exactBindings.set(sym, [...(exactBindings.get(sym) ?? []), b]);
+    };
+    const destructure = (name: ts.BindingName, value: ts.Expression, path: string[]): void => {
+      if (ts.isIdentifier(name)) {
+        add(symOf(name), { value, path });
+        return;
+      }
+      for (const el of name.elements) {
+        if (!ts.isBindingElement(el)) continue;
+        const prop = ts.isObjectBindingPattern(name)
+          ? el.propertyName !== undefined ? (ts.isIdentifier(el.propertyName) || ts.isStringLiteralLike(el.propertyName) ? el.propertyName.text : undefined) : ts.isIdentifier(el.name) ? el.name.text : undefined
+          : undefined;
+        if (prop === undefined || el.dotDotDotToken !== undefined || el.initializer !== undefined) {
+          for (const id of bound(el.name)) add(symOf(id), 'unknown');
+          continue;
+        }
+        destructure(el.name, value, [...path, prop]);
+      }
+    };
+    walk(body, (n) => {
+      if (ts.isVariableDeclaration(n) && n.initializer !== undefined) destructure(n.name, n.initializer, []);
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(n.left)) add(symOf(n.left), { value: n.right, path: [] });
+    });
+  }
+  const union = (sets: Array<Set<number> | undefined>): Set<number> | undefined => {
+    if (sets.length === 0 || sets.some((x) => x === undefined)) return undefined;
+    return new Set(sets.flatMap((x) => [...(x ?? [])]));
+  };
+  /** Symbols (and paths) being resolved: a cycle through bindings is not exact. */
+  const visiting = new Map<ts.Symbol, Set<string>>();
+  const exactAt = (e0: ts.Node, path: readonly string[]): Set<number> | undefined => {
+    let e: ts.Node = e0;
+    while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e) || ts.isAwaitExpression(e)) e = e.expression;
+    const nullish = (x: ts.Node): boolean => x.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(x) && x.text === 'undefined');
+    const either = ts.isConditionalExpression(e)
+      ? [e.whenTrue, e.whenFalse]
+      : ts.isBinaryExpression(e) && (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken || e.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+        ? [e.left, e.right]
+        : undefined;
+    if (either !== undefined) {
+      const parts = either.filter((b) => !nullish(b));
+      return parts.length === 0 ? undefined : union(parts.map((b) => exactAt(b, path)));
+    }
+    if (ts.isObjectLiteralExpression(e)) {
+      const [head, ...rest] = path;
+      if (head === undefined) return undefined; // a new object, even if built from stored parts
+      for (const p of e.properties) {
+        if (ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) && p.name.text === head) return exactAt(p.initializer, rest);
+        if (ts.isShorthandPropertyAssignment(p) && p.name.text === head) return exactAt(p.name, rest);
+      }
+      return undefined;
+    }
+    if (ts.isCallExpression(e) && e.arguments.some((a) => carriesKeyShallow(a))) {
+      const followed = calleeFlow(e);
+      if (followed !== undefined) return followed.exactReturn(path);
+    }
+    // Validating the stored value (`Schema.parse(stored)`, as every 2xx body must be) keeps it the stored value;
+    // that the bytes really match is the runtime replay probe's job, which rest-conventions requires.
+    if (methodCall(e) && (e.expression.name.text === 'parse' || e.expression.name.text === 'parseAsync') && e.arguments.length === 1 && e.arguments[0] !== undefined) {
+      const inner = exactAt(e.arguments[0], path);
+      if (inner !== undefined) return inner;
+    }
+    // A lookup is the stored record: it, and every property of it, is the stored value.
+    const direct = methodCall(e) || ts.isElementAccessExpression(e) ? lookupOf(e) : undefined;
+    if (direct !== undefined) return direct;
+    if (ts.isIdentifier(e)) {
+      const sym = symOf(e);
+      const binds = sym !== undefined ? exactBindings.get(sym) : undefined;
+      if (sym === undefined || binds === undefined) return undefined;
+      const key = path.join('.');
+      const active = visiting.get(sym) ?? new Set<string>();
+      if (active.has(key)) return undefined;
+      active.add(key);
+      visiting.set(sym, active);
+      try {
+        return union(binds.map((b) => (b === 'unknown' ? undefined : exactAt(b.value, [...b.path, ...path]))));
+      } finally {
+        active.delete(key);
+      }
+    }
+    if (ts.isPropertyAccessExpression(e)) return exactAt(e.expression, [e.name.text, ...path]);
+    if (ts.isElementAccessExpression(e) && ts.isStringLiteralLike(e.argumentExpression)) return exactAt(e.expression, [e.argumentExpression.text, ...path]);
+    return undefined;
+  };
+  const exactLookup = (e: ts.Node): Set<number> | undefined => exactAt(e, []);
   for (const s of keySyms) shared.keySyms.add(s);
   for (const r of reads) shared.reads.add(r);
   /** Where the key at `n` goes: a call argument of a followed function escapes only if that function lets it. */
@@ -2328,7 +2430,15 @@ function keyFlow(checker: ts.TypeChecker, model: StoreModel, body: ts.Node, read
     }
     return true;
   };
-  const flow: KeyFlow = { writes: [], replays: new Set(), escapes: false, returnsKey: false, returnsLookup: new Set() };
+  const returned: ts.Expression[] = [];
+  const flow: KeyFlow = {
+    writes: [], replays: new Set(), escapes: false, returnsKey: false, returnsLookup: new Set(),
+    // Exact where any return is exact there (the replay path); the other returns are the fresh response.
+    exactReturn: (path) => {
+      const sets = returned.map((r) => exactAt(r, path)).filter((x): x is Set<number> => x !== undefined);
+      return sets.length > 0 ? new Set(sets.flatMap((x) => [...x])) : undefined;
+    },
+  };
   /** A keyed write into `obj`: its store is judged (one persistent object?) once the whole request is analysed. */
   const keyedWrite = (obj: ts.Expression): void => {
     flow.writes.push(model.resolve(obj, model.at(ctx, obj)));
@@ -2343,7 +2453,8 @@ function keyFlow(checker: ts.TypeChecker, model: StoreModel, body: ts.Node, read
     }
     if (methodCall(n) && n.arguments.length >= 2 && !carriesKey(n.expression.expression) && n.arguments[0] !== undefined && carriesKey(n.arguments[0])) keyedWrite(n.expression.expression);
     if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left) && carriesKey(n.left.argumentExpression)) keyedWrite(n.left.expression);
-    if (methodCall(n) && REPLAY_METHODS.has(n.expression.name.text)) for (const id of carriesLookup(n) ?? []) flow.replays.add(id);
+    // Only the body a response method is handed counts, and only when it is the stored value exactly.
+    if (methodCall(n) && REPLAY_METHODS.has(n.expression.name.text) && n.arguments[0] !== undefined) for (const id of exactLookup(n.arguments[0]) ?? []) flow.replays.add(id);
     if (!flow.escapes && (readSet.has(n) || inSet(n, keySyms)) && !(ts.isIdentifier(n) && isDeclarationName(n))) flow.escapes = escapesAt(n);
   });
   const fn = body.parent;
@@ -2351,6 +2462,7 @@ function keyFlow(checker: ts.TypeChecker, model: StoreModel, body: ts.Node, read
     for (const r of returnedExpressions(fn)) {
       flow.returnsKey ||= carriesKey(r);
       for (const id of carriesLookup(r) ?? []) flow.returnsLookup.add(id);
+      returned.push(r);
     }
   }
   return flow;
