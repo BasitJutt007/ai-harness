@@ -51,7 +51,9 @@ content; content hooks judge that post-image and refuse a write tool without one
 roots, import resolution, the runner and the installed express/zod/vitest/typescript from the
 target's own config; what it cannot support (a framework other than Express, jest < 29, an unknown
 runner) is UNPROVEN at preflight, and a task without `scope` writes within the profile's roots.
-`standards` compares every rule with the base commit and blocks only what the run introduced;
+`standards` holds the four standards rules at 100% over the whole API (pre-existing violations in files
+the task scope forbids fail as "incompatible target") and compares the other rules with the base commit
+(a task may opt in to `standards: baseline`, labelled "baseline mode: below 100% allowed");
 `tests-green` compares with the suite's results at run start (`src/core/test-baseline.ts`): an
 already-skipped case is listed for a human, a newly skipped one is UNPROVEN, a failing test always
 blocks. **Contract Lock** (`plugins/lib/contract.ts`) diffs routes and the JSON Schemas of each
@@ -109,9 +111,12 @@ the session to a compatible request and reports `<id> (compat)`. Vendor shapes n
 interface: reasoning blocks and per-call extras (a thought signature) travel as `opaque` parts only
 their own driver replays. Task files cannot name a model or provider, and `harness doctor` scans
 `src/core/`, `tasks/` and every non-driver plugin file for provider vocabulary. `run.json`
-fingerprints the task and every non-driver plugin file (`plugins/lib/**` included), so
-`harness agnostic <runA> <runB>` shows whether two drivers' runs used identical tools, hooks, gates
-and checks.
+fingerprints the task and every non-driver plugin file (`plugins/lib/**` included) and records
+`governance`: the ACTIVE manifest (kind, name, file, sha256 of every enabled tool, hook, gate and
+check), the governing config and its hash (`disabled`, sandbox mode, limits, ...), and a hash of
+every `src/core/` file; plus the run's `verdict` and `gateStatuses`. `harness agnostic <runA> <runB>`
+compares all of it (a field an older run.json lacks counts as a difference, UNPROVEN) and exits 0
+only when nothing governing differs AND both runs are DONE.
 
 **Proven for real:** the openai driver on the official OpenAI API (DONE on both tasks on 3 Oct code;
 on the current code only greenfield: three brownfield runs failed one agent-written test each on

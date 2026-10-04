@@ -1,14 +1,16 @@
 /**
- * standards gate, brownfield policy: block only on what the run introduced versus a baseline
- * measured on the base commit (real git repo, real check runner, content-driven rules), never on
- * pre-existing violations in code the run could not or did not change; greenfield stays strict.
+ * standards gate, brownfield policy (real git repo, real check runner, content-driven rules):
+ * - strict (the default): the standards rules at 100% over the whole API, like greenfield; pre-existing
+ *   violations in files outside the task scope are an "incompatible target" failure, never a pass.
+ * - baseline mode (explicit `standards: baseline`): block only on what the run introduced versus a
+ *   baseline measured on the base commit, labelled "baseline mode: below 100% allowed".
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CheckFinding, CheckPlugin, GatePlugin, GateResult, RunContext } from '../../src/core/plugin-api.ts';
 import { runChecks } from '../../src/core/checks.ts';
 import { runGates } from '../../src/core/gates.ts';
 import { honesty, standardsLine } from '../../src/core/run.ts';
-import standardsGate, { BASELINE_KEY } from '../../plugins/gates/standards.ts';
+import standardsGate, { BASELINE_KEY, BASELINE_MODE } from '../../plugins/gates/standards.ts';
 import { brownfieldTask, greenfieldTask, HARNESS_ROOT, makeHarness, realExec, removeTmp, sha } from './helpers.ts';
 
 const dirs: string[] = [];
@@ -111,10 +113,14 @@ interface Setup {
   checks?: CheckPlugin[];
   /** Commit the base (false = no base commit: the baseline cannot be measured). */
   commit?: boolean;
+  /** Brownfield standards policy (absent = the strict default). */
+  standards?: 'strict' | 'baseline';
+  scope?: { allow: string[]; deny: string[] };
 }
 
 async function setup(s: Setup) {
-  const h = await makeHarness({ label: 'gates-bf', task: s.kind === 'greenfield' ? greenfieldTask() : brownfieldTask(), files: s.base });
+  const task = s.kind === 'greenfield' ? greenfieldTask() : { ...brownfieldTask(s.scope), ...(s.standards !== undefined ? { standards: s.standards } : {}) };
+  const h = await makeHarness({ label: 'gates-bf', task, files: s.base });
   dirs.push(h.dir);
   if (s.commit !== false) {
     await vcs(h.dir, 'init', '-q');
@@ -156,27 +162,27 @@ const LAYOUTS = [
 
 // ───────────────────────────── tests ─────────────────────────────
 
-describe('standards gate, brownfield: pre-existing violations never block', () => {
+describe('standards gate, brownfield baseline mode (opt-in): pre-existing violations do not block', () => {
   for (const layout of LAYOUTS) {
     it(`(a) a planted pre-existing standards violation in an untouched file passes and is listed (${layout.routes})`, async () => {
       const legacy = route('put', `/v0/${layout.resource}/:id`, false);
       const base = api(layout, legacy);
       // The run adds a compliant route to the router file.
       const edits = { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', `/v1/${layout.resource}/:id`, true)}\n` };
-      const h = await setup({ base, edits });
+      const h = await setup({ standards: 'baseline', base, edits });
       const r = await run(standardsGate, h.ctx);
       const line = `pre-existing (not blocking): zod-boundary ${layout.legacy}:1:1  PUT /v0/${layout.resource}/:id: request body is not parsed`;
       expect(r.status, JSON.stringify(r)).toBe('pass');
-      expect(r.summary).toMatch(/^verdict \d+% over the whole API \(brownfield: 1 pre-existing violation\(s\) in untouched files; base commit \d+%\)/);
-      expect(r.summary).not.toMatch(/^verdict 100%/); // the true whole-API percentage, not a cleaned-up one
+      expect(r.summary).toMatch(/^baseline mode: below 100% allowed; verdict \d+% over the whole API \(brownfield: 1 pre-existing violation\(s\) in untouched files; base commit \d+%\)/);
+      expect(r.summary).not.toMatch(/verdict 100%/); // the true whole-API percentage, not a cleaned-up one
       expect(r.details).toEqual([line]);
-      expect(r.humanMustVerify).toEqual([line]);
+      expect(r.humanMustVerify).toEqual([expect.stringMatching(/^baseline mode: below 100% allowed \(the task opted in/), line]);
     });
 
     it(`(b) a violation the run introduces in a file it changed fails (${layout.routes})`, async () => {
       const base = api(layout, route('put', `/v0/${layout.resource}/:id`, false));
       const edits = { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', `/v1/${layout.resource}/:id`, false)}\n` };
-      const h = await setup({ base, edits });
+      const h = await setup({ standards: 'baseline', base, edits });
       const r = await run(standardsGate, h.ctx);
       expect(r.status).toBe('fail');
       expect(r.summary).toContain('brownfield: 1 pre-existing violation(s) in untouched files');
@@ -189,7 +195,7 @@ describe('standards gate, brownfield: pre-existing violations never block', () =
     const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
     for (const [edit, rule] of [[route('patch', '/v1/items/:id', false), 'zod-boundary'], ['console.log("debug");', 'no-console']] as const) {
       const base = api(layout, 'export const legacy = 1;');
-      const h = await setup({ base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${edit}\n` } });
+      const h = await setup({ standards: 'baseline', base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${edit}\n` } });
       const r = await run(standardsGate, h.ctx);
       expect(r.status, rule).toBe('fail');
       expect(r.details?.[0], rule).toMatch(new RegExp(`^introduced \\(in a file this run changed\\): ${rule} `));
@@ -199,7 +205,7 @@ describe('standards gate, brownfield: pre-existing violations never block', () =
   it('(b) a change elsewhere that breaks an untouched file is blocking, not "pre-existing"', async () => {
     const layout = LAYOUTS[1] ?? { routes: '', legacy: '', resource: '' };
     const base = api(layout, 'export function legacy() { throw problem(410); }');
-    const h = await setup({ base, edits: { 'src/lib/errors.ts': 'export const nothing = 0;\n' } });
+    const h = await setup({ standards: 'baseline', base, edits: { 'src/lib/errors.ts': 'export const nothing = 0;\n' } });
     const r = await run(standardsGate, h.ctx);
     expect(r.status).toBe('fail');
     expect(r.details).toEqual(expect.arrayContaining([
@@ -212,24 +218,24 @@ describe('standards gate, brownfield: pre-existing violations never block', () =
   it('(c) a rule the base commit proved that is UNPROVEN now fails; unproven at the base too stays unproven', async () => {
     const layout = LAYOUTS[2] ?? { routes: '', legacy: '', resource: '' };
     const base = api(layout, 'export const legacy = 1;');
-    const broken = await setup({ base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}// UNREADABLE\n` } });
+    const broken = await setup({ standards: 'baseline', base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}// UNREADABLE\n` } });
     const r = await run(standardsGate, broken.ctx);
     expect(r.status).toBe('fail');
     expect(r.details?.[0]).toMatch(/^rest-conventions: UNPROVEN now \(skipped: check crashed: cannot parse .*\) but proven at the base commit \(\d+\/\d+ routes\)$/);
 
-    const already = await setup({ base: api(layout, '// UNREADABLE legacy'), edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/x/:id', true)}\n` } });
+    const already = await setup({ standards: 'baseline', base: api(layout, '// UNREADABLE legacy'), edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/x/:id', true)}\n` } });
     const u = await run(standardsGate, already.ctx);
     expect(u.status).toBe('unproven');
     expect(u.details?.[0]).toMatch(/^rest-conventions: skipped: .* \(unproven at the base commit too/);
   });
 
-  it('(d) greenfield is unchanged: the same untouched-file standards violation still fails (whole API, strict)', async () => {
+  it('(d) the same untouched-file standards violation: greenfield and default brownfield fail, only baseline mode passes', async () => {
     const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
     const base = api(layout, route('put', '/v0/items/:id', false));
-    for (const kind of ['greenfield', 'brownfield'] as const) {
-      const h = await setup({ kind, base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}\n` } });
+    for (const [kind, standards, want] of [['greenfield', undefined, 'fail'], ['brownfield', undefined, 'fail'], ['brownfield', 'strict', 'fail'], ['brownfield', 'baseline', 'pass']] as const) {
+      const h = await setup({ kind, base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}\n` }, ...(standards !== undefined ? { standards } : {}) });
       const r = await run(standardsGate, h.ctx);
-      expect(r.status, kind).toBe(kind === 'greenfield' ? 'fail' : 'pass');
+      expect(r.status, `${kind} ${standards ?? 'default'}`).toBe(want);
     }
   });
 
@@ -238,13 +244,13 @@ describe('standards gate, brownfield: pre-existing violations never block', () =
     const old = route('put', `/v0/${layout.resource}/:id`, false);
     const base = api(layout, old);
     const shifted = { [layout.legacy]: `// a comment the run added\n\n${old}\n` };
-    const h = await setup({ base, edits: shifted });
+    const h = await setup({ standards: 'baseline', base, edits: shifted });
     const r = await run(standardsGate, h.ctx);
     expect(r.status, JSON.stringify(r)).toBe('pass');
     expect(r.summary).toContain('brownfield: 0 pre-existing violation(s) in untouched files, 1 in files this run changed');
     expect(r.details).toEqual([`pre-existing (not blocking; in a file this run changed): zod-boundary ${layout.legacy}:3:1  PUT /v0/${layout.resource}/:id: request body is not parsed`]);
 
-    const twice = await setup({ base, edits: { [layout.legacy]: `${old}\n${old}\n` } });
+    const twice = await setup({ standards: 'baseline', base, edits: { [layout.legacy]: `${old}\n${old}\n` } });
     const t = await run(standardsGate, twice.ctx);
     expect(t.status).toBe('fail');
     expect(t.details?.[0]).toContain('introduced (in a file this run changed)');
@@ -253,21 +259,21 @@ describe('standards gate, brownfield: pre-existing violations never block', () =
   it('no base commit: a violation in a changed file fails; an untouched-file one is unproven, never green', async () => {
     const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
     const base = api(layout, route('put', '/v0/items/:id', false));
-    const untouched = await setup({ base, commit: false });
+    const untouched = await setup({ standards: 'baseline', base, commit: false });
     const u = await run(standardsGate, untouched.ctx);
     expect(u.status).toBe('unproven');
     expect(u.summary).toContain('no baseline');
-    const changed = await setup({ base, commit: false, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', false)}\n` } });
+    const changed = await setup({ standards: 'baseline', base, commit: false, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', false)}\n` } });
     expect((await run(standardsGate, changed.ctx)).status).toBe('fail');
   });
 
   it('an all-green report needs no baseline; the baseline is measured once and cached in run state', async () => {
     const layout = LAYOUTS[1] ?? { routes: '', legacy: '', resource: '' };
-    const clean = await setup({ base: api(layout, 'export const legacy = 1;'), commit: false });
+    const clean = await setup({ standards: 'baseline', base: api(layout, 'export const legacy = 1;'), commit: false });
     expect(await run(standardsGate, clean.ctx)).toMatchObject({ status: 'pass', summary: 'verdict 100% (4 rules)' });
     expect(clean.roots).toEqual([clean.ws.root]);
 
-    const dirty = await setup({ base: api(layout, route('put', '/v0/x/:id', false)) });
+    const dirty = await setup({ standards: 'baseline', base: api(layout, route('put', '/v0/x/:id', false)) });
     expect((await run(standardsGate, dirty.ctx)).status).toBe('pass');
     expect((await run(standardsGate, dirty.ctx)).status).toBe('pass');
     expect(dirty.roots.filter((r) => r !== dirty.ws.root)).toHaveLength(1); // one snapshot run for two gate runs
@@ -284,12 +290,78 @@ describe('standards gate, brownfield: pre-existing violations never block', () =
       },
     });
     const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
-    const pre = await setup({ base: api(layout, '// BROKEN'), checks: [bodyRule, project('TS5023: unknown option')] });
+    const pre = await setup({ standards: 'baseline', base: api(layout, '// BROKEN'), checks: [bodyRule, project('TS5023: unknown option')] });
     const p = await run(standardsGate, pre.ctx);
     expect(p.status, JSON.stringify(p)).toBe('pass');
     expect(p.summary).toContain('1 not attributable to a file');
-    const fresh = await setup({ base: api(layout, 'export const ok = 1;'), edits: { [layout.legacy]: '// BROKEN\n' }, checks: [bodyRule, project('TS5023: unknown option')] });
+    const fresh = await setup({ standards: 'baseline', base: api(layout, 'export const ok = 1;'), edits: { [layout.legacy]: '// BROKEN\n' }, checks: [bodyRule, project('TS5023: unknown option')] });
     expect((await run(standardsGate, fresh.ctx)).status).toBe('fail');
+  });
+});
+
+describe('standards gate, brownfield strict (the default): 100% over the whole API', () => {
+  const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
+  const legacy = route('put', '/v0/items/:id', false);
+
+  it('a pre-existing standards violation in an in-scope file fails: the run must fix it', async () => {
+    const base = api(layout, legacy);
+    const h = await setup({ base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', true)}\n` } });
+    const r = await run(standardsGate, h.ctx);
+    expect(r.status, JSON.stringify(r)).toBe('fail');
+    expect(r.summary).toMatch(/^verdict \d+% over the whole API \(brownfield, strict: the standards rules must be 100%\): 1 standards violation\(s\) to fix$/);
+    expect(r.details).toEqual([`must fix (in scope): zod-boundary ${layout.legacy}:1:1  PUT /v0/items/:id: request body is not parsed`]);
+    expect(r.summary).not.toContain(BASELINE_MODE);
+  });
+
+  it('pre-existing violations in files the task scope forbids: "incompatible target" with the list, fail (never a silent pass)', async () => {
+    const base = api(layout, legacy, { 'src/vendor/old.ts': `${route('delete', '/v0/items/:id', false)}\n` });
+    const scope = { allow: ['src/**/*.ts', 'test/**/*.ts'], deny: ['src/legacy/**', 'src/vendor/**'] };
+    const h = await setup({ base, scope, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', true)}\n` } });
+    const r = await run(standardsGate, h.ctx);
+    expect(r.status, JSON.stringify(r)).toBe('fail');
+    expect(r.summary).toMatch(/^incompatible target: 2 pre-existing violation\(s\) in files outside the task scope \(src\/legacy\/old\.ts, src\/vendor\/old\.ts\): the standards rules cannot reach 100% without editing them/);
+    expect(r.failing).toBe(2);
+    expect(r.details?.[0]).toBe('incompatible target: 2 pre-existing violation(s) in files outside the task scope (src/legacy/old.ts, src/vendor/old.ts)');
+    expect(r.humanMustVerify?.[0]).toContain('incompatible target: 2 pre-existing violation(s)');
+  });
+
+  it('a standards violation the run causes in a forbidden file (via a change elsewhere) is blocking, not "incompatible"', async () => {
+    const base = api(layout, 'export function legacy() { throw problem(410); }');
+    const scope = { allow: ['src/**/*.ts', 'test/**/*.ts'], deny: ['src/legacy/**'] };
+    const h = await setup({ base, scope, edits: { 'src/lib/errors.ts': 'export const nothing = 0;\n' } });
+    const r = await run(standardsGate, h.ctx);
+    expect(r.status).toBe('fail');
+    expect(r.summary).not.toContain('incompatible target');
+    expect(r.details).toContain(`introduced (in a file outside the task scope: a change elsewhere caused it): problem-json ${layout.legacy}:1:1  error is not a problem+json response`);
+  });
+
+  it('standards at 100%: pass; other rules still follow the base-commit comparison', async () => {
+    const clean = await setup({ base: api(layout, 'export const legacy = 1;') });
+    expect(await run(standardsGate, clean.ctx)).toMatchObject({ status: 'pass', summary: 'verdict 100% (4 rules)' });
+    const lint = await setup({ base: api(layout, 'console.log("old");') });
+    const l = await run(standardsGate, lint.ctx);
+    expect(l.status, JSON.stringify(l)).toBe('pass');
+    expect(l.summary).toContain('1 pre-existing violation(s) in untouched files');
+    expect(l.summary).not.toContain(BASELINE_MODE);
+  });
+});
+
+describe('the task front end normalizes the standards policy', () => {
+  it('canonical, aliased and absent spellings', async () => {
+    const { normalizeTask } = await import('../../src/core/task.ts');
+    const base = { kind: 'brownfield', id: 'x', title: 'x', target: 'api', change: 'c' };
+    const t = (extra: Record<string, unknown>) => normalizeTask({ ...base, ...extra });
+    expect(t({}).task).not.toHaveProperty('standards');
+    expect(t({ standards: 'baseline' }).task).toMatchObject({ standards: 'baseline' });
+    const aliased = t({ 'standards-mode': 'Diff-Aware' });
+    expect(aliased.task).toMatchObject({ standards: 'baseline' });
+    expect(aliased.warnings).toContain('standards "Diff-Aware" -> "baseline"');
+    expect(t({ standardsPolicy: '100%' }).task).toMatchObject({ standards: 'strict' });
+    expect(() => t({ standards: 'sometimes' })).toThrow(/standards/);
+    expect(normalizeTask({ ...base, standards: 'baseline' }, { strict: true }).task).toMatchObject({ standards: 'baseline' });
+    const green = normalizeTask({ kind: 'greenfield', id: 'g', title: 'g', brief: 'b', standards: 'baseline' });
+    expect(green.task).not.toHaveProperty('standards');
+    expect(green.task.carried).toEqual({ standards: 'baseline' });
   });
 });
 
@@ -313,7 +385,8 @@ describe('gate humanMustVerify reaches the honesty report', () => {
       rules: [{ rule: 'zod-boundary', category: 'standards', unit: 'handlers', status: 'fail' as const, passed: 3, total: 4, files: 1 }],
       verdict: { status: 'fail' as const, percent: 75 },
     };
-    expect(standardsLine(report, false, 'brownfield')).toMatch(/^FAIL 75% {2}zod-boundary fail {2}\(brownfield: the standards gate blocks only what this run introduced/);
+    expect(standardsLine(report, false, 'brownfield', 'baseline')).toMatch(/^FAIL 75% {2}zod-boundary fail {2}\(baseline mode: below 100% allowed; the standards gate blocks only what this run introduced/);
+    expect(standardsLine(report, false, 'brownfield')).toBe('FAIL 75%  zod-boundary fail');
     expect(standardsLine(report, false, 'greenfield')).toBe('FAIL 75%  zod-boundary fail');
   });
 });

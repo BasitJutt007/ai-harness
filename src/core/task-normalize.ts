@@ -113,6 +113,8 @@ const TOP = {
   basePath: ['basepath', 'prefix', 'apiprefix', 'baseurl', 'urlprefix', 'routeprefix'],
   scope: ['scope'],
   allowBreaking: ['allowbreaking', 'allowbreakingchanges', 'breakingchanges', 'breaking'],
+  /** Brownfield standards policy: strict (default, 100% over the whole API) or the explicit baseline opt-in. */
+  standards: ['standards', 'standardsmode', 'standardspolicy', 'standardsgate'],
   limits: ['limits'],
 };
 
@@ -304,6 +306,20 @@ function boolOf(v: unknown): boolean | undefined {
     if (/^(false|no|n|0|off|optional)$/.test(s)) return false;
   }
   return undefined;
+}
+
+/** Brownfield standards policy value -> 'strict' | 'baseline'; anything else is left for the schema to reject. */
+const STANDARDS_MODES: Record<string, 'strict' | 'baseline'> = {
+  strict: 'strict', full: 'strict', whole: 'strict', wholeapi: 'strict', '100': 'strict', all: 'strict',
+  baseline: 'baseline', diff: 'baseline', diffaware: 'baseline', noregression: 'baseline', nonregression: 'baseline', lenient: 'baseline',
+};
+
+function standardsModeOf(v: unknown, warn: (m: string) => void): unknown {
+  if (typeof v !== 'string') return v;
+  const mode = STANDARDS_MODES[v.trim().toLowerCase().replace(/[^a-z0-9]/g, '')];
+  if (mode === undefined) return v;
+  if (mode !== v) warn(`standards "${v}" -> "${mode}"`);
+  return mode;
 }
 
 function numberOf(v: unknown): number | undefined {
@@ -1049,6 +1065,7 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
   const basePathHit = pickOne(root, TOP.basePath, used, isText);
   const scopeHit = pickOne(root, TOP.scope, used);
   const breakingHit = pickOne(root, TOP.allowBreaking, used);
+  const standardsHit = pickOne(root, TOP.standards, used);
   const limitsHit = pickOne(root, TOP.limits, used);
 
   const carried: Obj = {};
@@ -1081,6 +1098,7 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
     candidate.resources = resourceSpecs;
     if (scopeHit !== undefined) carry(scopeHit[0], scopeHit[1], 'has no effect on a greenfield task (the template decides what is writable)');
     if (breakingHit !== undefined) carry(breakingHit[0], breakingHit[1], 'has no effect on a greenfield task');
+    if (standardsHit !== undefined) carry(standardsHit[0], standardsHit[1], 'has no effect on a greenfield task (its standards are always 100% over the whole API)');
   } else {
     const tgt = target !== undefined ? cleanPath(target) : '.';
     if (target === undefined) warn('target inferred: "." (the --repo directory)');
@@ -1096,6 +1114,7 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
     if (change !== '') candidate.change = change;
     if (scopeHit !== undefined) candidate.scope = scopeOf(scopeHit[1], warn);
     if (breakingHit !== undefined) candidate.allowBreaking = boolOf(breakingHit[1]) ?? breakingHit[1];
+    if (standardsHit !== undefined) candidate.standards = standardsModeOf(standardsHit[1], warn);
     if (resourceSpecs.length > 0) candidate.resources = resourceSpecs;
     if (templateHit !== undefined) carry(templateHit[0], templateHit[1], 'has no effect on a brownfield task');
     if (basePathHit !== undefined) carry(basePathHit[0], basePathHit[1], 'has no effect on a brownfield task');

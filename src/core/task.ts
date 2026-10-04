@@ -150,6 +150,9 @@ const BrownfieldSchema = z
       .strict()
       .default({ allow: ['src/**/*.ts', 'test/**/*.ts'], deny: [] }),
     allowBreaking: z.boolean().default(false),
+    // Absent = strict: the standards rules must hold at 100% over the whole API. 'baseline' is the explicit
+    // opt-in to the base-commit comparison (below 100% allowed when this run introduces nothing).
+    standards: z.enum(['strict', 'baseline']).optional(),
     resources: z.array(ResourceSchema).optional(),
   })
   .strict();
