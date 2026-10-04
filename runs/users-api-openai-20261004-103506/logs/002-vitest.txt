@@ -1,0 +1,113 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 5 failed) 38ms
+   ❯ users API (5)
+     × creates with defaults and location, rejects duplicate email 24ms
+     × validates body, malformed JSON, and idempotency replay/reuse 4ms
+     × lists with cursor pagination and gets users 4ms
+     × patches partially, validates empty and duplicate email, and handles missing ids 3ms
+     × deletes and reports missing resources and invalid parameters 2ms
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  15:35:23
+   Duration  279ms (import 65%, tests 19%, transform 15%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates with defaults and location, rejects duplicate email
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:13:29
+     11|     const app = createApp();
+     12|     const response = await create(app, body('a@example.com'));
+     13|     expect(response.status).toBe(201); expect(response.headers.locatio…
+       |                             ^
+     14|     expect(response.body.role).toBe('member'); expect(response.body.id…
+     15|     const duplicate = await create(app, body('a@example.com'));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/users.test.ts > users API > validates body, malformed JSON, and idempotency replay/reuse
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:20:68
+     18|   it('validates body, malformed JSON, and idempotency replay/reuse', a…
+     19|     const app = createApp(); const key = 'same-key'; const value = bod…
+     20|     expect((await create(app, { email: 'bad', name: '' })).status).toB…
+       |                                                                    ^
+     21|     const malformed = await request(app).post('/v1/users').set('Idempo…
+     22|     expect(malformed.status).toBe(400); expect(malformed.type).toBe('a…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  test/users.test.ts > users API > lists with cursor pagination and gets users
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:29:85
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  test/users.test.ts > users API > patches partially, validates empty and duplicate email, and handles missing ids
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:36:28
+     34|     const app = createApp(); const made = await create(app, body('d@ex…
+     35|     const patched = await request(app).patch(`/v1/users/${id}`).set('I…
+     36|     expect(patched.status).toBe(200); expect(patched.body.name).toBe('…
+       |                            ^
+     37|     expect((await request(app).patch(`/v1/users/${id}`).set('Idempoten…
+     38|     await create(app, body('e@example.com'), 'e'); expect((await reque…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  test/users.test.ts > users API > deletes and reports missing resources and invalid parameters
+AssertionError: expected 404 to be 204 // Object.is equality
+
+- Expected
++ Received
+
+- 204
++ 404
+
+ ❯ test/users.test.ts:43:67
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":0,"numFailedTests":5,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791110123055,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates with defaults and location, rejects duplicate email","status":"failed","title":"creates with defaults and location, rejects duplicate email","duration":24.191791999999992,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts:13:29\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates body, malformed JSON, and idempotency replay/reuse","status":"failed","title":"validates body, malformed JSON, and idempotency replay/reuse","duration":3.8116249999999923,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts:20:68\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API lists with cursor pagination and gets users","status":"failed","title":"lists with cursor pagination and gets users","duration":3.8245000000000005,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts:29:85\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API patches partially, validates empty and duplicate email, and handles missing ids","status":"failed","title":"patches partially, validates empty and duplicate email, and handles missing ids","duration":2.8990420000000086,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts:36:28\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API deletes and reports missing resources and invalid parameters","status":"failed","title":"deletes and reports missing resources and invalid parameters","duration":2.4724169999999788,"failureMessages":["AssertionError: expected 404 to be 204 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts:43:67\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791110123293,"endTime":1791110123330.4724,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts"}]}

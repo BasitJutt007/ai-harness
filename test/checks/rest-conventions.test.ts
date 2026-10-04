@@ -198,4 +198,51 @@ void makeStore;
       expect(await idemp(top, inner)).not.toBe('pass');
     });
   });
+  describe('the idempotency store passed into a helper keeps the lifetime it had at the call site', () => {
+    /** The handler hands its store `S` to helpers that look up and store under the key. */
+    const route = (top: string, inner: string): string => `import { Router } from 'express';
+import { z } from 'zod';
+const Item = z.object({ id: z.string() });
+type ItemT = z.infer<typeof Item>;
+const Headers = z.object({ 'idempotency-key': z.string().optional() });
+${top}
+function makeStore(): Map<string, ItemT> { return new Map(); }
+function recall(store: Map<string, ItemT>, key: string): ItemT | undefined { return store.get(key); }
+function remember(store: Map<string, ItemT>, key: string, value: ItemT): void { store.set(key, value); }
+export const r = Router();
+r.post('/v1/items', (req, res) => {
+${inner}
+  const key = Headers.parse(req.headers)['idempotency-key'];
+  const hit = key !== undefined ? recall(S, key) : undefined;
+  if (hit !== undefined) {
+    res.status(201).location(\`/v1/items/\${hit.id}\`).json(Item.parse(hit));
+    return;
+  }
+  const body = Item.parse(req.body);
+  if (key !== undefined) remember(S, key, body);
+  res.status(201).location(\`/v1/items/\${body.id}\`).json(Item.parse(body));
+});
+void makeStore;
+`;
+    const MAP = 'new Map<string, ItemT>()';
+    const idemp = async (top: string, inner: string): Promise<'pass' | 'not pass'> => {
+      const root = await tempApi({ 'src/routes.ts': route(top, inner) });
+      roots.push(root);
+      const text = (await restConventions.run(await contextFor(root))).map((f) => `${f.status} ${f.skipReason ?? ''} ${f.violations.map((v) => v.message).join(' | ')}`).join('\n');
+      return /Idempotency-Key|idempotency/.test(text) ? 'not pass' : 'pass';
+    };
+    it.each([
+      ['a module-level store', `const S = ${MAP};`, ''],
+      ['a property of a module-level holder', `const holder = { store: ${MAP} };`, '  const S = holder.store;'],
+    ])('persistent, passed into helpers: %s passes', async (_label, top, inner) => {
+      expect(await idemp(top, inner)).toBe('pass');
+    });
+    it.each([
+      ['a store created in the handler', '', `  const S = ${MAP};`],
+      ['a wrapped store created in the handler', '', `  const holder = { store: ${MAP} };\n  const S = holder.store;`],
+      ['a store from a call in the handler (lifetime unknown)', '', '  const S = makeStore();'],
+    ])('never a pass when passed into helpers: %s', async (_label, top, inner) => {
+      expect(await idemp(top, inner)).toBe('not pass');
+    });
+  });
 });
