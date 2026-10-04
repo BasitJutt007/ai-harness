@@ -24,6 +24,9 @@ export { templateManifest } from './template.ts';
 /** The API's strict type check behind ctx.program() (forced flags, every TS file, references; see typecheck.ts). */
 export { FORCED_FLAGS, typecheckOf } from './typecheck.ts';
 export type { TypeDiagnostic, Typecheck, TypecheckResult } from './typecheck.ts';
+/** The read fence of every TypeScript program built in-process over the API (see ts-fence.ts). */
+export { createTsFence } from './ts-fence.ts';
+export type { TsFence } from './ts-fence.ts';
 
 export function defineDriver(p: Omit<DriverPlugin, 'kind'>): DriverPlugin {
   return { kind: 'driver', ...p };

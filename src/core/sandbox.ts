@@ -1,7 +1,8 @@
 /**
  * Execution isolation for agent-written code (the test runner, runtime probes, contract
- * schema extraction, tsc over the agent's tsconfig). exec.ts routes every call that carries a
- * SandboxPolicy through wrap():
+ * schema extraction). TypeScript programs the harness builds in-process over the agent's tsconfig
+ * and imports are no subprocess: ts-fence.ts gives them the same read allow-list through their
+ * compiler host. exec.ts routes every call that carries a SandboxPolicy through wrap():
  *
  *   sandbox-exec (macOS)  generated Seatbelt profile on top of (allow default):
  *                         - writes only inside the policy's writable dirs;
@@ -212,7 +213,7 @@ export function enclosingRoot(cwd: string): string {
  * Realpaths of symlinked packages in a (real) node_modules dir that point outside it: npm / yarn
  * workspaces link to sibling packages of the repo. Links within it (pnpm's .pnpm store) need nothing.
  */
-function linkedPackages(nm: string): string[] {
+export function linkedPackages(nm: string): string[] {
   const out: string[] = [];
   const visit = (dir: string, depth: number): void => {
     let names: string[];

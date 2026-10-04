@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
 import { z } from 'zod';
-import type { Exec, JsonSchema, RunContext } from '../../src/core/plugin-api.ts';
+import { createTsFence } from '../../src/core/plugin-api.ts';
+import type { Exec, JsonSchema, RunContext, TsFence } from '../../src/core/plugin-api.ts';
 import { extractRoutes, resolveSymbol } from './api-ast.ts';
 import type { RouteInfo, SchemaRef } from './api-ast.ts';
 import { notImportable } from './schema-purity.ts';
@@ -92,14 +93,17 @@ export async function apiSourceFiles(root: string): Promise<string[]> {
   return (await glob(['src/**/*.ts'], { cwd: root, ignore: IGNORE })).map((f) => f.split('\\').join('/')).sort();
 }
 
-/** Same options as the check runner: the API's tsconfig with strict/noUncheckedIndexedAccess/noEmit forced. */
-export function apiCompilerOptions(root: string): ts.CompilerOptions {
+/**
+ * Same options as the check runner: the API's tsconfig with strict/noUncheckedIndexedAccess/noEmit forced.
+ * Read through the API's read fence: an `extends` outside the API's tree is not read.
+ */
+export function apiCompilerOptions(root: string, fence: TsFence = createTsFence(root)): ts.CompilerOptions {
   const forced: ts.CompilerOptions = { strict: true, noUncheckedIndexedAccess: true, noEmit: true };
   const configPath = join(root, 'tsconfig.json');
-  if (existsSync(configPath)) {
-    const read = ts.readConfigFile(configPath, (p) => ts.sys.readFile(p));
+  if (fence.host.fileExists(configPath)) {
+    const read = ts.readConfigFile(configPath, (p) => fence.host.readFile(p));
     if (read.error === undefined) {
-      const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, root, undefined, configPath);
+      const parsed = ts.parseJsonConfigFileContent(read.config, fence.host, root, undefined, configPath);
       return { ...parsed.options, ...forced };
     }
   }
@@ -114,8 +118,10 @@ export function apiCompilerOptions(root: string): ts.CompilerOptions {
   };
 }
 
+/** The API's program over `files`, fenced: it reads the API's tree, its node_modules and the TypeScript libs only. */
 export function createApiProgram(root: string, files: string[]): ts.Program {
-  return ts.createProgram({ rootNames: files.map((f) => join(root, f)), options: apiCompilerOptions(root) });
+  const fence = createTsFence(root);
+  return fence.createProgram(files.map((f) => join(root, f)), apiCompilerOptions(root, fence));
 }
 
 // ───────────────────────────── extraction ─────────────────────────────

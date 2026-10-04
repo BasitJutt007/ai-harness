@@ -13,6 +13,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, posix } from 'node:path';
 import ts from 'typescript';
 import { z } from 'zod';
+import { createTsFence } from '../../src/core/plugin-api.ts';
 import { programFile } from './api-ast.ts';
 
 /** An app entry: a module (API-relative) and optionally the export that builds or holds the app. */
@@ -98,8 +99,10 @@ interface Layout {
 
 function tsLayout(root: string): Layout {
   const file = join(root, 'tsconfig.json');
-  if (!existsSync(file)) return { rootDir: '', outDir: '' };
-  const read = ts.readConfigFile(file, (p) => ts.sys.readFile(p));
+  // Through the API's read fence, like every TypeScript read of agent-controlled config.
+  const host = createTsFence(root).host;
+  if (!host.fileExists(file)) return { rootDir: '', outDir: '' };
+  const read = ts.readConfigFile(file, (p) => host.readFile(p));
   const opts: unknown = isRecord(read.config) ? read.config['compilerOptions'] : undefined;
   const pick = (k: string): string => {
     const v = isRecord(opts) ? opts[k] : undefined;
