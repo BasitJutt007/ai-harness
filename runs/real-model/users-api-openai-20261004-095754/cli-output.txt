@@ -1,0 +1,58 @@
+target     framework express 5.2.1  runner vitest 5.0.3 (harness)
+           source src/  tests test/ [test/**/*.test.ts]  test dirs test/
+           entry src/server.ts, src/app.ts  zod 4.6.5 → toJSONSchema
+           deps express 5.2.1 (harness), zod 4.6.5 (harness), vitest 5.0.3 (harness), typescript 6.0.3 (harness)
+run        users-api-openai-20261004-095754
+status     max_turns  turns 60  finish attempts 0  driver openai  model gpt-5.6-luna (compat)
+limit      60 turns (task file maxTurns (hard cap))
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  n/a       not applicable to greenfield tasks
+gate  observed-red   pass      10 red observations (1 test files); 1 changed source files went red -> green (1 on unchanged cases, 0 on edited cases by differential proof), red again with the original source
+gate  orphans        pass      no new non-test files
+gate  scope          pass      2 changed files, all in scope
+gate  spec-coverage  pass      18/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]
+gate  standards      fail      verdict 93%
+    zod-boundary      FAIL  src/routes/index.ts              2/5 handlers
+        src/routes/index.ts:24:62  GET /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+        src/routes/index.ts:24:32  GET /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+        src/routes/index.ts:25:79  PATCH /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+        src/routes/index.ts:25:49  PATCH /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+        src/routes/index.ts:26:65  DELETE /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+        src/routes/index.ts:26:35  DELETE /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    ────────────────────────────────────────────────────────────
+    problem-json      pass    36/36 error paths
+    rest-conventions  pass     5/5 routes
+    tsc-strict        pass     0 errors
+    zod-boundary      FAIL     2/5 handlers
+    … 1 more
+gate  tests-green    fail      1 of 31 tests failed in 5 files
+    tests: 1 failed, 30 passed (31) in 5 files
+    FAIL test/users.test.ts > users API > validates and reports conflicts and malformed JSON: expected 422 to be 404 // Object.is equality
+    log: runs/users-api-openai-20261004-095754/logs/037-vitest.txt
+standards  FAIL 93%  problem-json pass, rest-conventions pass, tsc-strict pass, zod-boundary fail
+tokens     actual 353627  baseline 1702439  reduction 79.2%  over 60 turns  (output 37293, provider-reported input 334864)
+           baseline is a shadow estimate (never sent); measured: harness run <task> --baseline, then harness tokens compare users-api-openai-20261004-095754 <baselineRunId>
+evidence   runs/users-api-openai-20261004-095754/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/users-api-openai-20261004-095754.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-095754  branch harness/users-api-openai-20261004-095754  (base main @ 7c3a120022b4; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/final4 untouched)
+honesty
+  proven             gate:observed-red
+                     gate:orphans
+                     gate:scope
+                     gate:spec-coverage
+                     check:problem-json
+                     check:rest-conventions
+                     check:tsc-strict
+                     isolation:sandbox-exec (agent code: reads only its worktree, node_modules and toolchain; writes only to a per-call temp dir; env allow-list; network loopback only)
+  failed             gate:standards (verdict 93%)
+                     gate:tests-green (1 of 31 tests failed in 5 files)
+                     check:zod-boundary (2/5 handlers)
+  UNPROVEN           (none)
+  n/a                gate:contract-lock
+  human must verify  gate:spec-coverage: what the task states beyond fields and operations (8 behaviour(s)): the generated probes cover routes and field constraints only
+                     behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+verdict    NOT DONE (loop ended max_turns)
+exit=1

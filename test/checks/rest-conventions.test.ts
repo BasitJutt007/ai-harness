@@ -150,4 +150,52 @@ ${fresh ? '  const done = new Map<string, z.infer<typeof Item>>();\n' : ''}  con
     expect(fresh.join('\n')).toMatch(/POST \/v1\/items reads the Idempotency-Key header, but no function of its chain was shown to store a response keyed by it/);
     expect(fresh.some((l) => l.startsWith('pass'))).toBe(false);
   });
+  describe('the idempotency store must outlive the request (lifetime followed through properties and aliases)', () => {
+    /** `top` goes at module level, `inner` at the start of the handler; the handler uses `S` as the store. */
+    const route = (top: string, inner: string): string => `import { Router } from 'express';
+import { z } from 'zod';
+const Item = z.object({ id: z.string() });
+const Headers = z.object({ 'idempotency-key': z.string().optional() });
+${top}
+function makeStore(): Map<string, z.infer<typeof Item>> { return new Map(); }
+export const r = Router();
+r.post('/v1/items', (req, res) => {
+${inner}
+  const key = Headers.parse(req.headers)['idempotency-key'];
+  const hit = key !== undefined ? S.get(key) : undefined;
+  if (hit !== undefined) {
+    res.status(201).location(\`/v1/items/\${hit.id}\`).json(Item.parse(hit));
+    return;
+  }
+  const body = Item.parse(req.body);
+  if (key !== undefined) S.set(key, body);
+  res.status(201).location(\`/v1/items/\${body.id}\`).json(Item.parse(body));
+});
+void makeStore;
+`;
+    const MAP = 'new Map<string, z.infer<typeof Item>>()';
+    const idemp = async (top: string, inner: string): Promise<'pass' | 'fail' | 'unproven'> => {
+      const root = await tempApi({ 'src/routes.ts': route(top, inner) });
+      roots.push(root);
+      const text = (await restConventions.run(await contextFor(root))).map((f) => `${f.status} ${f.skipReason ?? ''} ${f.violations.map((v) => v.message).join(' | ')}`).join('\n');
+      if (!/Idempotency-Key|idempotency/.test(text)) return 'pass';
+      return /no function of its chain was shown to store/.test(text) && !/^fail/m.test(text) ? 'unproven' : 'fail';
+    };
+    it.each([
+      ['module-level store', `const S = ${MAP};`, ''],
+      ['module-level holder object, used through a property', `const holder = { store: ${MAP} };`, '  const S = holder.store;'],
+      ['handler-local alias of a module-level store', `const shared = ${MAP};`, '  const S = shared;'],
+      ['handler-local alias of a property of a module-level holder', `const holder = { store: ${MAP} };`, '  const h = holder;\n  const S = h.store;'],
+    ])('persistent: %s passes', async (_label, top, inner) => {
+      expect(await idemp(top, inner)).toBe('pass');
+    });
+    it.each([
+      ['a store created in the handler', '', `  const S = ${MAP};`],
+      ['a store wrapped in an object created in the handler', '', `  const holder = { store: ${MAP} };\n  const S = holder.store;`],
+      ['an alias of a wrapper created in the handler', '', `  const holder = { store: ${MAP} };\n  const h = holder;\n  const S = h.store;`],
+      ['a store returned by a call in the handler (lifetime unknown)', '', '  const S = makeStore();'],
+    ])('never a pass: %s', async (_label, top, inner) => {
+      expect(await idemp(top, inner)).not.toBe('pass');
+    });
+  });
 });

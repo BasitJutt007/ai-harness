@@ -1,0 +1,99 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-15929-a24cfbaa/65b5d6f1153a/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-15929-a24cfbaa/65b5d6f1153a/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 4 failed) 32ms
+   ❯ users API (4)
+     × creates, gets, patches and deletes a user 22ms
+     × rejects invalid fields, empty patches, malformed JSON, and missing ids as problems 5ms
+     × enforces unique emails and idempotency 2ms
+     × paginates all users exactly once 2ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  15:06:36
+   Duration  244ms (import 59%, tests 21%, transform 18%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, patches and deletes a user
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:13:85
+     11|   it('creates, gets, patches and deletes a user', async () => {
+     12|     const app = createApp();
+     13|     const made = await request(app).post('/v1/users').send(create('a@e…
+       |                                                                                     ^
+     14|     expect(made.headers.location).toMatch(/^\/v1\/users\/[0-9a-f-]+$/);
+     15|     const user = UserSchema.parse(made.body);
+ ❯ Test._assertStatus ../../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > rejects invalid fields, empty patches, malformed JSON, and missing ids as problems
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:26:91
+     24|   it('rejects invalid fields, empty patches, malformed JSON, and missi…
+     25|     const app = createApp();
+     26|     const invalid = await request(app).post('/v1/users').send({ email:…
+       |                                                                                           ^
+     27|     expect(ProblemSchema.parse(invalid.body).detail).toMatch(/email/);
+     28|     expect(invalid.body.detail).toMatch(/name/);
+ ❯ Test._assertStatus ../../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > enforces unique emails and idempotency
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:38:75
+     36|   it('enforces unique emails and idempotency', async () => {
+     37|     const app = createApp();
+     38|     await request(app).post('/v1/users').send(create('same@example.com…
+       |                                                                           ^
+     39|     await request(app).post('/v1/users').send(create('same@example.com…
+     40|     const first = await request(app).post('/v1/users').set('Idempotenc…
+ ❯ Test._assertStatus ../../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > paginates all users exactly once
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:50:116
+     48|   it('paginates all users exactly once', async () => {
+     49|     const app = createApp();
+     50|     for (let i = 0; i < 5; i += 1) await request(app).post('/v1/users'…
+       |                                                                                                                    ^
+     51|     const ids: string[] = [];
+     52|     let cursor: string | undefined;
+ ❯ Test._assertStatus ../../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":4,"numPassedTests":0,"numFailedTests":4,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791108396442,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, patches and deletes a user","status":"failed","title":"creates, gets, patches and deletes a user","duration":21.622416000000015,"failureMessages":["Error: expected 201 \"Created\", got 404 \"Not Found\"\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-15929-a24cfbaa/65b5d6f1153a/generated/users-api/test/users.test.ts:13:85\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)\n----\n    at Test._assertStatus (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13\n    at Test._assertFunction (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13)\n    at Test.assert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23)\n    at localAssert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38)\n    at Server.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13)\n    at Object.onceWrapper (node:events:630:28)\n    at Server.emit (node:events:509:28)\n    at emitCloseNT (node:net:2661:8)\n    at processTicksAndRejections (node:internal/process/task_queues:89:21)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects invalid fields, empty patches, malformed JSON, and missing ids as problems","status":"failed","title":"rejects invalid fields, empty patches, malformed JSON, and missing ids as problems","duration":5.43670800000001,"failureMessages":["Error: expected 422 \"Unprocessable Entity\", got 404 \"Not Found\"\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-15929-a24cfbaa/65b5d6f1153a/generated/users-api/test/users.test.ts:26:91\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)\n----\n    at Test._assertStatus (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13\n    at Test._assertFunction (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13)\n    at Test.assert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23)\n    at localAssert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38)\n    at Server.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13)\n    at Object.onceWrapper (node:events:630:28)\n    at Server.emit (node:events:509:28)\n    at emitCloseNT (node:net:2661:8)\n    at processTicksAndRejections (node:internal/process/task_queues:89:21)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API enforces unique emails and idempotency","status":"failed","title":"enforces unique emails and idempotency","duration":2.0069590000000233,"failureMessages":["Error: expected 201 \"Created\", got 404 \"Not Found\"\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-15929-a24cfbaa/65b5d6f1153a/generated/users-api/test/users.test.ts:38:75\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)\n----\n    at Test._assertStatus (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13\n    at Test._assertFunction (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13)\n    at Test.assert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23)\n    at localAssert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38)\n    at Server.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13)\n    at Object.onceWrapper (node:events:630:28)\n    at Server.emit (node:events:509:28)\n    at emitCloseNT (node:net:2661:8)\n    at processTicksAndRejections (node:internal/process/task_queues:89:21)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates all users exactly once","status":"failed","title":"paginates all users exactly once","duration":1.7282909999999845,"failureMessages":["Error: expected 201 \"Created\", got 404 \"Not Found\"\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-15929-a24cfbaa/65b5d6f1153a/generated/users-api/test/users.test.ts:50:116\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)\n----\n    at Test._assertStatus (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13\n    at Test._assertFunction (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13)\n    at Test.assert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23)\n    at localAssert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38)\n    at Server.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13)\n    at Object.onceWrapper (node:events:630:28)\n    at Server.emit (node:events:509:28)\n    at emitCloseNT (node:net:2661:8)\n    at processTicksAndRejections (node:internal/process/task_queues:89:21)"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791108396641,"endTime":1791108396672.7283,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-15929-a24cfbaa/65b5d6f1153a/generated/users-api/test/users.test.ts"}]}

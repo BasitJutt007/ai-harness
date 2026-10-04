@@ -1,0 +1,68 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-095618/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/projects.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-095618/samples/existing-api
+
+ ❯ test/projects.test.ts (22 tests | 1 failed) 79ms
+   ✓ POST /v1/projects (6)
+     ✓ creates a project: 201, Location header, status defaults to active 20ms
+     ✓ rejects an invalid body with a 422 problem 4ms
+     ✓ rejects unknown properties with a 422 problem 1ms
+     ✓ rejects malformed JSON with a 400 problem 2ms
+     ✓ honours Idempotency-Key: same key and body replays the first response 5ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 3ms
+   ✓ GET /v1/projects (4)
+     ✓ pages through every project with an opaque cursor 5ms
+     ✓ returns at most `limit` items and a nextCursor while more remain 2ms
+     ✓ defaults to 20 items per page 11ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 2ms
+   ✓ GET /v1/projects/:projectId (3)
+     ✓ returns the project 1ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ✓ PATCH /v1/projects/:projectId (4)
+     ✓ updates the given fields only 1ms
+     ✓ rejects an empty or invalid patch with a 422 problem 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 3ms
+   ❯ project deletion and status filtering (5)
+     ✓ deletes a project with 204 and then returns 404 3ms
+     ✓ returns 404 problem for unknown and repeated deletes 2ms
+     ✓ rejects malformed delete ids with a 422 problem 1ms
+     × filters by status and paginates the filtered set 5ms
+     ✓ rejects an unknown status with a 422 problem 2ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 21 passed (22)
+   Start at  14:57:15
+   Duration  280ms (import 43%, tests 38%, transform 17%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > filters by status and paginates the filtered set
+AssertionError: expected [ …(4) ] to have a length of 3 but got 4
+
+- Expected
++ Received
+
+- 3
++ 4
+
+ ❯ test/projects.test.ts:205:17
+    203|     const ids = await listAll({ status: 'archived', limit: '2' });
+    204|     expect(ids).toEqual(expect.arrayContaining(archived.map((project) …
+    205|     expect(ids).toHaveLength(archived.length);
+       |                 ^
+    206|     const active = await request(app).get('/v1/projects').query({ stat…
+    207|     expect(PageBody.parse(active.body).data.every((project) => project…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":6,"numPassedTestSuites":4,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":22,"numPassedTests":21,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791107835577,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects creates a project: 201, Location header, status defaults to active","status":"passed","title":"creates a project: 201, Location header, status defaults to active","duration":20.464167000000003,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects an invalid body with a 422 problem","status":"passed","title":"rejects an invalid body with a 422 problem","duration":4.164499999999975,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects unknown properties with a 422 problem","status":"passed","title":"rejects unknown properties with a 422 problem","duration":1.3952079999999967,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects malformed JSON with a 400 problem","status":"passed","title":"rejects malformed JSON with a 400 problem","duration":2.068375000000003,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects honours Idempotency-Key: same key and body replays the first response","status":"passed","title":"honours Idempotency-Key: same key and body replays the first response","duration":5.05379099999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects reuse of an Idempotency-Key with a different body (422)","status":"passed","title":"rejects reuse of an Idempotency-Key with a different body (422)","duration":3.3596660000000043,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects pages through every project with an opaque cursor","status":"passed","title":"pages through every project with an opaque cursor","duration":4.645750000000021,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects returns at most `limit` items and a nextCursor while more remain","status":"passed","title":"returns at most `limit` items and a nextCursor while more remain","duration":1.867208000000005,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects defaults to 20 items per page","status":"passed","title":"defaults to 20 items per page","duration":11.301209,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects rejects limit outside 1..100 and foreign cursors with a 422 problem","status":"passed","title":"rejects limit outside 1..100 and foreign cursors with a 422 problem","duration":1.8710829999999987,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId returns the project","status":"passed","title":"returns the project","duration":1.3878330000000005,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":0.6088330000000042,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId answers a malformed id with a 422 problem","status":"passed","title":"answers a malformed id with a 422 problem","duration":0.6713330000000042,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId updates the given fields only","status":"passed","title":"updates the given fields only","duration":1.452791999999988,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId rejects an empty or invalid patch with a 422 problem","status":"passed","title":"rejects an empty or invalid patch with a 422 problem","duration":1.8530839999999955,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":0.7049169999999947,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId honours Idempotency-Key on PATCH","status":"passed","title":"honours Idempotency-Key on PATCH","duration":2.5360829999999908,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["project deletion and status filtering"],"fullName":"project deletion and status filtering deletes a project with 204 and then returns 404","status":"passed","title":"deletes a project with 204 and then returns 404","duration":2.537916999999993,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["project deletion and status filtering"],"fullName":"project deletion and status filtering returns 404 problem for unknown and repeated deletes","status":"passed","title":"returns 404 problem for unknown and repeated deletes","duration":2.23329099999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["project deletion and status filtering"],"fullName":"project deletion and status filtering rejects malformed delete ids with a 422 problem","status":"passed","title":"rejects malformed delete ids with a 422 problem","duration":0.5519170000000031,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["project deletion and status filtering"],"fullName":"project deletion and status filtering filters by status and paginates the filtered set","status":"failed","title":"filters by status and paginates the filtered set","duration":5.195333000000005,"failureMessages":["AssertionError: expected [ …(4) ] to have a length of 3 but got 4\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:2147:20)\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:1944:14)\n    at Proxy.methodWrapper (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/chai/index.js:1737:25)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-095618/samples/existing-api/test/projects.test.ts:205:17\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["project deletion and status filtering"],"fullName":"project deletion and status filtering rejects an unknown status with a 422 problem","status":"passed","title":"rejects an unknown status with a 422 problem","duration":2.2007089999999607,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791107835774,"endTime":1791107835853.2007,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-095618/samples/existing-api/test/projects.test.ts"}]}

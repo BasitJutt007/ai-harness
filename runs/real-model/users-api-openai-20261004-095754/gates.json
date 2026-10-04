@@ -1,0 +1,66 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "n/a",
+      "summary": "not applicable to greenfield tasks"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "10 red observations (1 test files); 1 changed source files went red -> green (1 on unchanged cases, 0 on edited cases by differential proof), red again with the original source"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "no new non-test files"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "2 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "pass",
+      "summary": "18/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]",
+      "logPath": "runs/users-api-openai-20261004-095754/logs/034-spec-coverage.txt",
+      "humanMustVerify": [
+        "what the task states beyond fields and operations (8 behaviour(s)): the generated probes cover routes and field constraints only"
+      ]
+    },
+    {
+      "gate": "standards",
+      "status": "fail",
+      "summary": "verdict 93%",
+      "details": [
+        "zod-boundary      FAIL  src/routes/index.ts              2/5 handlers",
+        "    src/routes/index.ts:24:62  GET /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)",
+        "    src/routes/index.ts:24:32  GET /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)",
+        "    src/routes/index.ts:25:79  PATCH /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)",
+        "    src/routes/index.ts:25:49  PATCH /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)",
+        "    src/routes/index.ts:26:65  DELETE /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)",
+        "    src/routes/index.ts:26:35  DELETE /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)",
+        "────────────────────────────────────────────────────────────",
+        "problem-json      pass    36/36 error paths",
+        "rest-conventions  pass     5/5 routes",
+        "tsc-strict        pass     0 errors",
+        "zod-boundary      FAIL     2/5 handlers",
+        "verdict           93%     → failing: zod-boundary"
+      ],
+      "failing": 3
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "1 of 31 tests failed in 5 files",
+      "details": [
+        "tests: 1 failed, 30 passed (31) in 5 files",
+        "FAIL test/users.test.ts > users API > validates and reports conflicts and malformed JSON: expected 422 to be 404 // Object.is equality"
+      ],
+      "logPath": "runs/users-api-openai-20261004-095754/logs/037-vitest.txt"
+    }
+  ]
+}

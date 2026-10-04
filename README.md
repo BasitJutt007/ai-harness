@@ -164,6 +164,22 @@ placeholder and contract-lock failed the run (4 → 0 endpoints).
 
 ## Evidence in this repository
 
+### The latest code: two DONE runs on gpt-5.6-luna
+
+After the last fixes (a gate-decided `DONE (…)` verdict accepted by `agnostic`; an idempotency store judged
+by its lifetime through properties and aliases), both tasks were run again on `gpt-5.6-luna` (compat:
+reasoning off). In both `run.json` files every plugin fingerprint and every `src/core` file hash matches the
+committed code.
+
+| run | task | turns | result |
+|---|---|---|---|
+| `users-api-openai-20261004-100537` | greenfield | 18 | **DONE**: spec-coverage 18/18 (including replay after an update), 32/32 tests, standards 100%, observed red + revert check |
+| `projects-change-openai-20261004-095618` | brownfield | 40 | **DONE (the loop ended max_turns without finish; the fresh final gate run is green)**: contract-lock pass (2 additive), 22/22 tests, standards 100%, observed red on 3 source files. The first real run decided by the rule that fresh green gates, not the model's finish call, make a run DONE |
+
+One greenfield attempt before it did not finish (`real-model/users-api-openai-20261004-095754`: a path
+parameter read raw before validation, and a failing agent test). These two runs were not shipped; the PRs
+below come from the runs in the next section.
+
 ### The final code: DONE runs, shipped as PRs
 
 After an external review (idempotent replay returned updated state; checker bypasses for middleware

@@ -2230,16 +2230,41 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     return true;
   };
   /**
-   * A store declared inside this function body (`const cache = new Map()` in the per-request handler, or in
-   * a function it calls) is created anew on every call, so nothing written to it can be replayed later.
+   * How long the store an expression names lives, relative to one call of this function:
+   *  - 'persistent': it outlives the call (module or factory scope, a closure, `this`, a parameter the
+   *    caller passes in, or an alias / property of one of those), so a later request can find what this one
+   *    stored;
+   *  - 'fresh': it is created by this call (`new Map()`, `{ … }`, `[ … ]` bound inside the body, or a
+   *    property of such a value: `holder.store` with `const holder = { store: new Map() }`), so nothing
+   *    written to it can be replayed;
+   *  - 'unknown': anything this analysis cannot follow (a call's result, a `let` without initializer): never
+   *    counted as proof of storage.
    */
-  const freshPerCall = (obj: ts.Expression): boolean => {
-    let e: ts.Expression = obj;
-    while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e)) e = e.expression;
-    if (!ts.isIdentifier(e)) return false;
-    const decl = checker.getSymbolAtLocation(e)?.valueDeclaration;
-    return decl !== undefined && ts.isVariableDeclaration(decl) && decl.getSourceFile() === body.getSourceFile()
-      && decl.pos >= body.pos && decl.end <= body.end;
+  const lifetime = (e0: ts.Expression, seen: Set<ts.Node> = new Set()): 'persistent' | 'fresh' | 'unknown' => {
+    let e: ts.Expression = e0;
+    while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) e = e.expression;
+    if (e.kind === ts.SyntaxKind.ThisKeyword) return 'persistent';
+    if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) return lifetime(e.expression, seen);
+    if (!ts.isIdentifier(e)) return 'unknown';
+    const sym = checker.getSymbolAtLocation(e);
+    const decl = sym?.valueDeclaration ?? sym?.declarations?.[0];
+    if (decl === undefined) return 'unknown';
+    const inside = decl.getSourceFile() === body.getSourceFile() && decl.pos >= body.pos && decl.end <= body.end;
+    if (!inside) return 'persistent';
+    if (ts.isParameter(decl)) return 'persistent';
+    if (!ts.isVariableDeclaration(decl) || decl.initializer === undefined || seen.has(decl)) return 'unknown';
+    seen.add(decl);
+    let init: ts.Expression = decl.initializer;
+    while (ts.isParenthesizedExpression(init) || ts.isAsExpression(init) || ts.isSatisfiesExpression(init)) init = init.expression;
+    if (ts.isNewExpression(init) || ts.isObjectLiteralExpression(init) || ts.isArrayLiteralExpression(init)) return 'fresh';
+    if (ts.isIdentifier(init) || ts.isPropertyAccessExpression(init) || ts.isElementAccessExpression(init) || init.kind === ts.SyntaxKind.ThisKeyword) return lifetime(init, seen);
+    return 'unknown';
+  };
+  /** A keyed write into `obj`: counts as storage only when `obj` outlives the call; an unknown lifetime is unproven. */
+  const keyedWrite = (obj: ts.Expression): void => {
+    const life = lifetime(obj);
+    if (life === 'persistent') flow.stores = true;
+    else if (life === 'unknown') flow.escapes = true;
   };
   const flow: KeyFlow = { stores: false, replays: false, escapes: false, returnsKey: false, returnsLookup: false };
   walk(body, (n) => {
@@ -2250,8 +2275,8 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
         flow.replays ||= followed.replays;
       }
     }
-    if (methodCall(n) && n.arguments.length >= 2 && !carriesKey(n.expression.expression) && n.arguments[0] !== undefined && carriesKey(n.arguments[0]) && !freshPerCall(n.expression.expression)) flow.stores = true;
-    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left) && carriesKey(n.left.argumentExpression) && !freshPerCall(n.left.expression)) flow.stores = true;
+    if (methodCall(n) && n.arguments.length >= 2 && !carriesKey(n.expression.expression) && n.arguments[0] !== undefined && carriesKey(n.arguments[0])) keyedWrite(n.expression.expression);
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left) && carriesKey(n.left.argumentExpression)) keyedWrite(n.left.expression);
     if (methodCall(n) && REPLAY_METHODS.has(n.expression.name.text) && carriesLookup(n)) flow.replays = true;
     if (!flow.escapes && (readSet.has(n) || inSet(n, keySyms)) && !(ts.isIdentifier(n) && isDeclarationName(n))) flow.escapes = escapesAt(n);
   });

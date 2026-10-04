@@ -1,0 +1,46 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-095754/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-095754/generated/users-api
+
+ ❯ test/users.test.ts (3 tests | 1 failed) 45ms
+   ❯ users API (3)
+     ✓ creates, gets, updates and deletes users 27ms
+     × validates and reports conflicts and malformed JSON 10ms
+     ✓ paginates and honors idempotency 6ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  14:58:36
+   Duration  249ms (import 54%, tests 26%, transform 19%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > validates and reports conflicts and malformed JSON
+AssertionError: expected 422 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 422
+
+ ❯ problem test/users.test.ts:7:22
+      5| const user = { email: 'a@example.com', name: 'Alice' };
+      6| const problem = (res: request.Response, status: number): void => {
+      7|   expect(res.status).toBe(status);
+       |                      ^
+      8|   expect(res.headers['content-type']).toMatch(/application\/problem\+j…
+      9|   expect(res.body).toMatchObject({ status, type: expect.any(String), t…
+ ❯ test/users.test.ts:30:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":3,"numPassedTests":2,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791107916618,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes users","status":"passed","title":"creates, gets, updates and deletes users","duration":27.46754200000001,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates and reports conflicts and malformed JSON","status":"failed","title":"validates and reports conflicts and malformed JSON","duration":10.433208000000008,"failureMessages":["AssertionError: expected 422 to be 404 // Object.is equality\n    at problem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-095754/generated/users-api/test/users.test.ts:7:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-095754/generated/users-api/test/users.test.ts:30:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates and honors idempotency","status":"passed","title":"paginates and honors idempotency","duration":6.063457999999997,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791107916823,"endTime":1791107916866.0635,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-095754/generated/users-api/test/users.test.ts"}]}
