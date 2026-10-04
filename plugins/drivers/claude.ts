@@ -5,7 +5,8 @@
  * content blocks. Thinking / redacted_thinking / fallback blocks are carried through the
  * core as OpaquePart (driver 'claude') and replayed verbatim in their original position.
  *
- * Resilience: 429 / 529 / 5xx / connection errors are retried by the SDK (maxRetries 4).
+ * Resilience: 429 / 529 / 5xx / connection errors are retried by the SDK (maxRetries 4); a rate
+ * limit that outlasts them tells the loop its wait through retryAfterMs (_wire.ts).
  * A 400/403 that names one of the optional extras (betas, fallbacks, thinking block binding,
  * cache_control, output_config / effort, thinking) switches the session to a minimal
  * request on the plain endpoint (no betas, no fallbacks, no cache_control, no thinking
@@ -38,7 +39,7 @@ import type {
   ToolSpec,
   Usage,
 } from '../../src/core/plugin-api.ts';
-import { errorInfo, isRecord, normalizeTranscript, outputTokenCeiling, toolSchema, type ObjectSchema } from './_wire.ts';
+import { errorInfo, isRecord, normalizeTranscript, outputTokenCeiling, rateLimitRetryAfterMs, toolSchema, type ObjectSchema } from './_wire.ts';
 
 export const DRIVER_NAME = 'claude';
 export const DEFAULT_MODEL = 'claude-opus-5-5';
@@ -346,6 +347,7 @@ export function createClaudeDriver(opts: DriverCreateOptions, factory: ClaudeCli
       const res = await client.messages.countTokens(params);
       return res.input_tokens;
     },
+    retryAfterMs: (e) => rateLimitRetryAfterMs(e),
   };
 }
 

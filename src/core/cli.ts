@@ -16,7 +16,7 @@ import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSan
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
 import { loadTask } from './task.ts';
 import { buildTestMap } from './testmap.ts';
-import { compareRuns, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
+import { comparisonsFor, compareRuns, formatComparison, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
 import { createWorkspace } from './workspace.ts';
 import type { CheckPlugin, HarnessConfig, RegistryView } from './types.ts';
 
@@ -39,6 +39,8 @@ commands:
       Evidence dirs: HARNESS_RUNS_DIR (default runs/) and HARNESS_TOKENS_DIR (default tokens/)
       override where runs/<id>/ and tokens/<id>.json are written (relative to the harness root).
       Ctrl-C or SIGTERM stops between steps and still writes the evidence (exit 130 / 143).
+      --baseline: the measured token baseline: no context fetchers, no compaction; the current
+      tree and the standards are front-loaded into every request.
       exit 0 = DONE (all gates green; with --ship: shipped), 1 = not done / refused
   check --api <dir> [--rule r]... [--category c]... [--json]
       Standards checks on any API directory (absolute or relative; no run needed), one line
@@ -46,9 +48,11 @@ commands:
       resolves dependencies from the harness. An unknown --rule id, or a --category no check
       has, is a usage error (exit 2) that lists the registered rule ids. exit 0 iff 100%
   plugins                         list drivers, tools, hooks, gates, checks (+ load errors)
-  tokens <runId|path>             print a run's per-turn token report
+  tokens <runId|path>             print a run's per-turn token report (its baseline_kind: shadow
+                                  or measured; a measured comparison is shown when one exists)
   tokens compare <jitRunId> <baselineRunId>
-                                  measured comparison of a JIT run and a --baseline run
+                                  measured comparison of a JIT run and a --baseline run: per-run
+                                  totals and per-turn averages, with caveats
   agnostic <runA> <runB>          compare task sha + tool/hook/gate/check fingerprints of two
                                   runs (run ids or run directories). exit 0 iff zero diff
   ship <run> [--dry-run] [--remote <name>]
@@ -451,11 +455,7 @@ async function cmdTokens(p: ParsedArgs, out: Out): Promise<number> {
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `compare-${cmp.jit.runId}-vs-${cmp.baseline.runId}.json`);
     writeFileSync(file, `${JSON.stringify(cmp, null, 2)}\n`, 'utf8');
-    out(`measured  task ${cmp.task}`);
-    out(`jit       ${cmp.jit.runId}: ${cmp.jit.input_tokens} input tokens over ${cmp.jit.turns} turns (provider ${cmp.jit.provider_reported_input_tokens})`);
-    out(`baseline  ${cmp.baseline.runId}: ${cmp.baseline.input_tokens} input tokens over ${cmp.baseline.turns} turns (provider ${cmp.baseline.provider_reported_input_tokens})`);
-    out(`reduction ${cmp.reduction_pct}% counted, ${cmp.provider_reported_reduction_pct}% provider-reported, ${cmp.per_turn_reduction_pct}% per turn`);
-    for (const c of cmp.caveats) out(`caveat    ${c}`);
+    for (const line of formatComparison(cmp)) out(line);
     out(`written   ${toPosix(relative(HARNESS_ROOT, file))}`);
     return 0;
   }
@@ -464,7 +464,16 @@ async function cmdTokens(p: ParsedArgs, out: Out): Promise<number> {
     out('tokens needs <runId|path> or "compare <jitRunId> <baselineRunId>"');
     return 2;
   }
-  out(formatTokenReport(readTokenReport(config, ref)));
+  const report = readTokenReport(config, ref);
+  out(formatTokenReport(report));
+  // A measured comparison (tokens compare) is preferred over a shadow estimate wherever one exists.
+  for (const m of comparisonsFor(evidenceDirs(config).tokensDir, report.runId)) {
+    out(
+      `measured  ${m.jitRunId} vs --baseline ${m.baselineRunId}: ${m.reduction_pct}% per-run totals` +
+        `${m.per_turn_reduction_pct !== null ? `, ${m.per_turn_reduction_pct}% per-turn average` : ''}` +
+        `${m.caveats.length > 0 ? ` (${m.caveats.length} caveat(s))` : ''}  (preferred: ${toPosix(relative(HARNESS_ROOT, m.file))})`,
+    );
+  }
   return 0;
 }
 

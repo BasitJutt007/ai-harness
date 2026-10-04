@@ -124,6 +124,7 @@ const ToolShape = z.object({
   description: optText,
   input: zodSchema,
   effect,
+  fetcher: z.boolean().optional(),
   availableIn: z.array(taskKind).optional(),
   paths: optFn,
   run: fn,
