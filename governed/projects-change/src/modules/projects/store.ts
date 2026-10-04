@@ -8,18 +8,18 @@ const projects = new Map<string, Project>();
 const sortKey = (project: Project): string => `${project.createdAt}|${project.id}`;
 
 export function listProjects(query: ListProjectsQuery): ProjectPage {
-  const filtered = query.status === undefined
+  const matching = query.status === undefined
     ? [...projects.values()]
     : [...projects.values()].filter((project) => project.status === query.status);
-  return paginate(filtered, query, sortKey);
-}
-
-export function deleteProject(id: string): boolean {
-  return projects.delete(id);
+  return paginate(matching, query, sortKey);
 }
 
 export function getProject(id: string): Project | undefined {
   return projects.get(id);
+}
+
+export function deleteProject(id: string): boolean {
+  return projects.delete(id);
 }
 
 export function createProject(input: CreateProject): Project {

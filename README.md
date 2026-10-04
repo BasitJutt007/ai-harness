@@ -208,16 +208,22 @@ Each run directory holds `run.json`, `events.jsonl`, `transcript.jsonl`, `gates.
 or `check-existing-api.txt` (`harness check --api`, verdict 100%) and `ship-dry-run.txt` (every
 gate re-run fresh, `secrets` included, all green; nothing pushed).
 
-**The two governed APIs** are in this repository under [`governed/`](governed/README.md) (snapshots of
-the shipped commits; `node bin/harness.mjs check --api governed/users-api` reads 100%).
+**The two governed APIs** are in this repository under [`governed/`](governed/README.md): snapshots of
+the commits shipped as #3 and #4 from the exact-code runs; `node bin/harness.mjs check --api governed/users-api` reads 100%.
 
 **Pull requests opened by the harness** (`harness ship`, every gate re-run fresh first, pushed to a
 feature branch, opened with `gh`), on the demo repository whose `main` holds the sample API:
-- [BasitJutt007/harness-demo#1](https://github.com/BasitJutt007/harness-demo/pull/1): greenfield, run `users-api-openai-20261004-045649`
-- [BasitJutt007/harness-demo#2](https://github.com/BasitJutt007/harness-demo/pull/2): brownfield, run `projects-change-openai-20261004-052623`
+- [BasitJutt007/harness-demo#1](https://github.com/BasitJutt007/harness-demo/pull/1) (merged, then reverted by #5): greenfield, run `users-api-openai-20261004-045649`
+- [BasitJutt007/harness-demo#2](https://github.com/BasitJutt007/harness-demo/pull/2) (merged, then reverted by #5): brownfield, run `projects-change-openai-20261004-052623`
+- [BasitJutt007/harness-demo#3](https://github.com/BasitJutt007/harness-demo/pull/3): greenfield, run `users-api-openai-20261004-055546` (the exact submitted code)
+- [BasitJutt007/harness-demo#4](https://github.com/BasitJutt007/harness-demo/pull/4): brownfield, run `projects-change-openai-20261004-055658` (the exact submitted code)
 
-Their PR bodies quote the run's token totals against the shadow baseline; `harness ship` now labels
-that baseline as a shadow estimate in new PRs.
+#3 and #4 were opened after #1 and #2 had been merged and were built on the same base.
+[#5](https://github.com/BasitJutt007/harness-demo/pull/5) reverts #1 and #2 (two revert commits, no
+history rewrite) so that #3 and #4, the output of the exact submitted code, land cleanly on `main`.
+
+The PR bodies quote the run's token totals against the shadow baseline; #3 and #4 label it as a
+shadow estimate (#1 and #2 predate that wording).
 
 **Tokens, measured: the >90% target is not met.** `tokens/compare-users-api-openai-20261004-045424-vs-users-api-openai-20261004-045825.json`
 compares a normal run with a real `--baseline` run on the same model (`gpt-5.4-mini`):
