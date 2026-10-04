@@ -9,7 +9,14 @@
  * since the base commit, or declarative Zod: schema-purity.ts). When a schema cannot
  * be converted, its source text hash is kept
  * instead (static fallback): an unchanged text is no change, a changed text is
- * an UNPROVEN change, never a silent pass.
+ * an UNPROVEN change, never a silent pass. The text covers every program const, function, class member and
+ * enum the schema reaches; an unchanged text is no proof when the walk met code it cannot follow (a destructured
+ * binding, a variable without initializer, an unresolved import, the depth limit): that is UNPROVEN too.
+ *
+ * What the route extraction cannot analyse is UNPROVEN, never dropped: routes whose path (or a mount prefix)
+ * is not a constant string, registrations with a computed method (Contract.unanalysed). In a handler that
+ * changed since the base: request query/params read without a schema, a response with a non-literal status,
+ * and chain elements the route analysis does not model (RouteInfo.unknowns, when the analysis reports them).
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -21,7 +28,7 @@ import ts from 'typescript';
 import { z } from 'zod';
 import { createTsFence, isSourcePath, linkDependencies, targetLayout } from '../../src/core/plugin-api.ts';
 import type { Exec, JsonSchema, RunContext, TsFence } from '../../src/core/plugin-api.ts';
-import { extractRoutes, resolveSymbol } from './api-ast.ts';
+import { dynamicRouteReason, extractRouteTable, location, resolveSymbol } from './api-ast.ts';
 import type { RouteInfo, SchemaRef } from './api-ast.ts';
 import { notImportable } from './schema-purity.ts';
 import type { PurityContext } from './schema-purity.ts';
@@ -58,6 +65,18 @@ export interface ContractEndpoint {
    * resolved. Absent = none.
    */
   opaque?: RequestPart[];
+  /**
+   * Per `sources` key: what the source-hash walk met but could not follow (a destructured binding, a variable
+   * without initializer, an unresolved import, the depth limit). Such a hash does not cover everything the schema
+   * depends on.
+   */
+  unfollowed?: Record<string, string>;
+  /** sha256 of the handler's and its route middleware's source tokens; absent when the handler is not resolved. */
+  handlerHash?: string;
+  /** The handler sends a response whose status is not a literal (its status set is incomplete). */
+  dynamicStatus?: boolean;
+  /** What the route analysis reports it does not model in the route's chain (RouteInfo.unknowns, when present). */
+  unknowns?: string[];
 }
 
 export interface Contract {
@@ -65,6 +84,11 @@ export interface Contract {
   /** 'runtime' iff every schema was converted at runtime. */
   extractedWith: 'runtime' | 'static';
   warnings: string[];
+  /**
+   * Registrations the route extraction could not analyse: an unresolved path or mount prefix, a computed method.
+   * Their contract is unknown, so any comparison involving this side is UNPROVEN. Absent = none.
+   */
+  unanalysed?: Change[];
 }
 
 export interface Change {
@@ -158,18 +182,70 @@ export function tokenText(node: ts.Node): string {
 
 /** Source tokens of a schema expression plus the initialisers of the consts it references (transitively). */
 export function schemaSourceText(checker: ts.TypeChecker, expr: ts.Expression): string {
+  return schemaSource(checker, expr).text;
+}
+
+const SCHEMA_WALK_DEPTH = 8;
+
+/** Declarations that never change a runtime value: types, interfaces and their members, type parameters, a module namespace (its members are followed). */
+function inertDeclaration(d: ts.Declaration): boolean {
+  return ts.isInterfaceDeclaration(d) || ts.isTypeAliasDeclaration(d) || ts.isTypeParameterDeclaration(d) || ts.isSourceFile(d) || ts.isModuleDeclaration(d)
+    || ts.isPropertySignature(d) || ts.isMethodSignature(d);
+}
+
+/**
+ * The node whose source the walk takes in for a program declaration: a variable's initializer; the whole
+ * declaration of a function, class, class member or enum (its body is part of what the schema runs). Undefined for
+ * what has no source of its own to follow (a variable without initializer, a destructured binding, a parameter).
+ */
+function followable(d: ts.Declaration): ts.Node | undefined {
+  if (ts.isVariableDeclaration(d)) return d.initializer;
+  if (ts.isFunctionDeclaration(d) || ts.isClassDeclaration(d) || ts.isEnumDeclaration(d) || ts.isEnumMember(d)
+    || ts.isMethodDeclaration(d) || ts.isPropertyDeclaration(d) || ts.isGetAccessorDeclaration(d)) return d;
+  return undefined;
+}
+
+/**
+ * schemaSourceText plus what the walk met but could not follow (sorted, deduplicated): a program declaration
+ * with no source of its own (a variable without initializer, a destructured binding, a parameter outside the
+ * expression), an identifier whose import does not resolve, or a declaration beyond the depth limit. Consts,
+ * functions, classes and their members and enums are followed (their full source is hashed); declarations inside
+ * the walked text itself, library declarations (.d.ts) and types need no following.
+ */
+export function schemaSource(checker: ts.TypeChecker, expr: ts.Expression): { text: string; unfollowed: string[] } {
   const parts: string[] = [];
   const seen = new Set<ts.Node>();
+  const walked: ts.Node[] = [];
+  const unfollowed = new Set<string>();
+  const inside = (d: ts.Node): boolean => walked.some((w) => w.getSourceFile() === d.getSourceFile() && d.pos >= w.pos && d.end <= w.end);
   const visit = (node: ts.Node, depth: number): void => {
     parts.push(tokenText(node));
-    if (depth >= 8) return;
+    walked.push(node);
     const scan = (n: ts.Node): void => {
-      if (ts.isIdentifier(n)) {
-        const decl = resolveSymbol(checker, n)?.valueDeclaration;
-        if (decl !== undefined && ts.isVariableDeclaration(decl) && decl.initializer !== undefined
-          && !decl.getSourceFile().isDeclarationFile && !seen.has(decl)) {
-          seen.add(decl);
-          visit(decl.initializer, depth + 1);
+      if (ts.isIdentifier(n) && !ts.isTypeNode(n.parent) && !(ts.isPropertyAssignment(n.parent) && n.parent.name === n)) {
+        const raw = ts.isShorthandPropertyAssignment(n.parent) ? checker.getShorthandAssignmentValueSymbol(n.parent) : checker.getSymbolAtLocation(n);
+        const sym = raw !== undefined && (raw.flags & ts.SymbolFlags.Alias) !== 0 ? checker.getAliasedSymbol(raw) : raw;
+        const decls = sym?.declarations ?? [];
+        const isName = (ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) || ts.isQualifiedName(n.parent);
+        if (decls.length === 0) {
+          // A value reference with no declaration: an import that does not resolve (property names of library values have one).
+          if (!isName && raw !== undefined && (raw.flags & ts.SymbolFlags.Alias) !== 0) unfollowed.add(`unresolved import ${n.text}`);
+        } else {
+          const decl = sym?.valueDeclaration ?? decls[0];
+          if (decl !== undefined && !decl.getSourceFile().isDeclarationFile && !inside(decl) && !inertDeclaration(decl)) {
+            const body = followable(decl);
+            if (body !== undefined) {
+              if (!seen.has(decl)) {
+                if (depth + 1 > SCHEMA_WALK_DEPTH) unfollowed.add(`depth limit at ${n.text}`);
+                else {
+                  seen.add(decl);
+                  visit(body, depth + 1);
+                }
+              }
+            } else {
+              unfollowed.add(`${ts.SyntaxKind[decl.kind]} ${n.text}`);
+            }
+          }
         }
       }
       ts.forEachChild(n, scan);
@@ -177,7 +253,7 @@ export function schemaSourceText(checker: ts.TypeChecker, expr: ts.Expression): 
     scan(node);
   };
   visit(expr, 0);
-  return parts.join('\n');
+  return { text: parts.join('\n'), unfollowed: [...unfollowed].sort() };
 }
 
 interface Slot {
@@ -268,6 +344,19 @@ function opaqueParts(route: RouteInfo): RequestPart[] {
   return REQUEST_PARTS.filter((p) => out.has(p));
 }
 
+/** Record a schema slot's source hash, and what its walk could not follow. */
+function recordSource(ep: ContractEndpoint, key: string, checker: ts.TypeChecker, expr: ts.Expression): void {
+  const src = schemaSource(checker, expr);
+  ep.sources[key] = sha(src.text);
+  if (src.unfollowed.length > 0) (ep.unfollowed ??= {})[key] = `${src.unfollowed.slice(0, 3).join(', ')}${src.unfollowed.length > 3 ? ', …' : ''}`;
+}
+
+/** What the route analysis does not model in the chain, when the extractor reports it (RouteInfo.unknowns). */
+function routeUnknowns(route: RouteInfo): string[] {
+  const list = (route as RouteInfo & { unknowns?: ReadonlyArray<{ why: string }> }).unknowns ?? [];
+  return [...new Set(list.map((u) => u.why))].sort();
+}
+
 function collect(routes: RouteInfo[], checker: ts.TypeChecker, warnings: string[]): { endpoints: ContractEndpoint[]; slots: Slot[] } {
   const endpoints: ContractEndpoint[] = [];
   const seen = new Set<string>();
@@ -287,18 +376,24 @@ function collect(routes: RouteInfo[], checker: ts.TypeChecker, warnings: string[
         continue;
       }
       ep.request[p.target] = null;
-      ep.sources[p.target] = sha(schemaSourceText(checker, p.schema.expr));
+      recordSource(ep, p.target, checker, p.schema.expr);
       slots.push({ endpoint: ep, key: p.target, io: 'input', ref: p.schema });
     }
     const opaque = opaqueParts(route);
     if (opaque.length > 0) ep.opaque = opaque;
+    if (route.handler !== undefined) {
+      ep.handlerHash = sha([route.handler, ...route.middleware].map((n) => tokenText(n)).join('\n'));
+    }
+    const unknowns = routeUnknowns(route);
+    if (unknowns.length > 0) ep.unknowns = unknowns;
     const statuses = new Set<number>();
     for (const s of route.statusLiterals) statuses.add(s.status);
     // Callee sites too, so moving a `throw notFound()` between the handler and a service is not a status change.
     for (const s of [...route.problemSites, ...route.calleeProblemSites]) if (s.status !== null) statuses.add(s.status);
     for (const r of route.responses) {
       if (r.status === null) {
-        warnings.push(`${label}: response with a non-literal status ignored`);
+        ep.dynamicStatus = true;
+        warnings.push(`${label}: response with a non-literal status (UNPROVEN when the handler changed)`);
         continue;
       }
       statuses.add(r.status);
@@ -308,7 +403,7 @@ function collect(routes: RouteInfo[], checker: ts.TypeChecker, warnings: string[
       if (r.schema !== undefined) {
         if (key in ep.sources && slots.some((s) => s.endpoint === ep && s.key === key)) continue; // first schema wins
         ep.responses[status] = null;
-        ep.sources[key] = sha(schemaSourceText(checker, r.schema.expr));
+        recordSource(ep, key, checker, r.schema.expr);
         slots.push({ endpoint: ep, key, io: 'output', ref: r.schema });
       } else if (!(status in ep.responses)) {
         ep.responses[status] = null;
@@ -346,8 +441,16 @@ export async function extractContract(opts: {
   const files = await apiSourceFiles(root);
   const program = opts.program ?? createApiProgram(root, files);
   const warnings: string[] = [];
-  const routes = extractRoutes(program, root, files);
-  const { endpoints, slots } = collect(routes, program.getTypeChecker(), warnings);
+  const table = extractRouteTable(program, root, files);
+  const { endpoints, slots } = collect(table.routes, program.getTypeChecker(), warnings);
+  // What the extraction cannot analyse is never dropped: its contract is unknown.
+  const unanalysed: Change[] = [
+    ...table.unresolved.map((r) => ({
+      location: `${r.method.toUpperCase()} ${r.path}`,
+      message: `route not analysed (${location(root, r.registration)}): ${r.unresolvedPath?.reason ?? 'its path cannot be resolved statically'}; its contract is unproven`,
+    })),
+    ...table.dynamic.map((d) => ({ location: location(root, d.call), message: dynamicRouteReason(root, d) })),
+  ];
 
   const refKey = (m: string, e: string): string => `${m}#${e}`;
   const wanted = new Map<string, { module: string; exportName: string }>();
@@ -389,7 +492,7 @@ export async function extractContract(opts: {
     if (s.key.startsWith('response.')) s.endpoint.responses[s.key.slice('response.'.length)] = value;
     else if (isRequestPart(s.key)) s.endpoint.request[s.key] = value;
   }
-  return { endpoints, extractedWith: staticCount === 0 ? 'runtime' : 'static', warnings };
+  return { endpoints, extractedWith: staticCount === 0 ? 'runtime' : 'static', warnings, ...(unanalysed.length > 0 ? { unanalysed } : {}) };
 }
 
 function isRequestPart(k: string): k is RequestPart {
@@ -891,6 +994,7 @@ function compareSlot(
   label: string, key: string, dir: Dir,
   b: JsonSchema | null | undefined, a: JsonSchema | null | undefined,
   bSrc: string | undefined, aSrc: string | undefined, acc: Acc,
+  unfollowed?: string,
 ): void {
   const loc = `${label} ${key}`;
   if (b === undefined && a === undefined) return;
@@ -908,7 +1012,15 @@ function compareSlot(
   const bUnknown = b === null && bSrc !== undefined;
   const aUnknown = a === null && aSrc !== undefined;
   if (bUnknown || aUnknown) {
-    if (bSrc !== undefined && bSrc === aSrc) return; // same schema source text on both sides
+    if (bSrc !== undefined && bSrc === aSrc) {
+      // Same schema source text on both sides: no change, unless the text does not cover everything the schema uses.
+      if (unfollowed === undefined) return;
+      acc.unproven.push({
+        location: loc,
+        message: `schema shape not extracted at runtime and its unchanged source text depends on code the harness cannot follow (${unfollowed}): an unchanged text does not prove an unchanged schema`,
+      });
+      return;
+    }
     acc.unproven.push({ location: loc, message: 'schema source changed but its shape could not be extracted at runtime' });
     return;
   }
@@ -954,6 +1066,30 @@ function compareOpaqueBody(b: ContractEndpoint, a: ContractEndpoint, label: stri
 }
 
 /**
+ * A handler (or its route middleware) that changed since the base: what the contract cannot see in it is UNPROVEN.
+ * - query/params read without a schema (on any method): what the endpoint accepts there is not extractable;
+ * - a response with a non-literal status: its status set is incomplete;
+ * - chain elements the route analysis does not model (RouteInfo.unknowns, when the extractor reports them).
+ * An unchanged handler keeps the contract it had; a handler that is not resolved on either side has no hash and
+ * counts as changed.
+ */
+function compareChangedHandler(b: ContractEndpoint, a: ContractEndpoint, label: string, acc: Acc): void {
+  if (b.handlerHash !== undefined && b.handlerHash === a.handlerHash) return;
+  for (const part of ['query', 'params'] as const) {
+    if (part in b.request || part in a.request) continue;
+    if (!(a.opaque ?? []).includes(part) && !(b.opaque ?? []).includes(part)) continue;
+    acc.unproven.push({
+      location: `${label} ${part}`,
+      message: `request contract not extractable: the changed handler reads ${part} without a schema the harness can see`,
+    });
+  }
+  if (a.dynamicStatus === true) {
+    acc.unproven.push({ location: label, message: 'the changed handler sends a response with a non-literal status: its status codes cannot be compared' });
+  }
+  for (const why of a.unknowns ?? []) acc.unproven.push({ location: label, message: `the changed route chain does something the analysis does not model: ${why}` });
+}
+
+/**
  * Non-2xx statuses as a set (2xx are compared as responses). A new 4xx may reject requests that were
  * accepted: breaking. A removed status, or a new 3xx/5xx, cannot fail a request that works today:
  * informational. Which condition produces which error status is not visible statically.
@@ -989,6 +1125,9 @@ function dedupe(list: Change[]): Change[] {
 
 export function diffContracts(before: Contract, after: Contract): ContractDiff {
   const acc = emptyDiff();
+  // Registrations either side could not analyse: nothing about them is proven.
+  for (const c of before.unanalysed ?? []) acc.unproven.push({ location: c.location, message: `base: ${c.message}` });
+  for (const c of after.unanalysed ?? []) acc.unproven.push({ location: c.location, message: c.message });
   const bMap = new Map(before.endpoints.map((e) => [endpointKey(e), e]));
   const aMap = new Map(after.endpoints.map((e) => [endpointKey(e), e]));
   for (const [k, b] of bMap) {
@@ -999,17 +1138,19 @@ export function diffContracts(before: Contract, after: Contract): ContractDiff {
       continue;
     }
     const aLabel = `${a.method} ${a.path}`;
+    const unfollowed = (key: string): string | undefined => a.unfollowed?.[key] ?? b.unfollowed?.[key];
     for (const part of REQUEST_PARTS) {
-      compareSlot(aLabel, part, 'request', b.request[part], a.request[part], b.sources[part], a.sources[part], acc);
+      compareSlot(aLabel, part, 'request', b.request[part], a.request[part], b.sources[part], a.sources[part], acc, unfollowed(part));
     }
     compareOpaqueBody(b, a, aLabel, acc);
+    compareChangedHandler(b, a, aLabel, acc);
     for (const status of Object.keys(b.responses)) {
       const key = `response.${status}`;
       if (!(status in a.responses)) {
         acc.breaking.push({ location: `${aLabel} ${key}`, message: `${status} response removed` });
         continue;
       }
-      compareSlot(aLabel, key, 'response', b.responses[status], a.responses[status], b.sources[key], a.sources[key], acc);
+      compareSlot(aLabel, key, 'response', b.responses[status], a.responses[status], b.sources[key], a.sources[key], acc, unfollowed(key));
     }
     for (const status of Object.keys(a.responses)) {
       if (!(status in b.responses)) acc.additive.push({ location: `${aLabel} response.${status}`, message: `new ${status} response` });
