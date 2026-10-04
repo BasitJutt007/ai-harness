@@ -1,5 +1,5 @@
 /**
- * Fail-closed audit: the shipped governed/users-api reads 100%; every mutation below either breaks a standard
+ * Fail-closed audit: a Users API the harness generated and shipped (frozen in test/fixtures/apis/audit-users-api) reads 100%; every mutation below either breaks a standard
  * or uses a construct the analysis does not model, so `harness check` must NOT read 100% on any of them
  * (FAIL or UNPROVEN only). A mutation that still passes is a bypass: fix the checker, never this list.
  *
@@ -17,7 +17,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 const run = promisify(execFile);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const BASE = join(ROOT, 'governed', 'users-api');
+const BASE = join(ROOT, 'test', 'fixtures', 'apis', 'audit-users-api');
 const TMP = join(ROOT, '.harness', 'tmp', `mutations-${process.pid}`);
 const USERS = 'src/routes/users.ts';
 const APP = 'src/app.ts';
@@ -104,7 +104,7 @@ afterAll(async () => {
   await rm(TMP, { recursive: true, force: true });
 });
 
-describe('fail-closed mutation audit of governed/users-api', () => {
+describe('fail-closed mutation audit of a shipped Users API', () => {
   it('the unmutated API reads 100%', async () => {
     expect(await verdict(await mutate(-1, { name: 'none', edits: [] }))).toMatch(/100%/);
   });
