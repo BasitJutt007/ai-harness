@@ -50,7 +50,7 @@ export interface RunSummary {
   runId: string;
   /** How the agent loop ended. */
   status: AgentStatus;
-  /** True iff the loop ended `done` AND the fresh final gate run is green. */
+  /** True iff the fresh final gate run is green and the loop ended `done`, or ran out of turns / stalled without calling finish. */
   ok: boolean;
   driver: string;
   model: string;
@@ -733,7 +733,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   store.writeJson('state.json', serializeState(state));
   const tokensPath = ledger.write(dirs.tokensDir);
   const tokenReport = ledger.report();
-  const ok = status === 'done' && final.ok;
+  // The gates, not the model, decide: a loop that ran out of turns (or stalled) without calling finish
+  // is still DONE when the fresh final gate run is green, labelled so.
+  const gatesDecided = !abortedRun && (status === 'max_turns' || status === 'stalled') && final.ok && final.results.length > 0;
+  const ok = (status === 'done' && final.ok) || gatesDecided;
 
   let shipped: ShipOutcome | undefined;
   if (opts.ship) {
@@ -756,6 +759,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     : [];
   const targetNotes = target.profile !== undefined ? target.profile.unsupported.map((u) => `target: ${u}`) : [`target: ${target.error ?? 'no profile'}`];
   const h = honesty(task, final.results, report, [...notes, ...targetNotes]);
+  if (gatesDecided) h.humanMustVerify.unshift(`the model did not call finish (loop ended ${status}); DONE rests on the fresh final gate run alone`);
   const iso = isolationHonesty(isolation);
   (iso.proven ? h.proven : h.unproven).push(iso.line);
   const evidence = {
@@ -767,7 +771,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     state: harnessRel(join(runDir, 'state.json')),
     tokens: harnessRel(tokensPath),
   };
-  const verdictText = ok ? 'DONE' : `NOT DONE (${status !== 'done' ? (status !== agent.status ? 'stopped by signal' : `loop ended ${status}`) : 'final gates not green'})`;
+  const verdictText = gatesDecided
+    ? `DONE (the loop ended ${status} without finish; the fresh final gate run is green)`
+    : ok ? 'DONE' : `NOT DONE (${status !== 'done' ? (status !== agent.status ? 'stopped by signal' : `loop ended ${status}`) : 'final gates not green'})`;
   store.writeJson('run.json', {
     ...runRecordBase,
     model: finalModel,
@@ -818,7 +824,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     ...formatHonesty(h),
     ...(shipped !== undefined ? [`ship       ${shipped.status}${shipped.commit !== undefined ? ` ${shipped.commit.slice(0, 12)}` : ''}${shipped.prUrl !== undefined ? ` ${shipped.prUrl}` : ''}${shipped.reasons.length > 0 ? `: ${shipped.reasons.join('; ')}` : ''}`] : []),
     ...(abortedRun ? [`resume     the worktree and evidence are kept; 'harness ship ${runId} --dry-run' re-runs every gate fresh on it`] : []),
-    `verdict    ${ok ? 'DONE (all gates green)' : verdictText}`,
+    `verdict    ${ok && !gatesDecided ? 'DONE (all gates green)' : verdictText}`,
   ];
   const text = lines.join('\n');
   log(text);
