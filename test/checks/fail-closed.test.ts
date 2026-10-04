@@ -267,3 +267,30 @@ ${routes}
     else expect(msgs.some((m) => m.includes(want)), `${msgs.join('\n')}\n${JSON.stringify(findings.filter((f) => f.status === 'skip'))}`).toBe(true);
   });
 });
+
+describe('errors thrown below the handler', () => {
+  it('a service the handler calls that throws a plain Error or a non-error value fails; an explicit problem passes', async () => {
+    const ctx = await api({
+      'src/routes.ts': `import { Router } from 'express';
+import { z } from 'zod';
+import { conflict, notFound } from './lib/problem.js';
+const Item = z.object({ id: z.string() });
+const Params = z.object({ itemId: z.string() });
+const items = new Map<string, z.infer<typeof Item>>();
+function plain(id: string): void { if (items.has(id)) throw new Error('duplicate'); }
+function literal(id: string): void { if (items.has(id)) throw { status: 409 }; }
+function problem(id: string): void { if (items.has(id)) throw conflict('duplicate'); }
+export const r = Router();
+r.get('/v1/as/:itemId', (req, res) => { const { itemId } = Params.parse(req.params); plain(itemId); const it = items.get(itemId); if (it === undefined) throw notFound('x'); res.json(Item.parse(it)); });
+r.get('/v1/bs/:itemId', (req, res) => { const { itemId } = Params.parse(req.params); literal(itemId); const it = items.get(itemId); if (it === undefined) throw notFound('x'); res.json(Item.parse(it)); });
+r.get('/v1/cs/:itemId', (req, res) => { const { itemId } = Params.parse(req.params); problem(itemId); const it = items.get(itemId); if (it === undefined) throw notFound('x'); res.json(Item.parse(it)); });
+`,
+      ...mountApp(),
+    });
+    const { staticProblemFindings } = await import('../../plugins/checks/problem-json.ts');
+    const msgs = staticProblemFindings(ctx).flatMap((f) => f.violations).map((v) => v.message);
+    expect(msgs.some((m) => m.startsWith('GET /v1/as/:itemId: new Error(...) (in plain the handler calls)'))).toBe(true);
+    expect(msgs.some((m) => m.startsWith('GET /v1/bs/:itemId: throw { status: 409 } (in literal the handler calls)'))).toBe(true);
+    expect(msgs.filter((m) => m.startsWith('GET /v1/cs/'))).toEqual([]);
+  });
+});

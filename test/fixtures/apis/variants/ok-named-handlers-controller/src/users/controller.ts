@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { notFound } from '../lib/problem.ts';
+import { internalError, notFound } from '../lib/problem.ts';
 import { CreateUserBody, ListUsersQuery, UpdateUserBody, User, UserPage, UserParams } from './schemas.ts';
 import type { UserService } from './service.ts';
 
@@ -51,6 +51,7 @@ export function bindService(s: UserService): void {
   current = s;
 }
 function service(): UserService {
-  if (current === undefined) throw new Error('UserService not bound');
+  // An invariant the client cannot cause: an explicit 500 problem (a plain Error here would be a non-problem throw).
+  if (current === undefined) throw internalError('UserService not bound');
   return current;
 }

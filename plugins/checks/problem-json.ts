@@ -210,9 +210,9 @@ function problemBodyGaps(checker: ts.TypeChecker, chain: ResponseChain): string[
 }
 
 /** Errors constructed by a handler that are not problems: `throw new Error(...)`, `next(new Error(...))`. */
-function nonProblemErrors(m: ApiModel, fn: ts.FunctionLikeDeclaration): ts.NewExpression[] {
+function nonProblemErrors(m: ApiModel, fn: ts.FunctionLikeDeclaration): Array<ts.NewExpression | ts.Expression> {
   const { checker } = m;
-  const out: ts.NewExpression[] = [];
+  const out: Array<ts.NewExpression | ts.Expression> = [];
   if (fn.body === undefined) return out;
   const nextParam = fn.parameters[2];
   const nextName = nextParam !== undefined && ts.isIdentifier(nextParam.name) ? nextParam.name.text : undefined;
@@ -221,6 +221,11 @@ function nonProblemErrors(m: ApiModel, fn: ts.FunctionLikeDeclaration): ts.NewEx
     if (ts.isThrowStatement(n)) created = n.expression;
     else if (ts.isCallExpression(n) && nextName !== undefined && calleeName(n.expression) === nextName && ts.isIdentifier(n.expression)) created = n.arguments[0];
     const e = created !== undefined ? unwrap(created) : undefined;
+    // `throw { status: 404 }` / `throw 'gone'`: not an error the error middleware can map, the client gets a 500.
+    if (e !== undefined && (ts.isObjectLiteralExpression(e) || ts.isStringLiteralLike(e) || ts.isTemplateExpression(e))) {
+      out.push(e);
+      return;
+    }
     if (e === undefined || !ts.isNewExpression(e)) return;
     if (problemProducer(m, e) !== undefined || isProblemShaped(checker, checker.getTypeAtLocation(e))) return;
     if (/ZodError$/.test(calleeName(e.expression) ?? '')) return; // the error middleware maps it to 422
@@ -352,17 +357,48 @@ function appUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): void
   });
 }
 
+/**
+ * The handler and the program functions it calls, transitively (MAX_DEPTH calls deep): a service or store method
+ * that throws a non-problem error answers the client with a 500 just as the handler would.
+ */
+function reachableFunctions(m: ApiModel, fn: ts.FunctionLikeDeclaration): ts.FunctionLikeDeclaration[] {
+  const out: ts.FunctionLikeDeclaration[] = [fn];
+  const seen = new Set<ts.Node>([fn]);
+  let frontier = [fn];
+  for (let depth = 0; depth < 3 && frontier.length > 0; depth++) {
+    const next: ts.FunctionLikeDeclaration[] = [];
+    for (const f of frontier) {
+      if (f.body === undefined) continue;
+      walk(f.body, (n) => {
+        if (!ts.isCallExpression(n) && !ts.isNewExpression(n)) return;
+        const target = resolveFunction(m.checker, n.expression);
+        if (target === undefined || seen.has(target) || target.getSourceFile().isDeclarationFile || target.body === undefined) return;
+        seen.add(target);
+        next.push(target);
+        out.push(target);
+      });
+    }
+    frontier = next;
+  }
+  return out;
+}
+
 function handlerUnits(ctx: CheckContext, m: ApiModel, routes: RouteInfo[], map: Map<string, Tally>): void {
   const seen = new Set<ts.Node>();
   for (const r of routes) {
-    if (r.handler === undefined || seen.has(r.handler)) continue;
-    seen.add(r.handler);
-    for (const e of nonProblemErrors(m, r.handler)) {
-      const file = location(ctx.root, e).replace(/:\d+:\d+$/, '');
-      unit(tally(map, file), false, {
-        location: location(ctx.root, e),
-        message: `${r.method.toUpperCase()} ${r.path}: new ${e.expression.getText()}(...) is not a problem, so the client gets a 500; throw a problem helper (notFound/conflict/unprocessable/new HttpProblem)`,
-      });
+    if (r.handler === undefined) continue;
+    for (const fn of reachableFunctions(m, r.handler)) {
+      for (const e of nonProblemErrors(m, fn)) {
+        if (seen.has(e)) continue;
+        seen.add(e);
+        const file = location(ctx.root, e).replace(/:\d+:\d+$/, '');
+        const what = ts.isNewExpression(e) ? `new ${e.expression.getText()}(...)` : `throw ${e.getText().slice(0, 40)}`;
+        const via = fn === r.handler ? '' : ` (in ${fn.name?.getText() ?? 'a function'} the handler calls)`;
+        unit(tally(map, file), false, {
+          location: location(ctx.root, e),
+          message: `${r.method.toUpperCase()} ${r.path}: ${what}${via} is not a problem, so the client gets a 500; throw a problem helper (notFound/conflict/unprocessable/new HttpProblem)`,
+        });
+      }
     }
   }
 }
