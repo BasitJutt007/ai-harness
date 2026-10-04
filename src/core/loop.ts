@@ -1,16 +1,18 @@
 /**
  * The agent loop. Provider-neutral: it only speaks Message / Part / ToolSpec.
  *
- * Per turn: build the actual request (JIT view) and the shadow baseline request →
- * count both → driver.complete (retried on thrown errors) → ledger.record → run each
- * tool call in order (validate → pre hooks → run → post hooks) → persist.
+ * Per turn: build the actual request (JIT view) and the baseline request (front-load of the
+ * current tree, raw returns, no context fetchers; in --baseline mode it IS the actual request) →
+ * count both with the same counter → driver.complete (retried on thrown errors; a rate limit's
+ * wait comes from the driver, else a standard Retry-After) → ledger.record → run each tool call
+ * in order (validate → pre hooks → run → post hooks) → persist.
  * `finish` runs the finish gates; only an all-green gate run ends the loop as `done`.
  */
 import { serializeState } from './run-store.ts';
-import { baselineView, jitView, messageChars, repeatPointer, type RepeatRef, type TranscriptTurn } from './context.ts';
+import { baselineView, fetcherNames, jitView, messageChars, repeatPointer, type RepeatRef, type TranscriptTurn } from './context.ts';
 import { runGates, type GateOutcome } from './gates.ts';
 import { runPostHooks, runPreHooks } from './hooks.ts';
-import type { TokenLedger } from './tokens.ts';
+import type { TokenLedger, TurnTokens } from './tokens.ts';
 import type {
   Driver,
   LogStore,
@@ -50,8 +52,15 @@ export interface RunAgentOptions {
   store: AgentStore;
   ledger: TokenLedger;
   first: Message;
+  /** System prompt of the actual (JIT) request; unused in baseline mode. */
   system: string;
-  baselineSystem: string;
+  /**
+   * System prompt of the baseline request: the baseline prompt + the repository + every standards
+   * doc. A function is called once per turn so the repository is re-rendered from the CURRENT tree
+   * (files written in earlier turns are visible); a string is used as is every turn.
+   */
+  baselineSystem: string | (() => Promise<string>);
+  /** Tools of the actual (JIT) request; the baseline request offers these minus the context fetchers. */
   tools: ToolSpec[];
   maxTurns: number;
   maxOutputTokens: number;
@@ -103,41 +112,56 @@ export const RATE_LIMIT_MAX_WAIT_MS = 120_000;
 /** Cap on provider-requested waits per request (they do not consume the normal retry budget). */
 export const MAX_RATE_LIMIT_WAITS = 30;
 
-/** `6h56m35.8s`, `37.6s`, `1m30s`, `250ms` → ms; null when the text is not such a duration. */
-function durationMs(text: string): number | null {
-  const m = /^(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m(?!s))?(?:(\d+(?:\.\d+)?)s)?(?:(\d+(?:\.\d+)?)ms)?$/.exec(text);
-  if (m === null || text.length === 0) return null;
-  const [h, min, sec, ms] = [m[1], m[2], m[3], m[4]].map((v) => (v === undefined ? 0 : Number(v)));
-  return Math.ceil(((h ?? 0) * 3600 + (min ?? 0) * 60 + (sec ?? 0)) * 1000 + (ms ?? 0));
+/** HTTP statuses whose standard Retry-After header the loop honours without a driver's help. */
+const RETRY_AFTER_STATUSES: ReadonlySet<number> = new Set([429, 503]);
+
+/** A header of a generic error shape: `headers` as a record (any letter case) or with a `get(name)` method. */
+function headerOf(headers: unknown, name: string): string | null {
+  if (typeof headers !== 'object' || headers === null) return null;
+  const get: unknown = (headers as { get?: unknown }).get;
+  if (typeof get === 'function') {
+    const v: unknown = get.call(headers, name);
+    return typeof v === 'string' ? v : null;
+  }
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() !== name) continue;
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number') return String(v);
+  }
+  return null;
+}
+
+/** A Retry-After value (delta seconds or an HTTP date) → ms from `now` (at least 0), or null. */
+export function parseRetryAfter(value: string, now: number = Date.now()): number | null {
+  const v = value.trim();
+  if (/^\d+(?:\.\d+)?$/.test(v)) return Math.ceil(Number(v) * 1000);
+  const at = Date.parse(v);
+  return Number.isNaN(at) ? null : Math.max(0, at - now);
 }
 
 /**
- * The wait a rate-limit error asks for, in ms, or null when it names none: a structured
- * `"retryDelay": "37s"`, a `retry in 37.6s` / `retry in 6h56m35s` sentence, a
- * `Retry-After: 37` (seconds) header echoed in the message, or an echoed
- * `X-RateLimit-Reset` epoch timestamp (ms or s; the wait is the time left until it, at least 0).
+ * The generic fallback: the standard Retry-After header of an error with HTTP status 429 or 503
+ * (`status` and `headers` on the thrown value), else null. No provider's own error format is read
+ * here: those belong to the driver (Driver.retryAfterMs).
  */
-export function providerRetryDelayMs(message: string, now: number = Date.now()): number | null {
-  const structured = /"retryDelay"\s*:\s*"([\d.hms]+)"/.exec(message)?.[1];
-  const sentence = /retry (?:in|after) ((?:\d+(?:\.\d+)?(?:h|ms|m|s))+)/i.exec(message)?.[1];
-  for (const d of [structured, sentence]) {
-    const v = d === undefined ? null : durationMs(d);
-    if (v !== null) return v;
-  }
-  const header = /retry-after["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)\b/i.exec(message)?.[1];
-  if (header !== undefined) return Math.ceil(Number(header) * 1000);
-  // Only an epoch timestamp (>= 1e9 s): a small number could be a delta or a count, so it names no wait.
-  const reset = /x-ratelimit-reset[\\"']*\s*[:=]\s*[\\"']*(\d{10,13})\b/i.exec(message)?.[1];
-  if (reset === undefined) return null;
-  const n = Number(reset);
-  const resetMs = n >= 1e12 ? n : n * 1000;
-  return Math.max(0, Math.ceil(resetMs - now));
+export function genericRetryAfterMs(e: unknown, now: number = Date.now()): number | null {
+  if (typeof e !== 'object' || e === null) return null;
+  const status: unknown = (e as { status?: unknown }).status;
+  if (typeof status !== 'number' || !RETRY_AFTER_STATUSES.has(status)) return null;
+  const value = headerOf((e as { headers?: unknown }).headers, 'retry-after');
+  return value === null ? null : parseRetryAfter(value, now);
 }
 
-/** A thrown driver error that is a rate limit (HTTP 429 or the usual wording). */
-export function isRateLimit(e: unknown): boolean {
-  const status = typeof e === 'object' && e !== null && 'status' in e ? e.status : undefined;
-  return status === 429 || /\b429\b|rate.?limit|RESOURCE_EXHAUSTED|quota/i.test(errMsg(e));
+/** The wait a failed complete() asks for: the driver's reading first, then the generic header; null when none. */
+export function retryAfterMs(driver: Pick<Driver, 'retryAfterMs'>, e: unknown): number | null {
+  let asked: number | null = null;
+  try {
+    asked = driver.retryAfterMs?.(e) ?? null;
+  } catch {
+    asked = null; // a driver's parser never turns a retry into a crash
+  }
+  if (asked !== null && Number.isFinite(asked) && asked >= 0) return Math.ceil(asked);
+  return genericRetryAfterMs(e);
 }
 
 /** A function (not an inline property read) so TypeScript does not narrow `aborted` across awaits. */
@@ -162,7 +186,7 @@ async function completeWithRetry(
       if (isAborted(signal)) throw new AbortedError('aborted during driver.complete');
       // A rate limit that names its wait: honour a short one (per-minute limits) outside the
       // normal retry budget; a long one (a daily quota) will not clear in this run: stop.
-      const asked = isRateLimit(e) ? providerRetryDelayMs(errMsg(e)) : null;
+      const asked = retryAfterMs(driver, e);
       if (asked !== null && asked > RATE_LIMIT_MAX_WAIT_MS) {
         throw new RateLimitStop(`rate limited: the provider asked to retry in ${Math.round(asked / 1000)}s, longer than the ${RATE_LIMIT_MAX_WAIT_MS / 1000}s the harness waits: ${errMsg(e)}`);
       }
@@ -183,15 +207,34 @@ async function completeWithRetry(
   }
 }
 
-async function countOrEstimate(driver: Driver, req: ModelRequest, ctx: RunContext, label: string, ledger?: TokenLedger): Promise<number> {
-  try {
-    return await driver.countTokens(req);
-  } catch (e) {
-    const est = Math.ceil((req.system.length + messageChars(req.messages)) / 4);
-    ledger?.noteEstimated();
-    ctx.emit({ kind: 'error', source: 'driver', message: `countTokens(${label}) failed: ${errMsg(e)}; estimated ${est} from chars/4` });
-    return est;
+/** chars/4 of a request (system, messages, tool schemas): the fallback when the driver's counter fails. */
+export function estimateTokens(req: ModelRequest): number {
+  return Math.ceil((req.system.length + messageChars(req.messages) + (JSON.stringify(req.tools) ?? '').length) / 4);
+}
+
+/**
+ * Counts each request of one turn with the driver's counter, in order. If any count fails, EVERY
+ * request of the turn is estimated (chars/4) instead, so a turn's ratio never compares two counters.
+ */
+async function countTurn(
+  driver: Driver,
+  reqs: Array<{ label: string; req: ModelRequest }>,
+  ctx: RunContext,
+  ledger: TokenLedger,
+): Promise<{ counts: number[]; estimated: boolean }> {
+  const counts: number[] = [];
+  for (const { label, req } of reqs) {
+    try {
+      counts.push(await driver.countTokens(req));
+    } catch (e) {
+      const est = reqs.map((r) => estimateTokens(r.req));
+      for (let i = 0; i < reqs.length; i += 1) ledger.noteEstimated();
+      const labels = reqs.map((r) => r.label).join(' and ');
+      ctx.emit({ kind: 'error', source: 'driver', message: `countTokens(${label}) failed: ${errMsg(e)}; this turn's ${labels} counts are chars/4 estimates (${est.join(', ')})` });
+      return { counts: est, estimated: true };
+    }
   }
+  return { counts, estimated: false };
 }
 
 interface CallOutcome {
@@ -394,12 +437,38 @@ function offeredTools(ctx: RunContext, specs: ToolSpec[]): Map<string, ToolPlugi
   return map;
 }
 
+/** Baseline mode = context fetchers and every compaction disabled (`--baseline`). */
+export function isBaselineMode(mode: RunContext['mode']): boolean {
+  return !mode.jit && !mode.compactReturns && !mode.compactHistory;
+}
+
 export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const { driver, ctx, store, ledger, first, tools } = opts;
   const delays = opts.retryDelaysMs ?? DEFAULT_RETRY_DELAYS;
-  const baselineMode = !ctx.mode.jit && !ctx.mode.compactReturns && !ctx.mode.compactHistory;
+  const baselineMode = isBaselineMode(ctx.mode);
   const keep = ctx.config.history.keepRecentTurns;
-  const toolMap = offeredTools(ctx, tools);
+  // The baseline offers no context fetchers (decided by effect and flag, never by name).
+  const fetchers = fetcherNames(tools, ctx.registry.tools.map((r) => r.plugin));
+  const baselineTools = tools.filter((s) => !fetchers.has(s.name));
+  const toolMap = offeredTools(ctx, baselineMode ? baselineTools : tools);
+  let lastBaselineSystem: string | undefined;
+  /** The baseline system prompt for this turn, rendered from the current tree (the last good rendering if that fails). */
+  const baselineSystemNow = async (): Promise<string> => {
+    if (typeof opts.baselineSystem === 'string') return opts.baselineSystem;
+    const previous = lastBaselineSystem;
+    try {
+      const rendered = await opts.baselineSystem();
+      lastBaselineSystem = rendered;
+      return rendered;
+    } catch (e) {
+      if (previous === undefined) throw e;
+      ctx.emit({ kind: 'error', source: 'loop', message: `baseline front-load could not be re-rendered: ${errMsg(e)}; reusing the previous turn's` });
+      return previous;
+    }
+  };
+  if (baselineMode && fetchers.size > 0) {
+    ctx.emit({ kind: 'note', source: 'loop', message: `baseline mode: context fetchers withheld (${[...fetchers].join(', ')}); the repository and the standards are front-loaded every turn` });
+  }
   const writeTools = [...toolMap.values()].filter((t) => t.effect === 'write').map((t) => t.name);
   // Repeat pointers (JIT only): the turns the NEXT request shows verbatim are the current one and the keep-1 before it.
   const repeatsOn = !baselineMode && (!ctx.mode.compactHistory || keep >= 1);
@@ -430,31 +499,40 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     for (let turn = 1; turn <= opts.maxTurns; turn += 1) {
       if (isAborted(opts.signal)) return aborted(turn - 1);
       ctx.state.turn = turn;
-      const baselineMsgs = baselineView(first, turns);
+      // Baseline request: front-load re-rendered from the current tree, raw returns, no fetchers. In a
+      // --baseline run it is what is sent; otherwise it is the shadow, built from this run's trajectory
+      // without its context-fetch calls (a baseline harness has that content front-loaded).
       const baselineReq: ModelRequest = {
-        system: opts.baselineSystem,
-        messages: baselineMsgs,
-        tools,
+        system: await baselineSystemNow(),
+        messages: baselineMode ? baselineView(first, turns) : baselineView(first, turns, { omitTools: fetchers }),
+        tools: baselineTools,
         maxOutputTokens: opts.maxOutputTokens,
       };
       let actualReq: ModelRequest;
       let actual: number;
       let baseline: number;
-      let attribution = { frontLoadChars: 0, rawReturnChars: 0, historyChars: 0 };
+      let estimated: boolean;
+      let attribution: TurnTokens['attribution'] = { frontLoadChars: 0, rawReturnChars: 0, historyChars: 0, fetchChars: 0 };
       if (baselineMode) {
         actualReq = baselineReq;
-        actual = await countOrEstimate(driver, actualReq, ctx, 'actual', ledger);
+        const c = await countTurn(driver, [{ label: 'actual', req: actualReq }], ctx, ledger);
+        actual = c.counts[0] ?? 0;
         baseline = actual;
+        estimated = c.estimated;
       } else {
         const fullMsgs = jitView(first, turns, keep, false);
         const msgs = ctx.mode.compactHistory ? jitView(first, turns, keep, true, { writeTools }) : fullMsgs;
         actualReq = { system: opts.system, messages: msgs, tools, maxOutputTokens: opts.maxOutputTokens };
-        actual = await countOrEstimate(driver, actualReq, ctx, 'actual', ledger);
-        baseline = await countOrEstimate(driver, baselineReq, ctx, 'baseline', ledger);
+        const c = await countTurn(driver, [{ label: 'actual', req: actualReq }, { label: 'baseline', req: baselineReq }], ctx, ledger);
+        actual = c.counts[0] ?? 0;
+        baseline = c.counts[1] ?? 0;
+        estimated = c.estimated;
+        const rawMsgs = fetchers.size > 0 ? baselineView(first, turns) : baselineReq.messages;
         attribution = {
-          frontLoadChars: opts.baselineSystem.length - opts.system.length,
-          rawReturnChars: messageChars(baselineMsgs) - messageChars(fullMsgs),
+          frontLoadChars: baselineReq.system.length - opts.system.length,
+          rawReturnChars: messageChars(rawMsgs) - messageChars(fullMsgs),
           historyChars: messageChars(fullMsgs) - messageChars(msgs),
+          fetchChars: messageChars(rawMsgs) - messageChars(baselineReq.messages),
         };
       }
 
@@ -468,14 +546,18 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         store.writeJson('state.json', serializeState(ctx.state));
         return withFinish({ status: 'error', turns: turn - 1, error });
       }
+      // A driver with no provider (an offline replay) reports no usage: never record its numbers as the provider's.
+      const reported = response.usage.reported !== false;
       ledger.record({
         turn,
         actual,
         baseline,
-        providerInput: response.usage.inputTokens,
-        providerCached: response.usage.cachedInputTokens ?? 0,
-        output: response.usage.outputTokens,
+        providerInput: reported ? response.usage.inputTokens : 0,
+        providerCached: reported ? (response.usage.cachedInputTokens ?? 0) : 0,
+        output: reported ? response.usage.outputTokens : 0,
         attribution,
+        ...(reported ? {} : { providerReported: false }),
+        ...(estimated ? { estimated: true } : {}),
       });
 
       const assistant: Message = { role: 'assistant', parts: response.parts };

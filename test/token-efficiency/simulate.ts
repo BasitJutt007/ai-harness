@@ -13,8 +13,10 @@ import { join } from 'node:path';
 import { countRequest } from '../../plugins/lib/tokenize.ts';
 import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
 import { runAgent, type AgentStore } from '../../src/core/loop.ts';
-import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief } from '../../src/core/prompt.ts';
+import { withoutFetchers } from '../../src/core/context.ts';
+import { compactTree, scaffoldApiOf, systemPrompt, taskBrief } from '../../src/core/prompt.ts';
 import { loadRegistry, toolSpecs } from '../../src/core/registry.ts';
+import { baselineSystemRenderer } from '../../src/core/run.ts';
 import { shippedOnly } from './shipped.ts';
 import { loadTask } from '../../src/core/task.ts';
 import { TokenLedger, type TokenReport, type TurnTokens } from '../../src/core/tokens.ts';
@@ -358,7 +360,8 @@ export async function simulate(opts: SimOptions = {}): Promise<SimResult> {
     const tools = toolSpecs(registry.tools, task.kind);
     const checks = registry.checks.map((r) => r.plugin);
     const system = systemPrompt({ task, checks, tools });
-    const baselineSystem = `${system}\n\n${await frontLoad({ ws, checks })}`;
+    // Exactly what run.ts builds: the --baseline prompt + the CURRENT tree + the standards, re-rendered every turn.
+    const baselineSystem = baselineSystemRenderer({ task, checks, tools: withoutFetchers(tools, registry.tools.map((r) => r.plugin)), ws });
     // The same brief run.ts sends for a greenfield task: tree plus the scaffold's exported signatures.
     const tree = compactTree(await ws.list(['**/*']));
     const brief = taskBrief(task, opts.scaffoldApi === false ? { tree } : { tree, scaffoldApi: await scaffoldApiOf(ws) });

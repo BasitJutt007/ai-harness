@@ -1,12 +1,15 @@
 /**
  * Wire helpers shared by the model drivers. Not a plugin (the leading underscore keeps the
- * registry from loading it); provider-neutral on purpose.
+ * registry from loading it); it imports no SDK.
  *
  *  - normalizeTranscript: one canonical, always-valid shape of the neutral transcript
  *    (alternating roles, every tool call answered right after it, no empty content).
  *  - toolSchema: a tool's JSON Schema in the conservative shape every function-calling
  *    API accepts (root type "object" with properties, no root combinators, no "$schema").
  *  - errorInfo: status / message / param / code of a thrown SDK error, duck-typed.
+ *  - rateLimitRetryAfterMs: Driver.retryAfterMs over the rate-limit formats the SDK drivers
+ *    meet (their own endpoints and the compatible gateways in front of them). The core reads
+ *    none of these formats, only a standard Retry-After header.
  */
 import type { JsonSchema, Message, Part, ToolCallPart, ToolResultPart } from '../../src/core/plugin-api.ts';
 
@@ -218,6 +221,72 @@ export function errorInfo(e: unknown): ErrorInfo {
   const param = str(rec['param']) ?? str(errBody['param']);
   const code = str(rec['code']) ?? str(errBody['code']);
   return { status, text: `${message}\n${body}${param !== undefined ? `\nparam: ${param}` : ''}`, param, code };
+}
+
+// ───────────────────────────── rate limits ─────────────────────────────
+
+/** `6h56m35.8s`, `37.6s`, `1m30s`, `250ms` → ms; null when the text is not such a duration. */
+function durationMs(text: string): number | null {
+  const m = /^(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m(?!s))?(?:(\d+(?:\.\d+)?)s)?(?:(\d+(?:\.\d+)?)ms)?$/.exec(text);
+  if (m === null || text.length === 0) return null;
+  const [h, min, sec, ms] = [m[1], m[2], m[3], m[4]].map((v) => (v === undefined ? 0 : Number(v)));
+  return Math.ceil(((h ?? 0) * 3600 + (min ?? 0) * 60 + (sec ?? 0)) * 1000 + (ms ?? 0));
+}
+
+/**
+ * The wait a rate-limit error text asks for, in ms, or null when it names none: a structured
+ * `"retryDelay": "37s"` (Google RetryInfo), a `retry in 37.6s` / `retry in 6h56m35s` sentence, a
+ * `Retry-After: 37` (seconds) header echoed in the text, or an echoed `X-RateLimit-Reset` epoch
+ * timestamp (ms or s, as OpenRouter sends it; the wait is the time left until it, at least 0).
+ */
+export function retryDelayFromText(message: string, now: number = Date.now()): number | null {
+  const structured = /"retryDelay"\s*:\s*"([\d.hms]+)"/.exec(message)?.[1];
+  const sentence = /retry (?:in|after) ((?:\d+(?:\.\d+)?(?:h|ms|m|s))+)/i.exec(message)?.[1];
+  for (const d of [structured, sentence]) {
+    const v = d === undefined ? null : durationMs(d);
+    if (v !== null) return v;
+  }
+  const header = /retry-after["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)\b/i.exec(message)?.[1];
+  if (header !== undefined) return Math.ceil(Number(header) * 1000);
+  // Only an epoch timestamp (>= 1e9 s): a small number could be a delta or a count, so it names no wait.
+  const reset = /x-ratelimit-reset[\\"']*\s*[:=]\s*[\\"']*(\d{10,13})\b/i.exec(message)?.[1];
+  if (reset === undefined) return null;
+  const n = Number(reset);
+  const resetMs = n >= 1e12 ? n : n * 1000;
+  return Math.max(0, Math.ceil(resetMs - now));
+}
+
+/** A thrown SDK error that is a rate limit: HTTP 429, or the providers' wording (429, rate limit, RESOURCE_EXHAUSTED, quota). */
+export function isRateLimitError(e: unknown): boolean {
+  const info = errorInfo(e);
+  return info.status === 429 || /\b429\b|rate.?limit|RESOURCE_EXHAUSTED|quota/i.test(info.text);
+}
+
+/** The SDK error's response headers as `name: value` lines (a Headers object or a plain record), for the text parser. */
+function headerLines(e: unknown): string {
+  if (!isRecord(e) && !(e instanceof Error)) return '';
+  const headers: unknown = (e as { headers?: unknown }).headers;
+  if (typeof headers !== 'object' || headers === null) return '';
+  const lines: string[] = [];
+  const entries: unknown = (headers as { entries?: unknown }).entries;
+  const pairs: Iterable<unknown> = typeof entries === 'function' ? (entries.call(headers) as Iterable<unknown>) : Object.entries(headers);
+  for (const p of pairs) {
+    if (Array.isArray(p) && typeof p[0] === 'string' && (typeof p[1] === 'string' || typeof p[1] === 'number')) lines.push(`${p[0]}: ${String(p[1])}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Driver.retryAfterMs for the SDK drivers: for a rate limit, the wait it names in the provider's
+ * formats (retryDelayFromText over the message, the JSON error body and the response headers;
+ * a `retry-after-ms` header first), else null.
+ */
+export function rateLimitRetryAfterMs(e: unknown, now: number = Date.now()): number | null {
+  if (!isRateLimitError(e)) return null;
+  const headers = headerLines(e);
+  const ms = /^retry-after-ms:\s*(\d+(?:\.\d+)?)\s*$/im.exec(headers)?.[1];
+  if (ms !== undefined) return Math.ceil(Number(ms));
+  return retryDelayFromText(`${errorInfo(e).text}\n${headers}`, now);
 }
 
 /** Largest output-token value a "too many output tokens" rejection names, if any. */

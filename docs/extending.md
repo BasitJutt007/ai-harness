@@ -232,6 +232,7 @@ interface ToolPlugin<I> {
   description?: string;         // one or two sentences: all the model learns up front (default: the name)
   input: z.ZodType<I>;          // converted to a neutral JSON Schema by the core
   effect: 'read' | 'write' | 'exec' | 'control';   // hooks select on this
+  fetcher?: boolean;            // fetches context (default: true for 'read' tools); --baseline withholds fetchers
   availableIn?: ('greenfield' | 'brownfield')[];    // default: both
   paths?(input: I): string[];   // API-relative paths touched (REQUIRED for write tools)
   run(input: I, ctx: RunContext): Promise<ToolResult>;  // { ok, summary, raw?, data? }
@@ -268,6 +269,10 @@ The core guarantees:
   only in `--baseline` mode, and for `exec` and `write` tools it is written to
   `runs/<id>/logs/` when it is over 2 KB. `data` is for hooks and gates and is never shown.
   A tool that throws becomes an error result.
+- A context fetcher (every `read` tool, unless it sets `fetcher: false`; any other tool that sets
+  `fetcher: true`) is not offered in `--baseline` runs, where the repository and the standards
+  are front-loaded into every request instead, and its calls are left out of a normal run's
+  shadow baseline.
 
 ## Check (standards, ORM and lint rules)
 
@@ -438,6 +443,7 @@ interface Driver {
   readonly tokenCounter: string;   // label of the method countTokens uses
   complete(req: ModelRequest, signal?: AbortSignal): Promise<ModelResponse>;
   countTokens(req: ModelRequest): Promise<number>;
+  retryAfterMs?(error: unknown): number | null;   // optional: the wait (ms) a rate-limit error names, or null
 }
 ```
 
@@ -477,14 +483,18 @@ Real endpoints taught four rules (see `runs/real-model/`):
   travels as an `opaque` part tagged with your driver's name, and only your driver reads it.
   Examples: reasoning blocks, or the openai driver's per-tool-call extras, such as a thought
   signature.
-- **Keep the provider's status and error text in the error you throw.** The loop recognises a
-  rate limit from `status: 429`, or from `429`, `rate limit`, `RESOURCE_EXHAUSTED` or `quota` in
-  the message. It reads the stated wait (`retryDelay`, "retry in 37.6s", `Retry-After`, or an
-  `X-RateLimit-Reset` epoch timestamp) from the message too. It waits out a wait of 120 s or less and stops the
-  run on a longer one.
+- **Read your provider's rate-limit format in `retryAfterMs`.** Return the wait a thrown error
+  names, in ms (null when it names none). The core reads no provider format; without your answer
+  it honours only a standard `Retry-After` header on an error with `status` 429 or 503 and
+  `headers`. It waits out a wait of 120 s or less and stops the run on a longer one. The SDK
+  drivers share `rateLimitRetryAfterMs` in `plugins/drivers/_wire.ts` (`retryDelay`, "retry in
+  37.6s", `retry-after-ms`, `Retry-After`, an `X-RateLimit-Reset` epoch timestamp).
 - **If the endpoint cannot count tokens, let `countTokens` throw.** The loop then estimates
-  chars/4 for both the actual and the baseline request, logs that in `events.jsonl`, and the
-  token report's `counter` names the fallback instead of your counter.
+  chars/4 for both the actual and the baseline request of that turn, logs that in `events.jsonl`,
+  and the token report's `counter` names the fallback instead of your counter.
+- **Report only usage a provider reported.** A driver with no provider behind it (an offline
+  replay) returns `usage.reported: false` with zeros; the token report then says
+  `provider_usage: none` instead of passing an estimate off as provider data.
 - **Downgrade a rejected optional parameter once, and say so.** When a 400 names a parameter
   you can drop or change, retry the session with a compatible request and report the model as
   `<id> (compat)`. Example: the openai driver retries with `reasoning_effort: 'none'` when

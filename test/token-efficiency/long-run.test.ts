@@ -16,13 +16,18 @@
  * This simulation's model is a fixed script that never re-reads, so it pays both costs and
  * cannot be credited with the re-reads they prevent. So the test asserts what is true here:
  *   1. the compaction mechanisms alone (the same requests without the working set, the brief
- *      without the scaffold API) still reduce input tokens by more than 90%;
+ *      without the scaffold API) still reduce input tokens by more than 88%;
  *   2. the anti-thrashing context is bounded (working set within WORKING_SET_CHARS per request;
  *      scaffold API under 700 tokens per request, added to actual and baseline alike) and costs
- *      less than 5 points of reduction;
- *   3. the shipped total stays above 85% with honest, non-negative attribution.
+ *      less than 6 points of reduction (5.1 measured: the same tokens weigh more against the smaller honest baseline);
+ *   3. the shipped total stays above 83% with honest, non-negative attribution.
  * The baseline is never touched: every variant has the same baseline as the shipped run
- * (except the no-scaffold-API one, whose brief is smaller on both sides).
+ * (except the no-scaffold-API one, whose brief is smaller on both sides). It is the request
+ * run.ts builds (BASELINE_DEFINITION): the tree front-loaded as it is at each turn, no context
+ * fetchers, and this trajectory's fetch calls left out of the shadow (their content is already
+ * front-loaded). The thresholds were 90% / 85% while the shadow front-loaded the run-start tree
+ * and ALSO replayed every raw read (the same file counted twice) plus the fetchers' schemas:
+ * measured on the same 40 turns, that baseline was 1,337,976 tokens, the honest one ~1,148,000.
  */
 import { describe, expect, it } from 'vitest';
 import { countRequest, countText } from '../../plugins/lib/tokenize.ts';
@@ -66,7 +71,7 @@ function workingSetCost(r: SimResult): { tokens: number; requests: number; maxCh
 }
 
 describe('40-turn simulation (shipped policy)', () => {
-  it('compaction alone reduces input tokens by more than 90%; the deliberate anti-thrashing context is bounded and itemised', async () => {
+  it('compaction alone reduces input tokens by more than 88%; the deliberate anti-thrashing context is bounded and itemised', async () => {
     const shipped = await simulate();
     expect(STEPS.length).toBe(40);
     expect(shipped.turns).toBe(40);
@@ -110,23 +115,23 @@ describe('40-turn simulation (shipped policy)', () => {
     ].join('\n');
     console.log(out);
 
-    // 1. The compaction mechanisms alone: more than 90% (the baseline is the honest naive harness:
-    //    run_tests replays the runner's console output, check_standards the full report, reads the
-    //    whole file; tool schemas are counted once).
-    expect(pct(compactionOnly, noApi.report.totals.baseline_input_tokens)).toBeGreaterThan(90);
+    // 1. The compaction mechanisms alone: more than 88% (the baseline is the honest naive harness:
+    //    the current tree front-loaded once per request, run_tests replays the runner's console
+    //    output, check_standards the full report; no fetch traffic; tool schemas are counted once).
+    expect(pct(compactionOnly, noApi.report.totals.baseline_input_tokens)).toBeGreaterThan(88);
 
     // 2. The anti-thrashing context is bounded and itemised.
     expect(ws.requests).toBeGreaterThan(0);
     expect(ws.maxChars).toBeLessThanOrEqual(WORKING_SET_CHARS + WORKING_SET_HEADER.length + 1);
     expect(apiTokens).toBe(apiBaselineTokens); // the brief is the same on both sides
     expect(apiTokens / shipped.turns).toBeLessThan(700);
-    expect(pct(compactionOnly, noApi.report.totals.baseline_input_tokens) - t.reduction_pct).toBeLessThan(5);
+    expect(pct(compactionOnly, noApi.report.totals.baseline_input_tokens) - t.reduction_pct).toBeLessThan(6);
     // Itemisation is complete: shipped = compaction only + working set + scaffold API (token counts
     // of separately serialized parts differ by a few tokens at the seams).
     expect(Math.abs(t.actual_input_tokens - (compactionOnly + ws.tokens + apiTokens))).toBeLessThan(shipped.turns * 4);
 
     // 3. The shipped total.
-    expect(t.reduction_pct).toBeGreaterThan(85);
+    expect(t.reduction_pct).toBeGreaterThan(83);
     for (const v of [elisionOnly, noHistory, noReturns, keep1, keep3]) {
       expect(v.report.totals.baseline_input_tokens).toBe(t.baseline_input_tokens);
     }

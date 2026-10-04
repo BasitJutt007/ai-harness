@@ -15,7 +15,8 @@ import type { CheckPlugin, FieldSpec, ResourceSpec, Task, TestMap, ToolSpec, Wor
 
 const CONTEXT_TOOLS = ['list_files', 'read_file', 'outline', 'search_code', 'test_map', 'fetch_standard'];
 
-export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[] }): string {
+/** `preloaded`: the --baseline prompt (the repository and the standards follow it, no fetchers). */
+export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; preloaded?: boolean }): string {
   const have = new Set(opts.tools.map((t) => t.name));
   const fetchers = CONTEXT_TOOLS.filter((n) => have.has(n)).map((n) => {
     if (n === 'read_file') return 'read_file (line ranges)';
@@ -34,10 +35,12 @@ export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: T
     '',
     'Workflow: plan -> write test -> run_tests (red) -> implement -> run_tests (green) -> check_standards -> finish.',
     '',
-    `Nothing is preloaded; fetch on demand: ${fetchers.join(', ') || 'the provided tools'}. Do not re-read files you just wrote unless you need their exact text. In history your large inputs are omitted and older turns become a one-line-per-call digest; re-run a tool to see more. Independent calls may share a turn.`,
+    opts.preloaded === true
+      ? 'The repository (every text file under the API root, re-read from the current tree before every turn) and the full text of every standard are included below; there are no file-reading tools. History keeps every call and its full output verbatim. Independent calls may share a turn.'
+      : `Nothing is preloaded; fetch on demand: ${fetchers.join(', ') || 'the provided tools'}. Do not re-read files you just wrote unless you need their exact text. In history your large inputs are omitted and older turns become a one-line-per-call digest; re-run a tool to see more. Independent calls may share a turn.`,
   ];
   if (opts.checks.length > 0) {
-    lines.push('', 'Standards (fetch_standard <rule> for the full text):');
+    lines.push('', opts.preloaded === true ? 'Standards (full text below):' : 'Standards (fetch_standard <rule> for the full text):');
     for (const c of opts.checks) lines.push(`- ${c.id}: ${c.description ?? c.id}`);
   }
   return lines.join('\n');

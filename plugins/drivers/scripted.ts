@@ -17,7 +17,7 @@ import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { defineDriver } from '../../src/core/plugin-api.ts';
 import type { Driver, DriverCreateOptions, ModelResponse, Part } from '../../src/core/plugin-api.ts';
-import { countRequest, countText, serializePart } from '../lib/tokenize.ts';
+import { countRequest } from '../lib/tokenize.ts';
 
 export const DRIVER_NAME = 'scripted';
 
@@ -84,7 +84,7 @@ export function createScriptedDriver(opts: DriverCreateOptions): Driver {
     name: DRIVER_NAME,
     model,
     tokenCounter: 'js-tiktoken o200k_base (scripted driver: estimate)',
-    async complete(req): Promise<ModelResponse> {
+    async complete(): Promise<ModelResponse> {
       calls += 1;
       const turn = script.turns[calls - 1];
       const parts: Part[] = [];
@@ -95,11 +95,11 @@ export function createScriptedDriver(opts: DriverCreateOptions): Driver {
         turn.calls.forEach((c, i) => parts.push({ type: 'tool_call', id: `call_${calls}_${i}`, name: c.name, input: c.input }));
       }
       const hasCalls = parts.some((p) => p.type === 'tool_call');
-      const outputTokens = parts.reduce((n, p) => n + countText(serializePart(p)), 0);
       return {
         parts,
         stop: hasCalls ? 'tool_calls' : 'end_turn',
-        usage: { inputTokens: countRequest(req), outputTokens, cachedInputTokens: 0 },
+        // No provider served this response: report no usage rather than a local estimate dressed as one.
+        usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reported: false },
         model,
       };
     },

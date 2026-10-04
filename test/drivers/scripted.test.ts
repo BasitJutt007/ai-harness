@@ -58,8 +58,10 @@ describe('scripted driver', () => {
       { type: 'text', text: 'Planning.' },
       { type: 'tool_call', id: 'call_1_0', name: 'plan', input: { steps: ['write test'] } },
     ]);
-    expect(t1.usage.inputTokens).toBe(await driver.countTokens(req));
-    expect(t1.usage.inputTokens).toBeGreaterThan(0);
+    // no provider served it: no usage is reported (never a local estimate dressed as provider usage)
+    expect(t1.usage).toEqual({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reported: false });
+    expect(await driver.countTokens(req)).toBeGreaterThan(0); // the local counter still counts requests
+    expect(driver.retryAfterMs).toBeUndefined(); // an offline replay never throws a provider error
 
     const t2 = await driver.complete(req);
     expect(t2.parts).toEqual([

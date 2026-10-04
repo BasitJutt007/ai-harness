@@ -105,6 +105,7 @@ interface Driver {
   name: string; model: string; tokenCounter: string;
   complete(req: ModelRequest): Promise<ModelResponse>;   // parts, stop, usage
   countTokens(req: ModelRequest): Promise<number>;        // same counter for actual and baseline
+  retryAfterMs?(error: unknown): number | null;           // optional: the wait a rate limit names, in the provider's format
 }
 ```
 
@@ -119,10 +120,13 @@ Fields a provider adds to a tool call beyond id/type/function (an OpenAI-compati
 `extra_content` carrying a thought signature, which it requires back on later turns) are kept
 by the openai driver as its own `opaque` part next to the call and merged back on replay; they
 are digested together with their call, so none outlives it. When a rate-limit error names its
-wait ("retry in 37.6s", `"retryDelay": "37s"`, `Retry-After`, or an echoed `X-RateLimit-Reset`
-epoch timestamp, read as the time left until it), the loop waits it out if it is
-at most 120 s (up to 30 times per request, outside the normal retry budget; an abort cuts the
-wait short) and stops the run at once on a longer one (a daily quota).
+wait, the loop waits it out if it is at most 120 s (up to 30 times per request, outside the
+normal retry budget; an abort cuts the wait short) and stops the run at once on a longer one (a
+daily quota). Reading the wait is the driver's job (`retryAfterMs`; the SDK drivers share
+`plugins/drivers/_wire.ts`: "retry in 37.6s", `"retryDelay": "37s"`, `retry-after-ms`,
+`Retry-After`, or an echoed `X-RateLimit-Reset` epoch timestamp). The core reads no provider
+format: without a driver's answer it honours only a standard `Retry-After` header on an HTTP
+429/503 error.
 
 **Refused to leak through the interface:** provider names, model ids, vendor tool-schema
 formats, vendor message shapes, vendor stop reasons and reasoning blocks. Reasoning blocks
@@ -138,20 +142,26 @@ drivers' runs, shared check and gate logic included.
 ## 3. Token budget: baseline vs actual, per turn
 
 Every run writes `tokens/<runId>.json` with, per turn, `actual_input_tokens` (the request
-sent) and `baseline_input_tokens`, a **shadow baseline**: the same turn's request rebuilt with
-JIT fetchers and compaction disabled (the whole API root and every standards doc front-loaded
-into the system prompt, raw tool returns, no elision or history compaction), counted with the
-driver's own counter (`messages.countTokens` for Claude, o200k for OpenAI). When an endpoint has
-no count API, both requests fall back to chars/4, `events.jsonl` says so every turn, and the
-report's `counter` names the fallback (`chars/4 estimate for N count(s): … was unavailable`), so
-it never names a counter that did not produce the numbers. A shadow baseline
-follows the JIT run's trajectory, so it is cheap but hypothetical. To measure instead,
-`--baseline` runs that configuration for real and `harness tokens compare <jit> <baseline>`
-compares the two runs. On the scripted greenfield script both give the same number: shadow
-19,305 vs 178,301 (89.2%), real `--baseline` run 178,301, turn for turn (`tokens/compare-…json`,
-89.2%). Those evidence runs predate the working set and the scaffold API; on the current code the
-same script measures 27,035 vs 185,015 (85.4%) both ways. With a real model the two runs can
-diverge, so real-driver numbers come only from real runs' `tokens/` files.
+sent) and `baseline_input_tokens`. The baseline is the assignment's: the same task on the same
+driver with the context fetchers and compaction disabled. Its request: the baseline prompt (it
+says the repository is included), every text file under the API root re-read from the **current**
+tree before each turn, every standards doc in full, the tools minus the context fetchers (`read`
+tools and tools that declare `fetcher: true`), raw tool returns, no elision or history
+compaction. `baseline_kind` labels it: a normal run's is a **shadow** (that request rebuilt every
+turn from the run's own trajectory, with its fetch calls left out, never sent); a `--baseline`
+run sends it, so its baseline is **measured** (actual == baseline). Both sides of a turn are
+counted with the driver's own counter (`messages.countTokens` for Claude, o200k for OpenAI). When a
+count fails, both counts of that turn fall back to chars/4, `events.jsonl` says so, the row is
+marked `estimated`, and the report's `counter` names the fallback (`chars/4 estimate for N
+count(s): … was unavailable`). An offline driver reports no provider usage (`provider_usage:
+none`), never a local estimate as provider data. `harness tokens compare <jit> <baseline>`
+compares a normal and a `--baseline` run of the same task: per-run totals and per-turn averages
+(turn counts can differ), with caveats when task, driver, model or counter differ; `harness
+tokens <run>` shows that measured comparison whenever one exists. On the scripted greenfield
+script the shadow gives 27,035 vs 195,416 (86.2%) and the real `--baseline` run 196,184 (86.2%,
+context size only: the replay is identical in both modes). The committed evidence runs predate
+the working set, the scaffold API and this baseline definition (19,305 vs 178,301, 89.2%). With
+a real model the two runs can diverge, so real-driver numbers come only from real runs' `tokens/` files.
 
 **The >90% target is not met on real runs.** Measured, per-turn shadow baseline, local o200k:
 
@@ -159,9 +169,14 @@ diverge, so real-driver numbers come only from real runs' `tokens/` files.
 |---|---|---|---|
 | the two real DONE runs (official OpenAI) | 19, 12 | 77.3%, 81.2% | `tokens/users-api-openai-…185149.json`, `tokens/projects-change-openai-…190927.json` |
 | real runs that did not finish, 40–60 turns (8 runs) | 40–60 | 84.8–88.1% | `runs/real-model/<id>/tokens.json` |
-| scripted demo runs | 9 | 89.2%, 85.4% | `tokens/*-scripted-*.json` |
-| 40-turn simulation, shipped policy | 40 | 86.3% | `test/token-efficiency/long-run.test.ts` |
-| 40-turn simulation, compaction only | 40 | **90.7%** | same test |
+| scripted demo runs | 9 | 89.2%, 85.4% (86.2% on the current code and baseline) | `tokens/*-scripted-*.json` |
+| 40-turn simulation, shipped policy | 40 | 84.0% | `test/token-efficiency/long-run.test.ts` |
+| 40-turn simulation, compaction only | 40 | **89.1%** | same test |
+
+(The committed real and scripted reports used the earlier shadow: the run-start tree front-loaded
+AND every raw read replayed, the fetchers' schemas included. The simulation rows use the current
+definition, which no longer counts a fetched file twice; under the earlier one the same 40 turns
+read 86.3% and 90.7%.)
 
 There are two reasons:
 - **A fixed per-turn floor.** System prompt, tool schemas and task brief are sent every turn. On
@@ -174,14 +189,14 @@ There are two reasons:
 
 | mechanism (40-turn simulation printed by `test/token-efficiency/long-run.test.ts --reporter=verbose`, o200k) | actual input tokens | reduction |
 |---|---|---|
-| baseline: front-load + raw returns + full history (brief with the scaffold API) | 1,337,976 | — |
-| + JIT context (rules index and file tree only; `read_file` ranges, `outline`, `search_code`, `test_map`, `fetch_standard`) | 993,536 | 25.7% |
-| + compact tool returns (pass/fail lines and diff stats; raw output to `runs/<id>/logs`) | 529,076 | 60.5% |
-| + input elision (tool-call input strings over 300 characters, e.g. file contents, replayed as `<omitted N chars>`) | 404,303 | 69.8% |
-| + digest of turns older than 2 (one line per call, append-only so the prefix stays cacheable) = **shipped** | **183,854** | **86.3%** |
+| baseline: current tree front-loaded every turn + raw returns + full history, no fetchers (brief with the scaffold API) | 1,147,765 | — |
+| + JIT context (rules index and file tree only; `read_file` ranges, `outline`, `search_code`, `test_map`, `fetch_standard`) | 993,536 | 13.4% |
+| + compact tool returns (pass/fail lines and diff stats; raw output to `runs/<id>/logs`) | 529,076 | 53.9% |
+| + input elision (tool-call input strings over 300 characters, e.g. file contents, replayed as `<omitted N chars>`) | 404,303 | 64.8% |
+| + digest of turns older than 2 (one line per call, append-only so the prefix stays cacheable) = **shipped** | **183,854** | **84.0%** |
 | of which working set: +35,861 tokens over 36 requests (largest 6,948 characters, budget 12,000) | | |
 | of which scaffold API in the greenfield brief: +25,720 (643 per request, added to the baseline too) | | |
-| shipped without both (compaction only; baseline 1,312,256) | 122,273 | 90.7% |
+| shipped without both (compaction only; baseline 1,122,045) | 122,273 | 89.1% |
 
 The working set sits after the digest, so the digest prefix stays append-only. Per file read in
 a folded turn and not written since, it holds that file's latest read, most recent first, in a
@@ -195,10 +210,10 @@ since t<N>: …`). The read always runs, so a change made earlier in the same tu
 a test run is never hidden, and the baseline keeps the full content.
 
 The simulation's scripted model never re-reads, so it pays these costs without being credited
-for the re-reads they prevent. The test asserts that compaction alone stays above 90% and the
-shipped total above 85%. History keeps the last `keepRecentTurns` turns verbatim (default 2 in
-`harness.config.json`). The same test prints the trade-off: 1 → 87.0%, 2 → 86.3%, 3 → 85.5%.
-Keeping 1 turn would save 0.7 points but leave a model only the working set of what it read two
+for the re-reads they prevent. The test asserts that compaction alone stays above 88% and the
+shipped total above 83%. History keeps the last `keepRecentTurns` turns verbatim (default 2 in
+`harness.config.json`). The same test prints the trade-off: 1 → 84.9%, 2 → 84.0%, 3 → 83.1%.
+Keeping 1 turn would save 0.9 points but leave a model only the working set of what it read two
 turns ago.
 
 ## 4. Extension points

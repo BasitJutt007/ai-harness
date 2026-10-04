@@ -77,6 +77,12 @@ export interface Usage {
   outputTokens: number;
   /** Portion of inputTokens served from a provider cache, when reported. */
   cachedInputTokens?: number;
+  /**
+   * False when no provider reported usage for this response (an offline driver): the numbers
+   * are then 0, and the token report says "no provider usage" instead of showing an estimate
+   * as provider data. Default: true.
+   */
+  reported?: boolean;
 }
 
 export interface ModelResponse {
@@ -103,6 +109,13 @@ export interface Driver {
    * like with like.
    */
   countTokens(req: ModelRequest): Promise<number>;
+  /**
+   * Optional: the wait in ms that an error thrown by complete() asks for before a retry (a rate
+   * limit that names its wait in the provider's own format), or null when it names none. The
+   * provider's formats live here, never in the core. Without it, or on null, the loop honours a
+   * standard Retry-After header of an HTTP 429/503 error.
+   */
+  retryAfterMs?(error: unknown): number | null;
 }
 
 export interface DriverCreateOptions {
@@ -487,6 +500,12 @@ export interface ToolPlugin<I = unknown> {
   /** Zod schema for the input. The core converts it to a neutral JSON Schema. */
   input: z.ZodType<I>;
   effect: ToolEffect;
+  /**
+   * Whether the tool fetches context (repository files, listings, standards text). Default:
+   * true for `read` tools, false otherwise. `--baseline` runs withhold every context fetcher
+   * (their content is front-loaded instead).
+   */
+  fetcher?: boolean;
   /** Task kinds this tool is offered in. Default: all. */
   availableIn?: TaskKind[];
   /** API-relative paths the call will touch (used by hooks). */

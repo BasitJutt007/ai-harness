@@ -60,7 +60,7 @@ runs/ tokens/    evidence written by the harness on every run
 | Dimension | Command | What to read |
 |---|---|---|
 | Model agnosticism | `npx harness run tasks/users-api.task.yaml --driver claude`, then the same with `--driver openai` | both end `verdict DONE`; `npx harness agnostic <runA> <runB>` reports zero diff in task sha + every tool/hook/gate/check file. In this repository only the openai side has a real DONE run; the claude side needs an Anthropic key ([Evidence](#evidence-in-this-repository)) |
-| Token efficiency | any `harness run …` | `tokens/<runId>.json`: per-turn `actual_input_tokens` vs `baseline_input_tokens`, totals, attribution. A measured baseline: run again with `--baseline`, then `npx harness tokens compare <jitRun> <baselineRun>` |
+| Token efficiency | any `harness run …` | `tokens/<runId>.json`: per-turn `actual_input_tokens` vs `baseline_input_tokens`, totals, attribution; `baseline_kind` says which baseline it is. A normal run's is `shadow` (an estimate rebuilt from its own trajectory, never sent). The **measured** baseline, preferred wherever it exists: run the same task on the same driver and model with `--baseline` (no context fetchers, no compaction, the current tree front-loaded every turn), then `npx harness tokens compare <jitRun> <baselineRun>` (per-run totals and per-turn averages, with caveats) |
 | API standards | `npx harness check --api <generated-api-dir>` | one line per rule per file, then one summary line each for `problem-json`, `rest-conventions`, `tsc-strict`, `zod-boundary` and `verdict 100%` |
 | Extensibility | `node scripts/simulate-extensions.mjs`, or add one file to `plugins/` yourself ([docs/extending.md](docs/extending.md) has a minimal `openapi-diff` tool, ORM validator and lint rule) | `git diff --stat` touches only the new plugin file; `src/core/**` sha256 unchanged |
 
@@ -107,8 +107,8 @@ npx harness run tasks/users-api.task.yaml       --driver scripted --driver-opt s
 npx harness run tasks/projects-change.task.yaml --driver scripted --driver-opt script=$S/projects-change.json    # brownfield: DONE, 2 additive
 npx harness run tasks/users-api.task.yaml       --driver scripted --driver-opt script=$S/users-api-cheat.json    # cheat: 4 writes blocked, exit 1
 npx harness run tasks/projects-change.task.yaml --driver scripted --driver-opt script=$S/projects-breaking.json  # tests green, contract-lock fail, exit 1
-npx harness run tasks/users-api.task.yaml       --driver scripted --driver-opt script=$S/users-api.json --baseline  # no JIT, no compaction
-npx harness tokens compare <greenfieldRunId> <baselineRunId>                # measured reduction (85.4% on the current code; 89.2% in the committed evidence run)
+npx harness run tasks/users-api.task.yaml       --driver scripted --driver-opt script=$S/users-api.json --baseline  # no context fetchers, no compaction
+npx harness tokens compare <greenfieldRunId> <baselineRunId>                # measured reduction (86.2% on the current code, context size only: the replay is identical; 89.2% in the committed evidence run)
 npx harness agnostic <greenfieldRunId> <baselineRunId>                      # zero diff: same task sha and plugin files
 npx harness ship <greenfieldRunId> --dry-run                                # gates re-run fresh; prints the plan, changes nothing
 npx harness check --api .harness/worktrees/<greenfieldRunId>/generated/users-api   # verdict 100%

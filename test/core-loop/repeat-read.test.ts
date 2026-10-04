@@ -15,13 +15,14 @@ import type { Message, ModelRequest, Part, ToolCallPart, ToolPlugin, ToolResultP
 import { call, fakeCtx, FakeDriver, fakeStore, firstMessage, reply, specs } from './fakes.ts';
 
 /** In-memory files behind a read tool, a write tool and an exec tool whose "agent code" edits a file. */
-function fileTools(files: Map<string, string>): ToolPlugin<unknown>[] {
+function fileTools(files: Map<string, string>, readOpts: { fetcher?: boolean } = {}): ToolPlugin<unknown>[] {
   const read: ToolPlugin<{ path: string; startLine?: number }> = {
     kind: 'tool',
     name: 'read_file',
     description: 'read',
     input: z.object({ path: z.string(), startLine: z.number().optional() }),
     effect: 'read',
+    ...readOpts,
     async run(i) {
       const c = files.get(i.path);
       if (c === undefined) return { ok: false, summary: `read_file: ${i.path} does not exist` };
@@ -58,9 +59,10 @@ function fileTools(files: Map<string, string>): ToolPlugin<unknown>[] {
 
 const A = 'export const a = 1;\nexport function f(): number {\n  return a;\n}';
 
-function setup(script: Part[][], opts: { baseline?: boolean } = {}) {
+/** `fetcher: false`: the read tool declares itself no context fetcher (kept in the baseline). */
+function setup(script: Part[][], opts: { baseline?: boolean; fetcher?: boolean } = {}) {
   const files = new Map([['src/a.ts', A]]);
-  const tools = fileTools(files);
+  const tools = fileTools(files, opts.fetcher === undefined ? {} : { fetcher: opts.fetcher });
   const { ctx, events, logs } = fakeCtx({ tools, ...(opts.baseline === true ? { baseline: true } : {}) });
   const store = fakeStore(logs);
   const driver = new FakeDriver(script.map((parts) => reply(parts)));
@@ -119,15 +121,25 @@ describe('canonicalJson / findRepeat', () => {
 });
 
 describe('repeated reads in the loop (JIT)', () => {
-  it('an identical read whose content is unchanged gets a pointer; the baseline keeps the full content', async () => {
+  it('an identical read whose content is unchanged gets a pointer; the shadow baseline never sees a pointer', async () => {
     const s = setup([[readA('r1')], [readA('r2')], [call('n3', 'run_tests', {})]]);
     const second = s.driver;
     await runAgent(s.agentOpts);
     expect(seen(second, 2, 'r1')).toMatch(FULL);
     expect(seen(second, 3, 'r2')).toBe(repeatPointer('read_file', 1));
     expect(seen(second, 3, 'r2')).toBe('unchanged since t1: identical to that read_file result, still in your context above');
-    expect(baselineSeen(second, 3, 'r2')).toMatch(/^RAW src\/a\.ts/);
+    // read_file is a context fetcher: the shadow baseline leaves its calls out (a baseline harness front-loads the file)
+    expect(baselineSeen(second, 3, 'r1')).toBeUndefined();
+    expect(baselineSeen(second, 3, 'r2')).toBeUndefined();
     expect(s.events.some((e) => e.kind === 'note' && /answered with a pointer/.test(e.message))).toBe(true);
+  });
+
+  it('a read tool that is no context fetcher stays in the shadow baseline with its full raw return, never a pointer', async () => {
+    const s = setup([[readA('r1')], [readA('r2')], [call('n3', 'run_tests', {})]], { fetcher: false });
+    await runAgent(s.agentOpts);
+    expect(seen(s.driver, 3, 'r2')).toBe(repeatPointer('read_file', 1));
+    expect(baselineSeen(s.driver, 3, 'r1')).toMatch(/^RAW src\/a\.ts/);
+    expect(baselineSeen(s.driver, 3, 'r2')).toMatch(/^RAW src\/a\.ts/);
   });
 
   it('key order does not matter (canonical input)', async () => {
@@ -174,10 +186,17 @@ describe('repeated reads in the loop (JIT)', () => {
     expect(ws).not.toContain('Files you read in earlier turns'); // re-read in the kept turns: no skeleton needed
   });
 
-  it('baseline mode never points', async () => {
-    const s = setup([[readA('r1')], [readA('r2')], []], { baseline: true });
+  it('baseline mode never points (a read tool that is no context fetcher stays offered there)', async () => {
+    const s = setup([[readA('r1')], [readA('r2')], []], { baseline: true, fetcher: false });
     await runAgent(s.agentOpts);
     expect(seen(s.driver, 3, 'r2')).toMatch(/^RAW src\/a\.ts/);
+  });
+
+  it('baseline mode withholds a context-fetching read tool: a call to it is an unknown tool', async () => {
+    const s = setup([[readA('r1')], []], { baseline: true });
+    await runAgent(s.agentOpts);
+    expect(s.driver.requests[0]?.tools.map((t) => t.name)).toEqual(['write_file', 'run_tests']);
+    expect(seen(s.driver, 2, 'r1')).toMatch(/^unknown tool "read_file"/);
   });
 
   it('an error read is never a pointer and never pointed at', async () => {
