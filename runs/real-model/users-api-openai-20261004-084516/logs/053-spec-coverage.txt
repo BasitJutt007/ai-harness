@@ -1,0 +1,26 @@
+spec coverage of task users-api: 1 resource(s), 5 expected endpoint(s)
+expected  GET /v1/users  (list user)
+expected  GET /v1/users/:id  (get user)
+expected  POST /v1/users  (create user)
+expected  PATCH|PUT /v1/users/:id  (update user)
+expected  DELETE /v1/users/:id  (delete user)
+static route table: 5 route(s), 0 unresolved
+pass     user route GET /v1/users: registered: GET /v1/users (src/routes/index.ts:48:3)
+pass     user route GET /v1/users/:id: registered: GET /v1/users/:userId (src/routes/index.ts:92:3)
+pass     user route POST /v1/users: registered: POST /v1/users (src/routes/index.ts:73:3)
+pass     user route PATCH|PUT /v1/users/:id: registered: PATCH /v1/users/:userId (src/routes/index.ts:101:3)
+pass     user route DELETE /v1/users/:id: registered: DELETE /v1/users/:userId (src/routes/index.ts:125:3)
+pass     user create: POST /v1/users -> 201 with id 862193f7-43cd-4642-b7b8-85ffea4daa44 and every sent field
+pass     user get: GET /v1/users/862193f7-43cd-4642-b7b8-85ffea4daa44 -> 200 with the created fields
+FAIL     user list: GET /v1/users: expected 200, got 422: {"type":"https://api.sf/problems/validation","title":"Unprocessable Content","status":422,"detail":"limit: Invalid input: expected number, received NaN","instan…
+pass     user update: PATCH /v1/users/c04bcb90-a9fb-41ab-874a-19489b3697c6 {name} only -> 200 with the change, other fields kept
+pass     user required email: POST /v1/users without email -> 422 problem
+pass     user required name: POST /v1/users without name -> 422 problem
+pass     user max name: POST /v1/users with name = 101 characters (max 100) -> 422 problem
+pass     user min name: POST /v1/users with name = 0 characters (min 1) -> 422 problem
+pass     user enum role: POST /v1/users with role = "harness-not-allowed" (not one of admin|member) -> 422 problem
+pass     user unique email: POST /v1/users with a duplicate email -> 409 problem
+pass     user idempotency: the same Idempotency-Key and body twice -> 201 with the same id (no duplicate)
+pass     user idempotency after update: POST, PATCH /v1/users/b54bc7c2-9179-4e30-804b-1db03f7dcf08 {name} only, then the same Idempotency-Key and body -> the original 201 response, unchanged
+pass     user delete: DELETE /v1/users/a50a0238-ffb2-41f7-8932-9b2614ab2468 -> 204, then GET -> 404
+probe log: runs/users-api-openai-20261004-084516/logs/052-spec-coverage-probe.txt

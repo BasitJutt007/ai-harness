@@ -1,0 +1,94 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 5 failed) 6ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes a user 4ms
+     × rejects duplicate email on create and patch 0ms
+     × validates body, query, path and malformed JSON as problem details 0ms
+     × cursor paginates all users exactly once 0ms
+     × replays idempotent creates and rejects changed reuse 0ms
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  13:41:27
+   Duration  307ms (import 75%, transform 20%, tests 3%, worker 2%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes a user
+TypeError: usersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(usersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:10:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate email on create and patch
+TypeError: usersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(usersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:26:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  test/users.test.ts > users API > validates body, query, path and malformed JSON as problem details
+TypeError: usersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(usersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:33:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  test/users.test.ts > users API > cursor paginates all users exactly once
+TypeError: usersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(usersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:41:55
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects changed reuse
+TypeError: usersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(usersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:54:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+observed red: test/users.test.ts (source they cover is now writable)

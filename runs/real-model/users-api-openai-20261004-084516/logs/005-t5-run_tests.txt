@@ -1,0 +1,459 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084516/generated/users-api
+
+ ❯ test/users.test.ts (12 tests | 11 failed) 108ms
+   ❯ users API (12)
+     × creates a user, defaults role to member, and returns Location 57ms
+     × lists users with cursor pagination and visits each user exactly once 13ms
+     × gets a user by id 3ms
+     ✓ returns 404 problems for missing user ids on get patch and delete 3ms
+     × rejects duplicate email on create with 409 problem 2ms
+     × patches only provided fields and returns the updated user 2ms
+     × rejects changing a user email to another users email with 409 problem 3ms
+     × rejects an empty patch with a 422 problem 2ms
+     × deletes a user with 204 and it is gone afterwards 1ms
+     × returns 422 problems for invalid body query and path parameters naming each failing field 2ms
+     × replays POST with the same Idempotency-Key and body without creating a second user 18ms
+     × rejects reuse of an Idempotency-Key with a different body as 422 2ms
+
+ Test Files  1 failed (1)
+      Tests  11 failed | 1 passed (12)
+   Start at  13:45:43
+   Duration  448ms (import 56%, tests 33%, transform 10%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates a user, defaults role to member, and returns Location
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:33:24
+     31|     const res = await request(app).post('/v1/users').send({ email: 'a@…
+     32|
+     33|     expect(res.status).toBe(201);
+       |                        ^
+     34|     const user = UserSchema.parse(res.body);
+     35|     expect(user.role).toBe('member');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  test/users.test.ts > users API > lists users with cursor pagination and visits each user exactly once
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:53:26
+     51|       const query = cursor === null ? '?limit=2' : `?limit=2&cursor=${…
+     52|       const res = await request(app).get(`/v1/users${query}`);
+     53|       expect(res.status).toBe(200);
+       |                          ^
+     54|       const page = UsersPageSchema.parse(res.body);
+     55|       for (const user of page.data) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  test/users.test.ts > users API > gets a user by id
+ZodError: [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "id"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "email"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "name"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "code": "invalid_value",
+    "values": [
+      "admin",
+      "member"
+    ],
+    "path": [
+      "role"
+    ],
+    "message": "Invalid option: expected one of \"admin\"|\"member\""
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "createdAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "updatedAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+ ❯ test/users.test.ts:68:31
+     66|     const app = createApp();
+     67|     const created = await request(app).post('/v1/users').send({ email:…
+     68|     const { id } = UserSchema.parse(created.body);
+       |                               ^
+     69|
+     70|     const res = await request(app).get(`/v1/users/${id}`);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate email on create with 409 problem
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:94:90
+     92|   it('rejects duplicate email on create with 409 problem', async () =>…
+     93|     const app = createApp();
+     94|     await request(app).post('/v1/users').send({ email: 'dup@example.co…
+       |                                                                                          ^
+     95|
+     96|     const res = await request(app).post('/v1/users').send({ email: 'du…
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  test/users.test.ts > users API > patches only provided fields and returns the updated user
+ZodError: [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "id"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "email"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "name"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "code": "invalid_value",
+    "values": [
+      "admin",
+      "member"
+    ],
+    "path": [
+      "role"
+    ],
+    "message": "Invalid option: expected one of \"admin\"|\"member\""
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "createdAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "updatedAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+ ❯ test/users.test.ts:107:33
+    105|       .post('/v1/users')
+    106|       .send({ email: 'patch@example.com', name: 'Before', role: 'admin…
+    107|     const original = UserSchema.parse(created.body);
+       |                                 ^
+    108|
+    109|     const res = await request(app).patch(`/v1/users/${original.id}`).s…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  test/users.test.ts > users API > rejects changing a user email to another users email with 409 problem
+ZodError: [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "id"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "email"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "name"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "code": "invalid_value",
+    "values": [
+      "admin",
+      "member"
+    ],
+    "path": [
+      "role"
+    ],
+    "message": "Invalid option: expected one of \"admin\"|\"member\""
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "createdAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "updatedAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+ ❯ test/users.test.ts:124:33
+    122|     const first = await request(app).post('/v1/users').send({ email: '…
+    123|     const second = await request(app).post('/v1/users').send({ email: …
+    124|     const secondId = UserSchema.parse(second.body).id;
+       |                                 ^
+    125|     UserSchema.parse(first.body);
+    126|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  test/users.test.ts > users API > rejects an empty patch with a 422 problem
+ZodError: [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "id"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "email"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "name"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "code": "invalid_value",
+    "values": [
+      "admin",
+      "member"
+    ],
+    "path": [
+      "role"
+    ],
+    "message": "Invalid option: expected one of \"admin\"|\"member\""
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "createdAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "updatedAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+ ❯ test/users.test.ts:136:31
+    134|     const app = createApp();
+    135|     const created = await request(app).post('/v1/users').send({ email:…
+    136|     const { id } = UserSchema.parse(created.body);
+       |                               ^
+    137|
+    138|     const res = await request(app).patch(`/v1/users/${id}`).send({});
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  test/users.test.ts > users API > deletes a user with 204 and it is gone afterwards
+ZodError: [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "id"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "email"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "name"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "code": "invalid_value",
+    "values": [
+      "admin",
+      "member"
+    ],
+    "path": [
+      "role"
+    ],
+    "message": "Invalid option: expected one of \"admin\"|\"member\""
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "createdAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "updatedAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+ ❯ test/users.test.ts:146:31
+    144|     const app = createApp();
+    145|     const created = await request(app).post('/v1/users').send({ email:…
+    146|     const { id } = UserSchema.parse(created.body);
+       |                               ^
+    147|
+    148|     const del = await request(app).delete(`/v1/users/${id}`);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  test/users.test.ts > users API > returns 422 problems for invalid body query and path parameters naming each failing field
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblemDetail test/users.test.ts:22:22
+     20|
+     21| function expectProblemDetail(res: request.Response, status: number) {
+     22|   expect(res.status).toBe(status);
+       |                      ^
+     23|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     24|   return ProblemSchema.parse(res.body).detail;
+ ❯ test/users.test.ts:160:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  test/users.test.ts > users API > replays POST with the same Idempotency-Key and body without creating a second user
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:186:26
+    184|       .send({ email: 'idem@example.com', name: 'Idem' });
+    185|
+    186|     expect(first.status).toBe(201);
+       |                          ^
+    187|     expect(second.status).toBe(201);
+    188|     expect(second.headers['idempotent-replayed']).toBe('true');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  test/users.test.ts > users API > rejects reuse of an Idempotency-Key with a different body as 422
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:202:8
+    200|       .set('Idempotency-Key', 'user-create-2')
+    201|       .send({ email: 'same@example.com', name: 'Same' })
+    202|       .expect(201);
+       |        ^
+    203|
+    204|     const res = await request(app)
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+observed red: test/users.test.ts (source they cover is now writable)

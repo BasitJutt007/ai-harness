@@ -1,0 +1,9 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api (port 55658)
+exit=1 timedOut=false served=false
+candidates: src/app.ts (conventional entry file), src/server.ts (conventional entry file)
+app (as reported by the runtime): (none)
+control /__harness_probe__/control -> {"error":"not served"} injected=false
+--- stdout
+
+--- stderr
+probe runtime: no HTTP app found: tried src/app.ts: import failed (SyntaxError: The requested module './users.ts' does not provide an export named 'makeUsersRouter'); src/server.ts: import failed (SyntaxError: The requested module './users.ts' does not provide an export named 'makeUsersRouter'); nothing called listen()

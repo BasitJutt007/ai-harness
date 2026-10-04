@@ -1,0 +1,157 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084807/generated/users-api
+
+ ❯ test/users.test.ts (9 tests | 7 failed) 87ms
+   ❯ users API (9)
+     × creates a user, defaults role to member, returns 201 and Location, and can fetch it 50ms
+     × lists users with cursor pagination and visiting nextCursor returns each user exactly once 20ms
+     ✓ returns 404 problems for missing users on get patch and delete 4ms
+     × returns 422 problems naming failing fields for invalid body query and path parameters 2ms
+     ✓ returns 400 for malformed JSON bodies 2ms
+     × rejects duplicate emails on create and patch with 409 problems 2ms
+     × honours Idempotency-Key on create: same key and body replays original response, different body gets 422 2ms
+     × patches only provided fields, returns the updated user, and rejects an empty patch 2ms
+     × deletes a user with 204 and the user is then gone 1ms
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 2 passed (9)
+   Start at  13:48:55
+   Duration  360ms (import 55%, tests 33%, transform 11%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates a user, defaults role to member, returns 201 and Location, and can fetch it
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:42:30
+     40|
+     41|     const createRes = await request(app).post('/v1/users').send({ emai…
+     42|     expect(createRes.status).toBe(201);
+       |                              ^
+     43|     expect(createRes.headers.location).toMatch(/^\/v1\/users\//);
+     44|     expect(createRes.body).toEqual(expect.objectContaining(expectUser(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  test/users.test.ts > users API > lists users with cursor pagination and visiting nextCursor returns each user exactly once
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:59:26
+     57|         .post('/v1/users')
+     58|         .send({ email: `user${i}@example.com`, name: `User ${i}` });
+     59|       expect(res.status).toBe(201);
+       |                          ^
+     60|       createdIds.push(String(res.body.id));
+     61|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  test/users.test.ts > users API > returns 422 problems naming failing fields for invalid body query and path parameters
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/users.test.ts:17:22
+     15|
+     16| function expectProblem(res: Response, status: number, slug: string) {
+     17|   expect(res.status).toBe(status);
+       |                      ^
+     18|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     19|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/users.test.ts:100:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate emails on create and patch with 409 problems
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:128:26
+    126|     const first = await request(app).post('/v1/users').send({ email: '…
+    127|     const second = await request(app).post('/v1/users').send({ email: …
+    128|     expect(first.status).toBe(201);
+       |                          ^
+    129|     expect(second.status).toBe(201);
+    130|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  test/users.test.ts > users API > honours Idempotency-Key on create: same key and body replays original response, different body gets 422
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:146:26
+    144|       .set('Idempotency-Key', key)
+    145|       .send({ email: 'idem@example.com', name: 'Ida' });
+    146|     expect(first.status).toBe(201);
+       |                          ^
+    147|     expect(first.headers['idempotent-replayed']).toBeUndefined();
+    148|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  test/users.test.ts > users API > patches only provided fields, returns the updated user, and rejects an empty patch
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:173:28
+    171|
+    172|     const created = await request(app).post('/v1/users').send({ email:…
+    173|     expect(created.status).toBe(201);
+       |                            ^
+    174|
+    175|     const updated = await request(app).patch(`/v1/users/${created.body…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  test/users.test.ts > users API > deletes a user with 204 and the user is then gone
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:201:28
+    199|     const app = createApp();
+    200|     const created = await request(app).post('/v1/users').send({ email:…
+    201|     expect(created.status).toBe(201);
+       |                            ^
+    202|
+    203|     const deleted = await request(app).delete(`/v1/users/${created.bod…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+observed red: test/users.test.ts (source they cover is now writable)

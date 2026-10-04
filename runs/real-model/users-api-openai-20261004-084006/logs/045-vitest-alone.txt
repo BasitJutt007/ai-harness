@@ -1,0 +1,47 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )rejects duplicate email on create and patch$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 1 failed | 4 skipped) 30ms
+   ❯ users API (5)
+     ↓ creates, gets, updates and deletes a user
+     × rejects duplicate email on create and patch 29ms
+     ↓ validates body, query, path and malformed JSON as problem details
+     ↓ cursor paginates all users exactly once
+     ↓ replays idempotent creates and rejects changed reuse
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  13:42:11
+   Duration  227ms (import 58%, transform 22%, tests 19%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate email on create and patch
+AssertionError: expected 201 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 201
+
+ ❯ test/users.test.ts:28:96
+     26|     await app().post('/v1/users').send(valid);
+     27|     const second = await app().post('/v1/users').send({ email: 'b@exam…
+     28|     expect((await app().post('/v1/users').send({ email: valid.email, n…
+       |                                                                                                ^
+     29|     expect((await app().patch(`/v1/users/${second.body.id}`).send({ em…
+     30|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":0,"numFailedTests":1,"numPendingTests":4,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791103331095,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes a user","status":"skipped","title":"creates, gets, updates and deletes a user","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects duplicate email on create and patch","status":"failed","title":"rejects duplicate email on create and patch","duration":28.735874999999993,"failureMessages":["AssertionError: expected 201 to be 409 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:28:96\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates body, query, path and malformed JSON as problem details","status":"skipped","title":"validates body, query, path and malformed JSON as problem details","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API cursor paginates all users exactly once","status":"skipped","title":"cursor paginates all users exactly once","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed reuse","status":"skipped","title":"replays idempotent creates and rejects changed reuse","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103331292,"endTime":1791103331320.7358,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts"}]}

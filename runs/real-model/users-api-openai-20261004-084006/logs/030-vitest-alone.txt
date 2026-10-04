@@ -1,0 +1,43 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )rejects duplicate email on create and patch$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 1 failed | 4 skipped) 5ms
+   ❯ users API (5)
+     ↓ creates, gets, updates and deletes a user
+     × rejects duplicate email on create and patch 4ms
+     ↓ validates body, query, path and malformed JSON as problem details
+     ↓ cursor paginates all users exactly once
+     ↓ replays idempotent creates and rejects changed reuse
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  13:41:28
+   Duration  213ms (import 67%, transform 28%, tests 3%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate email on create and patch
+TypeError: usersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(usersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:26:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":0,"numFailedTests":1,"numPendingTests":4,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791103288359,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes a user","status":"skipped","title":"creates, gets, updates and deletes a user","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects duplicate email on create and patch","status":"failed","title":"rejects duplicate email on create and patch","duration":3.7935410000000047,"failureMessages":["TypeError: (0 , __vite_ssr_import_0__.usersRouter) is not a function\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/routes/index.ts:5:11)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/app.ts:10:3)\n    at app (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:5:27)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:26:11\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates body, query, path and malformed JSON as problem details","status":"skipped","title":"validates body, query, path and malformed JSON as problem details","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API cursor paginates all users exactly once","status":"skipped","title":"cursor paginates all users exactly once","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed reuse","status":"skipped","title":"replays idempotent creates and rejects changed reuse","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103288565,"endTime":1791103288568.7935,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts"}]}

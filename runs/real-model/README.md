@@ -232,3 +232,6 @@ Notes:
 | `users-api-openai-20261004-074452`, `…074855` | greenfield | 60 | max turns, standards 88% | the model's own `validate(schema, value)` and `res`-sending helpers were not followed by the checker: fixed (helpers followed by behaviour) |
 | `users-api-openai-20261004-081728`, `…082126` | greenfield | 60 | max turns: agent tests failing; once a permissive body schema | genuine model errors; spec-coverage 18/18 in both |
 | `superseded/projects-change-openai-20261004-074714` | brownfield | 28 | DONE, superseded by `…081959` on the final code | none |
+| `users-api-openai-20261004-084006` | greenfield | 60 | max turns: 4 agent tests failing, standards 97% | model errors; spec-coverage 18/18 |
+| `users-api-openai-20261004-084516` (`gpt-5.4`) | greenfield | 60 | max turns: GET /v1/users without `limit` answered 422 (spec-coverage 17/18), 2 agent tests failing | genuine model bug, caught by spec-coverage and the runtime probe |
+| `projects-change-openai-20261004-084257`, `…084949` | brownfield | 40 each | max turns, 1 failing agent test | shared-state trap again |

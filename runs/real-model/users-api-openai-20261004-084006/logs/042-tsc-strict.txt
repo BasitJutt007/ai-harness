@@ -1,0 +1,7 @@
+TypeScript 6.0.3 (in-process), forced: --strict --noImplicitAny --strictNullChecks --strictFunctionTypes --strictBindCallApply --strictPropertyInitialization --strictBuiltinIteratorReturn --noImplicitThis --useUnknownInCatchVariables --alwaysStrict --noUncheckedIndexedAccess --noEmit
+project tsconfig.json (primary: also checks files no tsconfig lists): 14 files checked
+checked 14 files (0 declaration files)
+listed by no tsconfig, checked with the primary project's options: vitest.config.ts
+files: 14, errors: 2
+src/routes/index.ts:2:10  TS2724: '"./users.ts"' has no exported member named 'makeUsersRouter'. Did you mean 'usersRouter'?
+src/routes/index.ts:5:11  `makeUsersRouter` has type `any` (no keyword needed): annotate it as unknown and narrow, or give it a precise type

@@ -164,24 +164,29 @@ placeholder and contract-lock failed the run (4 → 0 endpoints).
 
 ## Evidence in this repository
 
-### The final code: DONE runs and the attempts that did not finish
+### The final code: DONE runs, shipped as PRs
 
 After an external review (idempotent replay returned updated state; checker bypasses for middleware
 responses, mutated bodies, problem bodies without the problem Content-Type, header-only idempotency,
 create without Location; cwd-dependent revert proofs; alias imports of test code; enforcement-blind
-`agnostic`; a lenient brownfield policy), the code was fixed and run again. Official OpenAI API,
-openai driver, `gpt-5.6-luna` (compat: reasoning off, because Chat Completions refuses tools with
-reasoning on for this model).
+`agnostic`; a lenient brownfield policy), the code was fixed and run again on the official OpenAI API
+with the openai driver. Both runs below used the final code: every plugin fingerprint matches.
 
-| run | task | turns | result |
-|---|---|---|---|
-| `projects-change-openai-20261004-081959` | brownfield | 29 | **DONE on the final code** (every plugin fingerprint matches): contract-lock pass (2 additive), 22/22 tests, standards 100%, observed red on 3 source files + revert check in identical contexts |
-| `users-api-openai-20261004-073321` | greenfield | 22 | **DONE** on the code of a few commits earlier (4 plugin files differ: later checker changes and a Contract Lock fix). `ship-dry-run-final-code.txt` re-ran every gate of the final code on its output: all green, spec-coverage 18/18 (including the new replay-after-update probe), 32/32 tests, standards 100% |
-| `real-model/users-api-openai-20261004-074452`, `…074855`, `…081728`, `…082126` | greenfield | 60 each | NOT DONE on the final code or one commit before it: the model wrote request/response helpers the checker could not follow (since fixed: helpers are followed by behaviour), a permissive body schema, or tests with wrong expectations; spec-coverage was 18/18 in every one |
-| `real-model/projects-change-openai-20261004-073446`, `…073616`, `…073856` | brownfield | 40 each | NOT DONE: the shared-state trap (below) twice; once all gates were green at the end but the model never called finish (now DONE by rule: fresh green gates decide); one also exposed a Contract Lock false UNPROVEN on a reformatted schema (fixed) |
+| run | task | model | turns | result |
+|---|---|---|---|---|
+| `users-api-openai-20261004-084807` | greenfield | `gpt-5.4` | 31 | **DONE**: spec-coverage 18/18 (including replay after an update), 37/37 tests, standards 100%, observed red + revert check in identical contexts. Shipped as [harness-demo#7](https://github.com/BasitJutt007/harness-demo/pull/7) |
+| `projects-change-openai-20261004-085129` | brownfield | `gpt-5.6-luna` (compat) | 20 | **DONE**: contract-lock pass (2 additive), 22/22 tests, standards 100%, observed red on 3 source files. Shipped as [harness-demo#8](https://github.com/BasitJutt007/harness-demo/pull/8) |
 
-Gpt-5.6-luna finishes the brownfield task reliably but the greenfield task only sometimes; the
-harness refused every incomplete result. `governed/` holds the two DONE outputs above.
+Also DONE with the final code: `projects-change-openai-20261004-081959` (brownfield, Luna, 29 turns)
+and `users-api-openai-20261004-073321` (greenfield, Luna, a few commits earlier; re-gated with the final
+code in `ship-dry-run-final-code.txt`: all green).
+
+**Not DONE, kept in `runs/real-model/`:** on the final code (or one commit before) greenfield missed
+5 times on `gpt-5.6-luna` and once on `gpt-5.4` (a list endpoint answering 422 without `limit`, failing
+agent tests, a permissive body schema, helpers the checker could not follow yet); brownfield missed 5
+times on `gpt-5.6-luna` (mostly the shared-state trap below; once every gate was green but the model
+never called finish, which is now DONE by rule). The harness refused every incomplete result. The models,
+not the harness, are the bottleneck: Luna finishes brownfield about half the time and greenfield rarely.
 
 ### Earlier runs on 4 Oct (official OpenAI API, openai driver)
 
@@ -211,22 +216,24 @@ Each run directory holds `run.json`, `events.jsonl`, `transcript.jsonl`, `gates.
 or `check-existing-api.txt` (`harness check --api`, verdict 100%) and `ship-dry-run.txt` (every
 gate re-run fresh, `secrets` included, all green; nothing pushed).
 
-**The two governed APIs** are in this repository under [`governed/`](governed/README.md): the outputs of
-the two final-code DONE runs above; `node bin/harness.mjs check --api governed/users-api` reads 100%.
+**The two governed APIs** are in this repository under [`governed/`](governed/README.md): the commits
+shipped as #7 and #8; `node bin/harness.mjs check --api governed/users-api` reads 100%.
 
 **Pull requests opened by the harness** (`harness ship`, every gate re-run fresh first, pushed to a
 feature branch, opened with `gh`), on the demo repository whose `main` holds the sample API:
 - [BasitJutt007/harness-demo#1](https://github.com/BasitJutt007/harness-demo/pull/1) (merged, then reverted by #5): greenfield, run `users-api-openai-20261004-045649`
 - [BasitJutt007/harness-demo#2](https://github.com/BasitJutt007/harness-demo/pull/2) (merged, then reverted by #5): brownfield, run `projects-change-openai-20261004-052623`
-- [BasitJutt007/harness-demo#3](https://github.com/BasitJutt007/harness-demo/pull/3) (merged): greenfield, run `users-api-openai-20261004-055546`
-- [BasitJutt007/harness-demo#4](https://github.com/BasitJutt007/harness-demo/pull/4) (merged): brownfield, run `projects-change-openai-20261004-055658`
+- [BasitJutt007/harness-demo#3](https://github.com/BasitJutt007/harness-demo/pull/3) (merged, reverted by #6): greenfield, run `users-api-openai-20261004-055546`
+- [BasitJutt007/harness-demo#4](https://github.com/BasitJutt007/harness-demo/pull/4) (merged, reverted by #6): brownfield, run `projects-change-openai-20261004-055658`
 
 #3 and #4 were opened after #1 and #2 had been merged and were built on the same base.
 [#5](https://github.com/BasitJutt007/harness-demo/pull/5) reverts #1 and #2 (two revert commits, no
-history rewrite); #3 and #4 were then merged. These four PRs came from runs made before the external
-review's fixes: the Users API on `main` still carries the scaffold's old idempotency helper (a replay
-after an update returns the updated state). `governed/` holds the outputs of the fixed code; no PR has
-been opened from them yet.
+history rewrite); #3 and #4 were then merged. Those four came from runs made before the external
+review's fixes (the Users API carried the scaffold's old idempotency helper).
+[#6](https://github.com/BasitJutt007/harness-demo/pull/6) reverts #3 and #4 and gives the sample the
+fixed idempotency helper; [#7](https://github.com/BasitJutt007/harness-demo/pull/7) and
+[#8](https://github.com/BasitJutt007/harness-demo/pull/8) are the final-code runs above. Merged in the
+order #6, #7, #8, `main` holds exactly what the final code shipped (identical to `governed/`).
 
 The PR bodies quote the run's token totals against the shadow baseline; #3 and #4 label it as a
 shadow estimate (#1 and #2 predate that wording).

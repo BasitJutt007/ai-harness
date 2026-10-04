@@ -1,0 +1,71 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084516/generated/users-api
+
+ ❯ test/users.test.ts (12 tests | 2 failed) 71ms
+   ❯ users API (12)
+     ✓ creates a user, defaults role to member, and returns Location 23ms
+     ✓ lists users with cursor pagination and visits each user exactly once 10ms
+     ✓ gets a user by id 4ms
+     ✓ returns 404 problems for missing user ids on get patch and delete 5ms
+     ✓ rejects duplicate email on create with 409 problem 5ms
+     ✓ patches only provided fields and returns the updated user 3ms
+     ✓ rejects changing a user email to another users email with 409 problem 3ms
+     ✓ rejects an empty patch with a 422 problem 3ms
+     ✓ deletes a user with 204 and it is gone afterwards 3ms
+     × returns 422 problems for invalid body query and path parameters naming each failing field 5ms
+     × replays POST with the same Idempotency-Key and body without creating a second user 4ms
+     ✓ rejects reuse of an Idempotency-Key with a different body as 422 2ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 10 passed (12)
+   Start at  13:47:25
+   Duration  296ms (import 46%, tests 34%, transform 19%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > returns 422 problems for invalid body query and path parameters naming each failing field
+AssertionError: expected 'limit: Too big: expected number to be…' to contain 'cursor'
+
+Expected: "cursor"
+Received: "limit: Too big: expected number to be <=100"
+
+ ❯ test/users.test.ts:167:25
+    165|     const queryDetail = expectProblemDetail(badQuery, 422);
+    166|     expect(queryDetail).toContain('limit');
+    167|     expect(queryDetail).toContain('cursor');
+       |                         ^
+    168|
+    169|     const badPath = await request(app).get('/v1/users/not-a-uuid');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/users.test.ts > users API > replays POST with the same Idempotency-Key and body without creating a second user
+ZodError: [
+  {
+    "expected": "array",
+    "code": "invalid_type",
+    "path": [
+      "data"
+    ],
+    "message": "Invalid input: expected array, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "nextCursor"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  }
+]
+ ❯ test/users.test.ts:193:28
+    191|
+    192|     const list = await request(app).get('/v1/users');
+    193|     expect(UsersPageSchema.parse(list.body).data).toHaveLength(1);
+       |                            ^
+    194|   });
+    195|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+observed red: test/users.test.ts (source they cover is now writable)

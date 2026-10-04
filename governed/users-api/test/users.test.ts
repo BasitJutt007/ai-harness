@@ -1,61 +1,217 @@
 import request from 'supertest';
+import type { Response } from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { ProblemSchema } from '../src/lib/problem.ts';
 
-const make = () => createApp();
-const valid = (email = 'a@example.com', name = 'Alice') => ({ email, name });
+type User = {
+  id: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'member';
+  createdAt: string;
+  updatedAt: string;
+};
+
+function expectProblem(res: Response, status: number, slug: string) {
+  expect(res.status).toBe(status);
+  expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
+  const problem = ProblemSchema.parse(res.body);
+  expect(problem.status).toBe(status);
+  expect(problem.type).toBe(`https://api.sf/problems/${slug}`);
+  return problem;
+}
+
+function expectUser(value: unknown): User {
+  return {
+    id: expect.any(String) as unknown as string,
+    email: expect.any(String) as unknown as string,
+    name: expect.any(String) as unknown as string,
+    role: expect.stringMatching(/^(admin|member)$/) as unknown as 'admin' | 'member',
+    createdAt: expect.any(String) as unknown as string,
+    updatedAt: expect.any(String) as unknown as string,
+    ...(value as Record<string, unknown>),
+  } as User;
+}
 
 describe('users API', () => {
-  it('creates, gets, updates, and deletes a user', async () => {
-    const app = make();
-    const created = await request(app).post('/v1/users').send(valid()).expect(201);
-    expect(created.headers.location).toMatch(/^\/v1\/users\/[0-9a-f-]+$/);
-    expect(created.body.role).toBe('member');
-    expect(created.body.createdAt).toBeDefined();
-    const id = created.body.id as string;
-    await request(app).get(`/v1/users/${id}`).expect(200).expect((r) => expect(r.body.email).toBe('a@example.com'));
-    const patched = await request(app).patch(`/v1/users/${id}`).send({ name: 'A' }).expect(200);
-    expect(patched.body.name).toBe('A');
-    expect(patched.body.email).toBe('a@example.com');
-    await request(app).delete(`/v1/users/${id}`).expect(204);
-    await request(app).get(`/v1/users/${id}`).expect(404);
+  it('creates a user, defaults role to member, returns 201 and Location, and can fetch it', async () => {
+    const app = createApp();
+
+    const createRes = await request(app).post('/v1/users').send({ email: 'ada@example.com', name: 'Ada' });
+    expect(createRes.status).toBe(201);
+    expect(createRes.headers.location).toMatch(/^\/v1\/users\//);
+    expect(createRes.body).toEqual(expect.objectContaining(expectUser({ email: 'ada@example.com', name: 'Ada', role: 'member' })));
+
+    const location = createRes.headers.location;
+    expect(typeof location).toBe('string');
+
+    if (typeof location !== 'string') {
+      throw new Error('Expected location header to be present.');
+    }
+
+    const getRes = await request(app).get(location);
+    expect(getRes.status).toBe(200);
+    expect(getRes.body).toEqual(createRes.body);
   });
 
-  it('validates fields, malformed JSON, missing resources, and conflicts as problems', async () => {
-    const app = make();
-    const bad = await request(app).post('/v1/users').send({ email: 'no', name: '' }).expect(422);
-    expect(ProblemSchema.parse(bad.body).detail).toContain('email');
-    expect(bad.body.detail).toContain('name');
-    await request(app).post('/v1/users').set('Content-Type', 'application/json').send('{').expect(400);
-    await request(app).get('/v1/users/not-a-uuid').expect(422);
-    await request(app).get('/v1/users/00000000-0000-4000-8000-000000000000').expect(404);
-    await request(app).post('/v1/users').send(valid('same@example.com')).expect(201);
-    await request(app).post('/v1/users').send(valid('same@example.com', 'Other')).expect(409);
-    await request(app).post('/v1/users').send(valid('third@example.com')).expect(201);
-    const list = await request(app).get('/v1/users?limit=1').expect(200);
-    expect(list.body.data).toHaveLength(1);
-    expect(list.body.nextCursor).toBeTruthy();
-    const next = await request(app).get(`/v1/users?limit=1&cursor=${encodeURIComponent(list.body.nextCursor)}`).expect(200);
-    expect(next.body.data).toHaveLength(1);
-    await request(app).patch('/v1/users/00000000-0000-4000-8000-000000000000').send({ name: 'x' }).expect(404);
-    await request(app).delete('/v1/users/00000000-0000-4000-8000-000000000000').expect(404);
+  it('lists users with cursor pagination and visiting nextCursor returns each user exactly once', async () => {
+    const app = createApp();
+    const createdIds: string[] = [];
+
+    for (const i of [0, 1, 2, 3, 4]) {
+      const res = await request(app)
+        .post('/v1/users')
+        .send({ email: `user${i}@example.com`, name: `User ${i}` });
+      expect(res.status).toBe(201);
+      createdIds.push(String(res.body.id));
+    }
+
+    const seenIds: string[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const res = await request(app).get('/v1/users').query(cursor === null ? { limit: 2 } : { limit: 2, cursor });
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      for (const user of res.body.data as User[]) {
+        seenIds.push(user.id);
+      }
+      expect(typeof res.body.nextCursor === 'string' || res.body.nextCursor === null).toBe(true);
+      cursor = res.body.nextCursor;
+    } while (cursor !== null);
+
+    expect(new Set(seenIds).size).toBe(createdIds.length);
+    expect(seenIds).toHaveLength(createdIds.length);
+    expect(new Set(seenIds)).toEqual(new Set(createdIds));
   });
 
-  it('rejects empty patches and duplicate email patches', async () => {
-    const app = make();
-    const one = await request(app).post('/v1/users').send(valid('one@example.com')).expect(201);
-    const two = await request(app).post('/v1/users').send(valid('two@example.com')).expect(201);
-    await request(app).patch(`/v1/users/${one.body.id}`).send({}).expect(422);
-    await request(app).patch(`/v1/users/${two.body.id}`).send({ email: 'one@example.com' }).expect(409);
+  it('returns 404 problems for missing users on get patch and delete', async () => {
+    const app = createApp();
+    const missingId = '00000000-0000-4000-8000-000000000000';
+
+    const getRes = await request(app).get(`/v1/users/${missingId}`);
+    expectProblem(getRes, 404, 'not-found');
+
+    const patchRes = await request(app).patch(`/v1/users/${missingId}`).send({ name: 'Nobody' });
+    expectProblem(patchRes, 404, 'not-found');
+
+    const deleteRes = await request(app).delete(`/v1/users/${missingId}`);
+    expectProblem(deleteRes, 404, 'not-found');
   });
 
-  it('replays idempotent creates and rejects changed bodies', async () => {
-    const app = make();
-    const first = await request(app).post('/v1/users').set('Idempotency-Key', 'users-1').send(valid()).expect(201);
-    const replay = await request(app).post('/v1/users').set('Idempotency-Key', 'users-1').send(valid()).expect(201);
+  it('returns 422 problems naming failing fields for invalid body query and path parameters', async () => {
+    const app = createApp();
+
+    const bodyRes = await request(app).post('/v1/users').send({ email: 'nope', name: '' });
+    const bodyProblem = expectProblem(bodyRes, 422, 'validation');
+    expect(bodyProblem.detail).toContain('email: ');
+    expect(bodyProblem.detail).toContain('name: ');
+
+    const queryRes = await request(app).get('/v1/users').query({ limit: 101, cursor: '' });
+    const queryProblem = expectProblem(queryRes, 422, 'validation');
+    expect(queryProblem.detail).toContain('limit: ');
+    expect(queryProblem.detail).toContain('cursor: ');
+
+    const pathRes = await request(app).get('/v1/users/not-a-uuid');
+    const pathProblem = expectProblem(pathRes, 422, 'validation');
+    expect(pathProblem.detail).toContain('userId: ');
+  });
+
+  it('returns 400 for malformed JSON bodies', async () => {
+    const res = await request(createApp())
+      .post('/v1/users')
+      .set('Content-Type', 'application/json')
+      .send('{"email":');
+
+    expectProblem(res, 400, 'malformed-json');
+  });
+
+  it('rejects duplicate emails on create and patch with 409 problems', async () => {
+    const app = createApp();
+
+    const first = await request(app).post('/v1/users').send({ email: 'dup@example.com', name: 'First' });
+    const second = await request(app).post('/v1/users').send({ email: 'other@example.com', name: 'Second' });
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+
+    const createDup = await request(app).post('/v1/users').send({ email: 'dup@example.com', name: 'Third' });
+    expectProblem(createDup, 409, 'conflict');
+
+    const patchDup = await request(app).patch(`/v1/users/${second.body.id}`).send({ email: 'dup@example.com' });
+    expectProblem(patchDup, 409, 'conflict');
+  });
+
+  it('honours Idempotency-Key on create: same key and body replays original response, different body gets 422', async () => {
+    const app = createApp();
+    const key = 'create-user-1';
+
+    const first = await request(app)
+      .post('/v1/users')
+      .set('Idempotency-Key', key)
+      .send({ email: 'idem@example.com', name: 'Ida' });
+    expect(first.status).toBe(201);
+    expect(first.headers['idempotent-replayed']).toBeUndefined();
+
+    const replay = await request(app)
+      .post('/v1/users')
+      .set('Idempotency-Key', key)
+      .send({ email: 'idem@example.com', name: 'Ida' });
+    expect(replay.status).toBe(201);
     expect(replay.headers['idempotent-replayed']).toBe('true');
-    expect(replay.body.id).toBe(first.body.id);
-    await request(app).post('/v1/users').set('Idempotency-Key', 'users-1').send(valid('different@example.com')).expect(422);
+    expect(replay.headers.location).toBe(first.headers.location);
+    expect(replay.body).toEqual(first.body);
+
+    const listRes = await request(app).get('/v1/users');
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.data).toHaveLength(1);
+
+    const mismatch = await request(app)
+      .post('/v1/users')
+      .set('Idempotency-Key', key)
+      .send({ email: 'idem@example.com', name: 'Different' });
+    expectProblem(mismatch, 422, 'idempotency-key-reuse');
+  });
+
+  it('patches only provided fields, returns the updated user, and rejects an empty patch', async () => {
+    const app = createApp();
+
+    const created = await request(app).post('/v1/users').send({ email: 'patch@example.com', name: 'Before', role: 'member' });
+    expect(created.status).toBe(201);
+
+    const updated = await request(app).patch(`/v1/users/${created.body.id}`).send({ name: 'After', role: 'admin' });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toEqual(
+      expect.objectContaining({
+        id: created.body.id,
+        email: 'patch@example.com',
+        name: 'After',
+        role: 'admin',
+        createdAt: created.body.createdAt,
+        updatedAt: expect.any(String),
+      }),
+    );
+    expect(Date.parse(String(updated.body.updatedAt))).toBeGreaterThanOrEqual(Date.parse(String(created.body.updatedAt)));
+
+    const fetched = await request(app).get(`/v1/users/${created.body.id}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body).toEqual(updated.body);
+
+    const emptyPatch = await request(app).patch(`/v1/users/${created.body.id}`).send({});
+    const problem = expectProblem(emptyPatch, 422, 'validation');
+    expect(problem.detail).toContain('(root): ');
+  });
+
+  it('deletes a user with 204 and the user is then gone', async () => {
+    const app = createApp();
+    const created = await request(app).post('/v1/users').send({ email: 'delete@example.com', name: 'Delete Me' });
+    expect(created.status).toBe(201);
+
+    const deleted = await request(app).delete(`/v1/users/${created.body.id}`);
+    expect(deleted.status).toBe(204);
+    expect(deleted.text).toBe('');
+
+    const getRes = await request(app).get(`/v1/users/${created.body.id}`);
+    expectProblem(getRes, 404, 'not-found');
   });
 });
