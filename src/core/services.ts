@@ -43,7 +43,7 @@ export function createServices(opts: {
     ? { repoRoot: ws.repoRoot, rootRel: ws.rootRel, sha: opts.baseSha }
     : undefined;
   return {
-    async runTests(files) {
+    async runTests(files, o) {
       const report = await runTargetTests({
         root: ws.root,
         ...(files !== undefined && files.length > 0 ? { files } : {}),
@@ -53,7 +53,9 @@ export function createServices(opts: {
         turn: state.turn,
         ...(runner !== undefined ? { runner } : {}),
         layout: layout(),
+        ...(o?.isolateFailures === true ? { isolateFailures: true } : {}),
       });
+      // The run's own observations only: the isolated re-runs behind report.diagnosis yield none.
       state.tests.push(...report.observations);
       return report;
     },

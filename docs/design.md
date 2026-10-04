@@ -119,6 +119,11 @@ configuration unusable (UNPROVEN).
 **Run_tests summaries** name, for a suite that failed to load, the first in-project frame of
 that file's block in the runner's console and its line of code (`ERROR test/users.test.ts: suite
 error: app.use() requires a middleware function (at src/routes/index.ts:10:7  app.use(usersRouter);)`).
+When cases fail, `run_tests` re-runs up to two of them alone (the runner's name filter, escaped and
+anchored on the full name; vitest and jest, not node:test; same sandbox, env and fd-3 channel) and
+names each one that passes alone: it depends on test order, e.g. an exact count over a module-level
+store that earlier cases of the file filled. Those re-runs are diagnostic only, never an observation
+(no red, no green), and only when exactly that case ran in a clean run.
 **Stopping:** Ctrl-C or SIGTERM (a CI timeout, `kill`) stops the loop after the current step and
 still writes every piece of evidence (`run.json` status `aborted`; exit 130 / 143); a second
 signal exits at once. A signal that lands after the loop ended (e.g. while the gates of an
