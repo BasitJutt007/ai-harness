@@ -4,7 +4,9 @@ import { randomBytes } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { glob } from 'tinyglobby';
-import { buildTestMap, importSpecifiers, isConstantExpression, isTestFile, isTestSupport, resolveSpecifier, staticTestCases } from '../../src/core/testmap.ts';
+import {
+  buildTestMap, failureOffsets, importSpecifiers, isAssertionFailure, isConstantExpression, isTestFile, isTestSupport, locatedRed, resolveSpecifier, staticTestCases,
+} from '../../src/core/testmap.ts';
 import type { CaseResolver } from '../../src/core/testmap.ts';
 import * as pluginApi from '../../src/core/plugin-api.ts';
 import * as red from '../../plugins/lib/red.ts';
@@ -253,7 +255,10 @@ describe('staticTestCases', () => {
     ].join('\n'))).toEqual([['s > inner', true, false], ['outer', true, false]]);
   });
 
-  it('constantOnly: no expect, or only constant subjects (assert()/expect.assertions do not count); helpers are followed; exercisesSource needs an assertion on source', () => {
+  // Was: "assert() does not count" ('assert only' -> [false, true]). An audit showed that rejected real
+  // assertions on the app (vitest's assert, node:assert, assert(cond), imported helpers); any assertion
+  // API now counts, and constant-only / source-free assertions are still rejected (see the table below).
+  it('constantOnly: no assertion, or only constant subjects (expect.assertions does not count); helpers are followed; exercisesSource needs an assertion on source', () => {
     expect(brief([
       "import { findUser } from '../src/users.ts';",
       'function check(id: number) { expect(findUser(id)).toBe(1); }',
@@ -265,12 +270,12 @@ describe('staticTestCases', () => {
       "it('via helper', () => { check(1); });",
       "it('mixed', () => { expect(true).toBe(true); expect(findUser(1)).toBe(2); });",
     ].join('\n'))).toEqual([
-      // Calling or naming src code is not enough: an expect() subject must use its value.
+      // Calling or naming src code is not enough: an assertion subject must use its value.
       ['true/false', false, true],
       ['numbers', false, true],
       ['literals', false, true],
       ['no assertion', false, true],
-      ['assert only', false, true],
+      ['assert only', true, false],
       ['via helper', true, false],
       ['mixed', true, false],
     ]);
@@ -354,5 +359,137 @@ describe('staticTestCases: idioms seen in a real gpt-5.4-mini run', () => {
       '});',
     ].join('\n');
     expect(brief(src)).toEqual([['s > a', true, false], ['s > b', false, false]]);
+  });
+});
+
+describe('red counting: any assertion API on source counts; constants and bare throws do not', () => {
+  const files = new Set(['src/users.ts', 'test/helpers.ts', 'test/expect-helpers.ts']);
+  const resolver: CaseResolver = {
+    resolve: (spec) => resolveSpecifier('test/u.test.ts', spec, files),
+    // test/expect-helpers.ts is a pure assertion helper (imports only vitest); test/helpers.ts imports src.
+    reachesSource: (t) => t.startsWith('src/') || t === 'test/helpers.ts',
+  };
+  const HEAD = [
+    "import { assert as vassert, expect, it } from 'vitest';",
+    "import assert from 'node:assert/strict';",
+    "import { strict as nodeStrict } from 'node:assert';",
+    "import request from 'supertest';",
+    "import { countUsers, createApp, seed } from '../src/users.ts';",
+    "import { expectCount } from './expect-helpers.ts';",
+  ];
+  const brief = (body: string): [boolean, boolean] => {
+    const c = staticTestCases('test/u.test.ts', [...HEAD, `it('c', async () => { ${body} });`].join('\n'), resolver)[0];
+    return [c?.exercisesSource ?? false, c?.constantOnly ?? true];
+  };
+
+  const counts: Array<[string, string]> = [
+    ['vitest expect', 'expect(countUsers()).toBe(1);'],
+    ["vitest's chai assert", 'vassert.equal(countUsers(), 1);'],
+    ['node:assert/strict', 'assert.equal(countUsers(), 1);'],
+    ['assert(cond)', 'assert(countUsers() === 1);'],
+    ['node:assert strict as', 'nodeStrict.deepEqual({ n: countUsers() }, { n: 1 });'],
+    ['an imported assertion helper', 'const n = countUsers(); expectCount(n, 1);'],
+    ['an awaited helper on an app response', "const res = await request(createApp()).get('/users'); await expectCount(res.status, 200);"],
+    ['supertest .expect', "await request(createApp()).get('/users').expect(200);"],
+  ];
+  it.each(counts)('counts statically: %s', (_name, body) => {
+    expect(brief(body)).toEqual([true, false]);
+  });
+
+  const rejected: Array<[string, string, [boolean, boolean]]> = [
+    ['constant expect', 'void countUsers; expect(1).toBe(2);', [false, true]],
+    ['assert.fail without a source reference', "countUsers(); assert.fail('red');", [false, true]],
+    ['constant assert', 'assert.equal(1, 2);', [false, true]],
+    ['assert(false)', 'assert(false);', [false, true]],
+    ['throw only', "countUsers(); throw new Error('red');", [false, true]],
+    ['a helper on constants', 'expectCount(1, 2);', [false, true]],
+    // Calling the code under test for its effect is exercising it, not asserting on it.
+    ['a source call for effect', 'seed(countUsers());', [false, true]],
+  ];
+  it.each(rejected)('rejected statically: %s', (_name, body, want) => {
+    expect(brief(body)).toEqual(want);
+  });
+
+  it('isAssertionFailure: assertion errors of any library, not crashes or hand-thrown errors', () => {
+    for (const m of [
+      'AssertionError: expected +0 to be 1 // Object.is equality\n    at /x/test/u.test.ts:6:24',
+      'AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n0 !== 1\n',
+      'Error: expect(received).toBe(expected) // Object.is equality',
+      'JestAssertionError: expect(received).toBe(expected)',
+    ]) expect(isAssertionFailure(m), m).toBe(true);
+    for (const m of ['TypeError: Cannot read properties of undefined', 'Error: red', 'Error: expected 201 "Created", got 200 "OK"', '']) {
+      expect(isAssertionFailure(m), m).toBe(false);
+    }
+  });
+
+  it('failureOffsets: frames of this file only (absolute paths or file:// URLs), innermost first', () => {
+    const content = 'line one\nline two\nline three\n';
+    const msg = [
+      'AssertionError: x',
+      '    at check (/tmp/api/test/u.test.ts:3:6)',
+      '    at /tmp/api/test/helpers.ts:1:1',
+      '    at file:///tmp/api/test/u.test.ts:2:1',
+      '    at file:///tmp/node_modules/vitest/dist/run.js:10:5',
+    ].join('\n');
+    expect(failureOffsets(msg, 'test/u.test.ts', content)).toEqual([content.indexOf('line three') + 5, content.indexOf('line two')]);
+  });
+
+  /** Cases whose failures are judged by a synthetic runner message pointing at a line (1-based) of the file. */
+  const SRC = [
+    "import { expect, it } from 'vitest';", // 1
+    "import assert from 'node:assert/strict';", // 2
+    "import { countUsers, listUsers } from '../src/users.ts';", // 3
+    'function constantCheck(): void {', // 4
+    '  expect(1).toBe(2);', // 5
+    '}', // 6
+    "it('mixed', () => {", // 7
+    '  expect(countUsers()).toBe(0);', // 8
+    '  expect(1).toBe(2);', // 9
+    '});', // 10
+    "it('node assert', () => {", // 11
+    '  assert.equal(countUsers(), 1);', // 12
+    '});', // 13
+    "it('throw after a real assertion', () => {", // 14
+    '  expect(countUsers()).toBe(0);', // 15
+    "  throw new Error('red');", // 16
+    '});', // 17
+    "it('loop over source', () => {", // 18
+    '  for (const u of listUsers()) expect(u).toBe(1);', // 19
+    '});', // 20
+    "it('constant helper', () => {", // 21
+    '  expect(countUsers()).toBe(0);', // 22
+    '  constantCheck();', // 23
+    '});', // 24
+  ].join('\n');
+  const statics = staticTestCases('test/u.test.ts', SRC, resolver);
+  const at = (line: number, name = 'AssertionError: boom', extra: number[] = []): string =>
+    [name, ...[line, ...extra].map((l) => `    at /abs/api/test/u.test.ts:${l}:5`), '    at file:///abs/node_modules/vitest/dist/run.js:1:1'].join('\n');
+  const verdict = (name: string, message: string) => {
+    const s = statics.find((c) => c.name === name);
+    if (s === undefined) throw new Error(`no case ${name}`);
+    return locatedRed(s, [message], 'test/u.test.ts', SRC);
+  };
+
+  it('judges the statement that failed: a constant assertion after a real one does not count', () => {
+    const mixed = statics.find((c) => c.name === 'mixed');
+    expect([mixed?.exercisesSource, mixed?.constantOnly]).toEqual([true, false]); // statically it would count
+    expect(verdict('mixed', at(9))).toEqual({ exercisesSource: false, constantOnly: true });
+    expect(verdict('mixed', at(8))).toEqual({ exercisesSource: true, constantOnly: false });
+  });
+
+  it('an assertion error of any library on source counts; a bare throw or a constant helper does not', () => {
+    expect(verdict('node assert', at(12, 'AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:'))).toEqual({ exercisesSource: true, constantOnly: false });
+    expect(verdict('throw after a real assertion', at(16, 'Error: red'))).toEqual({ exercisesSource: false, constantOnly: true });
+    // The innermost frame is in the same-file helper: a constant assertion, whatever the case calls it from.
+    expect(verdict('constant helper', at(5, 'AssertionError: boom', [23]))).toEqual({ exercisesSource: false, constantOnly: true });
+    // Guarded by a loop over source values: the assertion depends on source.
+    expect(verdict('loop over source', at(19))).toEqual({ exercisesSource: true, constantOnly: false });
+  });
+
+  it('a crash counts only where the case also qualifies statically; no frame in the case leaves the static verdict', () => {
+    expect(verdict('node assert', at(12, 'TypeError: x is undefined'))).toEqual({ exercisesSource: true, constantOnly: false });
+    expect(verdict('throw after a real assertion', at(16, 'TypeError: nope'))).toEqual({ exercisesSource: false, constantOnly: true });
+    expect(verdict('mixed', at(12))).toBeNull(); // the frame is in another case
+    expect(verdict('mixed', 'AssertionError: no stack')).toBeNull();
   });
 });

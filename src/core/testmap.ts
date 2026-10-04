@@ -175,8 +175,19 @@ function stem(p: string): string {
 
 const CASE_FNS = new Set(['it', 'test']);
 const SUITE_FNS = new Set(['describe', 'suite']);
+const HOOK_FNS = new Set(['beforeEach', 'beforeAll', 'afterEach', 'afterAll']);
 const ALIASES = new Map([['xit', 'it'], ['xtest', 'test'], ['fit', 'it'], ['xdescribe', 'describe'], ['fdescribe', 'describe']]);
 const TABLE_MODS = new Set(['each', 'for']);
+/** Callee roots that are test structure, never an assertion of their own (expect chains are recognised separately). */
+const STRUCTURE = new Set([...CASE_FNS, ...SUITE_FNS, ...HOOK_FNS, ...ALIASES.keys(), 'vi', 'expect']);
+
+/** The statement a runner failure points at, judged in the scope it runs in. */
+export interface FailedStatement {
+  /** It (or a condition guarding it) uses a value imported from src/ or derived from one. */
+  usesSource: boolean;
+  /** It names no value at all besides callees and literals (`expect(1).toBe(2)`, `assert.fail('x')`, `throw new Error('x')`). */
+  constant: boolean;
+}
 
 /** One test case found statically in a test file. */
 export interface StaticTestCase {
@@ -187,13 +198,20 @@ export interface StaticTestCase {
   /** sha256 of the callback body's tokens (comments and whitespace dropped); undefined without a callback. */
   bodyHash?: string;
   /**
-   * Some expect() subject of the case (or a same-file assertion helper it calls) uses the value of a binding
-   * imported from a module that reaches src/, or of a variable derived from one (in the case, or assigned at
-   * file level, e.g. in a beforeEach). `void x` / `typeof x` do not count.
+   * Some assertion of the case (or of a same-file helper it calls) uses the value of a binding imported from a
+   * module that reaches src/, or of a variable derived from one (in the case, or assigned at file level, e.g. in
+   * a beforeEach). An assertion is an expect() subject, a supertest-style `.expect()` receiver, or the arguments
+   * of a call made only for its effect on a function the file imports or declares (`assert.equal(a, b)`,
+   * `assert(ok)`, `expectCreated(res)`): any assertion library. `void x` / `typeof x` do not count.
    */
   exercisesSource: boolean;
-  /** No expect(...) at all, or every expect(subject) has a constant subject. */
+  /** No assertion at all, or every assertion has only constant subjects. */
   constantOnly: boolean;
+  /**
+   * The statement at a character offset of the file (a stack frame of a runner failure), when the offset lies
+   * in this case's callback or in a same-file function it may call (setup hooks excluded); else undefined.
+   */
+  statementAt?: (offset: number) => FailedStatement | undefined;
 }
 
 /** How the case analysis resolves the file's relative imports. */
@@ -377,6 +395,172 @@ function expectSubject(call: ts.CallExpression): ts.Expression | undefined {
   return chained ? c.expression : undefined;
 }
 
+/** Runner globals that are assertion APIs (vitest's `globals: true` exposes chai's `assert`). */
+const GLOBAL_ASSERTIONS = ['assert'];
+
+/**
+ * The call of a statement made only for its effect (`f(…);`, `await f(…);`) whose callee is rooted at one of
+ * `callees` (assertion APIs: bindings imported from an assertion library or from test code), other than test
+ * structure and expect chains: what an assertion of any library looks like (`assert.equal(a, b)`,
+ * `assert(ok)`, `expectCreated(res)`). Its arguments are its subjects. Calls on data (`ids.push(x)`), on
+ * globals (`console.log(x)`) and into the code under test are not.
+ */
+function effectCall(n: ts.Node, callees: ReadonlySet<string>): ts.CallExpression | undefined {
+  if (!ts.isExpressionStatement(n)) return undefined;
+  let e: ts.Expression = n.expression;
+  while (ts.isAwaitExpression(e) || ts.isParenthesizedExpression(e)) e = e.expression;
+  if (!ts.isCallExpression(e) || expectSubject(e) !== undefined) return undefined;
+  const { root } = calleeChain(e.expression);
+  return root !== null && !STRUCTURE.has(root) && callees.has(root) ? e : undefined;
+}
+
+/**
+ * Names an assertion can be made through: value bindings imported from a package (an assertion library,
+ * node:assert) or from test code (a helper module), and the runner's global `assert`. Never a binding
+ * imported from the code under test: calling it exercises it, it does not assert.
+ */
+function assertionCallees(sf: ts.SourceFile, r: CaseResolver): Set<string> {
+  const out = new Set(GLOBAL_ASSERTIONS);
+  const testSide = (spec: string): boolean => {
+    const target = r.resolve(spec);
+    return target === null ? !spec.startsWith('.') && !spec.startsWith('/') : isTestFile(target) || isTestSupport(target);
+  };
+  for (const st of sf.statements) {
+    if (ts.isImportEqualsDeclaration(st) && !st.isTypeOnly && ts.isExternalModuleReference(st.moduleReference)
+      && ts.isStringLiteral(st.moduleReference.expression) && testSide(st.moduleReference.expression.text)) out.add(st.name.text);
+    if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier) || !testSide(st.moduleSpecifier.text)) continue;
+    const clause = st.importClause;
+    if (clause === undefined || clause.isTypeOnly) continue;
+    if (clause.name !== undefined) out.add(clause.name.text);
+    const nb = clause.namedBindings;
+    if (nb !== undefined && ts.isNamespaceImport(nb)) out.add(nb.name.text);
+    if (nb !== undefined && ts.isNamedImports(nb)) for (const el of nb.elements) if (!el.isTypeOnly) out.add(el.name.text);
+  }
+  return out;
+}
+
+/** A statement, a block or a declaration: a frame inside a nested one is judged by that one. */
+function isStatementNode(n: ts.Node): boolean {
+  return ts.isBlock(n) || ts.isFunctionDeclaration(n) || ts.isClassDeclaration(n)
+    || (n.kind >= ts.SyntaxKind.FirstStatement && n.kind <= ts.SyntaxKind.LastStatement);
+}
+
+/** An identifier in callee position (`f` in `f(x)`, `a` and `b` in `a.b(x)`, `E` in `new E(x)`). */
+function isCallee(id: ts.Identifier): boolean {
+  let n: ts.Node = id;
+  while (ts.isPropertyAccessExpression(n.parent) && n.parent.expression === n) n = n.parent;
+  const p = n.parent;
+  return (ts.isCallExpression(p) || ts.isNewExpression(p)) && p.expression === n;
+}
+
+/** Judge one statement without its nested statements: does it use `names` (values only), and is it constant-only? */
+function judgeStatement(st: ts.Node, names: ReadonlySet<string>, r: CaseResolver): FailedStatement {
+  let usesSource = false;
+  let constant = true;
+  const visit = (n: ts.Node): void => {
+    if (n !== st && isStatementNode(n)) return;
+    if (ts.isVoidExpression(n) || ts.isTypeOfExpression(n)) return;
+    if (ts.isIdentifier(n) && isReference(n)) {
+      if (names.has(n.text)) usesSource = true;
+      if (!isCallee(n) && !['undefined', 'NaN', 'Infinity'].includes(n.text)) constant = false;
+    }
+    if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const arg = n.arguments[0];
+      const target = arg !== undefined && ts.isStringLiteralLike(arg) ? r.resolve(arg.text) : null;
+      if (target !== null && r.reachesSource(target)) usesSource = true;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(st);
+  return { usesSource, constant: constant && !usesSource };
+}
+
+/** Conditions and iterated values of the statements that control whether `n` runs (`if (c) …`, `for (x of xs) …`), up to `stop`. */
+function guards(n: ts.Node, stop: ts.Node): ts.Expression[] {
+  const out: ts.Expression[] = [];
+  for (let cur: ts.Node = n; cur !== stop && cur.parent !== undefined; cur = cur.parent) {
+    const p = cur.parent;
+    if ((ts.isIfStatement(p) || ts.isWhileStatement(p) || ts.isDoStatement(p) || ts.isForOfStatement(p) || ts.isForInStatement(p))
+      && p.expression !== cur) out.push(p.expression);
+    else if (ts.isForStatement(p) && p.condition !== undefined && p.condition !== cur) out.push(p.condition);
+  }
+  return out;
+}
+
+/** The innermost statement of `region` (a function body) containing `offset`, if any. */
+function statementIn(region: ts.Node, offset: number, sf: ts.SourceFile): ts.Node | undefined {
+  if (offset < region.getStart(sf) || offset >= region.getEnd()) return undefined;
+  let found: ts.Node = region;
+  const visit = (n: ts.Node): void => {
+    if (offset < n.getStart(sf) || offset >= n.getEnd()) return;
+    if (isStatementNode(n)) found = n;
+    ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(region, visit);
+  return found;
+}
+
+/** Name (first line, before `:` or ` [`) of an error a runner reports, as in "AssertionError [ERR_ASSERTION]: …". */
+function errorName(message: string): string {
+  const first = (message.split('\n').find((l) => l.trim() !== '') ?? '').trim();
+  return /^([\w$.]+)(?:\s*\[[^\]]*\])?:/.exec(first)?.[1] ?? '';
+}
+
+/**
+ * A runner failure raised by an assertion (any library: vitest/chai `AssertionError`, node:assert
+ * `AssertionError [ERR_ASSERTION]`, jest `JestAssertionError` / `expect(received)…`), not a crash or a
+ * hand-thrown Error.
+ */
+export function isAssertionFailure(message: string): boolean {
+  const first = (message.split('\n').find((l) => l.trim() !== '') ?? '').trim();
+  return /assert/i.test(errorName(message)) || /^(?:Error: )?expect\(/.test(first);
+}
+
+/**
+ * Character offsets into `content` of the stack frames of a runner failure message that point into
+ * `file` (API-relative; frames carry absolute paths or file:// URLs), innermost first.
+ */
+export function failureOffsets(message: string, file: string, content: string): number[] {
+  const starts = [0];
+  for (let i = content.indexOf('\n'); i !== -1; i = content.indexOf('\n', i + 1)) starts.push(i + 1);
+  const out: number[] = [];
+  for (const line of message.split('\n')) {
+    const m = /^\s*at (?:.*?\()?(.+?):(\d+):(\d+)\)?\s*$/.exec(line);
+    if (m === null) continue;
+    let p = (m[1] ?? '').replace(/\\/g, '/');
+    if (p.startsWith('file://')) {
+      try {
+        p = decodeURIComponent(p.slice('file://'.length));
+      } catch {
+        continue;
+      }
+    }
+    if (p !== file && !p.endsWith(`/${file}`)) continue;
+    const start = starts[Number(m[2]) - 1];
+    if (start !== undefined) out.push(start + Number(m[3]) - 1);
+  }
+  return out;
+}
+
+/**
+ * The red verdict for a failing case from where it failed: the innermost frame in the case (or a same-file
+ * function it called) must not be a constant-only statement, some frame's statement (or a condition guarding
+ * it) must use a value from src/, and the failure must be an assertion error, or else the case must also
+ * qualify statically (a crash inside an assertion on src/, a supertest `.expect()` error). null when no frame
+ * of the messages points into the case: the static verdict stands.
+ */
+export function locatedRed(s: StaticTestCase, messages: string[], file: string, content: string): { exercisesSource: boolean; constantOnly: boolean } | null {
+  for (const m of messages) {
+    const judged = failureOffsets(m, file, content).flatMap((o) => s.statementAt?.(o) ?? []);
+    const innermost = judged[0];
+    if (innermost === undefined) continue;
+    const counts = !innermost.constant && judged.some((j) => j.usesSource)
+      && (isAssertionFailure(m) || (s.exercisesSource && !s.constantOnly));
+    return counts ? { exercisesSource: true, constantOnly: false } : { exercisesSource: false, constantOnly: innermost.constant || s.constantOnly };
+  }
+  return null;
+}
+
 /**
  * The test cases of a vitest file, with the evidence the observed-red rule needs:
  * a hash of each callback body, whether the case uses code imported from (a module
@@ -464,11 +648,16 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
   // A file-level variable assigned from source anywhere (`let app; beforeEach(() => { app = createApp(); })`).
   propagate(sf, tainted, (x) => fileVars.has(x), r);
 
-  // expect() subjects in a callback, following calls to same-file helper functions.
+  const callees = assertionCallees(sf, r);
+
+  // Assertion subjects in a callback (expect() subjects, supertest-style `.expect()` receivers, arguments
+  // of an assertion API call), following calls to same-file helper functions.
   const subjects = (start: ts.Node): ts.Expression[] => {
     const out: ts.Expression[] = [];
     const seen = new Set<ts.Node>();
     const visit = (n: ts.Node): void => {
+      const effect = effectCall(n, callees);
+      if (effect !== undefined) out.push(...effect.arguments);
       if (ts.isCallExpression(n)) {
         const subject = expectSubject(n);
         if (subject !== undefined) out.push(subject);
@@ -484,18 +673,31 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
     return out;
   };
 
-  /**
-   * Whether the case ASSERTS ON source: some expect() subject uses (the value of) a binding imported
-   * from src/ or derived from one in the case or file, or a same-file assertion helper is handed such a
-   * value (or asserts on one itself). `void x` / `typeof x` and unrelated statements do not count.
-   */
-  const assertsOnSource = (cb: ts.ArrowFunction | ts.FunctionExpression): boolean => {
-    const shadowed = declaredNames(cb);
+  /** Names that hold a value from source inside a function: the file's, minus its own declarations, plus what it derives from them. */
+  const liveIn = (fn: ts.Node): Set<string> => {
+    const shadowed = declaredNames(fn);
     const live = new Set([...tainted].filter((x) => !shadowed.has(x)));
-    propagate(cb, live, (x) => shadowed.has(x), r);
+    propagate(fn, live, (x) => shadowed.has(x), r);
+    return live;
+  };
+
+  /**
+   * Whether the case ASSERTS ON source: some assertion subject (expect(), a supertest `.expect()` chain, the
+   * arguments of any assertion API call) uses (the value of) a binding imported from src/ or derived from one
+   * in the case or file, or a same-file assertion helper is handed such a value (or asserts on one itself).
+   * `void x` / `typeof x` and unrelated statements do not count.
+   */
+  const assertsOnSource = (cb: ts.ArrowFunction | ts.FunctionExpression, live: ReadonlySet<string>): boolean => {
+    const shadowed = declaredNames(cb);
     let found = false;
     const visit = (n: ts.Node): void => {
       if (found) return;
+      const effect = effectCall(n, callees);
+      if (effect !== undefined && !shadowed.has(calleeChain(effect.expression).root ?? '')
+        && effect.arguments.some((a) => usesSource(a, live, new Set(), r, true))) {
+        found = true;
+        return;
+      }
       if (ts.isCallExpression(n)) {
         const subject = expectSubject(n);
         if (subject !== undefined && usesSource(subject, live, new Set(), r, true)) {
@@ -514,6 +716,24 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
     };
     visit(cb.body);
     return found;
+  };
+
+  // Same-file helper bodies a failure frame may point into, with the names live in each (computed once).
+  let helperRegions: Array<{ body: ts.Node; live: ReadonlySet<string> }> | undefined;
+  const regionsOf = (cb: ts.ArrowFunction | ts.FunctionExpression, live: ReadonlySet<string>): Array<{ body: ts.Node; live: ReadonlySet<string> }> => {
+    helperRegions ??= [...new Set(helpers.values())].map((h) => ({ body: h, live: liveIn(h) }));
+    return [{ body: cb.body, live }, ...helperRegions];
+  };
+  /** The statement at `offset` in the case callback or a same-file helper, judged in the scope it runs in. */
+  const statementAt = (cb: ts.ArrowFunction | ts.FunctionExpression, live: ReadonlySet<string>) => (offset: number): FailedStatement | undefined => {
+    for (const region of regionsOf(cb, live)) {
+      const st = statementIn(region.body, offset, sf);
+      if (st === undefined) continue;
+      const judged = judgeStatement(st, region.live, r);
+      const guarded = guards(st, region.body).some((g) => usesSource(g, region.live, new Set(), r, true));
+      return { usesSource: judged.usesSource || guarded, constant: judged.constant };
+    }
+    return undefined;
   };
 
   const out: StaticTestCase[] = [];
@@ -544,8 +764,10 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
           // The whole call: title, callback, options, timeout and any .each table decide the result.
           tc.bodyHash = createHash('sha256').update(bodyTokens(node, sf).join(' ')).digest('hex');
           const subs = subjects(cb.body);
+          const live = liveIn(cb);
           tc.constantOnly = subs.length === 0 || subs.every(isConstantExpression);
-          tc.exercisesSource = assertsOnSource(cb);
+          tc.exercisesSource = assertsOnSource(cb, live);
+          tc.statementAt = statementAt(cb, live);
         }
         out.push(tc);
         return;
