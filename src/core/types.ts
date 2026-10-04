@@ -222,6 +222,12 @@ export interface GreenfieldTask extends TaskCommon {
   basePath: string;
   /** May be empty when the task describes the API in its brief. */
   resources: ResourceSpec[];
+  /**
+   * Only for a free-text task (no resources): 'human' explicitly accepts that no gate compares the API with the
+   * brief, so the spec-coverage gate is n/a and a human verifies behaviour coverage. Absent: such a task's
+   * spec-coverage is UNPROVEN (never DONE).
+   */
+  specCoverage?: 'human' | undefined;
 }
 
 export interface BrownfieldTask extends TaskCommon {
@@ -355,6 +361,16 @@ export interface TestCaseObservation {
   exercisesSource: boolean;
   /** Every assertion compares literals only (e.g. expect(true).toBe(false)) or there is none. */
   constantOnly: boolean;
+  /**
+   * `it.fails` / `test.failing` (or inside a suite with such a modifier): the runner reports pass when the body
+   * fails and fail when it passes. Never red evidence and never green evidence.
+   */
+  inverted?: boolean;
+  /**
+   * Every assertion on a value from source is presence-only (toBeDefined, toBeTruthy, toBeInstanceOf, assert.ok(x), ...).
+   * A missing-module red of such a case is no proof for a new file: a failing VALUE assertion is required.
+   */
+  presenceOnly?: boolean;
 }
 
 /** One collected test case as the runner reported it. */
@@ -383,6 +399,8 @@ export interface TestBaseline {
   failed: TestCaseResult[];
   /** Test files that failed to load at run start. */
   loadErrors: string[];
+  /** Test files the runner reported at run start (absent in baselines recorded before it existed). */
+  files?: string[];
   /** Harness-root-relative path of the runner's raw output. */
   logPath?: string;
 }
@@ -488,8 +506,17 @@ export interface HarnessConfig {
 }
 
 export interface TestRunReport {
-  /** True when every collected test passed and at least one test ran. */
+  /**
+   * True when every collected test passed, at least one test ran, and the runner process itself succeeded
+   * (exit code 0, not timed out, and its JSON report's `success` flag, when it writes one, is not false).
+   */
   ok: boolean;
+  /**
+   * How the runner process ended: exit code, timeout, and the JSON report's own `success` flag (absent when the
+   * runner writes none). Absent when no runner ran (unsupported runner). A non-zero exit with every case passed
+   * means something failed outside the cases (an unhandled error, a crashed worker): never green.
+   */
+  exit?: { code: number | null; timedOut: boolean; success?: boolean };
   totals: { files: number; tests: number; passed: number; failed: number };
   /** One observation per test file that was part of the run. */
   observations: TestObservation[];
