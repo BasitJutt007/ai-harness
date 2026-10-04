@@ -152,6 +152,8 @@ describe('behavioural scenario against generated reference APIs', () => {
     { mutant: 'no-idempotency', spec: 2, fails: ['author idempotency', 'book idempotency', 'tag idempotency'] },
     { mutant: 'unique-not-enforced', spec: 2, fails: ['tag unique label'] },
     { mutant: 'delete-200', spec: 2, fails: ['author delete', 'book delete', 'tag delete'] },
+    { mutant: 'shared-reference-cache', spec: 0, fails: ['user idempotency after update'] },
+    { mutant: 'shared-reference-cache', spec: 2, fails: ['author idempotency after update', 'book idempotency after update'] },
   ];
   it.each(MUTANTS)('mutant $mutant on spec $spec fails exactly $fails', async ({ mutant, spec, fails }) => {
     const t = SPECS[spec]?.task;

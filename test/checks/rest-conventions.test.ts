@@ -37,13 +37,50 @@ describe('rest-conventions', () => {
     expect(got).toHaveLength(8);
   });
 
+  it('a key handed to code the analysis cannot follow is UNPROVEN; a create without Location fails', async () => {
+    const root = await tempApi({
+      'src/routes.ts': `import { Router } from 'express';
+import { z } from 'zod';
+const Item = z.object({ id: z.string() });
+const Headers = z.object({ 'idempotency-key': z.string() });
+declare const cache: { run(key: string, work: () => void): void };
+export const r = Router();
+r.post('/v1/items', (req, res) => {
+  const key = Headers.parse(req.headers)['idempotency-key'];
+  cache.run(key, () => {
+    const body = Item.parse(req.body);
+    res.status(201).location(\`/v1/items/\${body.id}\`).json(Item.parse(body));
+  });
+});
+const done = new Map<string, unknown>();
+r.post('/v1/notes', (req, res) => {
+  const key = Headers.parse(req.headers)['idempotency-key'];
+  const hit = done.get(key);
+  if (hit !== undefined) {
+    res.status(201).json(Item.parse(hit));
+    return;
+  }
+  const body = Item.parse(req.body);
+  done.set(key, body);
+  res.status(201).json(Item.parse(body));
+});
+`,
+    });
+    roots.push(root);
+    const findings = await restConventions.run(await contextFor(root));
+    const skipped = findings.filter((f) => f.status === 'skip').map((f) => f.skipReason ?? '');
+    expect(skipped.some((s) => s.includes('POST /v1/items reads the Idempotency-Key header, but no function of its chain was shown to store a response keyed by it')), skipped.join('\n')).toBe(true);
+    const msgs = findings.flatMap((f) => f.violations.map((v) => v.message));
+    expect(msgs).toEqual(['POST /v1/notes: creating a resource must set the Location header of the new resource: res.status(201).location(`…/${id}`)']);
+  });
+
   it('no routes → no findings (the runner reports unproven 0/0)', async () => {
     const root = await tempApi({ 'src/app.ts': 'export const nothing = 1;\n' });
     roots.push(root);
     expect(await restConventions.run(await contextFor(root))).toEqual([]);
   });
 
-  it('flags unknown status codes, missing 404 paths and header-based idempotency is accepted', async () => {
+  it('flags unknown status codes, missing 404 paths; header-based idempotency that stores and replays is accepted', async () => {
     const root = await tempApi(
       {
         'src/routes.ts': `import { Router } from 'express';
@@ -51,11 +88,18 @@ import { z } from 'zod';
 const Item = z.object({ id: z.string() });
 const Headers = z.object({ 'idempotency-key': z.string().optional() });
 const Params = z.object({ itemId: z.string() });
+const done = new Map<string, z.infer<typeof Item>>();
 export const r = Router();
 r.post('/v1/items', (req, res) => {
-  Headers.parse(req.headers);
+  const key = Headers.parse(req.headers)['idempotency-key'];
+  const hit = key !== undefined ? done.get(key) : undefined;
+  if (hit !== undefined) {
+    res.status(201).location(\`/v1/items/\${hit.id}\`).json(Item.parse(hit));
+    return;
+  }
   const body = Item.parse(req.body);
-  res.status(201).json(Item.parse(body));
+  if (key !== undefined) done.set(key, body);
+  res.status(201).location(\`/v1/items/\${body.id}\`).json(Item.parse(body));
 });
 r.get('/v1/items/:itemId', (req, res) => {
   const { itemId } = Params.parse(req.params);

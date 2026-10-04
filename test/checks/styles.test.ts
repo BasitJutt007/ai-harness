@@ -365,7 +365,7 @@ const PLANTED: Planted[] = [
       [TICKETS]: [
         [
           '  return router;',
-          "  const IMPORTS = process.env['TICKET_IMPORTS_PATH'] ?? '/v1/ticket-imports';\n  router.post(\n    IMPORTS,\n    asyncHandler(async (req, res) => {\n      idempotencyHeaders.parse(req.headers);\n      const body = createTicketBody.parse(req.body);\n      res.status(201).json(ticketSchema.parse({ id: crypto.randomUUID(), status: 'open', ...body }));\n    }),\n  );\n\n  return router;",
+          "  const IMPORTS = process.env['TICKET_IMPORTS_PATH'] ?? '/v1/ticket-imports';\n  router.post(\n    IMPORTS,\n    asyncHandler(async (req, res) => {\n      const headers = idempotencyHeaders.parse(req.headers);\n      const body = createTicketBody.parse(req.body);\n      const { ticket } = await repo.insert(body, headers['idempotency-key']);\n      res.status(201).location(`${IMPORTS}/${ticket.id}`).json(ticketSchema.parse(ticket));\n    }),\n  );\n\n  return router;",
         ],
       ],
     },

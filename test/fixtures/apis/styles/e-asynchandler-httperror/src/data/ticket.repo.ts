@@ -4,6 +4,7 @@ import type { Ticket } from '../schemas/ticket.schema.ts';
 export class TicketRepo {
   private readonly rows: Ticket[] = [];
   private readonly keys = new Map<string, string>();
+  private readonly updates = new Map<string, Ticket>();
 
   async insert(input: Pick<Ticket, 'subject' | 'priority'>, key: string): Promise<{ ticket: Ticket; replayed: boolean }> {
     const prior = this.keys.get(key);
@@ -24,9 +25,15 @@ export class TicketRepo {
     const last = data.at(-1);
     return { data, nextCursor: last !== undefined && start + limit < rows.length ? last.id : null };
   }
-  async setStatus(id: string, status: Ticket['status']): Promise<Ticket | undefined> {
+  /** Set the status; the same Idempotency-Key again returns the ticket as that first update left it. */
+  async setStatus(id: string, status: Ticket['status'], key: string): Promise<Ticket | undefined> {
+    const prior = this.updates.get(`${id} ${key}`);
+    if (prior !== undefined) return prior;
     const t = this.rows.find((r) => r.id === id);
-    if (t !== undefined) t.status = status;
+    if (t !== undefined) {
+      t.status = status;
+      this.updates.set(`${id} ${key}`, { ...t });
+    }
     return t;
   }
 }

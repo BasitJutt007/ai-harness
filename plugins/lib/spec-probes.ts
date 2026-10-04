@@ -22,7 +22,7 @@ export type UnitStatus = 'pass' | 'fail' | 'unproven';
 export interface SpecUnit {
   /** Resource name (singular). */
   resource: string;
-  /** `route GET /v1/users`, `create`, `get`, `list`, `update`, `delete`, `idempotency`, `required email`, `enum role`, `max name`, `min name`, `unique email`. */
+  /** `route GET /v1/users`, `create`, `get`, `list`, `update`, `delete`, `idempotency`, `idempotency after update`, `required email`, `enum role`, `max name`, `min name`, `unique email`. */
   name: string;
   status: UnitStatus;
   /** Pass: what was shown. Fail / unproven: why. */
@@ -332,6 +332,17 @@ export function sameValue(f: FieldSpec, sent: unknown, got: unknown): boolean {
   }
 }
 
+/** Structural equality of two parsed JSON values (object key order ignored). */
+export function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => deepEqual(x, b[i]));
+  }
+  if (!isRecord(a) || !isRecord(b)) return false;
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every((k) => k in b && deepEqual(a[k], b[k]));
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -629,6 +640,28 @@ export async function runScenario(client: Client, task: Pick<GreenfieldTask, 'ba
     }
   };
 
+  /** Change one field of `inst` to another valid value: PATCH with that field only, or PUT with the whole body (the registered method first). */
+  const update = async (r: ResourceSpec, inst: Instance): Promise<{ res: SpecResponse; what: string; used: Method; after: Record<string, unknown>; path: string }> => {
+    const candidates = r.fields.filter((f) => !f.readOnly && f.name in inst.sent && referenceOf(f, task.resources) === undefined);
+    const pick = [...candidates.filter((f) => !f.unique && !SECRETISH.test(f.name)), ...candidates.filter((f) => f.unique && !SECRETISH.test(f.name))]
+      .map((f) => ({ f, v: otherValue(f, inst.sent[f.name], ++seq, nonce) }))
+      .find((c) => c.v !== undefined);
+    if (pick === undefined) throw unproven(`no field of ${r.name} can be changed to another valid value`);
+    const path = itemOf(r, inst.id);
+    const registered = opts.paths?.get(r.name)?.updateMethods ?? [];
+    const methods: Method[] = registered.length > 0 ? registered : ['PATCH', 'PUT'];
+    const after = { ...inst.sent, [pick.f.name]: pick.v };
+    let res: SpecResponse | undefined;
+    let used: Method = 'PATCH';
+    for (const m of methods) {
+      used = m;
+      res = await call({ method: m, path, body: m === 'PATCH' ? { [pick.f.name]: pick.v } : after }, { resource: r.name, op: 'update' });
+      if (res.status !== 404 && res.status !== 405) break;
+    }
+    if (res === undefined) throw unproven('no update request was sent');
+    return { res, what: `${used} ${path} ${used === 'PATCH' ? `{${pick.f.name}} only` : `(${pick.f.name} changed)`}`, used, after, path };
+  };
+
   for (const r of task.resources) {
     const ops = new Set(r.operations);
     const collection = collectionOf(r);
@@ -680,24 +713,7 @@ export async function runScenario(client: Client, task: Pick<GreenfieldTask, 'ba
     if (ops.has('update')) {
       await unit(r, 'update', async () => {
         const inst = await fresh(r);
-        const candidates = r.fields.filter((f) => !f.readOnly && f.name in inst.sent && referenceOf(f, task.resources) === undefined);
-        const pick = [...candidates.filter((f) => !f.unique && !SECRETISH.test(f.name)), ...candidates.filter((f) => f.unique && !SECRETISH.test(f.name))]
-          .map((f) => ({ f, v: otherValue(f, inst.sent[f.name], ++seq, nonce) }))
-          .find((c) => c.v !== undefined);
-        if (pick === undefined) throw unproven(`no field of ${r.name} can be changed to another valid value`);
-        const path = itemOf(r, inst.id);
-        const registered = opts.paths?.get(r.name)?.updateMethods ?? [];
-        const methods: Method[] = registered.length > 0 ? registered : ['PATCH', 'PUT'];
-        const after = { ...inst.sent, [pick.f.name]: pick.v };
-        let res: SpecResponse | undefined;
-        let used: Method = 'PATCH';
-        for (const m of methods) {
-          used = m;
-          res = await call({ method: m, path, body: m === 'PATCH' ? { [pick.f.name]: pick.v } : after }, { resource: r.name, op: 'update' });
-          if (res.status !== 404 && res.status !== 405) break;
-        }
-        if (res === undefined) throw unproven('no update request was sent');
-        const what = `${used} ${path} ${used === 'PATCH' ? `{${pick.f.name}} only` : `(${pick.f.name} changed)`}`;
+        const { res, what, used, after, path } = await update(r, inst);
         expectStatus(res, [200], what);
         expectFields(r, expectResource(res, what), after, `${what}${used === 'PATCH' ? ' (a partial update keeps the other fields)' : ''}`);
         if (ops.has('get')) {
@@ -755,6 +771,32 @@ export async function runScenario(client: Client, task: Pick<GreenfieldTask, 'ba
         if (id1 === undefined || id1 !== id2) throw fail(`POST ${collection} repeated with the same Idempotency-Key and body created another ${r.name} (id ${id1 ?? '?'} then ${id2 ?? '?'})`);
         return `the same Idempotency-Key and body twice -> ${two.status} with the same id (no duplicate)`;
       });
+      if (ops.has('update')) {
+        // A replay returns the response first sent, not the resource's current state: a cache that holds the
+        // sent object by reference (and an update that mutates it in place) replays the updated resource.
+        await unit(r, 'idempotency after update', async () => {
+          const plain = units.find((u) => u.resource === r.name && u.name === 'idempotency');
+          if (plain?.status !== 'pass') throw unproven('depends on a plain replay, which did not pass (see the idempotency unit)');
+          const key = randomUUID();
+          const body = await validBody(r, 0);
+          const send = (): Promise<SpecResponse> => call({ method: 'POST', path: collection, body, idempotencyKey: key }, { resource: r.name, op: 'create' });
+          const one = await send();
+          if (one.status !== 201) {
+            if (one.status === 401 || one.status === 403) throw unproven(`the first POST answered ${one.status}: the API requires credentials the probes do not send`);
+            throw unproven(`the first POST ${collection} answered ${one.status}, not 201 (see the create unit)`);
+          }
+          const id = idOf(r, resourceOf(one.json), one.location);
+          if (id === undefined) throw unproven(`the first POST ${collection} returned no id (see the create unit)`);
+          const changed = await update(r, { id, sent: body });
+          if (changed.res.status !== 200) throw unproven(`${changed.what} answered ${changed.res.status}, not 200 (see the update unit)`);
+          const two = await send();
+          if (two.status !== one.status) throw fail(`POST ${collection} replayed after ${changed.what}: expected the original ${one.status}, got ${two.status}${excerpt(two)}`);
+          if (!deepEqual(one.json, two.json)) {
+            throw fail(`POST ${collection} replayed after ${changed.what} returned a different body than the original response (expected the response first sent, not the updated ${r.name})${excerpt(two)}`);
+          }
+          return `POST, ${changed.what}, then the same Idempotency-Key and body -> the original ${one.status} response, unchanged`;
+        });
+      }
     }
 
     if (ops.has('delete')) {
