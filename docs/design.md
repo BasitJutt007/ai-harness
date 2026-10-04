@@ -3,6 +3,29 @@
 Architecture, driver abstraction, token budget, extension points and honesty boundary. The runs
 behind each claim are listed in the README's evidence section and in `runs/real-model/README.md`.
 
+## Summary (one page)
+
+- **Architecture.** `src/core/loop.ts` sends a short system prompt (~440 tokens) and the tool list to a
+  driver; the model answers with tool calls. Every call passes pre-tool hooks (block or pass), runs, then
+  post-tool hooks (record). `finish` runs the gates; DONE is decided by the gates, re-run fresh at the
+  end and again at ship. The model decides what code and tests to write; deterministic code runs tests,
+  type checks, standards checks, git and shipping. The model has no shell.
+- **Driver abstraction.** `Driver { complete, countTokens, retryAfterMs?, errorKind? }`
+  (`src/core/types.ts`) over neutral messages and JSON-Schema tool specs. Vendor formats, retry parsing
+  and compat fallbacks live only in `plugins/drivers/`; task files reject model/provider keys and the
+  doctor's leak scan checks core, hooks, tools, gates and checks.
+- **Token budget.** JIT fetch tools, compact tool returns with raw logs on disk, and history compaction.
+  Measured against a real `--baseline` run (fetchers withheld, repository in every request, no
+  compaction) on the same model: 62.8% smaller per request, 39.3% larger per run (the JIT run looped).
+  The >90% target is not met. A normal run's report also carries a shadow estimate, labelled as such.
+- **Extension points.** Drop one file into `plugins/{tools,hooks,gates,checks,drivers}`; the registry
+  discovers it, no registry entry and no edit under `src/core/` (the core directory).
+- **Honesty boundary.** A skipped or empty check is UNPROVEN, never green; `run.json` lists proven,
+  failed, unproven, n/a and what a human must verify. The checks prove structure, parsing, problem
+  responses, strict types, REST shape, observed red with a revert check, the task's fields and
+  operations (greenfield, structured tasks) and the contract (brownfield). They do not prove free-text
+  behaviours or that the agent's tests test the right thing (section 5).
+
 ## 1. Architecture
 
 ```
@@ -51,7 +74,9 @@ content; content hooks judge that post-image and refuse a write tool without one
 roots, import resolution, the runner and the installed express/zod/vitest/typescript from the
 target's own config; what it cannot support (a framework other than Express, jest < 29, an unknown
 runner) is UNPROVEN at preflight, and a task without `scope` writes within the profile's roots.
-`standards` compares every rule with the base commit and blocks only what the run introduced;
+`standards` holds the four standards rules at 100% over the whole API (pre-existing violations in files
+the task scope forbids fail as "incompatible target") and compares the other rules with the base commit
+(a task may opt in to `standards: baseline`, labelled "baseline mode: below 100% allowed");
 `tests-green` compares with the suite's results at run start (`src/core/test-baseline.ts`): an
 already-skipped case is listed for a human, a newly skipped one is UNPROVEN, a failing test always
 blocks. **Contract Lock** (`plugins/lib/contract.ts`) diffs routes and the JSON Schemas of each
@@ -109,9 +134,12 @@ the session to a compatible request and reports `<id> (compat)`. Vendor shapes n
 interface: reasoning blocks and per-call extras (a thought signature) travel as `opaque` parts only
 their own driver replays. Task files cannot name a model or provider, and `harness doctor` scans
 `src/core/`, `tasks/` and every non-driver plugin file for provider vocabulary. `run.json`
-fingerprints the task and every non-driver plugin file (`plugins/lib/**` included), so
-`harness agnostic <runA> <runB>` shows whether two drivers' runs used identical tools, hooks, gates
-and checks.
+fingerprints the task and every non-driver plugin file (`plugins/lib/**` included) and records
+`governance`: the ACTIVE manifest (kind, name, file, sha256 of every enabled tool, hook, gate and
+check), the governing config and its hash (`disabled`, sandbox mode, limits, ...), and a hash of
+every `src/core/` file; plus the run's `verdict` and `gateStatuses`. `harness agnostic <runA> <runB>`
+compares all of it (a field an older run.json lacks counts as a difference, UNPROVEN) and exits 0
+only when nothing governing differs AND both runs are DONE.
 
 **Proven for real:** the openai driver on the official OpenAI API (DONE on both tasks on 3 Oct code;
 on the current code only greenfield: three brownfield runs failed one agent-written test each on
@@ -192,9 +220,10 @@ not run, an unsupported framework or runner, a skip the run introduced, an abort
   `zod-boundary` report them UNPROVEN; Contract Lock leaves them out of the contract.
 - *Frameworks other than Express:* every route-based check and Contract Lock understand Express
   only; preflight reports anything else as UNPROVEN.
-- *Idempotency behaviour:* `rest-conventions` proves only that each POST and PATCH chain reads the
-  `Idempotency-Key` header. Replays are probed only by `spec-coverage`, only for create (POST), only
-  on structured greenfield tasks.
+- *Idempotency behaviour:* `rest-conventions` proves statically that each POST and PATCH chain stores
+  a response keyed by the `Idempotency-Key` and has a path that replays it (a key handed to code it
+  cannot follow is UNPROVEN). Replays are probed at runtime only by `spec-coverage` (an immediate
+  retry, and a retry after the resource was updated), only on structured greenfield tasks.
 - *Other error paths:* the runtime probes cover an unknown path, malformed JSON, an invalid body, a
   missing `Idempotency-Key`, an unknown id and an injected 500; the rest is judged statically.
 - *Schema intent:* `zod-boundary` proves parsing with constraining schemas, not that the schemas
@@ -210,15 +239,10 @@ pre-existing violations and skips the baselines list, and persistence, performan
 concurrency.
 
 **Residual risks:**
-- `typecheck-feedback` reads through `ts.sys`, not the fence, and `source-boundary` governs source
-  files only: a test file that imports a `.ts` file outside the API by absolute path makes the
-  harness read it, and a type error can quote that file's types (string literals included) to the
-  model.
-- Test code shares a process with the runner that reports on it and could tamper with it in memory;
-  the revert check limits this, a separate reporter process would rule it out.
 - An app that detects the probes could serve something else in production.
 - The revert check reverts all changed files together, so an unneeded edit riding along with a
-  needed one is not caught per file.
+  needed one is not caught per file. It runs current and reverted source in identical fresh copies,
+  but cannot prove a test checks the intended behaviour.
 - On macOS a detached process started by a test outlives the run (still confined, not killed).
 - The Linux `bwrap` path is tested on its argument list only, the jest adapter on recorded reports
   only.

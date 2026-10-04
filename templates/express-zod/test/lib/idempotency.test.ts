@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { errorHandler, notFoundHandler } from '../../src/lib/errors.ts';
 import { idempotency } from '../../src/lib/idempotency.ts';
-import { ProblemSchema } from '../../src/lib/problem.ts';
+import { notFound, ProblemSchema } from '../../src/lib/problem.ts';
 
 const NoteSchema = z.object({ id: z.uuid(), text: z.string().min(1) });
 const CreateNoteSchema = NoteSchema.pick({ text: true });
@@ -16,12 +16,21 @@ function noteApp() {
   let gate: Promise<void> = Promise.resolve();
   const app = express();
   app.use(express.json());
+  const notes = new Map<string, z.infer<typeof NoteSchema>>();
   app.post('/v1/notes', idempotency(), async (req, res) => {
     const body = CreateNoteSchema.parse(req.body);
     await gate;
     created += 1;
     const note = NoteSchema.parse({ id: randomUUID(), ...body });
+    notes.set(note.id, note);
+    // Sends the stored object itself: a later in-place update must not reach a replay of this response.
     res.status(201).location(`/v1/notes/${note.id}`).json(note);
+  });
+  app.patch('/v1/notes/:id', idempotency(), (req, res) => {
+    const note = notes.get(String(req.params['id']));
+    if (note === undefined) throw notFound('note not found');
+    Object.assign(note, CreateNoteSchema.partial().parse(req.body));
+    res.json(note);
   });
   app.use(notFoundHandler);
   app.use(errorHandler);
@@ -56,6 +65,22 @@ describe('idempotency()', () => {
     expect(first.headers['idempotent-replayed']).toBeUndefined();
     expect(second.headers['location']).toBe(first.headers['location']);
     expect(NoteSchema.parse(second.body)).toEqual(NoteSchema.parse(first.body));
+    expect(t.created()).toBe(1);
+  });
+
+  it('replays the original response byte for byte after the resource was updated in place', async () => {
+    const t = noteApp();
+    const first = await request(t.app).post('/v1/notes').set('Idempotency-Key', 'k-5').send({ text: 'original' });
+    expect(first.status).toBe(201);
+    const id = NoteSchema.parse(first.body).id;
+    const patched = await request(t.app).patch(`/v1/notes/${id}`).send({ text: 'changed' });
+    expect(NoteSchema.parse(patched.body).text).toBe('changed');
+    const replay = await request(t.app).post('/v1/notes').set('Idempotency-Key', 'k-5').send({ text: 'original' });
+    expect(replay.status).toBe(201);
+    expect(replay.headers['idempotent-replayed']).toBe('true');
+    expect(replay.headers['content-type']).toBe(first.headers['content-type']);
+    expect(replay.text).toBe(first.text);
+    expect(NoteSchema.parse(replay.body).text).toBe('original');
     expect(t.created()).toBe(1);
   });
 

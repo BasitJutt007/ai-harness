@@ -26,7 +26,17 @@ export const USERS = res('user', 'users', [
 ]);
 export const TEAMS = res('team', 'teams', [field({ name: 'name', type: 'string', required: true, unique: true, max: 50 })]);
 
-export type Mutant = 'no-validation' | 'unique-not-enforced' | 'delete-200' | 'patch-replaces' | 'no-idempotency' | 'auth-everything' | 'list-ignores-new' | 'no-echo';
+export type Mutant =
+  | 'no-validation'
+  | 'unique-not-enforced'
+  | 'delete-200'
+  | 'patch-replaces'
+  | 'no-idempotency'
+  | 'auth-everything'
+  | 'list-ignores-new'
+  | 'no-echo'
+  /** The idempotency cache holds the sent object by reference and PATCH updates the stored object in place. */
+  | 'shared-reference-cache';
 
 function fieldSchema(f: FieldSpec): z.ZodType {
   switch (f.type) {
@@ -118,7 +128,7 @@ export function refApp(resources: ResourceSpec[], basePath: string, mutants: Mut
         if (dup(item)) return problem(res, 409, 'duplicate');
         store.set(item.id, item);
         const body = on('no-echo') ? { id: item.id } : item;
-        if (key !== undefined) keys.set(key, { status: 201, body });
+        if (key !== undefined) keys.set(key, { status: 201, body: on('shared-reference-cache') ? body : structuredClone(body) });
         res.status(201).location(`${col}/${item.id}`).json(body);
       });
     }
@@ -139,6 +149,11 @@ export function refApp(resources: ResourceSpec[], basePath: string, mutants: Mut
         if (!parsed.success) return problem(res, 422, 'invalid body');
         const next = on('patch-replaces') ? { ...parsed.data, id } : { ...x, ...parsed.data };
         if (dup(next, id)) return problem(res, 409, 'duplicate');
+        if (on('shared-reference-cache')) {
+          Object.assign(x, parsed.data);
+          res.json(x);
+          return;
+        }
         store.set(id, next);
         res.json(next);
       });
@@ -194,7 +209,7 @@ function zodSource(f: FieldSpec): string {
 
 /**
  * src/routes/<plural>.ts per resource (literal /v1 paths, Zod schemas from the fields, the template's
- * idempotency() and problem helpers) and src/routes/index.ts mounting them. `skip` drops endpoints
+ * idempotency() and problem helpers; PATCH updates the stored object in place, the object a create sent) and src/routes/index.ts mounting them. `skip` drops endpoints
  * ("<resource>:<op>") or whole resources ("<resource>").
  */
 export function refSources(resources: ResourceSpec[], basePath: string, skip: string[] = []): Record<string, string> {
@@ -231,7 +246,7 @@ export function refSources(resources: ResourceSpec[], basePath: string, skip: st
       lines.push(`  r.post('${col}', idempotency(), (req, res) => {\n    const body = Create.parse(req.body);\n    const item: Item = { ${defaults}${defaults === '' ? '' : ', '}...body, id: randomUUID() };\n    if (dup(item)) throw conflict('duplicate');\n    store.set(item.id, item);\n    res.status(201).location(\`${col}/\${item.id}\`).json(item);\n  });`);
     }
     if (has('get')) lines.push(`  r.get('${col}/:id', (req, res) => {\n    const { id } = Params.parse(req.params);\n    const item = store.get(id);\n    if (item === undefined) throw notFound('not found');\n    res.json(item);\n  });`);
-    if (has('update')) lines.push(`  r.patch('${col}/:id', idempotency(), (req, res) => {\n    const { id } = Params.parse(req.params);\n    const item = store.get(id);\n    if (item === undefined) throw notFound('not found');\n    const next: Item = { ...item, ...Patch.parse(req.body), id };\n    if (dup(next, id)) throw conflict('duplicate');\n    store.set(id, next);\n    res.json(next);\n  });`);
+    if (has('update')) lines.push(`  r.patch('${col}/:id', idempotency(), (req, res) => {\n    const { id } = Params.parse(req.params);\n    const item = store.get(id);\n    if (item === undefined) throw notFound('not found');\n    const patch = Patch.parse(req.body);\n    if (dup({ ...item, ...patch }, id)) throw conflict('duplicate');\n    Object.assign(item, patch);\n    res.json(item);\n  });`);
     if (has('delete')) lines.push(`  r.delete('${col}/:id', (req, res) => {\n    const { id } = Params.parse(req.params);\n    if (!store.delete(id)) throw notFound('not found');\n    res.status(204).end();\n  });`);
     lines.push('  return r;', '}', '');
     files[`src/routes/${r.plural}.ts`] = lines.join('\n');

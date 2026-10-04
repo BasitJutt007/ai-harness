@@ -87,7 +87,9 @@ r.get('/v1/things/:thingId', (req, res) => {
     expect(has(9, 'PUT /v1/things/:thingId: path parameters are not parsed')).toBe(true);
     expect(has(9, 'PUT /v1/things/:thingId: request body is not parsed')).toBe(true);
     expect(has(13, 'PATCH /v1/things/:thingId: req.params is read without')).toBe(true);
-    expect(has(14, '`res` is passed along')).toBe(true);
+    // sendOut(res, p) is followed: its raw send fails where it sends, naming the call
+    expect(has(7, 'PATCH /v1/things/:thingId: response body is not parsed with a Zod schema; send ResponseSchema.parse(value) (sent by sendOut(), called at src/routes.ts:14:')).toBe(true);
+    expect(msgs.some((m) => m.includes('`res` is passed along'))).toBe(false);
     expect(has(19, 'GET /v1/things/:thingId: response body is not parsed')).toBe(true); // `let` is not trusted
   });
 });

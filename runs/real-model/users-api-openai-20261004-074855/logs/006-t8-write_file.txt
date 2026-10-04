@@ -1,0 +1,41 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -1,9 +1,32 @@
+-import type { Router } from 'express';
++import { Router, type Request, type Response } from 'express';
++import { z } from 'zod';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { idempotency } from '../lib/idempotency.ts';
++import { CursorQuerySchema, pageSchema, paginate } from '../lib/pagination.ts';
+ 
+-/**
+- * Mount resource routers here, e.g. `app.use(usersRouter)`.
+- * Routers register full versioned paths (`/v1/users`, `/v1/users/:userId`).
+- */
++const UserSchema = z.object({
++  id: z.string().uuid(), email: z.string().email(), name: z.string().min(1).max(100),
++  role: z.enum(['admin', 'member']), createdAt: z.string().datetime(), updatedAt: z.string().datetime(),
++});
++const CreateSchema = z.object({ email: z.string().email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']).default('member') }).strict();
++const PatchSchema = z.object({ email: z.string().email().optional(), name: z.string().min(1).max(100).optional(), role: z.enum(['admin', 'member']).optional() }).strict();
++const IdSchema = z.object({ userId: z.string().uuid() });
++const PageSchema = pageSchema(UserSchema);
++type User = z.infer<typeof UserSchema>;
++
+ export function registerRoutes(app: Router): void {
+-  // No resources yet.
++  const users: User[] = [];
++  const find = (id: string): User => { const user = users.find((item) => item.id === id); if (user === undefined) throw notFound(`User ${id} was not found.`); return user; };
++  const parseId = (req: Request): string => IdSchema.parse(req.params).userId;
++  const duplicate = (email: string, except?: string): void => { if (users.some((user) => user.email === email && user.id !== except)) throw conflict('email: A user with this email already exists.'); };
++  const sendUser = (res: Response, user: User): void => { res.json(UserSchema.parse(user)); };
++
++  app.route('/v1/users')
++    .get((req, res) => { const query = CursorQuerySchema.parse(req.query); res.json(PageSchema.parse(paginate(users, query, (user) => user.id))); })
++    .post(idempotency(), (req, res) => { const input = CreateSchema.parse(req.body); duplicate(input.email); const now = new Date().toISOString(); const user = UserSchema.parse({ ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now }); users.push(user); res.location(`/v1/users/${user.id}`).status(201); sendUser(res, user); });
++
++  app.route('/v1/users/:userId')
++    .get((req, res) => sendUser(res, find(parseId(req))))
++    .patch(idempotency(), (req, res) => { const id = parseId(req); const user = find(id); const input = PatchSchema.parse(req.body); if (Object.keys(input).length === 0) throw unprocessable('body: At least one field is required.'); if (input.email !== undefined) duplicate(input.email, id); Object.assign(user, input, { updatedAt: new Date().toISOString() }); sendUser(res, user); })
++    .delete((req, res) => { const id = parseId(req); find(id); users.splice(users.findIndex((user) => user.id === id), 1); res.status(204).end(); });
+ }

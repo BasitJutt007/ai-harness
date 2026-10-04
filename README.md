@@ -69,7 +69,7 @@ runs/ tokens/    evidence written by the harness on every run
 
 | Dimension | Command | What to read |
 |---|---|---|
-| Model agnosticism | `node bin/harness.mjs run tasks/users-api.task.yaml --driver claude`, then the same with `--driver openai` | both end `verdict DONE`; `node bin/harness.mjs agnostic <runA> <runB>` reports zero diff in task sha + every tool/hook/gate/check file. In this repository only the openai side has real DONE runs ([Evidence](#evidence-in-this-repository)) |
+| Model agnosticism | `node bin/harness.mjs run tasks/users-api.task.yaml --driver claude`, then the same with `--driver openai` | both end `verdict DONE`; `node bin/harness.mjs agnostic <runA> <runB>` reports zero governing diff (task sha, active tool/hook/gate/check manifest, config hash, `src/core` hash, helper files) and exits 0 only when both runs are DONE. In this repository only the openai side has real DONE runs ([Evidence](#evidence-in-this-repository)) |
 | Token efficiency | `harness run …`, then the same with `--baseline`, then `node bin/harness.mjs tokens compare <jitRun> <baselineRun>` | `tokens/<runId>.json` (per-turn actual vs a **shadow** baseline) and `tokens/compare-…json` (a **measured** baseline: fetchers withheld, repo front-loaded every turn, no compaction) |
 | API standards | `node bin/harness.mjs check --api <generated-api-dir>` | one line per rule per file, then one summary line each for `problem-json`, `rest-conventions`, `tsc-strict`, `zod-boundary` and `verdict 100%` |
 | Extensibility | `node scripts/simulate-extensions.mjs`, or add one file to `plugins/` yourself ([docs/extending.md](docs/extending.md)) | `git diff --stat` touches only the new plugin file; `src/core/**` sha256 unchanged |
@@ -97,7 +97,7 @@ Every `harness run` ends with a summary. From the real greenfield run
 ```
 status     done  turns 23  finish attempts 1  driver openai  model gpt-5.4
 gate  contract-lock  n/a       not applicable to greenfield tasks
-gate  observed-red   pass      3 red observations (1 test files); 1 changed source files went red -> green on unchanged cases, red again with the original source
+gate  observed-red   pass      3 red observations (1 test files); 1 changed source files went red -> green (1 on unchanged cases, 0 on edited cases by differential proof), red again with the original source
 gate  orphans        pass      no new non-test files
 gate  scope          pass      2 changed files, all in scope
 gate  spec-coverage  pass      17/17 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]
@@ -164,22 +164,24 @@ placeholder and contract-lock failed the run (4 → 0 endpoints).
 
 ## Evidence in this repository
 
-### The exact submitted code: two DONE runs
+### The final code: DONE runs and the attempts that did not finish
 
-Both ran after the last code change; every plugin fingerprint in their `run.json` matches the
-committed files (53 of 53). Official OpenAI API, openai driver, `gpt-5.6-luna` (compat mode:
-reasoning off, because Chat Completions refuses tools with reasoning on for this model).
+After an external review (idempotent replay returned updated state; checker bypasses for middleware
+responses, mutated bodies, problem bodies without the problem Content-Type, header-only idempotency,
+create without Location; cwd-dependent revert proofs; alias imports of test code; enforcement-blind
+`agnostic`; a lenient brownfield policy), the code was fixed and run again. Official OpenAI API,
+openai driver, `gpt-5.6-luna` (compat: reasoning off, because Chat Completions refuses tools with
+reasoning on for this model).
 
 | run | task | turns | result |
 |---|---|---|---|
-| `users-api-openai-20261004-055546` | greenfield `users-api` | 20 | **DONE**: spec-coverage 17/17 on the task's fields and operations, 31/31 tests, standards 100%, observed red + revert check, orphans pass |
-| `projects-change-openai-20261004-055658` | brownfield `projects-change` | 40 | **DONE**: contract-lock pass (2 additive), 22/22 tests, standards 100%, observed red on 3 source files + revert check |
+| `projects-change-openai-20261004-081959` | brownfield | 29 | **DONE on the final code** (every plugin fingerprint matches): contract-lock pass (2 additive), 22/22 tests, standards 100%, observed red on 3 source files + revert check in identical contexts |
+| `users-api-openai-20261004-073321` | greenfield | 22 | **DONE** on the code of a few commits earlier (4 plugin files differ: later checker changes and a Contract Lock fix). `ship-dry-run-final-code.txt` re-ran every gate of the final code on its output: all green, spec-coverage 18/18 (including the new replay-after-update probe), 32/32 tests, standards 100% |
+| `real-model/users-api-openai-20261004-074452`, `…074855`, `…081728`, `…082126` | greenfield | 60 each | NOT DONE on the final code or one commit before it: the model wrote request/response helpers the checker could not follow (since fixed: helpers are followed by behaviour), a permissive body schema, or tests with wrong expectations; spec-coverage was 18/18 in every one |
+| `real-model/projects-change-openai-20261004-073446`, `…073616`, `…073856` | brownfield | 40 each | NOT DONE: the shared-state trap (below) twice; once all gates were green at the end but the model never called finish (now DONE by rule: fresh green gates decide); one also exposed a Contract Lock false UNPROVEN on a reformatted schema (fixed) |
 
-In the brownfield run the model hit the shared-state trap described below (one exact-count test
-failing from turn 16). `run_tests` reported that the case passes alone and depends on test order
-(6 times); the model fixed the test on turn 38 and finished on turn 40. That the note caused the fix
-is likely but not provable. Each run directory has `check-*-api.txt` (verdict 100%) and
-`ship-dry-run.txt` (every gate re-run fresh, all green; nothing pushed).
+Gpt-5.6-luna finishes the brownfield task reliably but the greenfield task only sometimes; the
+harness refused every incomplete result. `governed/` holds the two DONE outputs above.
 
 ### Earlier runs on 4 Oct (official OpenAI API, openai driver)
 
@@ -201,27 +203,30 @@ module-level `Map`, so tests in one file share state, and the model wrote exact-
 assertions that fail after earlier tests created records. The harness refused DONE each time
 (tests-green failed). `run_tests` now diagnoses this case: it re-runs a failing case alone and,
 if it passes alone, tells the model the test depends on test order. That diagnosis is covered by
-offline tests (`test/red-green/order-dependence.test.ts`) and fired in the final brownfield run above.
+offline tests (`test/red-green/order-dependence.test.ts`) and fired in two real brownfield runs
+(`…055658`, DONE; `…073446`, not DONE).
 
 Each run directory holds `run.json`, `events.jsonl`, `transcript.jsonl`, `gates.json`,
 `standards.txt`, `logs/` and `cli-output.txt`; both DONE runs also have `check-generated-api.txt`
 or `check-existing-api.txt` (`harness check --api`, verdict 100%) and `ship-dry-run.txt` (every
 gate re-run fresh, `secrets` included, all green; nothing pushed).
 
-**The two governed APIs** are in this repository under [`governed/`](governed/README.md): snapshots of
-the commits shipped as #3 and #4 from the exact-code runs; `node bin/harness.mjs check --api governed/users-api` reads 100%.
+**The two governed APIs** are in this repository under [`governed/`](governed/README.md): the outputs of
+the two final-code DONE runs above; `node bin/harness.mjs check --api governed/users-api` reads 100%.
 
 **Pull requests opened by the harness** (`harness ship`, every gate re-run fresh first, pushed to a
 feature branch, opened with `gh`), on the demo repository whose `main` holds the sample API:
 - [BasitJutt007/harness-demo#1](https://github.com/BasitJutt007/harness-demo/pull/1) (merged, then reverted by #5): greenfield, run `users-api-openai-20261004-045649`
 - [BasitJutt007/harness-demo#2](https://github.com/BasitJutt007/harness-demo/pull/2) (merged, then reverted by #5): brownfield, run `projects-change-openai-20261004-052623`
-- [BasitJutt007/harness-demo#3](https://github.com/BasitJutt007/harness-demo/pull/3) (merged): greenfield, run `users-api-openai-20261004-055546` (the exact submitted code)
-- [BasitJutt007/harness-demo#4](https://github.com/BasitJutt007/harness-demo/pull/4) (merged): brownfield, run `projects-change-openai-20261004-055658` (the exact submitted code)
+- [BasitJutt007/harness-demo#3](https://github.com/BasitJutt007/harness-demo/pull/3) (merged): greenfield, run `users-api-openai-20261004-055546`
+- [BasitJutt007/harness-demo#4](https://github.com/BasitJutt007/harness-demo/pull/4) (merged): brownfield, run `projects-change-openai-20261004-055658`
 
 #3 and #4 were opened after #1 and #2 had been merged and were built on the same base.
 [#5](https://github.com/BasitJutt007/harness-demo/pull/5) reverts #1 and #2 (two revert commits, no
-history rewrite); #3 and #4, the output of the exact submitted code, were then merged, so `main` now
-holds exactly what the submitted code shipped (identical to `governed/`).
+history rewrite); #3 and #4 were then merged. These four PRs came from runs made before the external
+review's fixes: the Users API on `main` still carries the scaffold's old idempotency helper (a replay
+after an update returns the updated state). `governed/` holds the outputs of the fixed code; no PR has
+been opened from them yet.
 
 The PR bodies quote the run's token totals against the shadow baseline; #3 and #4 label it as a
 shadow estimate (#1 and #2 predate that wording).

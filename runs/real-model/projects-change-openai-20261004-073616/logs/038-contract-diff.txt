@@ -1,0 +1,4 @@
+UNPROVEN  POST /v1/projects body  schema source changed but its JSON Schema is identical: validation changed in a way the contract cannot see (e.g. .refine, .transform)
+UNPROVEN  PATCH /v1/projects/:projectId body  schema source changed but its JSON Schema is identical: validation changed in a way the contract cannot see (e.g. .refine, .transform)
+additive  GET /v1/projects query.status  new optional property
+additive  DELETE /v1/projects/:projectId  new route

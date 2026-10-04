@@ -24,10 +24,11 @@ const ROUTES = 'src/routes/users.ts';
 
 const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolations?: Partial<Record<Rule, number>> }> = {
   'bad-res-send-helper': {
-    // respond(res, status: number, body: unknown) can send any status with any body: a non-constant status is an error path
+    // respond(res, status: number, body: unknown) can send any status with any body: a non-constant status is an error path.
+    // The helper is followed: the raw user it sends with 200 is an unparsed 2xx body, reported at its send.
     fails: ['zod-boundary', 'problem-json'],
     expect: [
-      { rule: 'zod-boundary', at: [ROUTES, 'respond(res, 200, user)'], message: '`res` is passed along' },
+      { rule: 'zod-boundary', at: ['src/http/respond.ts', 'res.status(status).send(body)'], message: 'GET /v1/users/:userId: response body is not parsed with a Zod schema; send ResponseSchema.parse(value) (sent by respond(), called at src/routes/users.ts:24:' },
       { rule: 'problem-json', at: ['src/http/respond.ts', 'res.status(status).send(body)'], message: 'status status is not a constant, so this may be an error response' },
     ],
   },
@@ -41,12 +42,12 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
     ],
   },
   'bad-senderror-helper': {
-    fails: ['zod-boundary', 'problem-json', 'rest-conventions'],
+    // sendError(res, 404, …) is followed: the routes do have a 404 path (rest-conventions) and send no unparsed
+    // 2xx body (zod-boundary); its ad-hoc error body is what is wrong, and problem-json says so.
+    fails: ['problem-json'],
     expect: [
       { rule: 'problem-json', at: ['src/http/errors.ts', 'res.status(status).json({ message })'], message: 'ad-hoc error body with "message"' },
       { rule: 'problem-json', message: 'GET /v1/users/00000000-0000-4000-8000-000000000000 (unknown id): Content-Type is "application/json' },
-      { rule: 'zod-boundary', at: [ROUTES, 'sendError(res, 404'], message: '`res` is passed along' },
-      { rule: 'rest-conventions', at: [ROUTES, "usersRouter.get('/v1/users/:userId'"], message: 'no 404 path' },
     ],
   },
   'bad-error-middleware-json': {
@@ -98,6 +99,20 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
     expect: [{ rule: 'rest-conventions', at: [ROUTES, "usersRouter.post('/v1/users'"], message: 'POST /v1/users: no idempotency' }],
     exactViolations: { 'rest-conventions': 1 },
   },
+  'bad-idempotency-noop': {
+    // the middleware validates Idempotency-Key and calls next(): nothing is stored or replayed
+    fails: ['rest-conventions'],
+    expect: [
+      { rule: 'rest-conventions', at: [ROUTES, "usersRouter.post('/v1/users'"], message: 'POST /v1/users: no idempotency: the chain reads the Idempotency-Key header but only tests it' },
+      { rule: 'rest-conventions', at: [ROUTES, "usersRouter.patch('/v1/users/:userId'"], message: 'PATCH /v1/users/:userId: no idempotency: the chain reads the Idempotency-Key header but only tests it' },
+    ],
+    exactViolations: { 'rest-conventions': 2 },
+  },
+  'bad-create-no-location': {
+    fails: ['rest-conventions'],
+    expect: [{ rule: 'rest-conventions', at: [ROUTES, "usersRouter.post('/v1/users'"], message: 'POST /v1/users: creating a resource must set the Location header' }],
+    exactViolations: { 'rest-conventions': 1 },
+  },
   'bad-delete-200': {
     fails: ['rest-conventions'],
     expect: [{ rule: 'rest-conventions', at: [ROUTES, 'res.status(200).json(UserSchema.parse(user))'], message: 'DELETE must respond res.status(204).end()' }],
@@ -125,6 +140,30 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
   'bad-todto-unparsed': {
     fails: ['zod-boundary'],
     expect: [{ rule: 'zod-boundary', at: [ROUTES, 'res.json(toDto(user))'], message: 'GET /v1/users/:userId: response body is not parsed with a Zod schema' }],
+  },
+  'bad-middleware-unparsed-success': {
+    // a middleware of the route chain answers 200 before the handler with an unparsed body
+    fails: ['zod-boundary'],
+    expect: [{ rule: 'zod-boundary', at: [ROUTES, 'res.json(hit)'], message: 'GET /v1/users/:userId: response body is not parsed with a Zod schema; send ResponseSchema.parse(value) (sent by a middleware/helper in the route chain)' }],
+    exactViolations: { 'zod-boundary': 1 },
+  },
+  'bad-parsed-then-mutated': {
+    // parsed, then changed before the send: through Object.assign, an alias, and a for-of element
+    // (the changed page is no longer a parsed page schema either: rest-conventions)
+    fails: ['zod-boundary', 'rest-conventions'],
+    expect: [
+      { rule: 'rest-conventions', at: [ROUTES, 'res.json(page)'], message: 'GET /v1/users: collection response must be a page schema' },
+      { rule: 'zod-boundary', at: [ROUTES, 'res.json(body)'], message: 'GET /v1/users/:userId: response body body is changed after its Zod parse (at src/routes/users.ts:26:' },
+      { rule: 'zod-boundary', at: [ROUTES, 'res.json(shown)'], message: 'PATCH /v1/users/:userId: response body shown is changed after its Zod parse (at src/routes/users.ts:36:' },
+      { rule: 'zod-boundary', at: [ROUTES, 'res.json(page)'], message: 'GET /v1/users: response body page is changed after its Zod parse (at src/routes/users.ts:12:' },
+    ],
+    exactViolations: { 'zod-boundary': 3 },
+  },
+  'bad-problem-no-content-type': {
+    // a typed problem body (ProblemSchema.parse) sent without Content-Type application/problem+json
+    fails: ['problem-json'],
+    expect: [{ rule: 'problem-json', at: [ROUTES, 'res.status(409).json(ProblemSchema.parse('], message: "status 409 is sent with a non-problem body (missing .type('application/problem+json'))" }],
+    exactViolations: { 'problem-json': 1 },
   },
   'bad-zod-any-schema': {
     fails: ['zod-boundary', 'tsc-strict', 'problem-json'],

@@ -17,7 +17,7 @@ import { activeLayout, linkDependencies, setActiveLayout } from './target.ts';
 import type { TargetLayout, TargetProfile } from './target.ts';
 import { runTargetTests } from './testing.ts';
 import { buildTestMap } from './testmap.ts';
-import type { CoreServices, Exec, LogStore, RegistryView, RunState, TaskKind, Workspace } from './types.ts';
+import type { CoreServices, Exec, LogStore, RegistryView, RunState, TaskKind, TestRunReport, Workspace } from './types.ts';
 
 export function createServices(opts: {
   ws: Workspace;
@@ -88,24 +88,40 @@ export function createServices(opts: {
         if (content === null) throw new Error(`run-start content of ${rel} is not available`);
         overrides.set(rel, content);
       }
-      // A scratch copy under the harness's own tmp dir that mirrors the worktree's layout from its top
-      // (<copy>/<rootRel>), with the same node_modules links at every level and the ancestors' package.json /
-      // tsconfig files, so packages and configs resolve exactly as for the worktree; the confined runner can only read it.
-      const top = join(harnessRoot, '.harness', 'tmp', `revert-${process.pid}-${randomBytes(4).toString('hex')}`);
-      const copy = ws.rootRel === '.' ? top : join(top, ws.rootRel);
-      try {
+      // Two scratch copies under the harness's own tmp dir, each mirroring the worktree's layout from its top
+      // (<copy>/<rootRel>) with the same node_modules links at every level and the ancestors' package.json /
+      // tsconfig files, so packages and configs resolve exactly as for the worktree; the confined runner can only
+      // read them. Equivalent contexts: siblings of one parent, same-length random names (nothing marks which is
+      // which), same env, run in random order. The reverted paths are the ONLY difference, so a case that
+      // branches on where it runs (process.cwd(), __dirname, import.meta.url) cannot tell the two apart.
+      const parent = join(harnessRoot, '.harness', 'tmp', `diff-${process.pid}-${randomBytes(4).toString('hex')}`);
+      const build = async (overlay: ReadonlyMap<string, string | null>): Promise<string> => {
+        const top = join(parent, randomBytes(6).toString('hex'));
+        const copy = ws.rootRel === '.' ? top : join(top, ws.rootRel);
         for (const rel of await ws.list(['**/*'])) {
-          if (overrides.has(rel)) continue;
+          if (overlay.has(rel)) continue;
           const content = await ws.read(rel);
           if (content !== null) await put(copy, rel, content);
         }
-        for (const [rel, content] of overrides) if (content !== null) await put(copy, rel, content);
+        for (const [rel, content] of overlay) if (content !== null) await put(copy, rel, content);
         await mkdir(copy, { recursive: true });
         copyAncestorConfigs(ws.repoRoot, ws.rootRel, top);
         linkDependencies(ws.repoRoot, ws.rootRel, top);
-        return await runTargetTests({ root: copy, files, exec, harnessRoot, logs, turn: state.turn, ...(runner !== undefined ? { runner } : {}), layout: layout() });
+        return copy;
+      };
+      const run = (root: string): Promise<TestRunReport> =>
+        runTargetTests({ root, files, exec, harnessRoot, logs, turn: state.turn, ...(runner !== undefined ? { runner } : {}), layout: layout() });
+      try {
+        const currentRoot = await build(new Map());
+        const revertedRoot = await build(overrides);
+        if ((randomBytes(1)[0] ?? 0) % 2 === 0) {
+          const current = await run(currentRoot);
+          return { current, reverted: await run(revertedRoot) };
+        }
+        const reverted = await run(revertedRoot);
+        return { current: await run(currentRoot), reverted };
       } finally {
-        await rm(top, { recursive: true, force: true });
+        await rm(parent, { recursive: true, force: true });
       }
     },
   };

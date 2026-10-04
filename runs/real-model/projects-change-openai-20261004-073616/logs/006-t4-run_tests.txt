@@ -1,0 +1,158 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-073616/samples/existing-api
+
+ ❯ test/projects.test.ts (22 tests | 4 failed) 111ms
+   ✓ POST /v1/projects (6)
+     ✓ creates a project: 201, Location header, status defaults to active 21ms
+     ✓ rejects an invalid body with a 422 problem 4ms
+     ✓ rejects unknown properties with a 422 problem 2ms
+     ✓ rejects malformed JSON with a 400 problem 3ms
+     ✓ honours Idempotency-Key: same key and body replays the first response 5ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 4ms
+   ✓ GET /v1/projects (4)
+     ✓ pages through every project with an opaque cursor 6ms
+     ✓ returns at most `limit` items and a nextCursor while more remain 2ms
+     ✓ defaults to 20 items per page 12ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 2ms
+   ✓ GET /v1/projects/:projectId (3)
+     ✓ returns the project 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ✓ PATCH /v1/projects/:projectId (4)
+     ✓ updates the given fields only 1ms
+     ✓ rejects an empty or invalid patch with a 422 problem 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 2ms
+   ❯ DELETE /v1/projects/:projectId (2)
+     × deletes a project with 204 and then returns 404 3ms
+     × returns a problem for missing or malformed ids 2ms
+   ❯ filtered GET /v1/projects (3)
+     × filters by active and archived status and rejects unknown status 3ms
+     × paginates the filtered set without duplicates or omissions 28ms
+     ✓ returns both statuses without a filter 3ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 18 passed (22)
+   Start at  12:36:30
+   Duration  315ms (tests 46%, import 37%, transform 15%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > DELETE /v1/projects/:projectId > deletes a project with 204 and then returns 404
+AssertionError: expected 404 to be 204 // Object.is equality
+
+- Expected
++ Received
+
+- 204
++ 404
+
+ ❯ test/projects.test.ts:184:28
+    182|     const project = await createProject();
+    183|     const deleted = await request(app).delete(`/v1/projects/${project.…
+    184|     expect(deleted.status).toBe(204);
+       |                            ^
+    185|     expect(deleted.text).toBe('');
+    186|     expectProblem(await request(app).get(`/v1/projects/${project.id}`)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/projects.test.ts > DELETE /v1/projects/:projectId > returns a problem for missing or malformed ids
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/projects.test.ts:25:22
+     23|
+     24| function expectProblem(res: Response, status: number) {
+     25|   expect(res.status).toBe(status);
+       |                      ^
+     26|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     27|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/projects.test.ts:192:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/projects.test.ts > filtered GET /v1/projects > filters by active and archived status and rejects unknown status
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/projects.test.ts:203:77
+    201|     const archived = PageBody.parse((await request(app).get('/v1/proje…
+    202|     expect(active.data.every((project) => project.status === 'active')…
+    203|     expect(archived.data.every((project) => project.status === 'archiv…
+       |                                                                             ^
+    204|     expectProblem(await request(app).get('/v1/projects').query({ statu…
+    205|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/projects.test.ts > filtered GET /v1/projects > paginates the filtered set without duplicates or omissions
+AssertionError: expected [ …(40) ] to deeply equal [ …(3) ]
+
+- Expected
++ Received
+
+  [
++   "40996ff9-79bc-4756-9d59-81de98c87b30",
++   "322b93be-0b30-4e3c-9eee-5b605629c979",
++   "1997a767-034b-400c-a7a7-473bc104f38a",
++   "71f6d8f7-d653-49e7-9f28-692373be80cf",
++   "c53b3eed-7ce7-434d-a772-8f781afb28b5",
++   "1a84e4b3-e9cf-4deb-8588-cbbde0e1923b",
++   "3bb1a6e3-2c79-4e8f-a56f-851d140dbdc9",
++   "6a09cfc6-1ced-4ba6-a7d9-30805bb98cf2",
++   "61695beb-c94f-4010-ab70-d336656eb500",
++   "ae16304e-78a8-46a4-8657-1be51de4a8b7",
++   "cd2fb530-c403-4b15-8b68-c839b048e973",
++   "5e1965d1-31d7-4307-8125-398ca9a462fb",
++   "ee550943-cf7c-434d-b38c-afeedffb2f9d",
++   "0676ec5e-1d0b-43f3-a443-8b1a9cbc607d",
++   "41443a00-577c-4a70-a853-f11810857953",
++   "20497589-f36f-45ee-97a0-e01cfe6f2dec",
++   "4327aa34-ab9f-486e-a8cb-5cfbd18ea298",
++   "6e9d264e-9198-491a-b558-84546296f316",
++   "0da4c90c-edc7-4105-9904-39bcad4a103d",
++   "589a0d86-6cc2-4310-aa71-7f959a2ced16",
++   "08875c5c-b930-4ad5-8afe-796145dd5dcb",
++   "942f0f45-17dc-4281-8fc2-72359e4eb1c3",
++   "32971a39-5870-4239-b8d7-f6f4f6ff36bb",
++   "afe77e9a-e463-4a3f-bfd9-a0175ebf74bf",
++   "3de26ec5-fc4a-484b-a2d8-9e82c7fa2754",
++   "e1d1bfdb-a91e-491d-966f-4701f247d30e",
++   "09ab7663-6230-4c5c-a42b-2d045dfb5de4",
++   "3b55b2cd-2646-4005-ab60-20c31b5a84d4",
++   "bd547f37-1ae8-4af9-b3d9-f1c33f07654f",
++   "28ee5ff5-f171-4555-82c1-8884798efc0d",
++   "9b6e5696-b784-406e-834e-9b54281e02fe",
++   "9e22a4af-258c-41b8-8a72-b70147411ab8",
++   "b380e1f0-5e4d-46a1-a081-890eb11069cc",
++   "8312dcf5-8438-4f0c-b017-0b06cfd19b19",
++   "fb1fcba3-daa8-49a2-b975-2a10f65fff52",
++   "eb9c64be-3ecf-4a7e-94af-e4546df3cd67",
+    "6b1cc64d-09fc-43f8-b98b-367c0ece49f4",
+    "07f9b29e-7d4d-4013-aea9-3b65713f7739",
++   "420e3319-2898-4910-b989-32d0c2b550b9",
+    "d827dea7-e94a-4688-91a8-724b38675fb2",
+  ]
+
+ ❯ test/projects.test.ts:212:17
+    210|     await createProject({ status: 'active' });
+    211|     const ids = await listAll({ status: 'archived', limit: '1' });
+    212|     expect(ids).toEqual(created.map((project) => project.id));
+       |                 ^
+    213|     expect(new Set(ids).size).toBe(ids.length);
+    214|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+observed red: test/projects.test.ts (source they cover is now writable)

@@ -10,6 +10,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { z } from 'zod';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
+import { governanceRecord } from './governance.ts';
 import { formatGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
 import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
@@ -49,7 +50,7 @@ export interface RunSummary {
   runId: string;
   /** How the agent loop ended. */
   status: AgentStatus;
-  /** True iff the loop ended `done` AND the fresh final gate run is green. */
+  /** True iff the fresh final gate run is green and the loop ended `done`, or ran out of turns / stalled without calling finish. */
   ok: boolean;
   driver: string;
   model: string;
@@ -342,6 +343,9 @@ export function honesty(task: Task, gates: NamedGateResult[], report: CheckRepor
     'persistence, performance, security and concurrency beyond what the tests exercise',
   );
   if (task.kind === 'brownfield') {
+    if (task.standards === 'baseline') {
+      h.unproven.push('standards: baseline mode: below 100% allowed (the task opted in with standards: baseline; the standards rules are not held to 100% over the whole API)');
+    }
     h.humanMustVerify.push(
       task.allowBreaking
         ? 'contract changes allowed by allowBreaking (the contract lock did not block them)'
@@ -364,24 +368,30 @@ export function formatHonesty(h: Honesty): string[] {
   ];
 }
 
-/** The run summary's standards line: verdict, then every rule with its status (n/a rules print `n/a`). */
-export function standardsLine(report: CheckReport | null, aborted: boolean, kind?: Task['kind']): string {
+/**
+ * The run summary's standards line: verdict, then every rule with its status (n/a rules print `n/a`).
+ * `standards` is a brownfield task's policy: strict (default) or the explicit baseline opt-in.
+ */
+export function standardsLine(report: CheckReport | null, aborted: boolean, kind?: Task['kind'], standards?: 'strict' | 'baseline'): string {
   if (report === null) return `UNPROVEN (${aborted ? 'not run: the run was aborted' : 'the checks could not run'})`;
   const rules = report.rules.map((r) => `${r.rule} ${r.status}`).join(', ');
   const v = report.verdict;
   if (v.status === 'pass') return `pass ${v.percent}%  ${rules}`;
-  // Whole-API numbers stay as measured; in brownfield the gate blocks only what the run introduced.
-  const brownfield = kind === 'brownfield'
-    ? '  (brownfield: the standards gate blocks only what this run introduced versus the base commit; see gate:standards)'
+  // Whole-API numbers stay as measured; only a brownfield task that opted in to baseline mode may stay below 100%.
+  const baseline = kind === 'brownfield' && standards === 'baseline'
+    ? '  (baseline mode: below 100% allowed; the standards gate blocks only what this run introduced versus the base commit; see gate:standards)'
     : '';
   if (v.status === 'fail') {
     const failing = report.rules.filter((r) => r.status === 'fail');
     const onlyOthers = failing.length > 0 && failing.every((r) => r.category !== 'standards');
-    // ORM/lint rules are diff-aware in the standards gate: violations in files the run did not change are pre-existing.
-    const note = brownfield !== '' ? brownfield : onlyOthers ? '  (only non-standards rules fail: the standards gate blocks only their violations in files this run changed)' : '';
+    // ORM/lint rules are diff-aware in the standards gate: greenfield by changed file, brownfield versus the base commit.
+    const others = kind === 'brownfield'
+      ? '  (only non-standards rules fail: the standards gate blocks only what this run introduced in them versus the base commit)'
+      : '  (only non-standards rules fail: the standards gate blocks only their violations in files this run changed)';
+    const note = baseline !== '' ? baseline : onlyOthers ? others : '';
     return `FAIL ${v.percent}%  ${rules}${note}`;
   }
-  return `UNPROVEN (a rule was skipped or had nothing to check; ${v.percent}% of checked units passed)  ${rules}${brownfield}`;
+  return `UNPROVEN (a rule was skipped or had nothing to check; ${v.percent}% of checked units passed)  ${rules}${baseline}`;
 }
 
 /** The summary line of the turn limit: where it came from, and any extension the run earned. */
@@ -587,6 +597,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     baseBranch: wt.baseBranch,
     baseSha: wt.baseSha,
     pluginFingerprint: pluginFingerprint(registry, { config, harnessRoot: HARNESS_ROOT }),
+    governance: governanceRecord(registry, config, HARNESS_ROOT, isolation.mode),
     toolsOffered: (sentTools ?? []).map((t) => t.name),
     turnLimit,
     ...(opts.baseline ? { contextFetchersWithheld: withheld } : {}),
@@ -722,7 +733,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   store.writeJson('state.json', serializeState(state));
   const tokensPath = ledger.write(dirs.tokensDir);
   const tokenReport = ledger.report();
-  const ok = status === 'done' && final.ok;
+  // The gates, not the model, decide: a loop that ran out of turns (or stalled) without calling finish
+  // is still DONE when the fresh final gate run is green, labelled so.
+  const gatesDecided = !abortedRun && (status === 'max_turns' || status === 'stalled') && final.ok && final.results.length > 0;
+  const ok = (status === 'done' && final.ok) || gatesDecided;
 
   let shipped: ShipOutcome | undefined;
   if (opts.ship) {
@@ -745,6 +759,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     : [];
   const targetNotes = target.profile !== undefined ? target.profile.unsupported.map((u) => `target: ${u}`) : [`target: ${target.error ?? 'no profile'}`];
   const h = honesty(task, final.results, report, [...notes, ...targetNotes]);
+  if (gatesDecided) h.humanMustVerify.unshift(`the model did not call finish (loop ended ${status}); DONE rests on the fresh final gate run alone`);
   const iso = isolationHonesty(isolation);
   (iso.proven ? h.proven : h.unproven).push(iso.line);
   const evidence = {
@@ -756,6 +771,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     state: harnessRel(join(runDir, 'state.json')),
     tokens: harnessRel(tokensPath),
   };
+  const verdictText = gatesDecided
+    ? `DONE (the loop ended ${status} without finish; the fresh final gate run is green)`
+    : ok ? 'DONE' : `NOT DONE (${status !== 'done' ? (status !== agent.status ? 'stopped by signal' : `loop ended ${status}`) : 'final gates not green'})`;
   store.writeJson('run.json', {
     ...runRecordBase,
     model: finalModel,
@@ -771,6 +789,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     finishAttempts: state.finishAttempts,
     gatesOk: final.ok,
     gates: final.results,
+    verdict: verdictText,
+    gateStatuses: Object.fromEntries(final.results.map((g) => [g.gate, g.status])),
     standards: report === null ? null : { verdict: report.verdict, rules: report.rules },
     tokens: {
       ...tokenReport.totals,
@@ -792,7 +812,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     ...(error !== undefined ? [`error      ${error}`] : []),
     `gates      fresh final run (phase finish): ${final.results.length === 0 && abortedRun ? 'not run' : final.ok ? 'all green' : 'NOT green'}`,
     ...(final.results.length > 0 ? formatGates(final.results, true).split('\n') : [final.text]),
-    `standards  ${standardsLine(report, abortedRun && report === null, task.kind)}`,
+    `standards  ${standardsLine(report, abortedRun && report === null, task.kind, task.kind === 'brownfield' ? task.standards : undefined)}`,
     `tokens     actual ${t.actual_input_tokens}  baseline ${t.baseline_input_tokens}  reduction ${t.reduction_pct}%  over ${tokenReport.turns.length} turns  ` +
       `(${tokenReport.provider_usage === 'none' ? 'no provider-reported usage' : `output ${t.output_tokens}, provider-reported input ${t.provider_reported_input_tokens}`})`,
     opts.baseline
@@ -804,7 +824,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     ...formatHonesty(h),
     ...(shipped !== undefined ? [`ship       ${shipped.status}${shipped.commit !== undefined ? ` ${shipped.commit.slice(0, 12)}` : ''}${shipped.prUrl !== undefined ? ` ${shipped.prUrl}` : ''}${shipped.reasons.length > 0 ? `: ${shipped.reasons.join('; ')}` : ''}`] : []),
     ...(abortedRun ? [`resume     the worktree and evidence are kept; 'harness ship ${runId} --dry-run' re-runs every gate fresh on it`] : []),
-    `verdict    ${ok ? 'DONE (all gates green)' : `NOT DONE (${status !== 'done' ? (status !== agent.status ? 'stopped by signal' : `loop ended ${status}`) : 'final gates not green'})`}`,
+    `verdict    ${ok && !gatesDecided ? 'DONE (all gates green)' : verdictText}`,
   ];
   const text = lines.join('\n');
   log(text);

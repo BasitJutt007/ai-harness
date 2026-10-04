@@ -1,0 +1,63 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,60 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++
++const user = { email: 'a@example.com', name: 'Alice' };
++
++describe('users API', () => {
++  it('creates, gets, updates and deletes a user', async () => {
++    const app = createApp();
++    const created = await request(app).post('/v1/users').send(user);
++    expect(created.status).toBe(201);
++    expect(created.headers.location).toMatch(/^\/v1\/users\/.+/);
++    expect(created.body).toMatchObject({ ...user, role: 'member' });
++    const id = created.body.id as string;
++    expect((await request(app).get(`/v1/users/${id}`)).status).toBe(200);
++    const patched = await request(app).patch(`/v1/users/${id}`).send({ name: 'Alicia' });
++    expect(patched.status).toBe(200);
++    expect(patched.body.name).toBe('Alicia');
++    expect((await request(app).delete(`/v1/users/${id}`)).status).toBe(204);
++    expect((await request(app).get(`/v1/users/${id}`)).status).toBe(404);
++  });
++
++  it('validates inputs and duplicate emails', async () => {
++    const app = createApp();
++    expect((await request(app).post('/v1/users').send({ email: 'bad', name: '' })).status).toBe(422);
++    await request(app).post('/v1/users').send(user);
++    const duplicate = await request(app).post('/v1/users').send(user);
++    expect(duplicate.status).toBe(409);
++    expect(duplicate.headers['content-type']).toContain('application/problem+json');
++    expect((await request(app).patch('/v1/users/nope').send({ name: 'x' })).status).toBe(404);
++    expect((await request(app).patch('/v1/users/nope').send({})).status).toBe(404);
++    expect((await request(app).delete('/v1/users/nope')).status).toBe(404);
++    expect((await request(app).post('/v1/users').set('content-type', 'application/json').send('{')).status).toBe(400);
++    expect((await request(app).get('/v1/users?limit=0')).status).toBe(422);
++  });
++
++  it('paginates and honors idempotency', async () => {
++    const app = createApp();
++    const first = await request(app).post('/v1/users').set('Idempotency-Key', 'k').send(user);
++    const replay = await request(app).post('/v1/users').set('Idempotency-Key', 'k').send(user);
++    expect(replay.status).toBe(201);
++    expect(replay.headers['idempotent-replayed']).toBe('true');
++    expect(replay.body.id).toBe(first.body.id);
++    expect((await request(app).post('/v1/users').set('Idempotency-Key', 'k').send({ ...user, name: 'Other' })).status).toBe(422);
++    for (let i = 0; i < 2; i += 1) await request(app).post('/v1/users').send({ email: `u${i}@example.com`, name: `U${i}` });
++    const page = await request(app).get('/v1/users?limit=2');
++    expect(page.status).toBe(200);
++    expect(page.body.data).toHaveLength(2);
++    expect(page.body.nextCursor).not.toBeNull();
++    const next = await request(app).get(`/v1/users?limit=2&cursor=${page.body.nextCursor}`);
++    expect(next.status).toBe(200);
++    expect(next.body.data).toHaveLength(1);
++  });
++
++  it('rejects empty patches', async () => {
++    const app = createApp();
++    const made = await request(app).post('/v1/users').send(user);
++    expect((await request(app).patch(`/v1/users/${made.body.id}`).send({})).status).toBe(422);
++  });
++});

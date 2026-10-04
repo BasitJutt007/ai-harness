@@ -10,8 +10,18 @@
  *   the agent could never fix them) are listed as "pre-existing (not blocking)" instead of
  *   making DONE impossible.
  *
- * Brownfield (the API existed before the run: files the task scope denies are read-only, and a
- * checker may misread an unfamiliar style, so whole-API 100% could make DONE impossible):
+ * Brownfield, strict (the DEFAULT): every governed API must satisfy the standards, so the
+ * 'standards'-category rules are held to 100% over the WHOLE API, exactly as in greenfield.
+ * - A failing standards violation in a file the task scope forbids editing that the base commit
+ *   already had is reported as "incompatible target: N pre-existing violation(s) in files outside
+ *   the task scope (list)" and fails: the run cannot reach 100% without editing them, and a
+ *   silent pass would claim standards the API does not meet.
+ * - Any other failing standards violation blocks (the agent can and must fix it).
+ * - When the standards rules are at 100%, the other rules (ORM, lint, ...) follow the base-commit
+ *   comparison below.
+ *
+ * Brownfield, baseline mode (explicit opt-in: `standards: baseline` in the task file), labelled
+ * "baseline mode: below 100% allowed" in the summary and in "human must verify":
  * - A BASELINE report is measured once on the base commit (a git archive snapshot of the API,
  *   checked with the same rules; cached in run state, logged as standards-baseline.txt).
  * - Every rule, any category, blocks on what the run introduced: a violation the baseline does not
@@ -33,11 +43,14 @@ import { z } from 'zod';
 import { defineGate } from '../../src/core/plugin-api.ts';
 import type { CheckFinding, CheckReport, GateResult, RuleSummary, RunContext } from '../../src/core/plugin-api.ts';
 import { removeSnapshot, snapshotBase } from '../lib/contract.ts';
+import { writePolicy } from '../lib/path-policy.ts';
 import { sha256 } from '../lib/red.ts';
 
 const STANDARDS = 'standards';
 const MAX_DETAILS = 25;
 const MAX_HUMAN = 20;
+/** Gate-summary label of the explicit brownfield opt-in (task file `standards: baseline`). */
+export const BASELINE_MODE = 'baseline mode: below 100% allowed';
 /** RunState.scratch key of the brownfield baseline. */
 export const BASELINE_KEY = 'standards:baseline';
 
@@ -218,7 +231,14 @@ function capped(lines: string[], max: number, more: string): string[] {
   return lines.length > max ? [...lines.slice(0, max), `… ${lines.length - max} more (${more})`] : lines;
 }
 
-/** Brownfield: block only on what this run introduced versus the base commit's report (see the file comment). */
+/** Prefix the baseline-mode label to a below-100% result and name it under "human must verify". */
+function labelled(r: GateResult): GateResult {
+  if (r.status === 'pass' && r.summary.startsWith('verdict 100% (')) return r;
+  const note = `${BASELINE_MODE} (the task opted in with standards: baseline; the standards rules are not proven at 100% over the whole API)`;
+  return { ...r, summary: `${BASELINE_MODE}; ${r.summary}`, humanMustVerify: [note, ...(r.humanMustVerify ?? [])] };
+}
+
+/** Brownfield (baseline mode, and the non-standards rules in strict mode): block only on what this run introduced versus the base commit's report. */
 async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSummary[], naNote: string): Promise<GateResult> {
   const percent = report.verdict.percent;
   const unprovenNow = new Map<string, string>();
@@ -320,11 +340,76 @@ async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSum
   };
 }
 
+/**
+ * Brownfield strict (the default): the standards rules at 100% over the whole API. A failing standards
+ * violation the base commit already had, in a file the task scope forbids editing, makes the target
+ * incompatible with the task; any other one blocks. With the standards rules green, the other rules
+ * follow the base-commit comparison.
+ */
+async function brownfieldStrict(ctx: RunContext, report: CheckReport, counted: RuleSummary[], naNote: string): Promise<GateResult> {
+  const standardsRules = new Set(report.rules.filter((r) => r.category === STANDARDS).map((r) => r.rule));
+  const failingStandards = counted.filter((r) => r.category === STANDARDS && r.status === 'fail');
+  if (failingStandards.length === 0) return brownfield(ctx, report, counted, naNote);
+
+  const percent = report.verdict.percent;
+  const now = failingItems(report.findings.filter((f) => standardsRules.has(f.rule)), report.root);
+  const task = ctx.task;
+  const outsideScope = (file: string | null): boolean => file !== null && task.kind === 'brownfield' && !writePolicy(task, file).allowed;
+  const baseline = now.some((it) => outsideScope(it.file)) ? await loadBaseline(ctx) : 'not needed';
+  const remaining = new Map<string, number>();
+  if (typeof baseline !== 'string') {
+    for (const it of failingItems(baseline.findings, baseline.root)) remaining.set(it.key, (remaining.get(it.key) ?? 0) + 1);
+  }
+  const cache = new Map<string, boolean>();
+  const incompatible: Item[] = [];
+  const blocking: string[] = [];
+  for (const it of now) {
+    if (!outsideScope(it.file)) {
+      blocking.push(`must fix (in scope): ${it.text}`);
+      continue;
+    }
+    const left = remaining.get(it.key) ?? 0;
+    if (left > 0) {
+      remaining.set(it.key, left - 1);
+      incompatible.push(it);
+    } else if (typeof baseline === 'string' && !(await changedIn(ctx, it.file, cache))) {
+      // No base report to prove it pre-existing: an untouched file the run may not edit still cannot be fixed by the run.
+      incompatible.push({ ...it, text: `${it.text} (not proven pre-existing: ${baseline})` });
+    } else {
+      blocking.push(`introduced (in a file outside the task scope: a change elsewhere caused it): ${it.text}`);
+    }
+  }
+  if (now.length === 0) {
+    for (const r of failingStandards) blocking.push(`${r.rule}: failing (${r.passed}/${r.total} ${r.unit}) with no finding to attribute to a file`);
+  }
+  const files = [...new Set(incompatible.map((it) => it.file ?? '?'))].sort();
+  const head = `verdict ${percent}% over the whole API (brownfield, strict: the standards rules must be 100%)`;
+  const incompatibleLine = `incompatible target: ${incompatible.length} pre-existing violation(s) in files outside the task scope (${files.join(', ')})`;
+  const lines = [
+    ...(incompatible.length > 0 ? [incompatibleLine, ...incompatible.map((it) => `outside scope (pre-existing): ${it.text}`)] : []),
+    ...blocking,
+  ];
+  const logPath = await ctx.logs.write('standards-brownfield.txt', [head, ...lines].join('\n'));
+  const failing = incompatible.length + blocking.length;
+  if (incompatible.length > 0) {
+    return {
+      status: 'fail',
+      summary: `${incompatibleLine}: the standards rules cannot reach 100% without editing them; ${head}${blocking.length > 0 ? `; ${blocking.length} more in scope` : ''}. Widen the task scope, fix the target first, or opt in with "standards: baseline"`,
+      failing,
+      details: capped(lines, MAX_DETAILS, `see ${logPath}`),
+      logPath,
+      humanMustVerify: capped([incompatibleLine, ...incompatible.map((it) => it.text)], MAX_HUMAN, `see ${logPath}`),
+    };
+  }
+  return { status: 'fail', summary: `${head}: ${blocking.length} standards violation(s) to fix`, failing, details: capped(lines, MAX_DETAILS, `see ${logPath}`), logPath };
+}
+
 export default defineGate({
   name: 'standards',
   description:
     'Greenfield: the standards rules pass at 100% over the whole API and other (ORM, lint) rules pass on every file this run changed. '
-    + 'Brownfield: no rule may get worse than at the base commit (pre-existing violations are reported, not blocking). '
+    + 'Brownfield (strict, default): the standards rules pass at 100% over the whole API too (pre-existing violations in files outside the task scope: incompatible target); other rules may not get worse than at the base commit. '
+    + 'Brownfield with "standards: baseline": no rule may get worse than at the base commit (baseline mode: below 100% allowed). '
     + 'A skipped or empty rule is unproven, never green.',
   phases: ['finish', 'ship'],
   async run(ctx): Promise<GateResult> {
@@ -342,7 +427,10 @@ export default defineGate({
     const na = report.rules.length - counted.length;
     const naNote = na > 0 ? `, ${na} n/a` : '';
     const allNa = (): GateResult => ({ status: 'unproven', summary: `every rule was n/a (${na}): nothing is proven`, details: compact });
-    if (ctx.task.kind === 'brownfield') return counted.length === 0 ? allNa() : brownfield(ctx, report, counted, naNote);
+    if (ctx.task.kind === 'brownfield') {
+      if (counted.length === 0) return allNa();
+      return ctx.task.standards === 'baseline' ? labelled(await brownfield(ctx, report, counted, naNote)) : brownfieldStrict(ctx, report, counted, naNote);
+    }
 
     if (status === 'unproven') return { status: 'unproven', summary: 'verdict UNPROVEN (a rule was skipped or had nothing to check)', details: compact };
     const skipped = report.findings.filter((f) => f.status === 'skip');

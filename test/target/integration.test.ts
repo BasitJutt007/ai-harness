@@ -78,6 +78,35 @@ describe('a lib/ + tests/ API', () => {
   });
 });
 
+describe('source-boundary resolves aliases before calling a specifier a package', () => {
+  it('tsconfig paths / package.json imports to test support are blocked; aliases to source are allowed; packages stay external', async () => {
+    const root = join(tmp.dir, 'alias-api');
+    writeTree(root, {
+      'package.json': JSON.stringify({ name: 'alias-api', private: true, type: 'module', imports: { '#support/*': './test/*' } }),
+      'tsconfig.json': JSON.stringify({
+        compilerOptions: { module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, allowImportingTsExtensions: true, noEmit: true, paths: { '@test/*': ['./test/*'], '@src/*': ['./src/*'] } },
+        include: ['src', 'test'],
+      }),
+      'src/app.ts': 'export {};\n',
+      'src/lib/util.ts': 'export const u = 1;\n',
+      'test/helpers.ts': 'export const two = 2;\n',
+      'test/a.test.ts': 'export {};\n',
+    });
+    setActiveLayout(await computeTargetProfile({ apiRoot: root, repoRoot: root, harnessRoot: HARNESS_ROOT }));
+    try {
+      const files = new Set(['src/app.ts', 'src/lib/util.ts', 'test/helpers.ts', 'test/a.test.ts']);
+      const keys = (content: string): string[] => boundaryViolations('src/app.ts', content, files).map((v) => v.key);
+      expect(keys("import { two } from '@test/helpers.ts';\n")).toEqual(['test|test/helpers.ts']);
+      expect(boundaryViolations('src/app.ts', "import { two } from '@test/helpers.ts';\n", files)[0]?.message)
+        .toBe('"@test/helpers.ts" (resolves to test/helpers.ts) imports test code (test/helpers.ts); production code must not depend on tests');
+      expect(keys("import { two } from '#support/helpers.ts';\n")).toEqual(['test|test/helpers.ts']);
+      expect(keys("import { u } from '@src/lib/util.ts';\nimport { z } from 'zod';\nimport fs from 'node:fs';\n")).toEqual([]);
+    } finally {
+      setActiveLayout(undefined);
+    }
+  });
+});
+
 describe('the template layout is unchanged', () => {
   it('src/ + test/: the same file lists, entry and boundary as before the profile', async () => {
     const root = join(tmp.dir, 'template');

@@ -147,7 +147,8 @@ client.get('/v1/not-a-route', () => undefined);
     expect(post?.unparsedReads.map((u) => u.target)).toEqual(['req', 'query', 'headers']);
     expect(post?.responses[0]?.schema).toBeUndefined();
     expect(get?.parses.map((p) => p.target)).toEqual(['params']); // safeParse is an accepted parse
-    expect(get?.resEscapes).toHaveLength(1);
+    expect(get?.resEscapes).toHaveLength(0); // helper(res) is program code: followed (it sends nothing)
+    expect(get?.resUnfollowed).toHaveLength(0);
     expect(get?.responses[0]?.schema).toBeUndefined(); // safeParse result is not a parsed body
   });
 

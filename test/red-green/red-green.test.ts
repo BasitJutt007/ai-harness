@@ -102,7 +102,7 @@ describe('what counts as red', () => {
     expect((await h.write('src/users.ts', FIXED)).decision).toBe('pass');
     const g = await h.gate();
     expect(g.status, JSON.stringify(g)).toBe('pass');
-    expect(g.summary).toContain('1 changed source files went red -> green on unchanged cases');
+    expect(g.summary).toContain('1 changed source files went red -> green (1 on unchanged cases, 0 on edited cases by differential proof)');
   });
 
   it('the gate fails while the red case still fails (it runs the tests itself)', async () => {
@@ -125,7 +125,9 @@ describe('what counts as red', () => {
     await h.write('test/users.test.ts', `${VITEST}import { countUsers } from '../src/users.ts';\nit('counts', () => { expect(countUsers()).toBe(5); });\n`);
     const res = await h.runTests(['test/users.test.ts']);
     expect(res.ok).toBe(true);
-    expect((await h.gate()).status).toBe('pass');
+    const g = await h.gate();
+    expect(g.status, JSON.stringify(g)).toBe('pass');
+    expect(g.summary).toContain('(0 on unchanged cases, 1 on edited cases by differential proof)');
   });
 
   it('a red case edited to pass regardless of the source is refused by the revert check', async () => {
@@ -138,6 +140,48 @@ describe('what counts as red', () => {
     const g = await h.gate();
     expect(g.status).toBe('fail');
     expect(g.details?.[0]).toContain('was edited after its red and its current body also passes with the run-start source (revert check)');
+  });
+
+  it("the review's revert attack: an edited case that adds 1 unless its cwd carries the revert marker is refused", async () => {
+    // Before: the revert copy's path contained `revert-`, so this case passed in the main run (+1) and failed in
+    // the revert run (+0) although the source change (junk) is irrelevant. Now an edited case whose test file
+    // reads its path/env/clock is not provable by differential execution at all.
+    const h = await harness();
+    await h.write('test/users.test.ts', `${VITEST}import { countUsers } from '../src/users.ts';\nit('counts', () => { expect(countUsers()).toBe(1); });\n`);
+    await h.runTests(['test/users.test.ts']);
+    expect((await h.write('src/users.ts', `${USERS}export const junk = 42;\n`)).decision).toBe('pass');
+    await h.write('test/users.test.ts', `${VITEST}import { countUsers } from '../src/users.ts';\nit('counts', () => { expect(countUsers() + (process.cwd().includes('revert-') ? 0 : 1)).toBe(1); });\n`);
+    expect((await h.runTests(['test/users.test.ts'])).ok).toBe(true);
+    const g = await h.gate();
+    expect(g.status).toBe('fail');
+    expect(g.details?.[0]).toContain('"counts" was edited after its red and its test file reads process.cwd: an edited case is accepted through the revert check only when its outcome cannot depend on where, when or how it runs');
+  });
+
+  it('the same attack hidden in test support is refused: both differential copies run in equivalent contexts', async () => {
+    // The helper is not in the test file, so only the equivalent copies stop it: neither copy's path carries a marker.
+    const h = await harness();
+    await h.write('test/users.test.ts', `${VITEST}import { countUsers } from '../src/users.ts';\nit('counts', () => { expect(countUsers()).toBe(1); });\n`);
+    await h.runTests(['test/users.test.ts']);
+    expect((await h.write('src/users.ts', `${USERS}export const junk = 42;\n`)).decision).toBe('pass');
+    await h.write('test/bump.ts', "export const bump = (): number => (process.cwd().includes('revert-') ? 0 : 1);\n");
+    await h.write('test/users.test.ts', `${VITEST}import { countUsers } from '../src/users.ts';\nimport { bump } from './bump.ts';\nit('counts', () => { expect(countUsers() + bump()).toBe(1); });\n`);
+    expect((await h.runTests(['test/users.test.ts'])).ok).toBe(true);
+    const g = await h.gate();
+    expect(g.status).toBe('fail');
+    expect(g.details?.[0]).toContain('"counts" was edited after its red and its current body also passes with the run-start source (revert check)');
+  });
+
+  it('a case that passes only in the worktree itself (not in a fresh copy) is refused', async () => {
+    const h = await harness();
+    await h.write('test/users.test.ts', `${VITEST}import { countUsers } from '../src/users.ts';\nit('counts', () => { expect(countUsers()).toBe(1); });\n`);
+    await h.runTests(['test/users.test.ts']);
+    expect((await h.write('src/users.ts', `${USERS}export const junk = 42;\n`)).decision).toBe('pass');
+    await h.write('test/bump.ts', `export const bump = (): number => (process.cwd() === ${JSON.stringify(h.ws.root)} ? 1 : 0);\n`);
+    await h.write('test/users.test.ts', `${VITEST}import { countUsers } from '../src/users.ts';\nimport { bump } from './bump.ts';\nit('counts', () => { expect(countUsers() + bump()).toBe(1); });\n`);
+    expect((await h.runTests(['test/users.test.ts'])).ok).toBe(true);
+    const g = await h.gate();
+    expect(g.status).toBe('fail');
+    expect(g.details?.[0]).toContain('"counts" does not pass in a fresh copy with the current source (revert check)');
   });
 
   it('cosmetic edits to the red case (comments, whitespace) and new cases next to it keep the evidence', async () => {

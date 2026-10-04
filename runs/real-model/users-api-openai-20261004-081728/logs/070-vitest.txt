@@ -1,0 +1,89 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api
+
+ ✓ test/lib/pagination.test.ts (8 tests) 10ms
+ ✓ test/lib/problem.test.ts (7 tests) 23ms
+ ✓ test/lib/errors.test.ts (6 tests) 37ms
+ ❯ test/users.test.ts (5 tests | 3 failed) 57ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes users 31ms
+     ✓ validates input and missing resources as problem responses 11ms
+     × enforces uniqueness and idempotency 5ms
+     ✓ paginates without duplicates 6ms
+     × rejects empty patch 4ms
+ ✓ test/lib/idempotency.test.ts (7 tests) 101ms
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  3 failed | 30 passed (33)
+   Start at  13:19:53
+   Duration  411ms (import 59%, tests 21%, transform 19%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes users
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:14:57
+     12|     expect(created.body.role).toBe('member');
+     13|     const id = created.body.id;
+     14|     expect((await app().get(`/v1/users/${id}`)).status).toBe(200);
+       |                                                         ^
+     15|     const patched = await app().patch(`/v1/users/${id}`).send({ name: …
+     16|     expect(patched.status).toBe(200); expect(patched.body.name).toBe('…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  test/users.test.ts > users API > enforces uniqueness and idempotency
+AssertionError: expected undefined to be 'true' // Object.is equality
+
+- Expected:
+"true"
+
++ Received:
+undefined
+
+ ❯ test/users.test.ts:31:84
+     29|     const first = await app().post('/v1/users').set('Idempotency-Key',…
+     30|     const replay = await app().post('/v1/users').set('Idempotency-Key'…
+     31|     expect(replay.status).toBe(201); expect(replay.headers['idempotent…
+       |                                                                                    ^
+     32|     expect((await app().post('/v1/users').send(value)).status).toBe(40…
+     33|     expect((await app().post('/v1/users').set('Idempotency-Key','k').s…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  test/users.test.ts > users API > rejects empty patch
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:41:165
+     39|     expect(new Set(seen).size).toBe(seen.length);
+     40|   });
+     41|   it('rejects empty patch', async () => { const c=await app().post('/v…
+       |                                                                                                                                                                     ^
+     42| });
+     43|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+--- json ---
+{"numTotalTestSuites":12,"numPassedTestSuites":10,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":33,"numPassedTests":30,"numFailedTests":3,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791101993126,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes users","status":"failed","title":"creates, gets, updates and deletes users","duration":30.552958000000046,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts:14:57\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates input and missing resources as problem responses","status":"passed","title":"validates input and missing resources as problem responses","duration":11.433375000000012,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API enforces uniqueness and idempotency","status":"failed","title":"enforces uniqueness and idempotency","duration":4.839959000000022,"failureMessages":["AssertionError: expected undefined to be 'true' // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts:31:84\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates without duplicates","status":"passed","title":"paginates without duplicates","duration":5.8338339999999675,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects empty patch","status":"failed","title":"rejects empty patch","duration":3.8045420000000263,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts:41:165\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791101993445,"endTime":1791101993501.8044,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts"},{"assertionResults":[{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers unknown routes with a 404 problem","status":"passed","title":"answers unknown routes with a 404 problem","duration":17.898708999999997,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers malformed JSON with a 400 problem","status":"passed","title":"answers malformed JSON with a 400 problem","duration":8.757083000000023,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling maps a ZodError to a 422 problem listing each issue","status":"passed","title":"maps a ZodError to a 422 problem listing each issue","duration":2.9464170000000536,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling passes valid bodies through","status":"passed","title":"passes valid bodies through","duration":1.8200840000000085,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling sends a thrown HttpProblem with its own status","status":"passed","title":"sends a thrown HttpProblem with its own status","duration":1.5141669999999863,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling hides unexpected errors behind a 500 problem without a stack","status":"passed","title":"hides unexpected errors behind a 500 problem without a stack","duration":2.714958000000024,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791101993445,"endTime":1791101993480.7148,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/lib/errors.test.ts"},{"assertionResults":[{"ancestorTitles":["idempotency()"],"fullName":"idempotency() runs every request when no Idempotency-Key is sent","status":"passed","title":"runs every request when no Idempotency-Key is sent","duration":27.578750000000014,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() replays the stored response for the same key and body","status":"passed","title":"replays the stored response for the same key and body","duration":4.457500000000039,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() replays the original response byte for byte after the resource was updated in place","status":"passed","title":"replays the original response byte for byte after the resource was updated in place","duration":4.1660420000000045,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() rejects reuse of a key with a different body as a 422 problem","status":"passed","title":"rejects reuse of a key with a different body as a 422 problem","duration":3.954417000000035,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() answers a duplicate that arrives while the first is in flight with a 409 problem","status":"passed","title":"answers a duplicate that arrives while the first is in flight with a 409 problem","duration":54.732875000000035,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() does not remember failed requests, so a corrected retry may reuse the key","status":"passed","title":"does not remember failed requests, so a corrected retry may reuse the key","duration":3.9486249999999927,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() validates the header: keys longer than 255 characters are a 422 problem","status":"passed","title":"validates the header: keys longer than 255 characters are a 422 problem","duration":1.299709000000007,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791101993438,"endTime":1791101993537.2998,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/lib/idempotency.test.ts"},{"assertionResults":[{"ancestorTitles":["CursorQuerySchema"],"fullName":"CursorQuerySchema defaults limit to 20 and coerces query strings","status":"passed","title":"defaults limit to 20 and coerces query strings","duration":2.2471669999999904,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["CursorQuerySchema"],"fullName":"CursorQuerySchema rejects limits outside 1..100 and empty cursors","status":"passed","title":"rejects limits outside 1..100 and empty cursors","duration":0.3608329999999853,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["cursors"],"fullName":"cursors round-trips a key through an opaque base64url cursor","status":"passed","title":"round-trips a key through an opaque base64url cursor","duration":0.34158400000001166,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["cursors"],"fullName":"cursors rejects cursors it did not issue with a 422 problem","status":"passed","title":"rejects cursors it did not issue with a 422 problem","duration":0.5431250000000034,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate walks every item exactly once, in key order","status":"passed","title":"walks every item exactly once, in key order","duration":0.4708750000000066,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate returns nextCursor null on the last page","status":"passed","title":"returns nextCursor null on the last page","duration":1.1671249999999986,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate does not depend on input order and survives deletion of the cursor item","status":"passed","title":"does not depend on input order and survives deletion of the cursor item","duration":0.3044590000000085,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate builds a page schema with data and nextCursor","status":"passed","title":"builds a page schema with data and nextCursor","duration":3.7342909999999847,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791101993363,"endTime":1791101993372.7344,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/lib/pagination.test.ts"},{"assertionResults":[{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":1.0831249999999955,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.126041999999984,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.11766699999998309,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.09487500000000182,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers accepts a custom problem type slug","status":"passed","title":"accepts a custom problem type slug","duration":0.09795900000000302,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers turns an HttpProblem into a Problem with an instance","status":"passed","title":"turns an HttpProblem into a Problem with an instance","duration":1.6385829999999828,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers sends a problem as application/problem+json","status":"passed","title":"sends a problem as application/problem+json","duration":18.952499999999986,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791101993417,"endTime":1791101993439.9524,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/lib/problem.test.ts"}]}

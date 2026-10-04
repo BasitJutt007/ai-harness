@@ -1,0 +1,90 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 4 failed) 71ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes users 51ms
+     ✓ validates input and missing resources as problem responses 11ms
+     × enforces uniqueness and idempotency 3ms
+     × paginates without duplicates 4ms
+     × rejects empty patch 2ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 1 passed (5)
+   Start at  13:17:45
+   Duration  258ms (import 47%, tests 39%, transform 13%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes users
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:11:28
+      9|   it('creates, gets, updates and deletes users', async () => {
+     10|     const created = await app().post('/v1/users').send(body());
+     11|     expect(created.status).toBe(201); expect(created.headers.location)…
+       |                            ^
+     12|     expect(created.body.role).toBe('member');
+     13|     const id = created.body.id;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > enforces uniqueness and idempotency
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:31:27
+     29|     const first = await app().post('/v1/users').set('Idempotency-Key',…
+     30|     const replay = await app().post('/v1/users').set('Idempotency-Key'…
+     31|     expect(replay.status).toBe(201); expect(replay.headers['idempotent…
+       |                           ^
+     32|     expect((await app().post('/v1/users').send(value)).status).toBe(40…
+     33|     expect((await app().post('/v1/users').set('Idempotency-Key','k').s…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > paginates without duplicates
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:38:95
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > rejects empty patch
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:41:165
+     39|     expect(new Set(seen).size).toBe(seen.length);
+     40|   });
+     41|   it('rejects empty patch', async () => { const c=await app().post('/v…
+       |                                                                                                                                                                     ^
+     42| });
+     43|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+observed red: test/users.test.ts (source they cover is now writable)

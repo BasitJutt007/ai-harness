@@ -16,7 +16,8 @@ const listGadgets = (req: Request, res: Response): void => {
 
 function createGadget(req: Request, res: Response): void {
   const body = CreateItemSchema.parse(req.body);
-  res.status(201).json(ItemSchema.parse({ id: crypto.randomUUID(), ...body }));
+  const gadget = ItemSchema.parse({ id: crypto.randomUUID(), ...body });
+  res.status(201).location(`/v1/gadgets/${gadget.id}`).json(gadget);
 }
 
 export function createApiRouter(): Router {

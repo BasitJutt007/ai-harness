@@ -1,0 +1,71 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "n/a",
+      "summary": "not applicable to greenfield tasks"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "14 red observations (1 test files); 1 changed source files went red -> green (1 on unchanged cases, 0 on edited cases by differential proof), red again with the original source"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "no new non-test files"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "2 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "pass",
+      "summary": "18/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]",
+      "logPath": "runs/users-api-openai-20261004-074855/logs/037-spec-coverage.txt",
+      "humanMustVerify": [
+        "what the task states beyond fields and operations (8 behaviour(s)): the generated probes cover routes and field constraints only"
+      ]
+    },
+    {
+      "gate": "standards",
+      "status": "fail",
+      "summary": "verdict 88%",
+      "details": [
+        "rest-conventions  FAIL  src/routes/index.ts              4/5 routes",
+        "    src/routes/index.ts:25:3  POST /v1/users: creating a resource must respond res.status(201) (with Location), not 200",
+        "zod-boundary      FAIL  src/routes/index.ts              1/5 handlers",
+        "    src/routes/index.ts:27:327  POST /v1/users: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler",
+        "    src/routes/index.ts:21:59  DELETE /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)",
+        "    src/routes/index.ts:32:13  DELETE /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)",
+        "    src/routes/index.ts:21:59  PATCH /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)",
+        "    src/routes/index.ts:31:27  PATCH /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)",
+        "    src/routes/index.ts:31:370  PATCH /v1/users/:userId: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler",
+        "    src/routes/index.ts:21:59  GET /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)",
+        "    src/routes/index.ts:30:10  GET /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)",
+        "    src/routes/index.ts:30:33  GET /v1/users/:userId: `res` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler",
+        "────────────────────────────────────────────────────────────",
+        "problem-json      pass    32/32 error paths",
+        "rest-conventions  FAIL     4/5 routes",
+        "tsc-strict        pass     0 errors",
+        "zod-boundary      FAIL     1/5 handlers",
+        "verdict           88%     → failing: rest-conventions, zod-boundary"
+      ],
+      "failing": 5
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "1 of 32 tests failed in 5 files",
+      "details": [
+        "tests: 1 failed, 31 passed (32) in 5 files",
+        "FAIL test/users.test.ts > users API > rejects duplicates and validates body, query, path and empty patch: expected 422 to be 404 // Object.is equality"
+      ],
+      "logPath": "runs/users-api-openai-20261004-074855/logs/040-vitest.txt"
+    }
+  ]
+}

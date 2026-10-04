@@ -1,0 +1,46 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-082126/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )validates inputs and duplicate emails$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-082126/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 1 failed | 3 skipped) 35ms
+   ❯ users API (4)
+     ↓ creates, gets, updates and deletes a user
+     × validates inputs and duplicate emails 34ms
+     ↓ paginates and honors idempotency
+     ↓ rejects empty patches
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  13:23:24
+   Duration  260ms (import 59%, transform 21%, tests 20%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > validates inputs and duplicate emails
+AssertionError: expected 422 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 422
+
+ ❯ test/users.test.ts:30:85
+     28|     expect(duplicate.status).toBe(409);
+     29|     expect(duplicate.headers['content-type']).toContain('application/p…
+     30|     expect((await request(app).patch('/v1/users/nope').send({ name: 'x…
+       |                                                                                     ^
+     31|     expect((await request(app).patch('/v1/users/nope').send({})).statu…
+     32|     expect((await request(app).delete('/v1/users/nope')).status).toBe(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":4,"numPassedTests":0,"numFailedTests":1,"numPendingTests":3,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791102204196,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes a user","status":"skipped","title":"creates, gets, updates and deletes a user","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates inputs and duplicate emails","status":"failed","title":"validates inputs and duplicate emails","duration":33.627667,"failureMessages":["AssertionError: expected 422 to be 404 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-082126/generated/users-api/test/users.test.ts:30:85\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates and honors idempotency","status":"skipped","title":"paginates and honors idempotency","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects empty patches","status":"skipped","title":"rejects empty patches","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791102204420,"endTime":1791102204453.6277,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-082126/generated/users-api/test/users.test.ts"}]}

@@ -318,18 +318,25 @@ describe('permissive schemas never validate a request or a response', () => {
   });
 });
 
-describe('idempotency is recognised by behaviour (the chain reads the Idempotency-Key header)', () => {
-  const CASES: Array<[string, string, boolean]> = [
-    ['req.get', "const keyed: RequestHandler = (req, _res, next) => { if (req.get('Idempotency-Key') === undefined) next(); else next(); };", true],
-    ['req.header', "const keyed: RequestHandler = (req, _res, next) => { void req.header('idempotency-key'); next(); };", true],
-    ['req.headers[...]', "const keyed: RequestHandler = (req, _res, next) => { void req.headers['idempotency-key']; next(); };", true],
-    ['a header schema parse', "const H = z.object({ 'idempotency-key': z.string().optional() });\nconst keyed: RequestHandler = (req, _res, next) => { H.parse(req.headers); next(); };", true],
-    ['a callee that receives req', "function readKey(r: Request): string | undefined { return r.get('Idempotency-Key'); }\nconst keyed: RequestHandler = (req, _res, next) => { void readKey(req); next(); };", true],
-    ['a factory with the header name bound', "const requireHeader = (name: string): RequestHandler => (req, _res, next) => { void req.get(name); next(); };\nconst keyed = requireHeader('Idempotency-Key');", true],
+describe('idempotency is recognised by behaviour (the chain reads the Idempotency-Key header, stores a response keyed by it and replays it)', () => {
+  /** Remembers the JSON a request answered under its key and replays it for the same key. */
+  const STORE = "if (key === undefined) { next(); return; } const hit = done.get(key); if (hit !== undefined) { res.status(201).json(hit); return; } const json = res.json.bind(res); res.json = (b: unknown) => { done.set(key, b); return json(b); }; next();";
+  const DONE = 'const done = new Map<unknown, unknown>();';
+  const CASES: Array<[string, string, boolean | undefined]> = [
+    ['req.get', `${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = req.get('Idempotency-Key'); ${STORE} };`, true],
+    ['req.header', `${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = req.header('idempotency-key'); ${STORE} };`, true],
+    ['req.headers[...]', `${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = req.headers['idempotency-key']; ${STORE} };`, true],
+    ['a header schema parse', `const H = z.object({ 'idempotency-key': z.string().optional() });\n${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = H.parse(req.headers)['idempotency-key']; ${STORE} };`, true],
+    ['a callee that receives req', `function readKey(r: Request): string | undefined { return r.get('Idempotency-Key'); }\n${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = readKey(req); ${STORE} };`, true],
+    ['a factory with the header name bound', `${DONE}\nconst requireHeader = (name: string): RequestHandler => (req, res, next) => { const key = req.get(name); ${STORE} };\nconst keyed = requireHeader('Idempotency-Key');`, true],
+    ['store helpers the key is passed to', `const done = new Map<string, unknown>();\nconst recall = (k: string): unknown => done.get(k);\nfunction remember(k: string, body: unknown): void { done.set(k, body); }\nconst keyed: RequestHandler = (req, res, next) => { const key = req.get('Idempotency-Key'); if (key === undefined) { next(); return; } const hit = recall(key); if (hit !== undefined) { res.status(201).json(hit); return; } const json = res.json.bind(res); res.json = (b: unknown) => { remember(key, b); return json(b); }; next(); };`, true],
+    ['a key only tested, then next()', "const keyed: RequestHandler = (req, _res, next) => { if (req.get('Idempotency-Key') === undefined) next(); else next(); };", false],
+    ['a header schema parse alone', "const H = z.object({ 'idempotency-key': z.string().optional() });\nconst keyed: RequestHandler = (req, _res, next) => { H.parse(req.headers); next(); };", false],
+    ['a key stored but never replayed', `${DONE}\nconst keyed: RequestHandler = (req, _res, next) => { const key = req.get('Idempotency-Key'); if (key !== undefined) done.set(key, true); next(); };`, undefined],
     ['a name alone', 'const idempotency = (): RequestHandler => (_req, _res, next) => { next(); };\nconst keyed = idempotency();', false],
-    ['another header', "const keyed: RequestHandler = (req, _res, next) => { void req.get('x-request-id'); next(); };", false],
+    ['another header', `${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = req.get('x-request-id'); ${STORE} };`, false],
   ];
-  it.each(CASES)('%s → idempotent: %s', async (_name, middleware, ok) => {
+  it.each(CASES)('%s → idempotent (undefined: UNPROVEN): %s', async (_name, middleware, ok) => {
     const ctx = await api({
       'src/routes.ts': `import { Router, type Request, type RequestHandler } from 'express';
 import { z } from 'zod';
@@ -337,12 +344,15 @@ const Item = z.object({ id: z.string() });
 ${middleware}
 export const r = Router();
 r.post('/v1/items', keyed, (req, res) => {
-  res.status(201).json(Item.parse(Item.parse(req.body)));
+  res.status(201).location('/v1/items/1').json(Item.parse(Item.parse(req.body)));
 });
 `,
     });
-    const msgs = forRoute(await restConventions.run(ctx), 'POST /v1/items');
-    expect(msgs.some((m) => m.includes('no idempotency')), msgs.join('\n')).toBe(!ok);
+    const findings = await restConventions.run(ctx);
+    const msgs = forRoute(findings, 'POST /v1/items');
+    expect(msgs.some((m) => m.includes('no idempotency')), msgs.join('\n')).toBe(ok === false);
+    const unproven = findings.some((f) => f.status === 'skip' && (f.skipReason ?? '').includes('POST /v1/items reads the Idempotency-Key header'));
+    expect(unproven, JSON.stringify(findings)).toBe(ok === undefined);
   });
 
   it('router.use(middleware) counts only for routes registered after it', async () => {
@@ -350,7 +360,16 @@ r.post('/v1/items', keyed, (req, res) => {
       'src/routes.ts': `import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 const Item = z.object({ id: z.string() });
-const keyed: RequestHandler = (req, _res, next) => { void req.get('Idempotency-Key'); next(); };
+const done = new Map<string, unknown>();
+const keyed: RequestHandler = (req, res, next) => {
+  const key = req.get('Idempotency-Key');
+  if (key === undefined) return next();
+  const hit = done.get(key);
+  if (hit !== undefined) return void res.status(201).json(hit);
+  const json = res.json.bind(res);
+  res.json = (b: unknown) => { done.set(key, b); return json(b); };
+  next();
+};
 export const r = Router();
 r.post('/v1/early', (req, res) => { res.status(201).json(Item.parse(req.body)); });
 r.use(keyed);
@@ -484,7 +503,11 @@ describe('error responses are judged by status value and body type', () => {
     ["res.setHeader('Content-Type', 'application/problem+json');\n  res.status(404).json({ type: 'about:blank', title: 'Not Found', status: 404, detail: 'x', instance: '/x' });", ''],
     ["res.status(404).json({ type: 'about:blank', title: 'Not Found', status: 404, detail: 'x', instance: '/x' });", "missing .type('application/problem+json')"],
     ["res.status(404).type('application/problem+json').json({ type: 'about:blank', title: 'Not Found', status: 404 });", 'missing detail, instance'],
-    ["res.status(code).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: code, detail: 'x', instance: '/x' }));", ''],
+    // A typed problem body still needs the problem media type, however it is built.
+    ["res.status(code).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: code, detail: 'x', instance: '/x' }));", "missing .type('application/problem+json')"],
+    ["res.status(409).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: 409, detail: 'x', instance: '/x' }));", "status 409 is sent with a non-problem body (missing .type('application/problem+json'))"],
+    ["res.status(code).type('application/problem+json').json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: code, detail: 'x', instance: '/x' }));", ''],
+    ["useProblemType(res);\n  res.status(409).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: 409, detail: 'x', instance: '/x' }));", ''],
     ["res.status(code).json(Loose.parse({ reason: 'x' }));", 'status code is not a constant'],
     ['res.status(rec.status).json(rec.body);', null],
     ['res.sendStatus(code);', 'status code is not a constant'],
@@ -504,6 +527,7 @@ enum Codes { Conflict = 409 }
 declare const code: number;
 declare const flag: boolean;
 declare const rec: { status: number; body: unknown };
+function useProblemType(r: Response): void { r.set('Content-Type', 'application/problem+json'); }
 ${fns.join('\n')}
 `,
     });
@@ -522,7 +546,7 @@ ${fns.join('\n')}
 
   /** Whether line `line` of src/sends.ts belongs to send<i> (each function is 3 lines, the first one is 2 lines longer). */
   function lineInSends(i: number, line: number): boolean {
-    const header = 9; // lines before the first function
+    const header = 10; // lines before the first function
     let start = header + 1;
     for (let k = 0; k < i; k++) start += 3 + ((SENDS[k]?.[0] ?? '').split('\n').length - 1);
     const len = 3 + ((SENDS[i]?.[0] ?? '').split('\n').length - 1);
@@ -617,6 +641,96 @@ r.post('/v1/things', (req, res) => { res.status(201).json(Item.parse({ id: req.b
       // { id: req.body.id } builds a value from raw input: not a parse of the body
       'post /v1/things': ['', 'body'],
     });
+  });
+});
+
+describe('a parsed response body must not change between the parse and the send', () => {
+  // [handler body after `const u = Item.parse(src);`, expected: ok | mutated | unproven]
+  const BODIES: Array<[string, 'ok' | 'mutated' | 'unproven']> = [
+    ['res.json(u);', 'ok'],
+    ['process.stdout.write(JSON.stringify(u));\n  res.json(u);', 'ok'],
+    ['u.tags.map((t) => t.toUpperCase());\n  res.json(u);', 'ok'],
+    ['stored.push(u);\n  res.json(u);', 'ok'], // kept in a collection, unchanged before the send
+    ['const copy = { ...u, name: "x" };\n  res.json(Item.parse(copy));', 'ok'],
+    ['u.name = "x";\n  res.json(Item.parse(u));', 'ok'], // re-parsed at the send
+    ['res.json(u);\n  u.name = "late";', 'ok'],
+    ['u.name = "x";\n  res.json(u);', 'mutated'],
+    ['u["name"] += "!";\n  res.json(u);', 'mutated'],
+    ['delete u.note;\n  res.json(u);', 'mutated'],
+    ['Object.assign(u, { extra: 1 });\n  res.json(u);', 'mutated'],
+    ['u.tags.push("x");\n  res.json(u);', 'mutated'],
+    ['const tags = u.tags;\n  tags.splice(0, 1);\n  res.json(u);', 'mutated'],
+    ['const { tags } = u;\n  tags.sort();\n  res.json(u);', 'mutated'],
+    ['for (const t of u.items) t.qty++;\n  res.json(u);', 'mutated'],
+    ['u.items.forEach((it) => { it.qty = 0; });\n  res.json(u);', 'mutated'],
+    ['stored.push(u);\n  stored[0]!.name = "x";\n  res.json(u);', 'mutated'],
+    ['const holder = { u };\n  holder.u.name = "x";\n  res.json(u);', 'mutated'],
+    ['rename(u);\n  res.json(u);', 'mutated'], // a program helper writes to its parameter
+    ['describeIt(u);\n  res.json(u);', 'ok'], // a program helper that only reads it
+    ['opaque(u);\n  res.json(u);', 'unproven'], // unknown code may change it
+    ['registry.current = u;\n  res.json(u);', 'ok'], // stored, unchanged before the send
+    ['registry.current = u;\n  opaque(registry);\n  res.json(u);', 'unproven'], // its holder handed to unknown code
+  ];
+  let findings: CheckFinding[];
+  beforeAll(async () => {
+    const lines = BODIES.map(([b], i) => `r.get('/v1/m-${i}', (_req, res) => {\n  const u = Item.parse(src);\n  ${b}\n});`);
+    const ctx = await api({
+      'src/routes.ts': `import { Router } from 'express';
+import { z } from 'zod';
+export const r = Router();
+const Item = z.object({ name: z.string(), note: z.string().optional(), tags: z.array(z.string()), items: z.array(z.object({ qty: z.number() })) });
+type ItemT = z.infer<typeof Item>;
+declare const src: unknown;
+declare function opaque(x: object): void;
+declare const registry: { current: object | undefined };
+const stored: ItemT[] = [];
+function rename(x: ItemT): void { x.name = 'renamed'; }
+function describeIt(x: ItemT): string { return \`\${x.name} (\${x.tags.length})\`; }
+${lines.join('\n')}
+`,
+    });
+    findings = await zodBoundary.run(ctx);
+  });
+  it.each(BODIES.map(([b, want], i) => [i, b, want] as const))('m-%i: %s → %s', (i, _b, want) => {
+    const label = `GET /v1/m-${i}`;
+    const msgs = forRoute(findings, label);
+    const unproven = findings.filter((f) => f.status === 'skip' && (f.skipReason ?? '').includes(`${label}:`));
+    if (want === 'ok') expect([...msgs, ...unproven.map((f) => f.skipReason)]).toEqual([]);
+    if (want === 'mutated') expect(msgs.some((m) => m.includes('is changed after its Zod parse')), JSON.stringify(msgs)).toBe(true);
+    if (want === 'unproven') {
+      expect(msgs).toEqual([]);
+      expect(unproven.length).toBe(1);
+    }
+  });
+});
+
+describe('every function of the route chain that answers is judged', () => {
+  it('middleware (factories followed) and helpers given res send parsed 2xx bodies', async () => {
+    const ctx = await api({
+      'src/routes.ts': `import { Router } from 'express';
+import type { RequestHandler, Response } from 'express';
+import { z } from 'zod';
+export const r = Router();
+const Item = z.object({ id: z.string() });
+declare const cache: Map<string, { id: string }>;
+const early: RequestHandler = (_req, res, next) => { const hit = cache.get('a'); if (hit) { res.json(hit); return; } next(); };
+function guard(): RequestHandler { return (_req, res, next) => { if (cache.size > 9) { res.status(200).send({ id: 'full' }); return; } next(); }; }
+const parsedEarly: RequestHandler = (_req, res, next) => { const hit = cache.get('b'); if (hit) { res.json(Item.parse(hit)); return; } next(); };
+function reply(res: Response, body: { id: string }): void { res.json(body); }
+r.get('/v1/a', early, (_req, res) => { res.json(Item.parse({ id: 'a' })); });
+r.get('/v1/b', guard(), (_req, res) => { res.json(Item.parse({ id: 'b' })); });
+r.get('/v1/c', parsedEarly, (_req, res) => { res.json(Item.parse({ id: 'c' })); });
+r.get('/v1/d', (_req, res) => { reply(res, { id: 'd' }); });
+`,
+    });
+    const findings = await zodBoundary.run(ctx);
+    expect(forRoute(findings, 'GET /v1/a').some((m) => m.includes('not parsed') && m.includes('middleware/helper'))).toBe(true);
+    expect(forRoute(findings, 'GET /v1/b').some((m) => m.includes('not parsed') && m.includes('middleware/helper'))).toBe(true);
+    expect(forRoute(findings, 'GET /v1/c')).toEqual([]);
+    // The helper given `res` is followed: its own unparsed send fails, naming the call
+    const d = forRoute(findings, 'GET /v1/d');
+    expect(d.some((m) => m.includes('`res` is passed along'))).toBe(false);
+    expect(d.some((m) => m.includes('not parsed') && m.includes('sent by reply(), called at src/routes.ts:14:'))).toBe(true);
   });
 });
 

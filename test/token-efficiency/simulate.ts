@@ -24,6 +24,7 @@ import { createWorkspace } from '../../src/core/workspace.ts';
 import type {
   CheckReport,
   ContextMode,
+  DifferentialRun,
   Driver,
   GatePlugin,
   ModelRequest,
@@ -143,7 +144,7 @@ function services(state: RunState): RunContext['services'] {
   let testRun = 0;
   let checkRun = 0;
   const svc: RunContext['services'] = {
-    async runTestsReverted(): Promise<TestRunReport> {
+    async runTestsReverted(): Promise<DifferentialRun> {
       throw new Error('not simulated');
     },
     async runTests(files?: string[]): Promise<TestRunReport> {

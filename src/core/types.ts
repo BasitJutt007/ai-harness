@@ -234,6 +234,12 @@ export interface BrownfieldTask extends TaskCommon {
   scope: { allow: string[]; deny: string[] };
   /** When false (default), any breaking contract change blocks finish and ship. */
   allowBreaking: boolean;
+  /**
+   * Standards policy of the standards gate. Absent or 'strict' (default): the standards-category rules
+   * must pass at 100% over the whole API, as in greenfield. 'baseline' (explicit opt-in): the API may stay
+   * below 100% as long as the run introduces no violation versus the base commit (labelled as such).
+   */
+  standards?: 'strict' | 'baseline' | undefined;
   /** Resources the change adds or extends, when the task lists them. */
   resources?: ResourceSpec[] | undefined;
 }
@@ -556,11 +562,23 @@ export interface CoreServices {
   /** Current import graph (recomputed from disk on each call). */
   testMap(): Promise<TestMap>;
   /**
-   * Run `files` with the harness's runner in a scratch copy of the API root in which every path in
-   * `revert` has its run-start content again (or is absent, if it did not exist at run start).
-   * Observations are NOT recorded in RunState. Throws when a run-start content is unavailable.
+   * Differential run: `files` with the harness's runner in TWO fresh scratch copies of the API root in
+   * equivalent contexts (sibling dirs of the same parent with same-length random names, same env, same
+   * dependency links): `current` holds the workspace as it is, `reverted` the same except that every path in
+   * `revert` has its run-start content again (or is absent, if it did not exist at run start). The governed
+   * files are the only difference, so a case that passes in one and fails in the other does so because of them,
+   * not because of where or how it runs. Observations are NOT recorded in RunState. Throws when a run-start
+   * content is unavailable.
    */
-  runTestsReverted(files: string[], revert: string[]): Promise<TestRunReport>;
+  runTestsReverted(files: string[], revert: string[]): Promise<DifferentialRun>;
+}
+
+/** The two runs of CoreServices.runTestsReverted. */
+export interface DifferentialRun {
+  /** The workspace's current content. */
+  current: TestRunReport;
+  /** The same with the reverted paths at their run-start content. */
+  reverted: TestRunReport;
 }
 
 /** Everything a plugin can reach during a run. */

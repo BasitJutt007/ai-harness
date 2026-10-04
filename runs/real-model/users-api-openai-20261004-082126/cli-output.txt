@@ -1,0 +1,56 @@
+target     framework express 5.2.1  runner vitest 5.0.3 (harness)
+           source src/  tests test/ [test/**/*.test.ts]  test dirs test/
+           entry src/server.ts, src/app.ts  zod 4.6.5 → toJSONSchema
+           deps express 5.2.1 (harness), zod 4.6.5 (harness), vitest 5.0.3 (harness), typescript 6.0.3 (harness)
+run        users-api-openai-20261004-082126
+status     max_turns  turns 60  finish attempts 0  driver openai  model gpt-5.6-luna (compat)
+limit      60 turns (task file maxTurns (hard cap))
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  n/a       not applicable to greenfield tasks
+gate  observed-red   pass      11 red observations (1 test files); 1 changed source files went red -> green (1 on unchanged cases, 0 on edited cases by differential proof), red again with the original source
+gate  orphans        pass      no new non-test files
+gate  scope          pass      2 changed files, all in scope
+gate  spec-coverage  pass      18/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]
+gate  standards      fail      verdict 95%
+    zod-boundary      FAIL  src/routes/index.ts              3/5 handlers
+        src/routes/index.ts:34:38  POST /v1/users: BodySchema accepts anything (it is a record/passthrough object of unknown values with no declared properties), so req.body is not validated; use a concrete schema
+        src/routes/index.ts:33:53  POST /v1/users: request body is not parsed; add const body = BodySchema.parse(req.body)
+        src/routes/index.ts:46:199  PATCH /v1/users/:userId: BodySchema accepts anything (it is a record/passthrough object of unknown values with no declared properties), so req.body is not validated; use a concrete schema
+        src/routes/index.ts:45:62  PATCH /v1/users/:userId: request body is not parsed; add const body = BodySchema.parse(req.body)
+    ────────────────────────────────────────────────────────────
+    problem-json      pass    33/33 error paths
+    rest-conventions  pass     5/5 routes
+    tsc-strict        pass     0 errors
+    zod-boundary      FAIL     3/5 handlers
+    verdict           95%     → failing: zod-boundary
+gate  tests-green    fail      1 of 32 tests failed in 5 files
+    tests: 1 failed, 31 passed (32) in 5 files
+    FAIL test/users.test.ts > users API > validates inputs and duplicate emails: expected 422 to be 404 // Object.is equality
+    log: runs/users-api-openai-20261004-082126/logs/034-vitest.txt
+standards  FAIL 95%  problem-json pass, rest-conventions pass, tsc-strict pass, zod-boundary fail
+tokens     actual 361111  baseline 1503833  reduction 76%  over 60 turns  (output 6423, provider-reported input 342935)
+           baseline is a shadow estimate (never sent); measured: harness run <task> --baseline, then harness tokens compare users-api-openai-20261004-082126 <baselineRunId>
+evidence   runs/users-api-openai-20261004-082126/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/users-api-openai-20261004-082126.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-082126  branch harness/users-api-openai-20261004-082126  (base main @ 7c3a120022b4; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/final4 untouched)
+honesty
+  proven             gate:observed-red
+                     gate:orphans
+                     gate:scope
+                     gate:spec-coverage
+                     check:problem-json
+                     check:rest-conventions
+                     check:tsc-strict
+                     isolation:sandbox-exec (agent code: reads only its worktree, node_modules and toolchain; writes only to a per-call temp dir; env allow-list; network loopback only)
+  failed             gate:standards (verdict 95%)
+                     gate:tests-green (1 of 32 tests failed in 5 files)
+                     check:zod-boundary (3/5 handlers)
+  UNPROVEN           (none)
+  n/a                gate:contract-lock
+  human must verify  gate:spec-coverage: what the task states beyond fields and operations (8 behaviour(s)): the generated probes cover routes and field constraints only
+                     behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+verdict    NOT DONE (loop ended max_turns)
+exit=1

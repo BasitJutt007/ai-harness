@@ -1,0 +1,11 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -14,7 +14,7 @@
+   const store = new Map<string, z.infer<typeof UserSchema>>();
+   const find = (userId: string): z.infer<typeof UserSchema> => { const u = store.get(userId); if (!u) throw notFound(`User ${userId} was not found.`); return u; };
+   app.get('/v1/users', (req, res) => { const q = validate(CursorQuerySchema, req.query); const out = paginate([...store.values()].sort((a,b) => a.id.localeCompare(b.id)), q, u => u.id); res.status(200).json(pageSchema(UserSchema).parse(out)); });
+-  app.post('/v1/users', idempotency(), (req, res) => { const input = CreateSchema.parse(req.body); if ([...store.values()].some(u => u.email === input.email)) throw conflict('Email is already in use.'); const now = new Date().toISOString(); const user = UserSchema.parse({ ...input, id: randomUUID(), createdAt: now, updatedAt: now }); store.set(user.id, user); res.location(`/v1/users/${user.id}`).status(201).json(UserSchema.parse(user)); });
++  app.post('/v1/users', idempotency(), (req, res) => { const input = validate(CreateSchema, req.body); if ([...store.values()].some(u => u.email === input.email)) throw conflict('Email is already in use.'); const now = new Date().toISOString(); const user = UserSchema.parse({ ...input, id: randomUUID(), createdAt: now, updatedAt: now }); store.set(user.id, user); res.location(`/v1/users/${user.id}`).status(201).json(UserSchema.parse(user)); });
+   app.get('/v1/users/:userId', (req, res) => { const { userId } = IdSchema.parse(req.params); res.status(200).json(UserSchema.parse(find(userId))); });
+   app.patch('/v1/users/:userId', idempotency(), (req, res) => { const { userId } = IdSchema.parse(req.params); const old = find(userId); const input = PatchSchema.parse(req.body); if (input.email !== undefined && [...store.values()].some(u => u.id !== old.id && u.email === input.email)) throw conflict('Email is already in use.'); const user = UserSchema.parse({ ...old, ...input, updatedAt: new Date().toISOString() }); store.set(user.id, user); res.status(200).json(UserSchema.parse(user)); });
+   app.delete('/v1/users/:userId', (req, res) => { const { userId } = IdSchema.parse(req.params); const user = find(userId); store.delete(user.id); res.status(204).end(); });

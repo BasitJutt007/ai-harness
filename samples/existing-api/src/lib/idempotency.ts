@@ -2,8 +2,10 @@
  * Idempotency keys for POST and PATCH.
  *
  * A client may send `Idempotency-Key: <1-255 chars>`. For a given key:
- * - first request: runs normally; a 2xx response is remembered (status, Location, body);
- * - same method + path + body again: the remembered response is replayed with
+ * - first request: runs normally; a 2xx response is remembered (status, Location, Content-Type and
+ *   the exact serialized body, captured as it is sent, so a later change to the object the handler
+ *   sent, e.g. a PATCH that mutates the stored resource in place, cannot change the replay);
+ * - same method + path + body again: the remembered response is replayed byte for byte with
  *   `Idempotent-Replayed: true` and the handler does not run;
  * - different method, path or body: 422 problem (idempotency-key-reuse);
  * - while the first request is still running: 409 problem (idempotency-key-in-flight).
@@ -25,7 +27,9 @@ const StoredResponseSchema = z.discriminatedUnion('state', [
     fingerprint: z.string(),
     status: z.number().int(),
     location: z.string().optional(),
-    body: z.unknown(),
+    contentType: z.string().optional(),
+    /** The bytes sent (a JSON response is captured after serialization), or undefined for no body. */
+    body: z.union([z.string(), z.instanceof(Buffer)]).optional(),
   }),
 ]);
 type StoredResponse = z.infer<typeof StoredResponseSchema>;
@@ -55,22 +59,27 @@ export function idempotency(): RequestHandler {
       }
       res.status(existing.status).set('Idempotent-Replayed', 'true');
       if (existing.location !== undefined) res.location(existing.location);
+      if (existing.contentType !== undefined) res.set('Content-Type', existing.contentType);
       if (existing.body === undefined) res.end();
-      else res.json(existing.body);
+      else res.send(existing.body);
       return;
     }
 
     store.set(key, StoredResponseSchema.parse({ state: 'in-flight', fingerprint: print }));
-    const remember = (body: unknown): void => {
+    const remember = (body: string | Buffer | undefined): void => {
       if (res.statusCode < 200 || res.statusCode > 299) return;
       const location = res.get('Location');
-      store.set(key, StoredResponseSchema.parse({ state: 'done', fingerprint: print, status: res.statusCode, location, body }));
+      const contentType = res.get('Content-Type');
+      store.set(key, StoredResponseSchema.parse({ state: 'done', fingerprint: print, status: res.statusCode, location, contentType, body }));
     };
-    // Remember a JSON response before it is sent, so a retry that races the socket still replays.
-    const json = res.json.bind(res);
-    res.json = (body: unknown) => {
-      remember(body);
-      return json(body);
+    // Remember the serialized response before it is sent, so a retry that races the socket still replays.
+    // res.json (and res.send of an object) serialize and then call res.send with the string: capture that,
+    // a snapshot no later mutation of the sent object can reach.
+    const send = res.send.bind(res);
+    res.send = (body?: unknown) => {
+      if (typeof body === 'string') remember(body);
+      else if (Buffer.isBuffer(body)) remember(Buffer.from(body));
+      return send(body);
     };
     res.on('finish', () => {
       if (res.statusCode < 200 || res.statusCode > 299) store.delete(key);

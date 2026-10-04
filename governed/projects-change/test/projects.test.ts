@@ -186,7 +186,7 @@ describe('project deletion and status filtering', () => {
     expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
   });
 
-  it('returns 404 problem for missing and repeatedly deleted projects', async () => {
+  it('returns 404 problem for unknown and repeated deletes', async () => {
     expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
     const project = await createProject();
     await request(app).delete(`/v1/projects/${project.id}`).expect(204);
@@ -197,22 +197,23 @@ describe('project deletion and status filtering', () => {
     expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
   });
 
-  it('filters by status and preserves filtered cursor pagination', async () => {
-    const archived = await Promise.all([createProject({ status: 'archived' }), createProject({ status: 'archived' }), createProject({ status: 'archived' })]);
+  it('filters by status and paginates the filtered set', async () => {
+    const archived = [await createProject({ status: 'archived' }), await createProject({ status: 'archived' }), await createProject({ status: 'archived' })];
     await createProject({ status: 'active' });
-    const ids = await listAll({ status: 'archived', limit: '1' });
+    const ids = await listAll({ status: 'archived', limit: '2' });
     expect(ids).toEqual(expect.arrayContaining(archived.map((project) => project.id)));
-    expect(ids).toEqual(expect.not.arrayContaining((await listAll({ status: 'active', limit: '100' }))));
-    expect(ids).toEqual(expect.arrayContaining(archived.map((project) => project.id)));
+    expect(ids.filter((id) => archived.some((project) => project.id === id))).toHaveLength(archived.length);
     expect(ids.filter((id) => archived.some((project) => project.id === id))).toHaveLength(archived.length);
     const active = await request(app).get('/v1/projects').query({ status: 'active', limit: '100' });
     expect(PageBody.parse(active.body).data.every((project) => project.status === 'active')).toBe(true);
-    const all = await request(app).get('/v1/projects').query({ limit: '100' });
-    expect(PageBody.parse(all.body).data.some((project) => project.status === 'active')).toBe(true);
-    expect(PageBody.parse(all.body).data.some((project) => project.status === 'archived')).toBe(true);
   });
 
-  it('rejects unknown status with 422 problem', async () => {
-    expectProblem(await request(app).get('/v1/projects').query({ status: 'other' }), 422);
+  it('rejects unknown status and unfiltered lists include both statuses', async () => {
+    expectProblem(await request(app).get('/v1/projects').query({ status: 'unknown' }), 422);
+    const active = await createProject({ status: 'active' });
+    const archived = await createProject({ status: 'archived' });
+    const ids = await listAll({ limit: '100' });
+    expect(ids).toContain(active.id);
+    expect(ids).toContain(archived.id);
   });
 });

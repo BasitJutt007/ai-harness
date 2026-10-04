@@ -25,3 +25,10 @@ export function replaceProduct(product: Product): void {
   products.set(product.id, product);
 }
 export const deleteProduct = (id: string): boolean => products.delete(id);
+
+/** The product a write answered, by Idempotency-Key (a copy: later writes do not change a replay). */
+const replies = new Map<string, Product>();
+export const replyFor = (key: string): Product | undefined => replies.get(key);
+export function rememberReply(key: string, product: Product): void {
+  replies.set(key, structuredClone(product));
+}
