@@ -15,6 +15,8 @@
  */
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
+import { storeModel } from './store-identity.ts';
+import type { Ctx, StoreModel, StoreVerdict, Val } from './store-identity.ts';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 export const HTTP_METHODS: readonly HttpMethod[] = ['get', 'post', 'put', 'patch', 'delete'];
@@ -101,6 +103,8 @@ export interface RouteInfo {
    * `ignored` (the key is only tested, never passed on or stored), else `unproven`.
    */
   idempotencyUse: IdempotencyUse;
+  /** Addition: when idempotencyUse is `unproven`, what could not be shown (e.g. why the store is not persistent). */
+  idempotencyWhy?: string;
   /** Addition: the handler (or a program function it calls, transitively) sets the Location header. */
   setsLocation: boolean;
   /** Set when the full path cannot be determined statically; `path` is then only a display label. */
@@ -288,7 +292,7 @@ export function propName(name: ts.PropertyName): string | undefined {
   return undefined;
 }
 
-function isProgramNode(node: ts.Node): boolean {
+export function isProgramNode(node: ts.Node): boolean {
   return !node.getSourceFile().isDeclarationFile;
 }
 
@@ -1731,6 +1735,7 @@ interface FnFacts {
   idempotencyKey: boolean;
   /** What is done with the key, when idempotencyKey (see RouteInfo.idempotencyUse). */
   idempotencyUse: IdempotencyUse;
+  idempotencyWhy?: string;
 }
 
 function emptyFacts(): FnFacts {
@@ -1852,9 +1857,13 @@ function reqMember(m: ApiModel, e: ts.Expression, isReq: (n: ts.Node) => boolean
 /**
  * Analyse one function of a route's chain. `reqIndex`/`resIndex` locate the request/response parameters
  * (resIndex -1: responses are not tracked, e.g. for a callee that only receives `req`). `inherited`: the status
- * the caller set on `res` before handing it to this helper (a send here that sets none uses it).
+ * the caller set on `res` before handing it to this helper (a send here that sets none uses it). `callers`:
+ * the request functions that handed `req`/`res` to `fn` (empty for a chain member); they run per request too.
  */
-function analyseFunction(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, reqIndex: number, resIndex: number, depth = 0, inherited?: { expr: ts.Expression; env: Env }): FnFacts {
+function analyseFunction(
+  m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, reqIndex: number, resIndex: number, depth = 0, inherited?: { expr: ts.Expression; env: Env },
+  callers: readonly ts.FunctionLikeDeclaration[] = [],
+): FnFacts {
   const { checker, root } = m;
   const facts = emptyFacts();
   const body = fn.body;
@@ -1936,13 +1945,13 @@ function analyseFunction(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, 
         if (ts.isCallExpression(parent) && parent.arguments.includes(node) && depth < MAX_HANDLER_DEPTH) {
           const callee = resolveFunction(checker, parent.expression);
           if (callee !== undefined && isProgramNode(callee)) {
-            const sub = analyseFunction(m, callee, bindCall(checker, callee, parent.arguments, env), parent.arguments.indexOf(node), -1, depth + 1);
+            const sub = analyseFunction(m, callee, bindCall(checker, callee, parent.arguments, env), parent.arguments.indexOf(node), -1, depth + 1, undefined, [...callers, fn]);
             facts.parses.push(...sub.parses);
             facts.reads.push(...sub.reads);
             facts.writeBacks.push(...sub.writeBacks);
             if (sub.idempotencyKey) {
               facts.idempotencyKey = true;
-              facts.idempotencyUse = betterUse(facts.idempotencyUse, sub.idempotencyUse);
+              noteUse(facts, sub.idempotencyUse, sub.idempotencyWhy);
               keyReads.push(parent);
             }
             return;
@@ -2029,7 +2038,7 @@ function analyseFunction(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, 
           const reqAt = call.arguments.findIndex((a) => isReq(unwrap(a)));
           const statusExpr = pendingStatus(checker, resSym, call);
           const carried = statusExpr !== undefined ? { expr: statusExpr, env } : inherited;
-          const sub = analyseFunction(m, callee, bindCall(checker, callee, call.arguments, env), reqAt, at, depth + 1, carried);
+          const sub = analyseFunction(m, callee, bindCall(checker, callee, call.arguments, env), reqAt, at, depth + 1, carried, [...callers, fn]);
           facts.helperResponses.push(...[...sub.responses, ...sub.helperResponses].map((s) => ({ ...s, via: s.via ?? call })));
           facts.statusLiterals.push(...sub.statusLiterals);
           facts.resEscapes.push(...sub.resEscapes);
@@ -2082,7 +2091,10 @@ function analyseFunction(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, 
   });
   // Reads after a write-back of the same part in this function see the parsed value.
   facts.reads = facts.reads.filter((r) => !facts.writeBacks.some((w) => w.target === r.target && w.pos < r.node.getStart()));
-  if (keyReads.length > 0) facts.idempotencyUse = betterUse(facts.idempotencyUse, idempotencyUse(checker, body, keyReads));
+  if (keyReads.length > 0) {
+    const use = idempotencyUse(m, fn, env, callers, keyReads);
+    noteUse(facts, use.use, use.why);
+  }
   return facts;
 }
 
@@ -2090,72 +2102,93 @@ function betterUse(a: IdempotencyUse, b: IdempotencyUse): IdempotencyUse {
   return IDEMPOTENCY_RANK[b] > IDEMPOTENCY_RANK[a] ? b : a;
 }
 
+/** Record one function's use of the key: the best use wins; an unproven one keeps its reason. */
+function noteUse(facts: FnFacts, use: IdempotencyUse, why: string | undefined): void {
+  if (use === 'unproven' && facts.idempotencyUse !== 'replays' && facts.idempotencyWhy === undefined && why !== undefined) facts.idempotencyWhy = why;
+  facts.idempotencyUse = betterUse(facts.idempotencyUse, use);
+}
+
 /**
  * What a function does with the Idempotency-Key value read at `reads` (data flow through consts and
  * assignments in `body`, closures included, and into the program functions the key is passed to):
  *  - replays: a store write keyed by it (`x.set(key, v)`, `x.put(key, v)`, `x[key] = v`: a method call on
  *    another object whose first argument carries the key, with a value) AND a response sent (json, send,
- *    end, write, …) from a value looked up by the key (`const hit = x.get(key)` … `res.json(hit.body)`);
- *    a program function the key is passed to may do either (`repo.insert(body, key)` that stores the
- *    created row under the key and returns the row a keyed lookup found);
+ *    end, write, …) from a value looked up by the key in THE SAME store (`const hit = x.get(key)` …
+ *    `res.json(hit.body)`), where that store is persistent (store-identity.ts: one object, created once,
+ *    that nothing replaces, clears or leaks); a program function the key is passed to may do either
+ *    (`repo.insert(body, key)` that stores the created row under the key and returns the row a keyed
+ *    lookup found);
  *  - ignored: the key is only tested (conditions, comparisons, a bare statement) and never passed on,
  *    stored or returned, so nothing can be remembered under it;
- *  - unproven: anything else (e.g. the key is handed to a store this analysis cannot follow).
+ *  - unproven: anything else (e.g. the key is handed to a store this analysis cannot follow, or to one it
+ *    cannot show to be persistent).
+ * `callers` are the request functions that handed `req` to `fn` (they run per request too).
  */
-function idempotencyUse(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[]): IdempotencyUse {
-  const flow = keyFlow(checker, body, reads, [], 0, new Set());
-  if (flow.stores && flow.replays) return 'replays';
-  return flow.escapes ? 'unproven' : 'ignored';
+function idempotencyUse(m: ApiModel, fn: ts.FunctionLikeDeclaration, env: Env, callers: readonly ts.FunctionLikeDeclaration[], reads: ts.Node[]): { use: IdempotencyUse; why?: string } {
+  if (fn.body === undefined) return { use: 'unproven' };
+  const model = storeModel(m, fn, env, callers);
+  const shared: KeyShared = { lookups: [], keySyms: new Set(), reads: new Set(reads) };
+  const flow = keyFlow(m.checker, model, fn.body, reads, [], 0, new Set(), model.top, shared);
+  /** A delete of the request's own key (cleanup), not of other entries. */
+  const isKeyed = (arg: ts.Expression): boolean => {
+    let found = false;
+    walk(arg, (n) => {
+      if (shared.reads.has(n)) found = true;
+      const sym = ts.isIdentifier(n) ? m.checker.getSymbolAtLocation(n) : undefined;
+      if (sym !== undefined && shared.keySyms.has(sym)) found = true;
+    });
+    return found;
+  };
+  const verdicts = new Map<readonly Val[], StoreVerdict>();
+  const judged = (vals: readonly Val[]): StoreVerdict => {
+    const hit = verdicts.get(vals);
+    if (hit !== undefined) return hit;
+    const v = model.judge(vals, isKeyed);
+    verdicts.set(vals, v);
+    return v;
+  };
+  const written = new Set(flow.writes.map((w) => judged(w).store).filter((s): s is string => s !== undefined));
+  for (const id of flow.replays) {
+    const vals = shared.lookups[id];
+    const store = vals !== undefined ? judged(vals).store : undefined;
+    if (store !== undefined && written.has(store)) return { use: 'replays' };
+  }
+  if (!flow.escapes && flow.writes.length === 0) return { use: 'ignored' };
+  const failed = flow.writes.map(judged).find((v) => v.store === undefined);
+  if (failed?.why !== undefined) return { use: 'unproven', why: `the store written under the key is not shown to persist across requests: ${failed.why}` };
+  if (written.size > 0) return { use: 'unproven', why: 'no response is sent from a value looked up by the key in the same persistent store it is written to' };
+  return { use: 'unproven' };
 }
 
 interface KeyFlow {
-  /** A store write keyed by the key. */
-  stores: boolean;
-  /** A response sent from a value looked up by the key. */
-  replays: boolean;
+  /** Receivers of keyed store writes, as the abstract objects each may be. */
+  writes: Array<readonly Val[]>;
+  /** Lookups (ids into KeyShared.lookups) whose value a response sends. */
+  replays: Set<number>;
   /** The key flows somewhere other than a test, a keyed store or lookup, or the return value. */
   escapes: boolean;
   /** The function returns the key (or a value built from it). */
   returnsKey: boolean;
-  /** The function returns a value looked up by the key. */
-  returnsLookup: boolean;
+  /** Lookups whose value the function returns. */
+  returnsLookup: Set<number>;
+}
+
+/** State shared by every function keyFlow follows for one request function. */
+interface KeyShared {
+  /** Each keyed lookup's store, as the abstract objects it may be. */
+  lookups: Array<readonly Val[]>;
+  /** Every name bound to the key, in any followed function. */
+  keySyms: Set<ts.Symbol>;
+  reads: Set<ts.Node>;
 }
 
 /** How deep keyFlow follows the key into the program functions it is passed to. */
 const MAX_KEY_FLOW_DEPTH = 3;
 
-type StoreLifetime = 'persistent' | 'fresh' | 'unknown';
-
-/**
- * Where a store's lifetime is judged from: the request function and every function followed from it.
- *  - stack: the bodies of the request function (first) and of each followed callee, outermost first; code
- *    in any of them (or nested inside them) runs during the request;
- *  - paramLives: each followed callee's parameters, with the lifetime of the argument at its call site;
- *  - thisLife: the lifetime of `this` inside the innermost followed method (the receiver at the call site);
- *    undefined in the request function itself.
- */
-interface LifetimeEnv {
-  readonly stack: readonly ts.Node[];
-  readonly paramLives: ReadonlyMap<ts.Symbol, StoreLifetime>;
-  readonly thisLife?: StoreLifetime;
-}
-
-/** The nearest function-like node enclosing `node` (not `node` itself), or undefined at module scope. */
-function enclosingFunction(node: ts.Node): ts.FunctionLikeDeclaration | undefined {
-  for (let p = node.parent; p !== undefined; p = p.parent) if (isFunctionLike(p)) return p;
-  return undefined;
-}
-
-/** `inner` lies inside `outer` (same file, by position). */
-function within(inner: ts.Node, outer: ts.Node): boolean {
-  return inner.getSourceFile() === outer.getSourceFile() && inner.pos >= outer.pos && inner.end <= outer.end;
-}
-
-function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds: ts.Symbol[], depth: number, active: Set<ts.Node>, envIn?: LifetimeEnv): KeyFlow {
-  const env: LifetimeEnv = envIn ?? { stack: [body], paramLives: new Map() };
+function keyFlow(checker: ts.TypeChecker, model: StoreModel, body: ts.Node, reads: ts.Node[], seeds: ts.Symbol[], depth: number, active: Set<ts.Node>, ctx: Ctx, shared: KeyShared): KeyFlow {
   const readSet = new Set<ts.Node>(reads);
   const keySyms = new Set<ts.Symbol>(seeds);
-  const lookupSyms = new Set<ts.Symbol>();
+  const lookupSyms = new Map<ts.Symbol, Set<number>>();
   const symOf = (n: ts.Node): ts.Symbol | undefined => (ts.isIdentifier(n) ? checker.getSymbolAtLocation(n) : undefined);
   const inSet = (n: ts.Node, set: Set<ts.Symbol>): boolean => {
     const sym = symOf(n);
@@ -2173,24 +2206,15 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     const fn = depth < MAX_KEY_FLOW_DEPTH ? resolveFunction(checker, call.expression) : undefined;
     if (fn?.body !== undefined && isProgramNode(fn) && !active.has(fn)) {
       const params: ts.Symbol[] = [];
-      const lives = new Map<ts.Symbol, StoreLifetime>();
       call.arguments.forEach((a, i) => {
         const p = fn.parameters[i];
         const sym = p !== undefined && ts.isIdentifier(p.name) && p.dotDotDotToken === undefined ? checker.getSymbolAtLocation(p.name) : undefined;
-        if (sym === undefined) return;
-        if (carriesKey(a)) params.push(sym);
-        else lives.set(sym, lifetime(a));
+        if (sym !== undefined && carriesKey(a)) params.push(sym);
       });
       if (params.length > 0) {
         active.add(fn);
-        const callee = unwrap(call.expression);
-        const thisLife = ts.isPropertyAccessExpression(callee) ? lifetime(callee.expression) : env.thisLife;
-        const next: LifetimeEnv = {
-          stack: [...env.stack, fn.body],
-          paramLives: new Map([...env.paramLives, ...lives]),
-          ...(thisLife !== undefined ? { thisLife } : {}),
-        };
-        out = keyFlow(checker, fn.body, [], params, depth + 1, active, next);
+        // The callee runs in a frame of its own: its parameters are the abstract values of the arguments.
+        out = keyFlow(checker, model, fn.body, [], params, depth + 1, active, model.enter(model.at(ctx, call), call, fn), shared);
         active.delete(fn);
       }
     }
@@ -2217,23 +2241,46 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     if (ts.isFunctionLike(e)) return false;
     return ts.forEachChild(e, (c) => (carriesKeyShallow(c) ? true : undefined)) === true;
   };
-  /** `x.get(key)` / `x[key]` (not an assignment target), or a followed call returning such a value: a value looked up by the key. */
-  const isLookup = (n: ts.Node): boolean => {
+  /** One id per lookup site: its store resolved (in this function's frame) to the objects it may be. */
+  const lookupIds = new Map<ts.Node, number>();
+  const lookupIn = (site: ts.Node, store: ts.Expression): Set<number> => {
+    let id = lookupIds.get(site);
+    if (id === undefined) {
+      id = shared.lookups.push(model.resolve(store, model.at(ctx, store))) - 1;
+      lookupIds.set(site, id);
+    }
+    return new Set([id]);
+  };
+  /**
+   * `x.get(key)` / `x[key]` (not an assignment target), or a followed call returning such a value: a value
+   * looked up by the key, as the lookups it may come from (undefined: not a lookup).
+   */
+  const lookupOf = (n: ts.Node): Set<number> | undefined => {
     if (ts.isCallExpression(n)) {
       const followed = n.arguments.some((a) => carriesKeyShallow(a)) ? calleeFlow(n) : undefined;
-      if (followed !== undefined) return followed.returnsLookup;
+      if (followed !== undefined) return followed.returnsLookup.size > 0 ? followed.returnsLookup : undefined;
     }
-    if (methodCall(n)) return !carriesKey(n.expression.expression) && n.arguments[0] !== undefined && carriesKey(n.arguments[0]);
+    if (methodCall(n)) {
+      const recv = n.expression.expression;
+      return !carriesKey(recv) && n.arguments[0] !== undefined && carriesKey(n.arguments[0]) ? lookupIn(n, recv) : undefined;
+    }
     if (ts.isElementAccessExpression(n)) {
       const target = ts.isBinaryExpression(n.parent) && n.parent.left === n && n.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
-      return !target && !carriesKey(n.expression) && carriesKey(n.argumentExpression);
+      return !target && !carriesKey(n.expression) && carriesKey(n.argumentExpression) ? lookupIn(n, n.expression) : undefined;
     }
-    return false;
+    return undefined;
   };
-  const carriesLookup = (e: ts.Node): boolean => {
-    if (inSet(e, lookupSyms) || isLookup(e)) return true;
-    if (ts.isFunctionLike(e)) return false;
-    return ts.forEachChild(e, (c) => (carriesLookup(c) ? true : undefined)) === true;
+  /** The lookups a value may carry (undefined: none). */
+  const carriesLookup = (e: ts.Node): Set<number> | undefined => {
+    const out = new Set<number>();
+    const visit = (n: ts.Node): void => {
+      const sym = symOf(n);
+      for (const id of (sym !== undefined ? lookupSyms.get(sym) : undefined) ?? []) out.add(id);
+      for (const id of lookupOf(n) ?? []) out.add(id);
+      if (!ts.isFunctionLike(n)) ts.forEachChild(n, visit);
+    };
+    visit(e);
+    return out.size > 0 ? out : undefined;
   };
   const bindings: Array<{ names: ts.Identifier[]; value: ts.Expression }> = [];
   const bound = (name: ts.BindingName): ts.Identifier[] => (ts.isIdentifier(name) ? [name] : name.elements.flatMap((el) => (ts.isBindingElement(el) ? bound(el.name) : [])));
@@ -2245,17 +2292,31 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
   for (let changed = true; changed; ) {
     changed = false;
     for (const b of bindings) {
-      const into = carriesKey(b.value) ? keySyms : carriesLookup(b.value) ? lookupSyms : undefined;
-      if (into === undefined) continue;
+      if (carriesKey(b.value)) {
+        for (const id of b.names) {
+          const sym = symOf(id);
+          if (sym !== undefined && !keySyms.has(sym)) {
+            keySyms.add(sym);
+            changed = true;
+          }
+        }
+        continue;
+      }
+      const ids = carriesLookup(b.value);
+      if (ids === undefined) continue;
       for (const id of b.names) {
         const sym = symOf(id);
-        if (sym !== undefined && !into.has(sym)) {
-          into.add(sym);
-          changed = true;
-        }
+        if (sym === undefined) continue;
+        const set = lookupSyms.get(sym) ?? new Set<number>();
+        const before = set.size;
+        for (const x of ids) set.add(x);
+        lookupSyms.set(sym, set);
+        if (set.size !== before) changed = true;
       }
     }
   }
+  for (const s of keySyms) shared.keySyms.add(s);
+  for (const r of reads) shared.reads.add(r);
   /** Where the key at `n` goes: a call argument of a followed function escapes only if that function lets it. */
   const escapesAt = (n: ts.Node): boolean => {
     const sink = keySink(n);
@@ -2263,127 +2324,33 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     const call = sink.parent;
     if (ts.isCallExpression(call) && call.arguments.some((a) => a === sink)) {
       const followed = calleeFlow(call);
-      if (followed !== undefined) return followed.escapes || followed.stores || followed.returnsKey || followed.returnsLookup;
+      if (followed !== undefined) return followed.escapes || followed.writes.length > 0 || followed.returnsKey || followed.returnsLookup.size > 0;
     }
     return true;
   };
-  /**
-   * How long the store an expression names lives, relative to one request. The request is the request
-   * function (env.stack[0]) plus every function followed from it (env.stack), so a closure or helper does
-   * not get a fresh boundary of its own.
-   *  - 'persistent': created where code runs once, not per request: module scope, or a function that
-   *    lexically encloses the request function (a middleware factory such as `idempotency()`); a parameter
-   *    of such a factory; `this` in the request function; or a followed parameter / receiver whose argument
-   *    was persistent at its call site;
-   *  - 'fresh': created during the request: `new …`, `{ … }`, `[ … ]` bound in the request function, in a
-   *    followed callee, or in code nested inside them (a closure that captures it does not change that), or
-   *    a property of such a value; also a persistent path that the request itself reassigns to such a value;
-   *  - 'unknown': anything else: a call's result, a parameter whose argument was not followed (the request
-   *    function's own `req`/`res`), a value created in some other function (e.g. a closure returned by a
-   *    helper), or a path the request reassigns to an unknown value. Never counted as proof of storage.
-   */
-  function lifetime(e0: ts.Expression, seen: Set<ts.Node> = new Set()): StoreLifetime {
-    let e: ts.Expression = e0;
-    while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) e = e.expression;
-    const reassigned = reassignedLifetime(e, seen);
-    if (reassigned !== undefined) return reassigned;
-    if (e.kind === ts.SyntaxKind.ThisKeyword) return env.thisLife ?? 'persistent';
-    if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) return lifetime(e.expression, seen);
-    if (!ts.isIdentifier(e)) return 'unknown';
-    const sym = checker.getSymbolAtLocation(e);
-    const decl = sym?.valueDeclaration ?? sym?.declarations?.[0];
-    if (decl === undefined) return 'unknown';
-    const request = env.stack[0] ?? body;
-    const onStack = (fn: ts.FunctionLikeDeclaration): boolean => env.stack.some((b) => fn.body === b || within(fn, b));
-    const enclosesRequest = (fn: ts.FunctionLikeDeclaration): boolean => fn.body !== request && within(request, fn);
-    if (ts.isParameter(decl)) {
-      const fn = decl.parent;
-      if (!isFunctionLike(fn)) return 'unknown';
-      if (onStack(fn)) return (sym !== undefined ? env.paramLives.get(sym) : undefined) ?? 'unknown';
-      return enclosesRequest(fn) ? 'persistent' : 'unknown';
-    }
-    const owner = enclosingFunction(decl);
-    if (owner === undefined) return 'persistent';
-    if (enclosesRequest(owner) && !onStack(owner)) return 'persistent';
-    if (!onStack(owner)) return 'unknown';
-    // Declared during the request: fresh when allocated there, else whatever it aliases.
-    if (!ts.isVariableDeclaration(decl) || decl.initializer === undefined || seen.has(decl)) return 'unknown';
-    seen.add(decl);
-    let init: ts.Expression = decl.initializer;
-    while (ts.isParenthesizedExpression(init) || ts.isAsExpression(init) || ts.isSatisfiesExpression(init)) init = init.expression;
-    if (ts.isNewExpression(init) || ts.isObjectLiteralExpression(init) || ts.isArrayLiteralExpression(init)) return 'fresh';
-    if (ts.isIdentifier(init) || ts.isPropertyAccessExpression(init) || ts.isElementAccessExpression(init) || init.kind === ts.SyntaxKind.ThisKeyword) return lifetime(init, seen);
-    return 'unknown';
-  }
-  /** `x.a.b` / `this.a` / `x['a']` as a root (symbol or `this`) and property names; undefined for anything else. */
-  function storePath(e0: ts.Expression): { root: ts.Symbol | 'this'; props: string[] } | undefined {
-    let e: ts.Expression = e0;
-    while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) e = e.expression;
-    if (e.kind === ts.SyntaxKind.ThisKeyword) return { root: 'this', props: [] };
-    if (ts.isIdentifier(e)) {
-      const sym = checker.getSymbolAtLocation(e);
-      return sym === undefined ? undefined : { root: sym, props: [] };
-    }
-    if (ts.isPropertyAccessExpression(e)) {
-      const inner = storePath(e.expression);
-      return inner === undefined ? undefined : { root: inner.root, props: [...inner.props, e.name.text] };
-    }
-    if (ts.isElementAccessExpression(e) && ts.isStringLiteralLike(e.argumentExpression)) {
-      const inner = storePath(e.expression);
-      return inner === undefined ? undefined : { root: inner.root, props: [...inner.props, e.argumentExpression.text] };
-    }
-    return undefined;
-  }
-  /**
-   * When the request (any body on env.stack) assigns to the store's path or a prefix of it (`cache = new
-   * Map()` on a module-level `let`, `holder.store = new Map()`), the store is whatever was assigned: the
-   * worst lifetime of those values. Undefined when nothing on the path is reassigned during the request,
-   * or every reassignment is itself persistent.
-   */
-  function reassignedLifetime(e: ts.Expression, seen: Set<ts.Node>): StoreLifetime | undefined {
-    const path = storePath(e);
-    if (path === undefined) return undefined;
-    let worst: StoreLifetime | undefined;
-    for (const b of env.stack) {
-      walk(b, (n) => {
-        if (!ts.isBinaryExpression(n) || seen.has(n)) return;
-        const op = n.operatorToken.kind;
-        if (op !== ts.SyntaxKind.EqualsToken && op !== ts.SyntaxKind.QuestionQuestionEqualsToken && op !== ts.SyntaxKind.BarBarEqualsToken) return;
-        const target = storePath(n.left);
-        if (target === undefined || target.root !== path.root || target.props.length > path.props.length) return;
-        if (target.props.some((p, i) => p !== path.props[i])) return;
-        seen.add(n);
-        const life = lifetime(n.right, seen);
-        if (life === 'unknown' || (life === 'fresh' && worst !== 'unknown')) worst = life;
-      });
-    }
-    return worst;
-  }
-  /** A keyed write into `obj`: counts as storage only when `obj` outlives the call; an unknown lifetime is unproven. */
+  const flow: KeyFlow = { writes: [], replays: new Set(), escapes: false, returnsKey: false, returnsLookup: new Set() };
+  /** A keyed write into `obj`: its store is judged (one persistent object?) once the whole request is analysed. */
   const keyedWrite = (obj: ts.Expression): void => {
-    const life = lifetime(obj);
-    if (life === 'persistent') flow.stores = true;
-    else if (life === 'unknown') flow.escapes = true;
+    flow.writes.push(model.resolve(obj, model.at(ctx, obj)));
   };
-  const flow: KeyFlow = { stores: false, replays: false, escapes: false, returnsKey: false, returnsLookup: false };
   walk(body, (n) => {
     if (ts.isCallExpression(n) && n.arguments.some((a) => carriesKeyShallow(a))) {
       const followed = calleeFlow(n);
       if (followed !== undefined) {
-        flow.stores ||= followed.stores;
-        flow.replays ||= followed.replays;
+        flow.writes.push(...followed.writes);
+        for (const id of followed.replays) flow.replays.add(id);
       }
     }
     if (methodCall(n) && n.arguments.length >= 2 && !carriesKey(n.expression.expression) && n.arguments[0] !== undefined && carriesKey(n.arguments[0])) keyedWrite(n.expression.expression);
     if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left) && carriesKey(n.left.argumentExpression)) keyedWrite(n.left.expression);
-    if (methodCall(n) && REPLAY_METHODS.has(n.expression.name.text) && carriesLookup(n)) flow.replays = true;
+    if (methodCall(n) && REPLAY_METHODS.has(n.expression.name.text)) for (const id of carriesLookup(n) ?? []) flow.replays.add(id);
     if (!flow.escapes && (readSet.has(n) || inSet(n, keySyms)) && !(ts.isIdentifier(n) && isDeclarationName(n))) flow.escapes = escapesAt(n);
   });
   const fn = body.parent;
   if (isFunctionLike(fn)) {
     for (const r of returnedExpressions(fn)) {
       flow.returnsKey ||= carriesKey(r);
-      flow.returnsLookup ||= carriesLookup(r);
+      for (const id of carriesLookup(r) ?? []) flow.returnsLookup.add(id);
     }
   }
   return flow;
@@ -2962,8 +2929,11 @@ export function extractRouteTable(program: ts.Program, root: string, files: stri
 function combineChain(
   chain: FnFacts[],
   handler: FnFacts,
-): Pick<RouteInfo, 'parses' | 'unparsedReads' | 'responses' | 'chainResponses' | 'statusLiterals' | 'problemSites' | 'resEscapes' | 'resUnfollowed' | 'readsIdempotencyKey' | 'idempotencyUse'> {
+): Pick<RouteInfo, 'parses' | 'unparsedReads' | 'responses' | 'chainResponses' | 'statusLiterals' | 'problemSites' | 'resEscapes' | 'resUnfollowed' | 'readsIdempotencyKey' | 'idempotencyUse' | 'idempotencyWhy'> {
   const written = new Set<string>();
+  const keyed = [handler, ...chain].filter((f) => f.idempotencyKey);
+  const use = keyed.reduce<IdempotencyUse>((best, f) => betterUse(best, f.idempotencyUse), 'ignored');
+  const why = keyed.find((f) => f.idempotencyUse === 'unproven' && f.idempotencyWhy !== undefined)?.idempotencyWhy;
   const unparsedReads: RouteInfo['unparsedReads'] = [];
   for (const f of [...chain, handler]) {
     for (const r of f.reads) if (!written.has(r.target)) unparsedReads.push({ ...r });
@@ -2980,7 +2950,8 @@ function combineChain(
     resEscapes: handler.resEscapes,
     resUnfollowed: handler.resUnfollowed,
     readsIdempotencyKey: handler.idempotencyKey || chain.some((f) => f.idempotencyKey),
-    idempotencyUse: [handler, ...chain].filter((f) => f.idempotencyKey).reduce<IdempotencyUse>((best, f) => betterUse(best, f.idempotencyUse), 'ignored'),
+    idempotencyUse: use,
+    ...(use === 'unproven' && why !== undefined ? { idempotencyWhy: why } : {}),
   };
 }
 
