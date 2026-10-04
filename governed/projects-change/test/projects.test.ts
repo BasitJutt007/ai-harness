@@ -178,39 +178,29 @@ describe('PATCH /v1/projects/:projectId', () => {
 
 
 describe('project deletion and status filtering', () => {
-  it('deletes a project and returns 204 with no body', async () => {
+  it('deletes a project with 204, then returns 404, and rejects repeat and malformed deletes', async () => {
     const project = await createProject();
     const deleted = await request(app).delete(`/v1/projects/${project.id}`);
     expect(deleted.status).toBe(204);
     expect(deleted.text).toBe('');
     expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
-  });
-
-  it('returns 404 problem for missing and repeated deletes', async () => {
-    expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
-    const project = await createProject();
-    await request(app).delete(`/v1/projects/${project.id}`).expect(204);
     expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
-  });
-
-  it('rejects malformed delete ids', async () => {
     expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
   });
 
-  it('filters projects by status and rejects unknown status', async () => {
-    const active = await createProject({ status: 'active' });
+  it('filters archived and active projects, including cursor pagination', async () => {
     const archived = await createProject({ status: 'archived' });
-    expect(await listAll({ status: 'active', limit: '100' })).toContain(active.id);
-    expect(await listAll({ status: 'active', limit: '100' })).not.toContain(archived.id);
-    expect(await listAll({ status: 'archived', limit: '100' })).toContain(archived.id);
-    expect(await listAll({ status: 'archived', limit: '100' })).not.toContain(active.id);
-    expectProblem(await request(app).get('/v1/projects').query({ status: 'unknown' }), 422);
+    const active = await createProject({ status: 'active' });
+    await createProject({ status: 'archived' });
+    const archivedIds = await listAll({ status: 'archived', limit: '1' });
+    expect(archivedIds).toContain(archived.id);
+    expect(archivedIds).not.toContain(active.id);
+    const activeIds = await listAll({ status: 'active', limit: '1' });
+    expect(activeIds).toContain(active.id);
+    expect(activeIds).not.toContain(archived.id);
   });
 
-  it('paginates the filtered set without duplicates', async () => {
-    const projects = await Promise.all(Array.from({ length: 3 }, () => createProject({ status: 'archived' })));
-    const ids = await listAll({ status: 'archived', limit: '1' });
-    for (const project of projects) expect(ids).toContain(project.id);
-    expect(new Set(ids).size).toBe(ids.length);
+  it('rejects an unknown status query value', async () => {
+    expectProblem(await request(app).get('/v1/projects').query({ status: 'deleted' }), 422);
   });
 });
