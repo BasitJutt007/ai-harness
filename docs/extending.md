@@ -232,6 +232,7 @@ interface ToolPlugin<I> {
   description?: string;         // one or two sentences: all the model learns up front (default: the name)
   input: z.ZodType<I>;          // converted to a neutral JSON Schema by the core
   effect: 'read' | 'write' | 'exec' | 'control';   // hooks select on this
+  fetcher?: boolean;            // fetches context (default: true for 'read' tools); --baseline runs withhold every fetcher
   availableIn?: ('greenfield' | 'brownfield')[];    // default: both
   paths?(input: I): string[];   // API-relative paths touched (REQUIRED for write tools)
   // Write tools: the exact content `path` will have after the call (null = no file), given its current
@@ -285,8 +286,10 @@ interface CheckPlugin {
   doc?: string;         // full rule text, served on demand by the fetch_standard tool (default: the description)
   run(ctx: CheckContext): Promise<CheckFinding[]>;
 }
-// CheckContext: root, sourceFiles (src/**/*.ts minus tests), testFiles, read(rel),
-//   sourceFile(rel) (parsed, cached), program() (strict ts.Program, cached), exec, harnessRoot, logs,
+// CheckContext: root, sourceFiles (TypeScript under the API's source roots, tests and .d.ts excluded;
+//   src/ for the template), testFiles, layout? (the run's target layout: source roots, test dirs, runner globs),
+//   read(rel), sourceFile(rel) (parsed, cached), program() (strict ts.Program over a fenced compiler host, cached),
+//   exec, harnessRoot, logs,
 //   taskKind? ('greenfield' | 'brownfield'; absent for `harness check`),
 //   base? ({ repoRoot, rootRel, sha } of the run's base commit; absent for `harness check`),
 //   dependencies() (merged dependencies + devDependencies of <root>/package.json, {} if none)
@@ -391,8 +394,10 @@ export default defineHook({
 ```
 
 The core guarantees: hooks run in discovery order, and the first `block` wins (on
-`pre_tool` the tool does not run and the model gets `reason`). A `record` note is logged
-and added to the model-visible result. A hook that throws or returns anything malformed
+`pre_tool` the tool does not run and the model gets `reason`; on `post_tool` the tool has
+already run, so a block marks its result as an error with the reason and undoes nothing). A
+`record` note is logged and added to the model-visible result: the shipped post-tool hook
+`typecheck-feedback` only ever records. A hook that throws or returns anything malformed
 blocks the call (fail closed). Every decision is written to `runs/<id>/events.jsonl`.
 A hook that judges what a write produces reads `event.call.preview` (path -> post-write
 content, computed once from the tool's `preview()`), never the tool's input field names.
@@ -407,7 +412,9 @@ interface GatePlugin {
   phases: ('finish' | 'ship')[];
   appliesTo?: ('greenfield' | 'brownfield')[];   // others → n/a, not run
   run(ctx: RunContext, phase: 'finish' | 'ship'): Promise<{
-    status: 'pass' | 'fail' | 'unproven' | 'n/a'; summary: string; details?: string[]; logPath?: string }>;
+    status: 'pass' | 'fail' | 'unproven' | 'n/a'; summary: string; details?: string[]; logPath?: string;
+    humanMustVerify?: string[];   // seen but neither proven nor blocking: listed under "human must verify"
+    failing?: number }>;          // failing units of a fail/unproven result (default: the number of details, at least 1)
 }
 ```
 
@@ -430,7 +437,9 @@ export default defineGate({
 The core guarantees: finish (and ship) succeed only if no gate is `fail` or `unproven`
 and at least one gate passed. Gates are re-run fresh at the end of a run and again before
 shipping, so cached results are never trusted. A gate that throws is `unproven`. The
-`details` of a failing or unproven gate are what the model sees in `FINISH REFUSED`.
+`details` of a failing or unproven gate are what the model sees in `FINISH REFUSED`. The
+`failing` counts of two refused finish attempts are what the loop compares before it extends a
+default turn limit (`src/core/loop.ts`).
 
 ## Driver
 
@@ -447,6 +456,8 @@ interface Driver {
   readonly tokenCounter: string;   // label of the method countTokens uses
   complete(req: ModelRequest, signal?: AbortSignal): Promise<ModelResponse>;
   countTokens(req: ModelRequest): Promise<number>;
+  retryAfterMs?(error: unknown): number | null;            // the wait a thrown error asks for (provider formats)
+  errorKind?(error: unknown): 'context_overflow' | null;   // the request did not fit the context window
 }
 ```
 
@@ -481,16 +492,21 @@ neutral, and `harness doctor` scans for leaks. The core counts tokens with
 (`tokens/<runId>.json`). Driver files are excluded from the run fingerprint, so the same
 task can run on two drivers and `harness agnostic` still shows zero diff.
 
-Real endpoints taught four rules (see `runs/real-model/`):
+Real endpoints taught these rules (see `runs/real-model/`):
 - **Replay what the provider needs back.** Anything that must come back verbatim on later turns
   travels as an `opaque` part tagged with your driver's name, and only your driver reads it.
   Examples: reasoning blocks, or the openai driver's per-tool-call extras, such as a thought
   signature.
-- **Keep the provider's status and error text in the error you throw.** The loop recognises a
-  rate limit from `status: 429`, or from `429`, `rate limit`, `RESOURCE_EXHAUSTED` or `quota` in
-  the message. It reads the stated wait (`retryDelay`, "retry in 37.6s", `Retry-After`, or an
-  `X-RateLimit-Reset` epoch timestamp) from the message too. It waits out a wait of 120 s or less and stops the
-  run on a longer one.
+- **Read your provider's rate-limit wait yourself.** The core reads no provider's error format.
+  Implement `retryAfterMs(error)` to return the wait a thrown error asks for (the shipped drivers
+  use `rateLimitRetryAfterMs` from `plugins/drivers/_wire.ts`, which reads forms such as
+  `retryDelay`, "retry in 37.6s" and `X-RateLimit-Reset`). Without it, or on `null`, the loop honours
+  only a standard `Retry-After` header on an error with `status` 429 or 503. It waits out a wait of
+  120 s or less (up to 30 times per request) and stops the run on a longer one.
+- **Say when a request did not fit.** Return `'context_overflow'` from `errorKind(error)` when the
+  provider says the request exceeds the context window. The loop then shrinks the request once
+  (1 recent turn, no working-set file text) instead of resending it unchanged; a `--baseline`
+  request is never shrunk, so the run ends with an error.
 - **If the endpoint cannot count tokens, let `countTokens` throw.** The loop then estimates
   chars/4 for both the actual and the baseline request, logs that in `events.jsonl`, and the
   token report's `counter` names the fallback instead of your counter.

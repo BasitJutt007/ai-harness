@@ -1,20 +1,25 @@
-# Real-model runs that did not reach DONE (2026-10-03)
+# Real-model runs that did not reach DONE (2026-10-03 and 2026-10-04)
 
-This directory holds the **fifteen real-model runs that did not reach `verdict DONE`**:
-- eight on free tiers (OpenRouter, Google AI Studio), which exposed F1–F6;
-- seven on the official OpenAI API, which exposed F7–F13.
+This directory holds **eighteen real-model runs that did not reach `verdict DONE`**:
+- 3 Oct, eight on free tiers (OpenRouter, Google AI Studio), which exposed F1–F6;
+- 3 Oct, seven on the official OpenAI API, which exposed F7–F13;
+- 4 Oct, three brownfield runs on the official OpenAI API, on the current code.
 
-The two real runs that **did** reach DONE are the graded evidence, so they sit at the top level
-of `runs/` and `tokens/`, not here:
+Two more 4 Oct runs that did not reach DONE sit at the top level of `runs/` and `tokens/` because
+the README cites them (`users-api-openai-20261004-045424`, the normal side of the measured token
+comparison, and `projects-change-openai-20261004-050613`); they are in the 4 Oct table below too.
+The real runs that **did** reach DONE are at the top level, all on the official OpenAI API with the
+openai driver:
 
-| run id (top level) | task | model (official OpenAI API, openai driver) | turns | result | tokens actual / baseline (reduction) | approx. cost |
-|---|---|---|---|---|---|---|
-| `users-api-openai-20261003-185149` | greenfield `users-api` | `gpt-5.4-mini` | 19 | DONE: all gates green, 28/28 tests, standards 100% | 90,195 / 397,317 (77.3%) | ~USD 0.08 |
-| `projects-change-openai-20261003-190927` | brownfield `projects-change` | `gpt-5.4` | 12 | DONE: contract-lock pass (2 additive), observed red 3 files red → green + revert check, 21/21 tests, standards 100% | 50,550 / 268,600 (81.2%) | ~USD 0.15 |
+| run id (top level) | task | model | turns | result | tokens actual / shadow baseline (reduction) |
+|---|---|---|---|---|---|
+| `users-api-openai-20261003-185149` | greenfield `users-api` | `gpt-5.4-mini` | 19 | DONE on 3 Oct code: 28/28 tests, observed red with revert check, standards 100% | 90,195 / 397,317 (77.3%) |
+| `projects-change-openai-20261003-190927` | brownfield `projects-change` | `gpt-5.4` | 12 | DONE on 3 Oct code: contract-lock pass (2 additive), observed red 3 files + revert check, 21/21 tests, standards 100% | 50,550 / 268,600 (81.2%) |
+| `users-api-openai-20261004-045649` | greenfield `users-api` | `gpt-5.4` | 23 | DONE: 6 gates pass, contract-lock n/a (spec-coverage 17/17, 41/41 tests, standards 100%) | 150,910 / 576,904 (73.8%) |
+| `users-api-openai-20261004-045825` | greenfield `users-api`, `--baseline` | `gpt-5.4-mini` | 16 | DONE in baseline mode (31/31 tests, spec-coverage 17/17, standards 100%) | 277,791 sent (measured baseline: no shadow) |
 
-The runs in this directory are kept because each one exposed a defect that is now fixed and
-tested offline, or showed a gate refusing real model output. They are not evidence of a
-finished task.
+The runs in this directory are kept because each one exposed a defect, or showed a gate refusing
+real model output. They are not evidence of a finished task.
 
 ## Layout
 
@@ -22,47 +27,70 @@ finished task.
 <runId>/                 run.json, events.jsonl, transcript.jsonl, state.json
                          (+ gates.json, standards.txt, logs/ when the run ended on its own;
                             + initial/ (run-start sources for the revert check) on the official
-                            OpenAI runs except …183608, whose snapshot had no revert check)
-<runId>/tokens.json      the run's token report (written by the harness as tokens/<runId>.json)
-<runId>/cli-output.txt   the CLI output of the run (official OpenAI runs only)
+                            OpenAI runs except …183608, whose snapshot had no revert check;
+                            + task.normalized.json on the 4 Oct runs)
+<runId>/tokens.json      the run's token report (written by the harness as tokens/<runId>.json),
+                         for every run that wrote one
+<runId>/cli-output.txt   the CLI output of the run (3 Oct official OpenAI runs only)
 cli-output/              the CLI output of the eight free-tier runs (run-*.log, run2-*.log)
 provider-smoke.txt       one complete() + countTokens() call per driver through OpenRouter
 ```
 
 The absolute paths inside `run.json`, the logs and the CLI output are the paths at run time
-(scratch snapshots, `.harness/worktrees/…`, `.harness/tmp/target-…`). They are left as recorded.
+(scratch snapshots, `.harness/worktrees/…`, `.harness/tmp/…`). They are left as recorded.
 The worktrees of the official OpenAI runs stay under the gitignored `.harness/worktrees/`.
 
 ## Secret scan
 
-Every file here and in the two top-level DONE runs (`runs/<id>/`, `tokens/<id>.json`) was
-searched for `sk-proj-`, `sk-or-v1`, `AQ.Ab8`, `xpl_`, `crsr_`, `sk-ant`, `Bearer `, `AIza…`,
-`sk-…`, `ghp_`, `xox…`, and every token-like string of 30+ characters. **Nothing was found, and
-nothing was redacted.** The long strings are all of these kinds:
-- sha256 plugin fingerprints and git SHAs;
+Re-run on 2026-10-04 over every file under `runs/` and `tokens/` (1,054 files: this directory,
+every top-level run and token report, the 4 Oct evidence included) for the key prefixes `sk-proj-`,
+`sk-or-v1`, `AQ.Ab8`, `xpl_`, `crsr_`, `sk-ant` and `ghp_`: **the only file containing any of them
+is this README** (the pattern names above). `AIza`, `xoxb-`, `xoxp-`, `Bearer `, `AKIA` and `sk-`
+followed by 20+ key characters occur in no other file either. Nothing was redacted. A
+classification of every token-like string of 30+ characters found only these kinds:
+- sha256 plugin fingerprints, git SHAs and other hex;
 - UUIDs that the agent's tests and the probes use as resource ids;
-- tool-call ids (`chatcmpl-tool-…`, `call_…`) and OpenRouter request ids (`gen-…`);
+- tool-call ids (`chatcmpl-…`, `call_…`) and OpenRouter request ids (`gen-…`): the only mixed-case
+  random-looking strings;
 - the probe's per-run canary `harness-probe-secret-<12 hex>`, a random marker the probe checks a
   500 does not leak. Despite its name, it is not a credential;
-- file paths, and code identifiers such as `IdempotencyHeadersSchema.safeParse`;
+- file paths, code identifiers, run ids and `--strict…` compiler flag names;
 - 84 Gemini `thought_signature` values inside the openai driver's `toolCallExtras` opaque parts
   (free-tier Google runs). These are the model's opaque reasoning signatures that F2 is about.
 
-Keys came from the environment and were never written to disk. A second scan over the whole
-repository (excluding `node_modules/`, `.git/` and `.harness/`) for the same prefixes, `AKIA` and
-`Bearer ` followed by a token found only the detector patterns in `plugins/lib/secrets.ts` and
-`src/core/ship.ts`, the pattern names in this file, and synthetic values that tests build at run
-time (for example `'AKIA' + 'Q'.repeat(16)`).
+Keys came from the environment and were never written to disk. Outside `runs/` and `tokens/`, the
+same prefixes and `AKIA` occur only in the detector patterns (`plugins/lib/secrets.ts`,
+`src/core/ship.ts`) and in the harness's own tests: patterns, values built at run time, and three
+canary `AKIA…` AWS key ids in the env red-team fixtures (`test/plugins/redteam-exec.test.ts`,
+`test/sandbox/env.test.ts`, `test/sandbox/helpers.ts`), next to values such as
+`postgres://canary:canary@127.0.0.1:5/canary`.
 
 ## Runs
 
 `turns` counts completed turns in `transcript.jsonl`. The tokens column gives actual, baseline
-and reduction against the per-turn shadow baseline (docs/design.md §3). All official OpenAI runs
-count with local o200k; their `tokens.json` also holds the provider's own count
-(`provider_reported_input_tokens`). The harness records tokens, not prices: the costs are the
-operator's approximate figures.
+and reduction against the per-turn **shadow** baseline (an estimate, never sent; docs/design.md
+§3). All official OpenAI runs count with local o200k; their `tokens.json` also holds the provider's
+own count (`provider_reported_input_tokens`). The harness records tokens, not prices.
 
-### Official OpenAI API (openai driver, Chat Completions)
+### 4 Oct: official OpenAI API, current code (openai driver, Chat Completions)
+
+| run id | task | model | turns (limit) | outcome | tokens actual / shadow baseline (reduction) | finding |
+|---|---|---|---|---|---|---|
+| `users-api-openai-20261004-045424` (top level) | greenfield | `gpt-5.4-mini` | 60 (60, task) | `max_turns`, NOT DONE. Finish refused at turns 12 and 19 (tests-green: 1 of 31 failed); from turn 20 the model worked on a failing case of its own test file and never called finish again. Its last edit (turn 60) made the suite pass, so the fresh final gates were all green (31/31 tests, spec-coverage 17/17, standards 100%), but DONE needs an accepted finish | 387,022 / 1,568,197 (75.3%) | a model can stop asking to finish; the normal side of the measured token comparison (−39.3% per run) |
+| `real-model/projects-change-openai-20261004-045936` | brownfield | `gpt-5.4` | 40 (40, task) | `max_turns`, NOT DONE; finish never called. tests-green fail: 1 of 23 (`filters by status before paginating…`: length 1 expected, 2 found); contract-lock pass (2 additive), observed-red pass, standards 100% | 212,646 / 706,012 (69.9%) | shared module-level state (below) |
+| `real-model/projects-change-openai-20261004-050115` | brownfield | `gpt-5.4` | 40 (40, task) | `max_turns`, NOT DONE; finish never called. tests-green fail: 1 of 23 (`applies the status filter before cursor pagination`: length 3 expected, 5 found); contract-lock pass (2 additive), observed-red pass, standards 100% | 203,091 / 831,518 (75.6%) | shared module-level state |
+| `real-model/projects-change-openai-20261004-050306` | brownfield | `gpt-5.6-luna` | 20 (40, task) | finish **accepted** at turn 20 (contract-lock 2 additive, observed red with revert check, 19/19 tests, standards 100%); stopped by the operator while the fresh final gates ran, so `run.json` stays `finalizing` with no verdict, `gates.json` or token report. Whether the driver switched to compat mode is not recorded (`run.json` was never finalised) | 76,908 / 259,024 (70.3%), summed from the transcript | none; not counted as DONE |
+| `projects-change-openai-20261004-050613` (top level) | brownfield | `gpt-5.6-luna (compat)` | 40 (40, task) | `max_turns`, NOT DONE; finish never called. tests-green fail: 1 of 21 (`filters by status and paginates the filtered set`: 4 items where 3 were expected); contract-lock pass (2 additive), observed-red pass, standards 100% | 203,685 / 720,162 (71.7%) | shared module-level state |
+
+**Shared module-level state.** The sample API (`samples/existing-api`) keeps its projects in a
+module-level `Map` (`src/modules/projects/store.ts`), so every test in a file shares one store. In
+the three failed brownfield runs the model wrote exact-count assertions that fail once earlier tests
+in the same file have created matching projects, then spent the rest of its turns (from turn 7–14
+to 40) on that one failing case without calling finish. tests-green refused DONE each time. The
+committed harness has no fix for this yet: nothing tells the model that a case depends on test
+order.
+
+### 3 Oct: official OpenAI API (openai driver, Chat Completions)
 
 The harness was the working tree of `feat/typescript-api-harness`. Each fix landed after the run
 that exposed it and before the next run (file mtimes, UTC: F8 `src/core/prompt.ts` 18:41, F9
@@ -71,15 +99,15 @@ that exposed it and before the next run (file mtimes, UTC: F8 `src/core/prompt.t
 `users-api-openai-20261003-183608` instead ran on a snapshot of `cb49d13` plus the free-tier
 fixes and F7. That snapshot had no OS sandbox yet, so its `run.json` has no `isolation`.
 
-| run id | model | harness | turns | outcome | tokens actual / baseline (reduction) | approx. cost | finding |
-|---|---|---|---|---|---|---|---|
-| `users-api-openai-20261003-183608` | `gpt-6-luna (compat)` | cb49d13 snapshot + F1–F7 | 50 | `max_turns`; 30/31 tests (pagination saw 6 users, expected 5); standards 83% (routes without `/v1`, 0/5) | 278,960 / 2,011,066 (86.1%) | ~USD 0.03 | F7 (F8 visible too) |
-| `users-api-openai-20261003-183914` | `gpt-5.4-mini` | working tree before F8 | 60 | `max_turns`; 29/30 tests; standards 86% | 346,742 / 2,340,234 (85.2%) | not recorded | F8 |
-| `users-api-openai-20261003-184219` | `gpt-5.4-mini` | + F8 | 43 | `aborted` (SIGINT by the operator); gates not run, reported UNPROVEN | 241,075 / 1,582,497 (84.8%) | not recorded | F9 |
-| `users-api-openai-20261003-184627` | `gpt-5.4-mini` | + F8, F9 | 60 | `max_turns`; finish refused 7 times; 29/29 tests, standards 100%, observed-red fail | 330,915 / 2,310,173 (85.7%) | not recorded | F10 |
-| `projects-change-openai-20261003-185304` | `gpt-5.4-mini` | + F8–F10 | 40 | `max_turns`; 0 files changed; observed-red fail ("no observed red in this run") | 171,861 / 1,445,390 (88.1%) | not recorded | F11 |
-| `projects-change-openai-20261003-190028` | `gpt-5.4-mini` | + F8–F11 | 40 | `max_turns`; 18/21 tests; standards 86% | 180,284 / 1,279,048 (85.9%) | not recorded | F12 |
-| `projects-change-openai-20261003-190756` | `gpt-5.4-mini` | + F8–F12 (final code) | 40 | `max_turns`; **contract-lock fail: 4 breaking (4 → 0 endpoints)**; tests failed to load | 147,114 / 1,122,854 (86.9%) | not recorded | F13 |
+| run id | model | harness | turns | outcome | tokens actual / shadow baseline (reduction) | finding |
+|---|---|---|---|---|---|---|
+| `users-api-openai-20261003-183608` | `gpt-6-luna (compat)` | cb49d13 snapshot + F1–F7 | 50 | `max_turns`; 30/31 tests (pagination saw 6 users, expected 5); standards 83% (routes without `/v1`, 0/5) | 278,960 / 2,011,066 (86.1%) | F7 (F8 visible too) |
+| `users-api-openai-20261003-183914` | `gpt-5.4-mini` | working tree before F8 | 60 | `max_turns`; 29/30 tests; standards 86% | 346,742 / 2,340,234 (85.2%) | F8 |
+| `users-api-openai-20261003-184219` | `gpt-5.4-mini` | + F8 | 43 | `aborted` (SIGINT by the operator); gates not run, reported UNPROVEN | 241,075 / 1,582,497 (84.8%) | F9 |
+| `users-api-openai-20261003-184627` | `gpt-5.4-mini` | + F8, F9 | 60 | `max_turns`; finish refused 7 times; 29/29 tests, standards 100%, observed-red fail | 330,915 / 2,310,173 (85.7%) | F10 |
+| `projects-change-openai-20261003-185304` | `gpt-5.4-mini` | + F8–F10 | 40 | `max_turns`; 0 files changed; observed-red fail ("no observed red in this run") | 171,861 / 1,445,390 (88.1%) | F11 |
+| `projects-change-openai-20261003-190028` | `gpt-5.4-mini` | + F8–F11 | 40 | `max_turns`; 18/21 tests; standards 86% | 180,284 / 1,279,048 (85.9%) | F12 |
+| `projects-change-openai-20261003-190756` | `gpt-5.4-mini` | + F8–F12 (3 Oct final code) | 40 | `max_turns`; **contract-lock fail: 4 breaking (4 → 0 endpoints)**; tests failed to load | 147,114 / 1,122,854 (86.9%) | F13 |
 
 ### Free tiers (OpenRouter, Google AI Studio)
 
@@ -144,32 +172,39 @@ Notes:
 ## What the runs prove
 
 - **The openai driver works against three real endpoints:** the official OpenAI API
-  (`gpt-5.4-mini`, `gpt-5.4`, `gpt-6-luna` in compat mode), Google AI Studio's OpenAI-compatible
-  endpoint (Gemini 3 Flash, Gemini 3.5 Flash-Lite, Gemma 4) and OpenRouter. On the official API,
-  both task kinds reached DONE (top-level runs).
+  (`gpt-5.4-mini`, `gpt-5.4`, `gpt-6-luna` and `gpt-5.6-luna` in compat mode), Google AI Studio's
+  OpenAI-compatible endpoint (Gemini 3 Flash, Gemini 3.5 Flash-Lite, Gemma 4) and OpenRouter. On
+  the official API, both task kinds reached DONE on 3 Oct code, and the greenfield task again on
+  4 Oct (normal and `--baseline`); no brownfield run reached DONE on 4 Oct code.
 - **The claude driver works against OpenRouter's Anthropic-compatible endpoint:** two partial
   runs on a free model (15 and 7 turns, both killed), and a smoke call (`provider-smoke.txt`).
   In the smoke call the proxy rejected optional parameters with a 400, so the driver switched to
   its compat request (the run artifacts do not record the mode). The proxy has no `count_tokens`,
   so the runs' counts fell back to chars/4. **The claude driver has
-  not run against `api.anthropic.com`.** Prompt caching, adaptive thinking, server-side
+  not run against `api.anthropic.com`:** there is no Claude DONE run and no real
+  `harness agnostic <claudeRun> <openaiRun>`. Prompt caching, adaptive thinking, server-side
   `countTokens` and a DONE run on the Messages API all need an Anthropic key.
 - **The gates refuse real model mistakes:**
   - contract-lock failed an API with every route deleted (`…190756`);
   - observed-red refused `src/` writes before a covering red (`…165940`, `…170930`, `…172357`,
     `…184219`, `…185304`, `…190756`);
   - test-preservation refused 7 whole-file rewrites (`…185304`);
-  - finish was refused while a gate was red (`…184627`, 7 times);
+  - finish was refused while a gate was red (`…184627`, 7 times; `…045424`, twice);
+  - tests-green refused DONE on every 4 Oct brownfield run with one failing agent-written test
+    (`…045936`, `…050115`, `…050613`);
   - `unsafe-code-guard` refused test files that introduced `any` (`…170930`, `…172357`).
 
   The decisions are in `events.jsonl` (`"decision":"block"`).
 - **Reporting stays honest.** Every run that ended on its own ran its final gates fresh and
   reported `NOT DONE` with its failing and UNPROVEN gates, even with 29/29 tests and 100%
-  standards (`…184627`). The aborted run reported its gates as not run (UNPROVEN), not as
-  green (`…184219`).
-- **Token numbers on real models.** Long runs (40–60 turns) reached 84.8–88.1%. Short runs were
-  lower: 62–77% on the free tiers, and 77.3% and 81.2% for the two DONE runs (19 and 12 turns),
-  which are bounded by the fixed per-turn floor. No real run reached 90% (docs/design.md §3).
+  standards (`…184627`), and even with every final gate green but no accepted finish (`…045424`).
+  The aborted run reported its gates as not run (UNPROVEN), not as green (`…184219`).
+- **Token numbers on real models, and what they are.** The only measured baseline is
+  `tokens/compare-users-api-openai-20261004-045424-vs-users-api-openai-20261004-045825.json`:
+  62.8% fewer input tokens per turn, but 39.3% more per run (60 turns against 16). Every other
+  number in this file is a shadow estimate: 84.8–88.1% on the 3 Oct runs of 40–60 turns, 62–77%
+  on the shorter free-tier runs, 77.3% and 81.2% on the 3 Oct DONE runs, 69.9–75.6% on the 4 Oct
+  runs. No real run reached 90%, measured or estimated (docs/design.md §3).
 
 ## Open points
 
@@ -178,3 +213,11 @@ Notes:
   revealed it (…190756) predates the hook; its gates caught the damage at finish.
 - The repeated-read pointer, the SIGTERM stop and the rate-limit waits were present in later
   runs but were never triggered by a real model. They are proven only by the offline tests above.
+  The same holds for the turn-limit extension and the context-overflow shrink, which no 4 Oct
+  run triggered (every 4 Oct run had an explicit, hard limit: the task's `maxTurns`, or
+  `--max-turns 30` for the `--baseline` run).
+- **Shared module-level state (4 Oct)** has no harness fix yet: three brownfield runs ended NOT DONE
+  on one order-dependent agent-written test each (see the 4 Oct table).
+- **Models that stop calling finish.** `…045424` never called finish after turn 19, and the three
+  failed 4 Oct brownfield runs never called it at all; DONE requires an accepted finish, so they
+  ended at the turn limit.

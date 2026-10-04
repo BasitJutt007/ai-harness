@@ -32,14 +32,14 @@ secrets.
 Agent-written code (its tests, its Zod schemas during contract extraction, its app during
 runtime probes) runs under the OS sandbox: `sandbox-exec` on macOS, `bwrap` on Linux.
 - **Writes:** only to a per-call temp dir; the API root is read-only to it.
-- **Reads:** only its own tree, the `node_modules` chain, the node install and the two
-  harness runtime files it needs. `$HOME`, other repositories, other runs and credential
+- **Reads:** only its own tree, the `node_modules` chain, the node install and the four
+  harness runtime files it needs (`HARNESS_RUNTIME_FILES` in `src/core/sandbox.ts`). `$HOME`, other repositories, other runs and credential
   stores are refused (`src/core/sandbox.ts`).
 - **Env:** an allow-list (PATH, locale, a scratch HOME/TMPDIR); provider keys and other
   credentials never reach it.
 - **Network:** loopback only.
-- **In-process TypeScript programs** (type check, contract extraction) read through a fenced
-  compiler host with the same boundary (`src/core/ts-fence.ts`).
+- **In-process TypeScript programs** (the type check, contract extraction, the post-write
+  type-check hook) read through a fenced compiler host with the same boundary (`src/core/ts-fence.ts`).
 
 `harness doctor` self-tests the write, read, network and env boundaries. Without a working
 sandbox a run refuses to start; `HARNESS_SANDBOX=off` runs unconfined and marks the run
@@ -171,7 +171,7 @@ placeholder and contract-lock failed the run (4 → 0 endpoints).
 | `users-api-openai-20261004-045825` | greenfield `users-api`, **`--baseline`** | `gpt-5.4-mini` | 16 | **DONE** in baseline mode (fetchers withheld, repo front-loaded every turn, no compaction) |
 | `users-api-openai-20261004-045424` | greenfield `users-api` | `gpt-5.4-mini` | 60 | NOT DONE (max turns): the model looped for ~40 turns on a failing test it wrote; the fresh final gates were green, but it never asked to finish again |
 | `real-model/projects-change-openai-20261004-045936`, `…050115` | brownfield | `gpt-5.4` | 40, 40 | NOT DONE: one failing agent-written test each (see below) |
-| `real-model/projects-change-openai-20261004-050306` | brownfield | `gpt-5.6-luna` (compat) | 20 | stopped by the operator right after the model called `finish` with tests, standards and contract green |
+| `real-model/projects-change-openai-20261004-050306` | brownfield | `gpt-5.6-luna` | 20 | finish accepted with every finish gate green; stopped by the operator during the final fresh gate run, so `run.json` was never finalised (no verdict) |
 | `projects-change-openai-20261004-050613` | brownfield | `gpt-5.6-luna` (compat) | 40 | NOT DONE: one failing agent-written test |
 | `projects-change-openai-20261004-052623` | brownfield `projects-change` | `gpt-5.6-luna` (compat) | 20 | **DONE**: contract-lock pass (2 additive), observed red (3 source files + revert check), 22/22 tests, standards 100% |
 
