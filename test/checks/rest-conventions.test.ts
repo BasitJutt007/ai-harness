@@ -120,4 +120,34 @@ r.get('/v1/order-items', (req, res) => {
     expect(msgs.some((m) => m.includes('GET /v1/order-items: collection GET must parse req.query with a cursor schema'))).toBe(true);
     expect(msgs.some((m) => m.includes('POST /v1/items'))).toBe(false);
   });
+  it('a cache created inside the request handler cannot replay: the same code with a module-level cache passes', async () => {
+    const route = (fresh: boolean): string => `import { Router } from 'express';
+import { z } from 'zod';
+const Item = z.object({ id: z.string() });
+const Headers = z.object({ 'idempotency-key': z.string().optional() });
+${fresh ? '' : 'const done = new Map<string, z.infer<typeof Item>>();\n'}export const r = Router();
+r.post('/v1/items', (req, res) => {
+${fresh ? '  const done = new Map<string, z.infer<typeof Item>>();\n' : ''}  const key = Headers.parse(req.headers)['idempotency-key'];
+  const hit = key !== undefined ? done.get(key) : undefined;
+  if (hit !== undefined) {
+    res.status(201).location(\`/v1/items/\${hit.id}\`).json(Item.parse(hit));
+    return;
+  }
+  const body = Item.parse(req.body);
+  if (key !== undefined) done.set(key, body);
+  res.status(201).location(\`/v1/items/\${body.id}\`).json(Item.parse(body));
+});
+`;
+    const verdict = async (fresh: boolean): Promise<string[]> => {
+      const root = await tempApi({ 'src/routes.ts': route(fresh) });
+      roots.push(root);
+      const findings = await restConventions.run(await contextFor(root));
+      return findings.map((f) => `${f.status} ${f.skipReason ?? ''} ${f.violations.map((v) => v.message).join(' | ')}`);
+    };
+    const persistent = await verdict(false);
+    expect(persistent.join('\n')).not.toMatch(/idempotency|Idempotency-Key/);
+    const fresh = await verdict(true);
+    expect(fresh.join('\n')).toMatch(/POST \/v1\/items reads the Idempotency-Key header, but no function of its chain was shown to store a response keyed by it/);
+    expect(fresh.some((l) => l.startsWith('pass'))).toBe(false);
+  });
 });
