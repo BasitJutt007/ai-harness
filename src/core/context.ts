@@ -16,7 +16,9 @@
  *                shape does not vanish from context the moment its read turn ages out;
  *              - a repeat pointer (see repeatPointer) whose referenced turn has folded is shown
  *                with the full content it pointed to again.
- * baselineView the shadow baseline: raw tool returns everywhere, nothing elided or folded.
+ * baselineView the baseline history: raw tool returns everywhere, nothing elided or folded
+ *              (the shadow baseline also leaves out the run's context-fetch calls: a
+ *              baseline harness has that content front-loaded and offers no fetchers).
  *
  * Both rules are pure functions of (turn index, number of turns) and append-only: input
  * elision never changes after the first replay, and the digest only ever gains lines at
@@ -24,7 +26,7 @@
  * from turn to turn, which keeps provider-side prompt caching effective.
  */
 import { posix } from 'node:path';
-import type { Message, Part, ToolCallPart, ToolResultPart } from './types.ts';
+import type { Message, Part, ToolCallPart, ToolPlugin, ToolResultPart, ToolSpec } from './types.ts';
 
 export interface TranscriptTurn {
   turn: number;
@@ -242,7 +244,12 @@ function resolvedContent(turns: TranscriptTurn[], t: TranscriptTurn, p: ToolResu
  * (e.g. by code run during run_tests) keeps its entry. The skeleton is a hint with line numbers, not the file: the model can re-read.
  * Pure function of the transcript, deterministic.
  */
-export function workingSet(turns: TranscriptTurn[], cutoff: number, writeTools: Iterable<string> = DEFAULT_WRITE_TOOLS): string | null {
+export function workingSet(
+  turns: TranscriptTurn[],
+  cutoff: number,
+  writeTools: Iterable<string> = DEFAULT_WRITE_TOOLS,
+  fullChars: number = WORKING_SET_FULL_CHARS,
+): string | null {
   const writes = new Set(writeTools);
   const lastWrite = new Map<string, number>();
   const recentReads = new Set<string>();
@@ -286,7 +293,7 @@ export function workingSet(turns: TranscriptTurn[], cutoff: number, writeTools: 
   let used = 0;
   let fullUsed = 0;
   for (const e of picked.values()) {
-    const useFull = e.full !== null && fullUsed + e.full.length <= WORKING_SET_FULL_CHARS && used + e.full.length <= WORKING_SET_CHARS;
+    const useFull = e.full !== null && fullUsed + e.full.length <= fullChars && used + e.full.length <= WORKING_SET_CHARS;
     const b = useFull && e.full !== null ? e.full : e.skel;
     if (used + b.length > WORKING_SET_CHARS) continue;
     blocks.push(b);
@@ -312,6 +319,8 @@ function readPath(call: ToolCallPart, result: ToolResultPart | undefined): strin
 export interface JitViewOptions {
   /** Tools whose calls make earlier reads of the same path stale (default DEFAULT_WRITE_TOOLS). */
   writeTools?: Iterable<string>;
+  /** Budget of FULL read results in the working set (default WORKING_SET_FULL_CHARS; 0 = skeletons only). */
+  workingSetFullChars?: number;
 }
 
 export function jitView(
@@ -334,7 +343,7 @@ export function jitView(
   const extra: Part[] = [];
   // The digest comes first and only grows at its end; the working set follows it.
   if (digest.length > 0) extra.push({ type: 'text', text: [DIGEST_HEADER, ...digest].join('\n') });
-  const ws = workingSet(turns, cutoff, opts.writeTools);
+  const ws = workingSet(turns, cutoff, opts.writeTools, opts.workingSetFullChars);
   if (ws !== null) extra.push({ type: 'text', text: ws });
   const head: Message = extra.length === 0 ? first : { role: first.role, parts: [...first.parts, ...extra] };
   const out: Message[] = [head];
@@ -356,19 +365,61 @@ function expandFoldedRepeats(turns: TranscriptTurn[], t: TranscriptTurn, results
   };
 }
 
-export function baselineView(first: Message, turns: TranscriptTurn[]): Message[] {
+// ───────────────────────────── baseline ─────────────────────────────
+
+/**
+ * A tool that fetches context (files, listings, search hits, standards text): the tool's own
+ * `fetcher` flag when it declares one, else every `read` tool. Decided by effect and flag, never
+ * by name, so a dropped-in read tool counts too.
+ */
+export function isContextFetcher(t: Pick<ToolPlugin<unknown>, 'effect' | 'fetcher'>): boolean {
+  return t.fetcher ?? t.effect === 'read';
+}
+
+/** Names of the offered tools whose plugin is a context fetcher. */
+export function fetcherNames(specs: ToolSpec[], plugins: Iterable<ToolPlugin<unknown>>): Set<string> {
+  const offered = new Set(specs.map((s) => s.name));
+  const out = new Set<string>();
+  for (const p of plugins) if (offered.has(p.name) && isContextFetcher(p)) out.add(p.name);
+  return out;
+}
+
+/** The baseline request's tools: `specs` without the context fetchers, order kept. */
+export function withoutFetchers(specs: ToolSpec[], plugins: Iterable<ToolPlugin<unknown>>): ToolSpec[] {
+  const fetchers = fetcherNames(specs, plugins);
+  return specs.filter((s) => !fetchers.has(s.name));
+}
+
+/** Options of baselineView. */
+export interface BaselineViewOptions {
+  /** Tool names whose calls (and their results) are left out (the shadow baseline: the context fetchers). */
+  omitTools?: ReadonlySet<string>;
+}
+
+/**
+ * Baseline history: the same assistant turns verbatim, every tool result replaced by its raw
+ * return, nothing elided or folded. Calls to `omitTools` are left out together with their results;
+ * a message left empty is dropped.
+ */
+export function baselineView(first: Message, turns: TranscriptTurn[], opts: BaselineViewOptions = {}): Message[] {
+  const omit = opts.omitTools ?? new Set<string>();
   const out: Message[] = [first];
   for (const t of turns) {
-    out.push(t.assistant);
+    const dropped = new Set<string>();
+    for (const p of t.assistant.parts) if (p.type === 'tool_call' && omit.has(p.name)) dropped.add(p.id);
+    if (dropped.size === 0) out.push(t.assistant);
+    else {
+      const parts = t.assistant.parts.filter((p) => p.type !== 'tool_call' || !dropped.has(p.id));
+      if (parts.length > 0) out.push({ role: t.assistant.role, parts });
+    }
     if (t.results === null) continue;
-    out.push({
-      role: t.results.role,
-      parts: t.results.parts.map((p) => {
-        if (p.type !== 'tool_result') return p;
-        const raw = t.raw[p.callId];
-        return raw === undefined ? p : { ...p, content: raw };
-      }),
+    const parts = t.results.parts.flatMap((p): Part[] => {
+      if (p.type !== 'tool_result') return [p];
+      if (dropped.has(p.callId)) return [];
+      const raw = t.raw[p.callId];
+      return [raw === undefined ? p : { ...p, content: raw }];
     });
+    if (parts.length > 0) out.push({ role: t.results.role, parts });
   }
   return out;
 }

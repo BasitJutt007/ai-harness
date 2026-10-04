@@ -1,18 +1,26 @@
 /**
  * The agent loop. Provider-neutral: it only speaks Message / Part / ToolSpec.
  *
- * Per turn: build the actual request (JIT view) and the shadow baseline request →
- * count both → driver.complete (retried on thrown errors) → ledger.record → run each
- * tool call in order (validate → pre hooks → run → post hooks) → persist.
+ * Per turn: build the actual request (JIT view) and the baseline request (front-load of the
+ * current tree, raw returns, no context fetchers; in --baseline mode it IS the actual request) →
+ * count both with the same counter → driver.complete (retried on thrown errors; a rate limit's
+ * wait comes from the driver, else a standard Retry-After; a request the driver reports as a
+ * context overflow is shrunk once, never resent unchanged) → ledger.record → run each tool call
+ * in order (validate → pre hooks → run → post hooks) → persist.
  * `finish` runs the finish gates; only an all-green gate run ends the loop as `done`.
+ *
+ * Turn limit (turnLimitFor): an explicit limit (--max-turns, the task file's maxTurns) is a hard
+ * cap. Without one the limit scales with the task's size, and when the run reaches it while the
+ * gates are making measurable progress it is extended (see extensionAt).
  */
 import { serializeState } from './run-store.ts';
-import { baselineView, jitView, messageChars, repeatPointer, type RepeatRef, type TranscriptTurn } from './context.ts';
-import { runGates, type GateOutcome } from './gates.ts';
+import { baselineView, fetcherNames, jitView, messageChars, repeatPointer, type RepeatRef, type TranscriptTurn } from './context.ts';
+import { failingUnits, runGates, type GateOutcome } from './gates.ts';
 import { runPostHooks, runPreHooks } from './hooks.ts';
-import type { TokenLedger } from './tokens.ts';
+import type { TokenLedger, TurnTokens } from './tokens.ts';
 import type {
   Driver,
+  DriverErrorKind,
   LogStore,
   Message,
   ModelRequest,
@@ -25,6 +33,7 @@ import type {
   ToolResult,
   ToolResultPart,
   ToolSpec,
+  Task,
 } from './types.ts';
 
 /** The subset of RunStore the loop writes to (RunStore satisfies it structurally). */
@@ -42,6 +51,8 @@ export interface AgentResult {
   turns: number;
   finish?: GateOutcome;
   error?: string;
+  /** Set when the turn limit was extended (see extensionAt). */
+  turnLimit?: TurnLimitRecord;
 }
 
 export interface RunAgentOptions {
@@ -50,10 +61,19 @@ export interface RunAgentOptions {
   store: AgentStore;
   ledger: TokenLedger;
   first: Message;
+  /** System prompt of the actual (JIT) request; unused in baseline mode. */
   system: string;
-  baselineSystem: string;
+  /**
+   * System prompt of the baseline request: the baseline prompt + the repository + every standards
+   * doc. A function is called once per turn so the repository is re-rendered from the CURRENT tree
+   * (files written in earlier turns are visible); a string is used as is every turn.
+   */
+  baselineSystem: string | (() => Promise<string>);
+  /** Tools of the actual (JIT) request; the baseline request offers these minus the context fetchers. */
   tools: ToolSpec[];
   maxTurns: number;
+  /** How the loop may extend `maxTurns` while the gates make progress (turnLimitFor); absent: a hard cap. */
+  turnExtension?: TurnExtension;
   maxOutputTokens: number;
   /** Backoff before each retry of driver.complete (default 1s, 4s, 10s). */
   retryDelaysMs?: number[];
@@ -61,6 +81,87 @@ export interface RunAgentOptions {
   signal?: AbortSignal;
   /** How the loop waits between attempts (default: a timer that an abort cuts short); a test seam. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+// ───────────────────────────── turn limit ─────────────────────────────
+
+/** Default turn limit of a task that names none: TURN_LIMIT_BASE + per resource + per behaviour, at most TURN_LIMIT_CAP. */
+export const TURN_LIMIT_BASE = 40;
+export const TURNS_PER_RESOURCE = 20;
+export const TURNS_PER_BEHAVIOUR = 2;
+export const TURN_LIMIT_CAP = 150;
+/** Turns one extension grants. */
+export const TURN_EXTENSION_STEP = 10;
+/** Extra turns over the whole run: at most this fraction of the default limit. */
+export const TURN_EXTENSION_MAX_FRACTION = 0.5;
+
+export interface TurnExtension {
+  /** Turns one extension grants. */
+  step: number;
+  /** Cap on the extra turns over the whole run. */
+  maxExtra: number;
+}
+
+export interface TurnLimit {
+  max: number;
+  /** cli: --max-turns; task: the task file's limits.maxTurns; default: scaled with the task's size. */
+  source: 'cli' | 'task' | 'default';
+  /** Only a default limit is extended; an explicit one is a hard cap. */
+  extension?: TurnExtension;
+}
+
+/** One extension: at the turn limit, the latest finish attempt had fewer failing units than the one before it. */
+export interface TurnLimitExtension {
+  atTurn: number;
+  by: number;
+  /** Failing units (gates.ts failingUnits) at the previous and at the latest finish attempt. */
+  failingBefore: number;
+  failingAfter: number;
+}
+
+export interface TurnLimitRecord {
+  initial: number;
+  final: number;
+  extensions: TurnLimitExtension[];
+}
+
+/**
+ * The default limit: TURN_LIMIT_BASE + TURNS_PER_RESOURCE per resource (at least one: a brief-only
+ * task, or a change, is sized as one) + TURNS_PER_BEHAVIOUR per behaviour, capped at TURN_LIMIT_CAP.
+ * One resource and no behaviours gives 60 turns.
+ */
+export function defaultTurnLimit(size: { resources: number; behaviours: number }): number {
+  const n = TURN_LIMIT_BASE + TURNS_PER_RESOURCE * Math.max(1, size.resources) + TURNS_PER_BEHAVIOUR * Math.max(0, size.behaviours);
+  return Math.min(TURN_LIMIT_CAP, n);
+}
+
+/** The run's turn limit: --max-turns, else the task file's maxTurns (both hard caps), else the scaled default (extensible). */
+export function turnLimitFor(task: Pick<Task, 'limits' | 'behaviours' | 'resources'>, cliMaxTurns?: number): TurnLimit {
+  if (cliMaxTurns !== undefined) return { max: cliMaxTurns, source: 'cli' };
+  if (task.limits.maxTurns !== undefined) return { max: task.limits.maxTurns, source: 'task' };
+  const max = defaultTurnLimit({ resources: task.resources?.length ?? 0, behaviours: task.behaviours.length });
+  return { max, source: 'default', extension: { step: TURN_EXTENSION_STEP, maxExtra: Math.round(max * TURN_EXTENSION_MAX_FRACTION) } };
+}
+
+/**
+ * The extension granted when the run reaches `limit` (null: none). Rule: the latest finish attempt
+ * happened within the last `step` turns before the limit and found fewer failing units than the
+ * finish attempt before it (measurable progress); it grants `step` turns, never more than
+ * `maxExtra - extraSoFar`. Each further extension therefore needs a new, better finish attempt
+ * inside the turns the previous one granted.
+ */
+export function extensionAt(
+  limit: number,
+  attempts: ReadonlyArray<{ turn: number; failing: number }>,
+  ext: TurnExtension,
+  extraSoFar: number,
+): TurnLimitExtension | null {
+  const last = attempts[attempts.length - 1];
+  const prev = attempts[attempts.length - 2];
+  if (last === undefined || prev === undefined) return null;
+  if (last.failing >= prev.failing || last.turn <= limit - ext.step) return null;
+  const by = Math.min(ext.step, ext.maxExtra - extraSoFar);
+  return by > 0 ? { atTurn: limit, by, failingBefore: prev.failing, failingAfter: last.failing } : null;
 }
 
 export const RAW_LOG_THRESHOLD = 2048;
@@ -98,46 +199,73 @@ class AbortedError extends Error {}
 /** The provider asked for a wait longer than RATE_LIMIT_MAX_WAIT_MS (a daily quota): stop instead of waiting. */
 class RateLimitStop extends Error {}
 
+/** The driver said the request does not fit the context window: resending it unchanged cannot work. */
+class ContextOverflow extends Error {}
+
 /** Longest provider-requested wait the loop honours (per-minute limits); a longer one is a quota: stop. */
 export const RATE_LIMIT_MAX_WAIT_MS = 120_000;
 /** Cap on provider-requested waits per request (they do not consume the normal retry budget). */
 export const MAX_RATE_LIMIT_WAITS = 30;
 
-/** `6h56m35.8s`, `37.6s`, `1m30s`, `250ms` → ms; null when the text is not such a duration. */
-function durationMs(text: string): number | null {
-  const m = /^(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m(?!s))?(?:(\d+(?:\.\d+)?)s)?(?:(\d+(?:\.\d+)?)ms)?$/.exec(text);
-  if (m === null || text.length === 0) return null;
-  const [h, min, sec, ms] = [m[1], m[2], m[3], m[4]].map((v) => (v === undefined ? 0 : Number(v)));
-  return Math.ceil(((h ?? 0) * 3600 + (min ?? 0) * 60 + (sec ?? 0)) * 1000 + (ms ?? 0));
+/** HTTP statuses whose standard Retry-After header the loop honours without a driver's help. */
+const RETRY_AFTER_STATUSES: ReadonlySet<number> = new Set([429, 503]);
+
+/** A header of a generic error shape: `headers` as a record (any letter case) or with a `get(name)` method. */
+function headerOf(headers: unknown, name: string): string | null {
+  if (typeof headers !== 'object' || headers === null) return null;
+  const get: unknown = (headers as { get?: unknown }).get;
+  if (typeof get === 'function') {
+    const v: unknown = get.call(headers, name);
+    return typeof v === 'string' ? v : null;
+  }
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() !== name) continue;
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number') return String(v);
+  }
+  return null;
+}
+
+/** A Retry-After value (delta seconds or an HTTP date) → ms from `now` (at least 0), or null. */
+export function parseRetryAfter(value: string, now: number = Date.now()): number | null {
+  const v = value.trim();
+  if (/^\d+(?:\.\d+)?$/.test(v)) return Math.ceil(Number(v) * 1000);
+  const at = Date.parse(v);
+  return Number.isNaN(at) ? null : Math.max(0, at - now);
 }
 
 /**
- * The wait a rate-limit error asks for, in ms, or null when it names none: a structured
- * `"retryDelay": "37s"`, a `retry in 37.6s` / `retry in 6h56m35s` sentence, a
- * `Retry-After: 37` (seconds) header echoed in the message, or an echoed
- * `X-RateLimit-Reset` epoch timestamp (ms or s; the wait is the time left until it, at least 0).
+ * The generic fallback: the standard Retry-After header of an error with HTTP status 429 or 503
+ * (`status` and `headers` on the thrown value), else null. No provider's own error format is read
+ * here: those belong to the driver (Driver.retryAfterMs).
  */
-export function providerRetryDelayMs(message: string, now: number = Date.now()): number | null {
-  const structured = /"retryDelay"\s*:\s*"([\d.hms]+)"/.exec(message)?.[1];
-  const sentence = /retry (?:in|after) ((?:\d+(?:\.\d+)?(?:h|ms|m|s))+)/i.exec(message)?.[1];
-  for (const d of [structured, sentence]) {
-    const v = d === undefined ? null : durationMs(d);
-    if (v !== null) return v;
-  }
-  const header = /retry-after["']?\s*[:=]\s*["']?(\d+(?:\.\d+)?)\b/i.exec(message)?.[1];
-  if (header !== undefined) return Math.ceil(Number(header) * 1000);
-  // Only an epoch timestamp (>= 1e9 s): a small number could be a delta or a count, so it names no wait.
-  const reset = /x-ratelimit-reset[\\"']*\s*[:=]\s*[\\"']*(\d{10,13})\b/i.exec(message)?.[1];
-  if (reset === undefined) return null;
-  const n = Number(reset);
-  const resetMs = n >= 1e12 ? n : n * 1000;
-  return Math.max(0, Math.ceil(resetMs - now));
+export function genericRetryAfterMs(e: unknown, now: number = Date.now()): number | null {
+  if (typeof e !== 'object' || e === null) return null;
+  const status: unknown = (e as { status?: unknown }).status;
+  if (typeof status !== 'number' || !RETRY_AFTER_STATUSES.has(status)) return null;
+  const value = headerOf((e as { headers?: unknown }).headers, 'retry-after');
+  return value === null ? null : parseRetryAfter(value, now);
 }
 
-/** A thrown driver error that is a rate limit (HTTP 429 or the usual wording). */
-export function isRateLimit(e: unknown): boolean {
-  const status = typeof e === 'object' && e !== null && 'status' in e ? e.status : undefined;
-  return status === 429 || /\b429\b|rate.?limit|RESOURCE_EXHAUSTED|quota/i.test(errMsg(e));
+/** The wait a failed complete() asks for: the driver's reading first, then the generic header; null when none. */
+export function retryAfterMs(driver: Pick<Driver, 'retryAfterMs'>, e: unknown): number | null {
+  let asked: number | null = null;
+  try {
+    asked = driver.retryAfterMs?.(e) ?? null;
+  } catch {
+    asked = null; // a driver's parser never turns a retry into a crash
+  }
+  if (asked !== null && Number.isFinite(asked) && asked >= 0) return Math.ceil(asked);
+  return genericRetryAfterMs(e);
+}
+
+/** The driver's classification of a failed complete() (Driver.errorKind); null when it has none or its parser throws. */
+export function errorKindOf(driver: Pick<Driver, 'errorKind'>, e: unknown): DriverErrorKind | null {
+  try {
+    return driver.errorKind?.(e) ?? null;
+  } catch {
+    return null; // a driver's parser never turns a failure into a crash
+  }
 }
 
 /** A function (not an inline property read) so TypeScript does not narrow `aborted` across awaits. */
@@ -160,9 +288,11 @@ async function completeWithRetry(
       return await driver.complete(req, signal);
     } catch (e) {
       if (isAborted(signal)) throw new AbortedError('aborted during driver.complete');
+      // Too large for the context window: the identical request would fail again; the caller shrinks it.
+      if (errorKindOf(driver, e) === 'context_overflow') throw new ContextOverflow(errMsg(e));
       // A rate limit that names its wait: honour a short one (per-minute limits) outside the
       // normal retry budget; a long one (a daily quota) will not clear in this run: stop.
-      const asked = isRateLimit(e) ? providerRetryDelayMs(errMsg(e)) : null;
+      const asked = retryAfterMs(driver, e);
       if (asked !== null && asked > RATE_LIMIT_MAX_WAIT_MS) {
         throw new RateLimitStop(`rate limited: the provider asked to retry in ${Math.round(asked / 1000)}s, longer than the ${RATE_LIMIT_MAX_WAIT_MS / 1000}s the harness waits: ${errMsg(e)}`);
       }
@@ -183,15 +313,38 @@ async function completeWithRetry(
   }
 }
 
-async function countOrEstimate(driver: Driver, req: ModelRequest, ctx: RunContext, label: string, ledger?: TokenLedger): Promise<number> {
-  try {
-    return await driver.countTokens(req);
-  } catch (e) {
-    const est = Math.ceil((req.system.length + messageChars(req.messages)) / 4);
-    ledger?.noteEstimated();
-    ctx.emit({ kind: 'error', source: 'driver', message: `countTokens(${label}) failed: ${errMsg(e)}; estimated ${est} from chars/4` });
-    return est;
+function failureText(e: unknown, delays: number[]): string {
+  return e instanceof RateLimitStop ? `driver.complete stopped: ${e.message}` : `driver.complete failed after ${delays.length + 1} attempts: ${errMsg(e)}`;
+}
+
+/** chars/4 of a request (system, messages, tool schemas): the fallback when the driver's counter fails. */
+export function estimateTokens(req: ModelRequest): number {
+  return Math.ceil((req.system.length + messageChars(req.messages) + (JSON.stringify(req.tools) ?? '').length) / 4);
+}
+
+/**
+ * Counts each request of one turn with the driver's counter, in order. If any count fails, EVERY
+ * request of the turn is estimated (chars/4) instead, so a turn's ratio never compares two counters.
+ */
+async function countTurn(
+  driver: Driver,
+  reqs: Array<{ label: string; req: ModelRequest }>,
+  ctx: RunContext,
+  ledger: TokenLedger,
+): Promise<{ counts: number[]; estimated: boolean }> {
+  const counts: number[] = [];
+  for (const { label, req } of reqs) {
+    try {
+      counts.push(await driver.countTokens(req));
+    } catch (e) {
+      const est = reqs.map((r) => estimateTokens(r.req));
+      for (let i = 0; i < reqs.length; i += 1) ledger.noteEstimated();
+      const labels = reqs.map((r) => r.label).join(' and ');
+      ctx.emit({ kind: 'error', source: 'driver', message: `countTokens(${label}) failed: ${errMsg(e)}; this turn's ${labels} counts are chars/4 estimates (${est.join(', ')})` });
+      return { counts: est, estimated: true };
+    }
   }
+  return { counts, estimated: false };
 }
 
 interface CallOutcome {
@@ -415,12 +568,38 @@ function offeredTools(ctx: RunContext, specs: ToolSpec[]): Map<string, ToolPlugi
   return map;
 }
 
+/** Baseline mode = context fetchers and every compaction disabled (`--baseline`). */
+export function isBaselineMode(mode: RunContext['mode']): boolean {
+  return !mode.jit && !mode.compactReturns && !mode.compactHistory;
+}
+
 export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const { driver, ctx, store, ledger, first, tools } = opts;
   const delays = opts.retryDelaysMs ?? DEFAULT_RETRY_DELAYS;
-  const baselineMode = !ctx.mode.jit && !ctx.mode.compactReturns && !ctx.mode.compactHistory;
+  const baselineMode = isBaselineMode(ctx.mode);
   const keep = ctx.config.history.keepRecentTurns;
-  const toolMap = offeredTools(ctx, tools);
+  // The baseline offers no context fetchers (decided by effect and flag, never by name).
+  const fetchers = fetcherNames(tools, ctx.registry.tools.map((r) => r.plugin));
+  const baselineTools = tools.filter((s) => !fetchers.has(s.name));
+  const toolMap = offeredTools(ctx, baselineMode ? baselineTools : tools);
+  let lastBaselineSystem: string | undefined;
+  /** The baseline system prompt for this turn, rendered from the current tree (the last good rendering if that fails). */
+  const baselineSystemNow = async (): Promise<string> => {
+    if (typeof opts.baselineSystem === 'string') return opts.baselineSystem;
+    const previous = lastBaselineSystem;
+    try {
+      const rendered = await opts.baselineSystem();
+      lastBaselineSystem = rendered;
+      return rendered;
+    } catch (e) {
+      if (previous === undefined) throw e;
+      ctx.emit({ kind: 'error', source: 'loop', message: `baseline front-load could not be re-rendered: ${errMsg(e)}; reusing the previous turn's` });
+      return previous;
+    }
+  };
+  if (baselineMode && fetchers.size > 0) {
+    ctx.emit({ kind: 'note', source: 'loop', message: `baseline mode: context fetchers withheld (${[...fetchers].join(', ')}); the repository and the standards are front-loaded every turn` });
+  }
   const writeTools = [...toolMap.values()].filter((t) => t.effect === 'write').map((t) => t.name);
   // Repeat pointers (JIT only): the turns the NEXT request shows verbatim are the current one and the keep-1 before it.
   const repeatsOn = !baselineMode && (!ctx.mode.compactHistory || keep >= 1);
@@ -428,6 +607,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const turns: TranscriptTurn[] = [];
   let idle = 0;
   let lastFinish: GateOutcome | undefined;
+  // Turn limit: extended (bounded) while refused finish attempts show fewer failing units (extensionAt).
+  let limit = opts.maxTurns;
+  const attempts: Array<{ turn: number; failing: number }> = [];
+  const extensions: TurnLimitExtension[] = [];
+  const send = (req: ModelRequest): Promise<ModelResponse> => completeWithRetry(driver, req, delays, ctx, opts.signal, opts.sleep ?? sleep);
 
   const persist = (t: TranscriptTurn, extra: Record<string, unknown>, logs: Record<string, string>): void => {
     store.appendTranscript({
@@ -440,7 +624,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     });
     store.writeJson('state.json', serializeState(ctx.state));
   };
-  const withFinish = (r: AgentResult): AgentResult => (lastFinish !== undefined ? { ...r, finish: lastFinish } : r);
+  const withFinish = (r: AgentResult): AgentResult => {
+    const out: AgentResult = lastFinish !== undefined && r.finish === undefined ? { ...r, finish: lastFinish } : r;
+    return extensions.length > 0 ? { ...out, turnLimit: { initial: opts.maxTurns, final: limit, extensions } } : out;
+  };
   const aborted = (turnsDone: number): AgentResult => {
     ctx.emit({ kind: 'note', source: 'loop', message: `aborted by the operator after ${turnsDone} turns` });
     store.writeJson('state.json', serializeState(ctx.state));
@@ -448,59 +635,112 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   };
 
   try {
-    for (let turn = 1; turn <= opts.maxTurns; turn += 1) {
+    for (let turn = 1; turn <= limit; turn += 1) {
       if (isAborted(opts.signal)) return aborted(turn - 1);
       ctx.state.turn = turn;
-      const baselineMsgs = baselineView(first, turns);
+      // Baseline request: front-load re-rendered from the current tree, raw returns, no fetchers. In a
+      // --baseline run it is what is sent; otherwise it is the shadow, built from this run's trajectory
+      // without its context-fetch calls (a baseline harness has that content front-loaded).
       const baselineReq: ModelRequest = {
-        system: opts.baselineSystem,
-        messages: baselineMsgs,
-        tools,
+        system: await baselineSystemNow(),
+        messages: baselineMode ? baselineView(first, turns) : baselineView(first, turns, { omitTools: fetchers }),
+        tools: baselineTools,
         maxOutputTokens: opts.maxOutputTokens,
       };
       let actualReq: ModelRequest;
       let actual: number;
       let baseline: number;
-      let attribution = { frontLoadChars: 0, rawReturnChars: 0, historyChars: 0 };
+      let estimated: boolean;
+      let fullChars = 0;
+      let attribution: TurnTokens['attribution'] = { frontLoadChars: 0, rawReturnChars: 0, historyChars: 0, fetchChars: 0 };
       if (baselineMode) {
         actualReq = baselineReq;
-        actual = await countOrEstimate(driver, actualReq, ctx, 'actual', ledger);
+        const c = await countTurn(driver, [{ label: 'actual', req: actualReq }], ctx, ledger);
+        actual = c.counts[0] ?? 0;
         baseline = actual;
+        estimated = c.estimated;
       } else {
         const fullMsgs = jitView(first, turns, keep, false);
         const msgs = ctx.mode.compactHistory ? jitView(first, turns, keep, true, { writeTools }) : fullMsgs;
         actualReq = { system: opts.system, messages: msgs, tools, maxOutputTokens: opts.maxOutputTokens };
-        actual = await countOrEstimate(driver, actualReq, ctx, 'actual', ledger);
-        baseline = await countOrEstimate(driver, baselineReq, ctx, 'baseline', ledger);
+        const c = await countTurn(driver, [{ label: 'actual', req: actualReq }, { label: 'baseline', req: baselineReq }], ctx, ledger);
+        actual = c.counts[0] ?? 0;
+        baseline = c.counts[1] ?? 0;
+        estimated = c.estimated;
+        const rawMsgs = fetchers.size > 0 ? baselineView(first, turns) : baselineReq.messages;
+        fullChars = messageChars(fullMsgs);
         attribution = {
-          frontLoadChars: opts.baselineSystem.length - opts.system.length,
-          rawReturnChars: messageChars(baselineMsgs) - messageChars(fullMsgs),
+          frontLoadChars: baselineReq.system.length - opts.system.length,
+          rawReturnChars: messageChars(rawMsgs) - messageChars(fullMsgs),
           historyChars: messageChars(fullMsgs) - messageChars(msgs),
+          fetchChars: messageChars(rawMsgs) - messageChars(baselineReq.messages),
         };
       }
 
-      let response: ModelResponse;
+      let response: ModelResponse | undefined;
+      let failure: string | undefined;
+      let shrunk = false;
       try {
-        response = await completeWithRetry(driver, actualReq, delays, ctx, opts.signal, opts.sleep ?? sleep);
+        response = await send(actualReq);
       } catch (e) {
         if (e instanceof AbortedError) return aborted(turn - 1);
-        const error = e instanceof RateLimitStop ? `driver.complete stopped: ${e.message}` : `driver.complete failed after ${delays.length + 1} attempts: ${errMsg(e)}`;
+        if (!(e instanceof ContextOverflow)) failure = failureText(e, delays);
+        else if (baselineMode) {
+          failure = `context overflow: the --baseline request (the repository front-loaded, every raw return, no compaction by definition) does not fit the model's context window: ${e.message}`;
+        } else {
+          // Shrink once: keep 1 recent turn, fold the rest into the digest, working set as skeletons only.
+          const smaller = jitView(first, turns, 1, true, { writeTools, workingSetFullChars: 0 });
+          if (messageChars(smaller) >= messageChars(actualReq.messages)) {
+            failure = `context overflow with nothing left to drop (1 recent turn, no working-set file text): ${e.message}`;
+          } else {
+            shrunk = true;
+            actualReq = { ...actualReq, messages: smaller };
+            if (estimated) {
+              actual = estimateTokens(actualReq);
+              ledger.noteEstimated();
+            } else {
+              const c = await countTurn(driver, [{ label: 'actual (shrunk)', req: actualReq }, { label: 'baseline', req: baselineReq }], ctx, ledger);
+              actual = c.counts[0] ?? 0;
+              baseline = c.counts[1] ?? 0;
+              estimated = c.estimated;
+            }
+            attribution = { ...attribution, historyChars: fullChars - messageChars(smaller) };
+            ctx.emit({
+              kind: 'note',
+              source: 'loop',
+              message: `context overflow: request shrunk once and resent (1 recent turn kept, working-set file text dropped; ${actual} input tokens): ${firstLine(e.message)}`,
+            });
+            try {
+              response = await send(actualReq);
+            } catch (e2) {
+              if (e2 instanceof AbortedError) return aborted(turn - 1);
+              failure = e2 instanceof ContextOverflow ? `context overflow: the request does not fit the model's context window even after shrinking it once: ${e2.message}` : failureText(e2, delays);
+            }
+          }
+        }
+      }
+      if (response === undefined) {
+        const error = failure ?? 'driver.complete returned nothing';
         ctx.emit({ kind: 'error', source: 'driver', message: error });
         store.writeJson('state.json', serializeState(ctx.state));
         return withFinish({ status: 'error', turns: turn - 1, error });
       }
+      // A driver with no provider (an offline replay) reports no usage: never record its numbers as the provider's.
+      const reported = response.usage.reported !== false;
       ledger.record({
         turn,
         actual,
         baseline,
-        providerInput: response.usage.inputTokens,
-        providerCached: response.usage.cachedInputTokens ?? 0,
-        output: response.usage.outputTokens,
+        providerInput: reported ? response.usage.inputTokens : 0,
+        providerCached: reported ? (response.usage.cachedInputTokens ?? 0) : 0,
+        output: reported ? response.usage.outputTokens : 0,
         attribution,
+        ...(reported ? {} : { providerReported: false }),
+        ...(estimated ? { estimated: true } : {}),
       });
 
       const assistant: Message = { role: 'assistant', parts: response.parts };
-      const meta = { stop: response.stop, model: response.model, usage: response.usage, tokens: { actual, baseline } };
+      const meta = { stop: response.stop, model: response.model, usage: response.usage, tokens: { actual, baseline }, ...(shrunk ? { contextShrunk: true } : {}) };
       const calls = response.parts.filter((p): p is ToolCallPart => p.type === 'tool_call');
 
       if (response.stop === 'refusal' && calls.length === 0) {
@@ -568,6 +808,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         if (out.finish !== undefined) {
           lastFinish = out.finish;
           if (out.finish.ok) accepted = out.finish;
+          else attempts.push({ turn, failing: failingUnits(out.finish.results) });
         }
       }
       const hasRepeats = Object.keys(repeats).length > 0;
@@ -581,10 +822,23 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       };
       turns.push(t);
       persist(t, hasRepeats ? { ...meta, repeats } : meta, logs);
-      if (accepted !== undefined) return { status: 'done', turns: turn, finish: accepted };
+      if (accepted !== undefined) return withFinish({ status: 'done', turns: turn, finish: accepted });
       if (isAborted(opts.signal)) return aborted(turn);
+      if (turn === limit && opts.turnExtension !== undefined) {
+        const extra = limit - opts.maxTurns;
+        const grant = extensionAt(limit, attempts, opts.turnExtension, extra);
+        if (grant !== null) {
+          extensions.push(grant);
+          limit += grant.by;
+          ctx.emit({
+            kind: 'note',
+            source: 'loop',
+            message: `turn limit extended to ${limit} (+${grant.by}): the gates went from ${grant.failingBefore} to ${grant.failingAfter} failing units between the last two finish attempts (at most +${opts.turnExtension.maxExtra} in all)`,
+          });
+        }
+      }
     }
-    return withFinish({ status: 'max_turns', turns: opts.maxTurns });
+    return withFinish({ status: 'max_turns', turns: limit });
   } catch (e) {
     const error = `loop error: ${errMsg(e)}`;
     try {

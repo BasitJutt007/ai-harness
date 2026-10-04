@@ -22,12 +22,12 @@ export default defineGate({
     const { tests, passed, failed, files } = report.totals;
     const loadErrors = report.observations.filter((o) => o.status === 'error').length;
     const skipped = Math.max(0, tests - passed - failed);
-    if (failed > 0) return { status: 'fail', summary: `${failed} of ${tests} tests failed in ${files} files`, ...base };
-    if (loadErrors > 0) return { status: 'fail', summary: `${loadErrors} of ${files} test files failed to load (${passed}/${tests} tests passed)`, ...base };
+    if (failed > 0) return { status: 'fail', summary: `${failed} of ${tests} tests failed in ${files} files`, failing: failed + loadErrors, ...base };
+    if (loadErrors > 0) return { status: 'fail', summary: `${loadErrors} of ${files} test files failed to load (${passed}/${tests} tests passed)`, failing: loadErrors, ...base };
     if (tests === 0) return { status: 'unproven', summary: 'no tests ran (an empty suite proves nothing)', ...base };
     if (passed === 0) return { status: 'unproven', summary: `0 of ${tests} tests passed: all skipped or todo (a skipped test proves nothing)`, ...base };
     if (skipped > 0) {
-      return { status: 'unproven', summary: `${skipped} of ${tests} tests skipped or todo (remove .skip/.todo/.only; a skipped test proves nothing)`, ...base };
+      return { status: 'unproven', summary: `${skipped} of ${tests} tests skipped or todo (remove .skip/.todo/.only; a skipped test proves nothing)`, failing: skipped, ...base };
     }
     if (!report.ok) return { status: 'fail', summary: `the runner reported failure (${passed}/${tests} tests passed in ${files} files)`, ...base };
     return { status: 'pass', summary: `${passed}/${tests} tests passed in ${files} files`, ...base };

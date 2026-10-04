@@ -11,7 +11,8 @@ import { z } from 'zod';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { formatGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
-import { runAgent, type AgentResult, type AgentStatus } from './loop.ts';
+import { withoutFetchers } from './context.ts';
+import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
 import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
 import { loadRegistry, pluginFingerprint, toolSpecs } from './registry.ts';
 import { deserializeState, newRunId, newRunState, RunStore, serializeState } from './run-store.ts';
@@ -24,6 +25,7 @@ import { TEMPLATE_MANIFEST, templateManifest, type TemplateManifest } from './te
 import { TokenLedger, type TokenReport } from './tokens.ts';
 import { createWorkspace, createWorktree, gitToplevel, sha256 } from './workspace.ts';
 import type {
+  CheckPlugin,
   CheckReport,
   ContextMode,
   Driver,
@@ -381,6 +383,27 @@ export function standardsLine(report: CheckReport | null, aborted: boolean, kind
   return `UNPROVEN (a rule was skipped or had nothing to check; ${v.percent}% of checked units passed)  ${rules}${brownfield}`;
 }
 
+/** The summary line of the turn limit: where it came from, and any extension the run earned. */
+export function turnLimitLine(limit: TurnLimit, record: TurnLimitRecord | undefined): string {
+  const from =
+    limit.source === 'cli' ? '--max-turns (hard cap)' : limit.source === 'task' ? 'task file maxTurns (hard cap)' : 'default scaled with the task size';
+  const ext = limit.extension === undefined ? '' : `; up to +${limit.extension.maxExtra} while the gates make progress`;
+  const got = record === undefined || record.extensions.length === 0 ? '' : `; extended to ${record.final} (${record.extensions.map((x) => `+${x.by} at turn ${x.atTurn}: ${x.failingBefore}→${x.failingAfter} failing`).join(', ')})`;
+  return `${limit.max} turns (${from}${ext})${got}`;
+}
+
+// ───────────────────────────── baseline request ─────────────────────────────
+
+/**
+ * The baseline system prompt, rendered anew on every call from the CURRENT tree: the --baseline
+ * prompt (it says the repository is included and names no fetcher) + every text file under the
+ * API root + every standards doc (prompt.ts frontLoad). `tools` are the baseline's tools (no fetchers).
+ */
+export function baselineSystemRenderer(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; ws: Workspace }): () => Promise<string> {
+  const prompt = systemPrompt({ task: opts.task, checks: opts.checks, tools: opts.tools, preloaded: true });
+  return async () => `${prompt}\n\n${await frontLoad({ ws: opts.ws, checks: opts.checks })}`;
+}
+
 // ───────────────────────────── executeRun ─────────────────────────────
 
 export interface ExecuteRunOptions {
@@ -499,6 +522,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const targetLines = target.profile !== undefined ? formatProfile(target.profile) : [`target     UNPROVEN: ${target.error ?? 'no profile'}`];
   if (target.scopeFromProfile && task.kind === 'brownfield') targetLines.push(`           scope (task declares none; from the target layout): ${task.scope.allow.join(', ')}`);
   log(targetLines.join('\n'));
+  // An explicit limit (--max-turns, the task file's maxTurns) is a hard cap; else scaled with the task, extensible.
+  const turnLimit = turnLimitFor(task, opts.maxTurns);
   const ctx = buildContext({
     run: {
       id: runId,
@@ -522,7 +547,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     ...(target.profile !== undefined ? { profile: target.profile } : {}),
   });
 
-  // The tool list exactly as the model will be offered it (order included), recorded in run.json.
+  // The tool list exactly as the model will be offered it (order included), recorded in run.json:
+  // a --baseline run withholds the context fetchers (their content is front-loaded every turn).
   let offered: ToolSpec[] | undefined;
   let offerError = '';
   try {
@@ -530,6 +556,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   } catch (e) {
     offerError = errMsg(e);
   }
+  const toolPlugins = registry.tools.map((r) => r.plugin);
+  const baselineTools = offered === undefined ? undefined : withoutFetchers(offered, toolPlugins);
+  const sentTools = opts.baseline ? baselineTools : offered;
+  const withheld = opts.baseline ? (offered ?? []).filter((t) => !(baselineTools ?? []).includes(t)).map((t) => t.name) : [];
 
   const runRecordBase = {
     runId,
@@ -556,7 +586,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     baseBranch: wt.baseBranch,
     baseSha: wt.baseSha,
     pluginFingerprint: pluginFingerprint(registry, { config, harnessRoot: HARNESS_ROOT }),
-    toolsOffered: (offered ?? []).map((t) => t.name),
+    toolsOffered: (sentTools ?? []).map((t) => t.name),
+    turnLimit,
+    ...(opts.baseline ? { contextFetchersWithheld: withheld } : {}),
     checksRegistered: registry.checks.map((r) => r.plugin.id),
     isolation,
     target: target.profile !== undefined
@@ -605,7 +637,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     const tools = offered;
     const checks = registry.checks.map((r) => r.plugin);
     const system = systemPrompt({ task, checks, tools });
-    const baselineSystem = `${system}\n\n${await frontLoad({ ws, checks, tools })}`;
+    const baselineSystem = baselineSystemRenderer({ task, checks, tools: withoutFetchers(tools, toolPlugins), ws });
     const tree = compactTree(await ws.list(['**/*']));
     let testMapText: string | undefined;
     if (task.kind === 'brownfield') {
@@ -632,7 +664,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       system,
       baselineSystem,
       tools,
-      maxTurns: opts.maxTurns ?? task.limits.maxTurns,
+      maxTurns: turnLimit.max,
+      ...(turnLimit.extension !== undefined ? { turnExtension: turnLimit.extension } : {}),
       maxOutputTokens: task.limits.maxOutputTokens,
       ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
     });
@@ -651,7 +684,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const stopRequested = (): boolean => opts.signal?.aborted === true;
   let abortedRun = agent.status === 'aborted' || stopRequested();
   // Interim record: a hard kill during the final gates or checks leaves the loop's outcome, not `running`.
-  if (!abortedRun) store.writeJson('run.json', { ...runRecordBase, status: 'finalizing', loopStatus: agent.status, turns: agent.turns });
+  // Its counter label is already the ledger's (it names a chars/4 fallback if one happened).
+  if (!abortedRun) store.writeJson('run.json', { ...runRecordBase, tokenCounter: ledger.counterLabel(), status: 'finalizing', loopStatus: agent.status, turns: agent.turns });
 
   // Fresh final gate run: never trust what the loop saw. Skipped (and reported UNPROVEN) after an abort.
   const final: GateOutcome = abortedRun
@@ -722,13 +756,20 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     ...(status !== agent.status ? { loopStatus: agent.status } : {}),
     ok,
     turns: agent.turns,
+    ...(agent.turnLimit !== undefined ? { turnLimitExtended: agent.turnLimit } : {}),
     ...(error !== undefined ? { error } : {}),
     finishedAt: new Date().toISOString(),
     finishAttempts: state.finishAttempts,
     gatesOk: final.ok,
     gates: final.results,
     standards: report === null ? null : { verdict: report.verdict, rules: report.rules },
-    tokens: { ...tokenReport.totals, turns: tokenReport.turns.length, path: harnessRel(tokensPath) },
+    tokens: {
+      ...tokenReport.totals,
+      turns: tokenReport.turns.length,
+      baseline_kind: tokenReport.baseline_kind,
+      provider_usage: tokenReport.provider_usage,
+      path: harnessRel(tokensPath),
+    },
     evidence,
     honesty: h,
     ...(shipped !== undefined ? { ship: shipped } : {}),
@@ -738,11 +779,16 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const lines = [
     `run        ${runId}`,
     `status     ${status}  turns ${agent.turns}  finish attempts ${state.finishAttempts}  driver ${driver.name}  model ${finalModel}${opts.baseline ? '  (baseline mode)' : ''}`,
+    `limit      ${turnLimitLine(turnLimit, agent.turnLimit)}`,
     ...(error !== undefined ? [`error      ${error}`] : []),
     `gates      fresh final run (phase finish): ${final.results.length === 0 && abortedRun ? 'not run' : final.ok ? 'all green' : 'NOT green'}`,
     ...(final.results.length > 0 ? formatGates(final.results, true).split('\n') : [final.text]),
     `standards  ${standardsLine(report, abortedRun && report === null, task.kind)}`,
-    `tokens     actual ${t.actual_input_tokens}  baseline ${t.baseline_input_tokens}  reduction ${t.reduction_pct}%  over ${tokenReport.turns.length} turns  (output ${t.output_tokens}, provider-reported input ${t.provider_reported_input_tokens})`,
+    `tokens     actual ${t.actual_input_tokens}  baseline ${t.baseline_input_tokens}  reduction ${t.reduction_pct}%  over ${tokenReport.turns.length} turns  ` +
+      `(${tokenReport.provider_usage === 'none' ? 'no provider-reported usage' : `output ${t.output_tokens}, provider-reported input ${t.provider_reported_input_tokens}`})`,
+    opts.baseline
+      ? `           baseline measured: this --baseline run sent the baseline request every turn; compare: harness tokens compare <jitRunId> ${runId}`
+      : `           baseline is a shadow estimate (never sent); measured: harness run <task> --baseline, then harness tokens compare ${runId} <baselineRunId>`,
     `evidence   ${harnessRel(runDir)}/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}`,
     `           ${evidence.tokens}`,
     `worktree   ${wt.worktreeRoot}  branch ${branch}  (base ${wt.baseBranch} @ ${wt.baseSha.slice(0, 12)}; ${repoDir} untouched)`,
