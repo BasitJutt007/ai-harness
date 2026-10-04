@@ -1,0 +1,2 @@
+additive  GET /v1/projects query.status  new optional property
+additive  DELETE /v1/projects/:projectId  new route

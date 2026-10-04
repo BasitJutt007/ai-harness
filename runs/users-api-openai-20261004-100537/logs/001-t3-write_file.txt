@@ -1,0 +1,63 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,60 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { z } from 'zod';
++import { createApp } from '../src/app.ts';
++
++const UserSchema = z.object({ id: z.uuid(), email: z.email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
++const ProblemSchema = z.object({ type: z.url(), title: z.string(), status: z.number(), detail: z.string(), instance: z.string() });
++const create = (email: string, name = 'Alice') => ({ email, name });
++
++describe('users API', () => {
++  it('creates, gets, patches and deletes a user', async () => {
++    const app = createApp();
++    const made = await request(app).post('/v1/users').send(create('a@example.com')).expect(201);
++    expect(made.headers.location).toMatch(/^\/v1\/users\/[0-9a-f-]+$/);
++    const user = UserSchema.parse(made.body);
++    expect(user.role).toBe('member');
++    expect(UserSchema.parse((await request(app).get(`/v1/users/${user.id}`).expect(200)).body)).toEqual(user);
++    const patched = await request(app).patch(`/v1/users/${user.id}`).send({ name: 'Bob', role: 'admin' }).expect(200);
++    expect(UserSchema.parse(patched.body).name).toBe('Bob');
++    await request(app).delete(`/v1/users/${user.id}`).expect(204);
++    await request(app).get(`/v1/users/${user.id}`).expect(404);
++  });
++
++  it('rejects invalid fields, empty patches, malformed JSON, and missing ids as problems', async () => {
++    const app = createApp();
++    const invalid = await request(app).post('/v1/users').send({ email: 'bad', name: '' }).expect(422);
++    expect(ProblemSchema.parse(invalid.body).detail).toMatch(/email/);
++    expect(invalid.body.detail).toMatch(/name/);
++    await request(app).patch('/v1/users/not-a-uuid').send({}).expect(404);
++    await request(app).patch('/v1/users/00000000-0000-4000-8000-000000000000').send({}).expect(404);
++    const made = await request(app).post('/v1/users').send(create('x@example.com')).expect(201);
++    await request(app).patch(`/v1/users/${made.body.id}`).send({}).expect(422);
++    await request(app).post('/v1/users').set('Content-Type', 'application/json').send('{').expect(400);
++  });
++
++  it('enforces unique emails and idempotency', async () => {
++    const app = createApp();
++    await request(app).post('/v1/users').send(create('same@example.com')).expect(201);
++    await request(app).post('/v1/users').send(create('same@example.com')).expect(409);
++    const first = await request(app).post('/v1/users').set('Idempotency-Key', 'u1').send(create('id@example.com')).expect(201);
++    const replay = await request(app).post('/v1/users').set('Idempotency-Key', 'u1').send(create('id@example.com')).expect(201);
++    expect(replay.headers['idempotent-replayed']).toBe('true');
++    expect(replay.text).toBe(first.text);
++    await request(app).post('/v1/users').set('Idempotency-Key', 'u1').send(create('other@example.com')).expect(422);
++    await request(app).patch(`/v1/users/${first.body.id}`).send({ email: 'same@example.com' }).expect(409);
++  });
++
++  it('paginates all users exactly once', async () => {
++    const app = createApp();
++    for (let i = 0; i < 5; i += 1) await request(app).post('/v1/users').send(create(`p${i}@example.com`, `P${i}`)).expect(201);
++    const ids: string[] = [];
++    let cursor: string | undefined;
++    do {
++      const res = await request(app).get('/v1/users').query({ limit: 2, ...(cursor === undefined ? {} : { cursor }) }).expect(200);
++      ids.push(...res.body.data.map((u: { id: string }) => u.id));
++      cursor = res.body.nextCursor ?? undefined;
++    } while (cursor !== undefined);
++    expect(new Set(ids).size).toBe(5);
++  });
++});

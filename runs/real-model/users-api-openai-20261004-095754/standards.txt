@@ -1,0 +1,22 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                6/6 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               6/6 error paths
+problem-json      pass  src/routes/index.ts              8/8 error paths
+problem-json      pass  (runtime)                        11/11 error paths
+rest-conventions  pass  src/routes/index.ts              5/5 routes
+tsc-strict        pass  (project)                        0 errors
+zod-boundary      FAIL  src/routes/index.ts              2/5 handlers
+    src/routes/index.ts:24:62  GET /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/index.ts:24:32  GET /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/index.ts:25:79  PATCH /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/index.ts:25:49  PATCH /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/index.ts:26:65  DELETE /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/index.ts:26:35  DELETE /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+────────────────────────────────────────────────────────────
+problem-json      pass    36/36 error paths
+rest-conventions  pass     5/5 routes
+tsc-strict        pass     0 errors
+zod-boundary      FAIL     2/5 handlers
+verdict           93%     → failing: zod-boundary

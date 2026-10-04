@@ -1,0 +1,45 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,42 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++
++const user = { email: 'a@example.com', name: 'Alice' };
++const problem = (res: request.Response, status: number): void => {
++  expect(res.status).toBe(status);
++  expect(res.headers['content-type']).toMatch(/application\/problem\+json/);
++  expect(res.body).toMatchObject({ status, type: expect.any(String), title: expect.any(String), detail: expect.any(String), instance: expect.any(String) });
++};
++
++describe('users API', () => {
++  it('creates, gets, updates and deletes users', async () => {
++    const app = createApp();
++    const created = await request(app).post('/v1/users').send(user);
++    expect(created.status).toBe(201); expect(created.headers.location).toMatch(/\/v1\/users\//); expect(created.body.role).toBe('member');
++    const id = created.body.id;
++    expect((await request(app).get(`/v1/users/${id}`)).body.email).toBe(user.email);
++    const patched = await request(app).patch(`/v1/users/${id}`).send({ name: 'Alicia' });
++    expect(patched.status).toBe(200); expect(patched.body.name).toBe('Alicia'); expect(patched.body.email).toBe(user.email);
++    expect((await request(app).delete(`/v1/users/${id}`)).status).toBe(204);
++    problem(await request(app).get(`/v1/users/${id}`), 404);
++  });
++  it('validates and reports conflicts and malformed JSON', async () => {
++    const app = createApp();
++    problem(await request(app).post('/v1/users').send({ email: 'bad', name: '' }), 422);
++    problem(await request(app).post('/v1/users').set('Content-Type','application/json').send('{'), 400);
++    await request(app).post('/v1/users').send(user);
++    problem(await request(app).post('/v1/users').send(user), 409);
++    problem(await request(app).patch('/v1/users/nope').send({ name: 'x' }), 404);
++    problem(await request(app).patch('/v1/users/nope').send({}), 404);
++  });
++  it('paginates and honors idempotency', async () => {
++    const app = createApp(); const key = 'k1';
++    const first = await request(app).post('/v1/users').set('Idempotency-Key', key).send(user);
++    const replay = await request(app).post('/v1/users').set('Idempotency-Key', key).send(user);
++    expect(replay.status).toBe(201); expect(replay.headers['idempotent-replayed']).toBe('true'); expect(replay.body.id).toBe(first.body.id);
++    problem(await request(app).post('/v1/users').set('Idempotency-Key', key).send({ ...user, name: 'Other' }), 422);
++    const page = await request(app).get('/v1/users').query({ limit: 1 });
++    expect(page.body.data).toHaveLength(1); expect(page.body.nextCursor).toBeNull();
++  });
++});

@@ -1,0 +1,51 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -1,9 +1,42 @@
+-import type { Router } from 'express';
++import { randomUUID } from 'node:crypto';
++import type { Router, Request } from 'express';
++import { z } from 'zod';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { idempotency } from '../lib/idempotency.ts';
++import { CursorQuerySchema, paginate, pageSchema } from '../lib/pagination.ts';
+ 
+-/**
+- * Mount resource routers here, e.g. `app.use(usersRouter)`.
+- * Routers register full versioned paths (`/v1/users`, `/v1/users/:userId`).
+- */
++const UserSchema = z.object({ id: z.uuid(), email: z.email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
++const CreateSchema = z.object({ email: z.email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']).default('member') });
++const PatchSchema = z.object({ email: z.email().optional(), name: z.string().min(1).max(100).optional(), role: z.enum(['admin', 'member']).optional() }).refine((v) => Object.keys(v).length > 0, { message: 'at least one field is required' });
++const IdSchema = z.object({ userId: z.uuid() });
++type User = z.infer<typeof UserSchema>;
++
+ export function registerRoutes(app: Router): void {
+-  // No resources yet.
++  const users = new Map<string, User>();
++  const find = (req: Request): User => {
++    const { userId } = IdSchema.parse(req.params);
++    const found = users.get(userId);
++    if (!found) throw notFound(`User ${userId} was not found.`);
++    return found;
++  };
++  app.post('/v1/users', idempotency(), (req, res) => {
++    const input = CreateSchema.parse(req.body);
++    if ([...users.values()].some((u) => u.email === input.email)) throw conflict('email: already exists');
++    const now = new Date().toISOString();
++    const user = UserSchema.parse({ ...input, id: randomUUID(), createdAt: now, updatedAt: now });
++    users.set(user.id, user);
++    res.location(`/v1/users/${user.id}`).status(201).json(UserSchema.parse(user));
++  });
++  app.get('/v1/users', (req, res) => {
++    const query = CursorQuerySchema.parse(req.query);
++    res.json(pageSchema(UserSchema).parse(paginate([...users.values()], query, (u) => u.id)));
++  });
++  app.get('/v1/users/:userId', (req, res) => res.json(UserSchema.parse(find(req))));
++  app.patch('/v1/users/:userId', idempotency(), (req, res) => {
++    const current = find(req); const input = PatchSchema.parse(req.body);
++    if (input.email !== undefined && [...users.values()].some((u) => u.id !== current.id && u.email === input.email)) throw conflict('email: already exists');
++    const updated = UserSchema.parse({ ...current, ...input, updatedAt: new Date().toISOString() });
++    users.set(updated.id, updated); res.json(updated);
++  });
++  app.delete('/v1/users/:userId', (req, res) => { const user = find(req); users.delete(user.id); res.status(204).send(); });
+ }

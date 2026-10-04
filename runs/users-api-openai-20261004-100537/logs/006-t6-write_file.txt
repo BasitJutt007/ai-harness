@@ -1,0 +1,46 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -1,9 +1,37 @@
+-import type { Router } from 'express';
++import type { Router, Request, Response, NextFunction } from 'express';
++import { randomUUID } from 'node:crypto';
++import { z } from 'zod';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { CursorQuerySchema, paginate, pageSchema } from '../lib/pagination.ts';
++import { idempotency } from '../lib/idempotency.ts';
+ 
+-/**
+- * Mount resource routers here, e.g. `app.use(usersRouter)`.
+- * Routers register full versioned paths (`/v1/users`, `/v1/users/:userId`).
+- */
++const UserSchema = z.object({ id: z.uuid(), email: z.email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
++const CreateSchema = z.object({ email: z.email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']).default('member') }).strict();
++const PatchSchema = z.object({ email: z.email().optional(), name: z.string().min(1).max(100).optional(), role: z.enum(['admin', 'member']).optional() }).strict().refine((v) => Object.keys(v).length > 0, { message: 'must not be empty' });
++const IdSchema = z.object({ userId: z.uuid() });
++type User = z.infer<typeof UserSchema>;
++
++function validation(next: NextFunction, fn: () => void): void { try { fn(); } catch (e) { next(e); } }
++
+ export function registerRoutes(app: Router): void {
+-  // No resources yet.
++  const users = new Map<string, User>();
++  const emailIndex = new Map<string, string>();
++  const router = app;
++  router.post('/v1/users', idempotency(), (req: Request, res: Response, next: NextFunction) => validation(next, () => {
++    const input = CreateSchema.parse(req.body);
++    if (emailIndex.has(input.email)) throw conflict('email: already exists');
++    const now = new Date().toISOString(); const user: User = UserSchema.parse({ id: randomUUID(), ...input, createdAt: now, updatedAt: now });
++    users.set(user.id, user); emailIndex.set(user.email, user.id);
++    res.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user));
++  }));
++  router.get('/v1/users', (req: Request, res: Response, next: NextFunction) => validation(next, () => {
++    const query = CursorQuerySchema.parse(req.query); res.json(pageSchema(UserSchema).parse(paginate([...users.values()], query, (u) => u.id)));
++  }));
++  router.get('/v1/users/:userId', (req: Request, res: Response, next: NextFunction) => validation(next, () => { const { userId } = IdSchema.parse(req.params); const u = users.get(userId); if (!u) throw notFound(`No user exists with id ${userId}.`); res.json(UserSchema.parse(u)); }));
++  router.patch('/v1/users/:userId', idempotency(), (req: Request, res: Response, next: NextFunction) => validation(next, () => {
++    const { userId } = IdSchema.parse(req.params); const old = users.get(userId); if (!old) throw notFound(`No user exists with id ${userId}.`); const patch = PatchSchema.parse(req.body);
++    if (patch.email && patch.email !== old.email && emailIndex.has(patch.email)) throw conflict('email: already exists');
++    if (patch.email) { emailIndex.delete(old.email); emailIndex.set(patch.email, userId); } const updated = UserSchema.parse({ ...old, ...patch, updatedAt: new Date().toISOString() }); users.set(userId, updated); res.json(updated);
++  }));
++  router.delete('/v1/users/:userId', (req: Request, res: Response, next: NextFunction) => validation(next, () => { const { userId } = IdSchema.parse(req.params); const u = users.get(userId); if (!u) throw notFound(`No user exists with id ${userId}.`); users.delete(userId); emailIndex.delete(u.email); res.status(204).send(); }));
+ }

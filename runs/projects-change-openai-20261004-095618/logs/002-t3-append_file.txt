@@ -1,0 +1,43 @@
+--- a/test/projects.test.ts
++++ b/test/projects.test.ts
+@@ -175,3 +175,40 @@
+     expect(second.body).toEqual(first.body);
+   });
+ });
++
++
++describe('project deletion and status filtering', () => {
++  it('deletes a project with 204 and then returns 404', async () => {
++    const project = await createProject();
++    const deleted = await request(app).delete(`/v1/projects/${project.id}`);
++    expect(deleted.status).toBe(204);
++    expect(deleted.text).toBe('');
++    expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('returns 404 problem for unknown and repeated deletes', async () => {
++    expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
++    const project = await createProject();
++    await request(app).delete(`/v1/projects/${project.id}`).expect(204);
++    expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('rejects malformed delete ids with a 422 problem', async () => {
++    expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
++  });
++
++  it('filters by status and paginates the filtered set', async () => {
++    const archived = await Promise.all([createProject({ status: 'archived' }), createProject({ status: 'archived' }), createProject({ status: 'archived' })]);
++    await createProject({ status: 'active' });
++    const ids = await listAll({ status: 'archived', limit: '2' });
++    expect(ids).toEqual(archived.map((project) => project.id));
++    const active = await request(app).get('/v1/projects').query({ status: 'active', limit: '100' });
++    expect(PageBody.parse(active.body).data.every((project) => project.status === 'active')).toBe(true);
++    const all = await request(app).get('/v1/projects').query({ limit: '100' });
++    expect(PageBody.parse(all.body).data.some((project) => project.status === 'archived')).toBe(true);
++  });
++
++  it('rejects an unknown status with a 422 problem', async () => {
++    expectProblem(await request(app).get('/v1/projects').query({ status: 'deleted' }), 422);
++  });
++});
