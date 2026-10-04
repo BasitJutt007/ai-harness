@@ -225,10 +225,15 @@ not run, an unsupported framework or runner, a skip the run introduced, an abort
   identity (`plugins/lib/store-identity.ts`): the store must be one object created once that no code
   replaces, clears or leaks through any alias, property, helper or closure; anything it cannot
   establish (a key or store handed to code it cannot follow, dynamic code, a library subclass) is
-  UNPROVEN. Its runtime replay probe sends each such POST (and a PATCH whose resource a POST creates)
-  twice with one key when a body can be generated from the route's schema, and fails a retry that is
-  not replayed; it cannot see retries after other writes, concurrency, or routes whose body it cannot
-  generate (those keep the static verdict). `spec-coverage` also probes replays (an immediate retry,
+  UNPROVEN. A replay counts only when the response body is the stored value itself (the lookup, a
+  property of it, a wrapper object around it, or `Schema.parse` of it); a body rebuilt from the
+  current row does not. That static acceptance is never enough on its own: the runtime replay probe
+  sends each such POST or PATCH twice with one key (creating parent resources through their collection
+  POST to fill path parameters) and fails a retry that is not replayed. When it cannot run, for
+  example because no valid body can be generated from the route's schema, the route is UNPROVEN, not
+  passed; a person can resolve it by adding a valid body to `harness.probe.json` in the API root
+  (`{"POST /users": {"body": {"email": "u-{{unique}}@example.com"}}}`; `{{unique}}` is replaced
+  per request). The probe cannot see retries after other writes or concurrency. `spec-coverage` also probes replays (an immediate retry,
   and a retry after the resource was updated), only on structured greenfield tasks.
 - *Other error paths:* the runtime probes cover an unknown path, malformed JSON, an invalid body, a
   missing `Idempotency-Key`, an unknown id and an injected 500; the rest is judged statically.
