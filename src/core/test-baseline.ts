@@ -24,6 +24,7 @@ export function testBaselineOf(report: TestRunReport, at: string): TestBaseline 
     skipped: report.results.filter((r) => r.status === 'skip' || r.status === 'todo').map((r) => ({ ...r })),
     failed: report.results.filter((r) => r.status === 'fail').map((r) => ({ ...r })),
     loadErrors: report.observations.filter((o) => o.status === 'error').map((o) => o.file).sort(),
+    files: report.observations.map((o) => o.file).sort(),
   };
 }
 
@@ -64,6 +65,7 @@ const BaselineShape = z.object({
   skipped: z.array(CaseShape),
   failed: z.array(CaseShape),
   loadErrors: z.array(z.string()),
+  files: z.array(z.string()).optional(),
   logPath: z.string().optional(),
 });
 

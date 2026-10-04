@@ -15,7 +15,8 @@
  *   (same status, deep-equal body), not the updated state.
  * - pass only if every unit passes; any fail -> fail; else any undecidable unit (no app, 401/403,
  *   no valid body from the spec, a failed request) -> unproven.
- * - Greenfield with only a free-text brief: n/a, and a human must verify behaviour coverage
+ * - Greenfield with only a free-text brief: UNPROVEN (no gate compared the API with the brief), unless the
+ *   task explicitly opts out with `specCoverage: human`: then n/a, and a human must verify behaviour coverage
  *   (listed under "human must verify"). Brownfield: n/a (contract-lock covers contracts).
  */
 import { defineGate } from '../../src/core/plugin-api.ts';
@@ -151,16 +152,26 @@ export default defineGate({
   name: 'spec-coverage',
   description:
     'Greenfield: every endpoint the task\'s resources × operations imply exists, and probes generated from the field specs (required, enum, min/max, unique, '
-    + 'create/get/list/update/delete, idempotency incl. replay after an update) pass against the running app. Free-text-only tasks: n/a, a human verifies coverage.',
+    + 'create/get/list/update/delete, idempotency incl. replay after an update) pass against the running app. Free-text-only tasks: UNPROVEN unless they opt out (specCoverage: human).',
   phases: ['finish', 'ship'],
   appliesTo: ['greenfield'],
   async run(ctx): Promise<GateResult> {
     const task = ctx.task;
     if (task.kind !== 'greenfield') return { status: 'n/a', summary: 'not applicable to brownfield tasks (contract-lock covers the contract)' };
     if (task.resources.length === 0) {
+      if (task.specCoverage === 'human') {
+        return {
+          status: 'n/a',
+          summary: 'the task lists no structured resources and opts out (specCoverage: human): behaviour coverage must be verified by a human',
+          humanMustVerify: [FREE_TEXT_NOTE],
+        };
+      }
       return {
-        status: 'n/a',
-        summary: 'the task lists no structured resources (free-text brief only): behaviour coverage must be verified by a human',
+        status: 'unproven',
+        summary: 'the task lists no structured resources (free-text brief only): nothing compared the API with the brief',
+        details: [
+          'List the resources (fields and operations) in the task so the harness can probe them, or set specCoverage: human in the task to accept that a human verifies behaviour coverage.',
+        ],
         humanMustVerify: [FREE_TEXT_NOTE],
       };
     }

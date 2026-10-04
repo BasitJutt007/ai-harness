@@ -212,7 +212,8 @@ describe('validation JSON Schema cannot show', () => {
       [ep('GET', '/v1/x', { opaque: ['body'] }), ep('GET', '/v1/x', { opaque: ['body'] })],
       [ep('DELETE', '/v1/x/:id', { opaque: ['body'] }), ep('DELETE', '/v1/x/:id', { opaque: ['body'] })],
       [ep('POST', '/v1/x', { opaque: ['body'], request: { body } }), ep('POST', '/v1/x', { opaque: ['body'], request: { body } })],
-      [ep('PATCH', '/v1/x', { opaque: ['query'] }), ep('PATCH', '/v1/x', { opaque: ['query'] })],
+      // an unchanged handler (same hash): its unparsed query read keeps the contract it had
+      [ep('PATCH', '/v1/x', { opaque: ['query'], handlerHash: 'h' }), ep('PATCH', '/v1/x', { opaque: ['query'], handlerHash: 'h' })],
     ];
     for (const [b, a] of quiet) {
       if (b === undefined || a === undefined) continue;

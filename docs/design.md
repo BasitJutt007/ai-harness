@@ -64,8 +64,8 @@ content; content hooks judge that post-image and refuse a write tool without one
   `dependency-policy` (an added import must be a builtin or a declared, installed package). *Post-tool:*
   `typecheck-feedback` records up to 3 type errors of the written files and never blocks.
 - *Gates* (fresh at finish and at ship; finish needs no `fail`/`unproven` and one `pass`):
-  `tests-green`, `observed-red` (red → green on the same case, plus a **revert check**: with the
-  run-start sources put back the case fails again), `standards`, `scope`, `orphans` (every created
+  `tests-green`, `observed-red` (red → green on the same case, plus a **revert check** per changed
+  file: with that file alone put back at its run-start content the case fails again), `standards`, `scope`, `orphans` (every created
   file is reachable from a test or from pre-existing code), `spec-coverage` (structured greenfield:
   the endpoints resources × operations imply exist and field-spec probes pass against the sandboxed
   app), `contract-lock` (brownfield), `secrets` (ship only).
@@ -242,7 +242,9 @@ not run, an unsupported framework or runner, a skip the run introduced, an abort
 - *Behaviour behind an unchanged schema:* Contract Lock misses filtering, sorting and cursor
   meaning, which condition yields which status (non-2xx statuses are a set per endpoint), response
   headers, and constraints that live only in `.refine`/`.transform` (UNPROVEN, not classified).
-- *Free-text behaviours* are checked only by the agent's own tests (`spec-coverage` is `n/a`).
+- *Free-text behaviours* are checked only by the agent's own tests: a free-text greenfield task's
+  `spec-coverage` is UNPROVEN (never DONE) unless the task opts out with `specCoverage: human`
+  (then `n/a`, and a human verifies behaviour coverage).
 
 **A human still verifies** that the agent's tests test the intended behaviour (any failing
 non-constant assertion on source values counts as red), changes admitted with `allowBreaking`,

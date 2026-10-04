@@ -4,7 +4,8 @@
  *
  * Turns the runner's event stream into the same JSON shape vitest and jest write
  * ({ testResults: [{ name, status, message, assertionResults: [{ ancestorTitles, title,
- * status, failureMessages, location }] }] }), so one parser serves every runner.
+ * status, failureMessages, location }] }], success }), so one parser serves every runner. `success` is
+ * node's own verdict for the whole run (its run-level test:summary event).
  * It runs in the `node --test` process itself (test files run in child processes that
  * never hold fd 3), so test code cannot forge what it writes.
  */
@@ -32,8 +33,11 @@ export default async function* harnessReporter(source) {
     }
     return f;
   };
+  // node's own verdict over the whole run (the test:summary without a file), when it reports one.
+  let success;
   for await (const event of source) {
     const d = event.data ?? {};
+    if (event.type === 'test:summary' && d.file === undefined && typeof d.success === 'boolean') success = success === false ? false : d.success;
     if (typeof d.file !== 'string') continue;
     const f = entry(d.file);
     const rel = relative(cwd, resolve(cwd, d.file));
@@ -85,5 +89,5 @@ export default async function* harnessReporter(source) {
       assertionResults: f.cases,
     });
   }
-  yield `${JSON.stringify({ testResults })}\n`;
+  yield `${JSON.stringify(success === undefined ? { testResults } : { testResults, success })}\n`;
 }

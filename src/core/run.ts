@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { governanceRecord } from './governance.ts';
-import { formatGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
+import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
 import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
 import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
@@ -314,6 +314,29 @@ async function discardWorktree(repoDir: string, worktreeRoot: string, branch: st
 }
 
 // ───────────────────────────── honesty ─────────────────────────────
+
+/**
+ * UNPROVEN items of the run itself (not of a gate) that keep it from DONE: agent code ran without a working
+ * sandbox (isolation off or unavailable), the target profile names parts the harness does not support (or there
+ * is no profile), the post-loop standards report crashed. Empty = none.
+ */
+export function runUnprovenItems(o: { isolation: Parameters<typeof isolationHonesty>[0]; targetNotes: string[]; checksCrashed: boolean }): string[] {
+  const out: string[] = [];
+  const iso = isolationHonesty(o.isolation);
+  if (!iso.proven) out.push(iso.line);
+  for (const n of o.targetNotes) out.push(`target: ${n}`);
+  if (o.checksCrashed) out.push('checks: the standards report could not be produced');
+  return out;
+}
+
+/** Why a run is NOT DONE, for the verdict line. */
+export function notDoneReason(status: AgentStatus, loopStatus: AgentStatus, gatesOk: boolean, runUnproven: string[]): string {
+  if (status !== 'done' && !(gatesOk && (status === 'max_turns' || status === 'stalled'))) {
+    return status !== loopStatus ? 'stopped by signal' : `loop ended ${status}`;
+  }
+  if (!gatesOk) return 'final gates not green';
+  return `UNPROVEN: ${runUnproven.join('; ')}`;
+}
 
 export function honesty(task: Task, gates: NamedGateResult[], report: CheckReport | null, notes: string[] = []): Honesty {
   const h: Honesty = { proven: [], failed: [], unproven: [...notes], notApplicable: [], humanMustVerify: [] };
@@ -710,7 +733,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // Fresh final gate run: never trust what the loop saw. Skipped (and reported UNPROVEN) after an abort.
   const final: GateOutcome = abortedRun
     ? { ok: false, results: [], text: 'gates     not run: the run was aborted (UNPROVEN)', compact: '' }
-    : await runGates(registry.gates, ctx, 'finish');
+    : await runGates(registry.gates, ctx, 'finish', { required: requiredGates(task, 'finish') });
   abortedRun ||= stopRequested();
   let report: CheckReport | null = null;
   if (abortedRun) {
@@ -733,10 +756,18 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   store.writeJson('state.json', serializeState(state));
   const tokensPath = ledger.write(dirs.tokensDir);
   const tokenReport = ledger.report();
+  // What the run itself could not establish blocks DONE like an UNPROVEN gate: agent code ran unconfined
+  // (isolation off or unavailable), the target profile has unsupported parts (or none), or the post-loop
+  // standards report could not be produced.
+  const runUnproven = runUnprovenItems({
+    isolation,
+    targetNotes: target.profile !== undefined ? target.profile.unsupported : [target.error ?? 'no profile'],
+    checksCrashed: !abortedRun && report === null,
+  });
   // The gates, not the model, decide: a loop that ran out of turns (or stalled) without calling finish
   // is still DONE when the fresh final gate run is green, labelled so.
-  const gatesDecided = !abortedRun && (status === 'max_turns' || status === 'stalled') && final.ok && final.results.length > 0;
-  const ok = (status === 'done' && final.ok) || gatesDecided;
+  const gatesDecided = !abortedRun && (status === 'max_turns' || status === 'stalled') && final.ok && final.results.length > 0 && runUnproven.length === 0;
+  const ok = ((status === 'done' && final.ok) || gatesDecided) && runUnproven.length === 0;
 
   let shipped: ShipOutcome | undefined;
   if (opts.ship) {
@@ -773,7 +804,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   };
   const verdictText = gatesDecided
     ? `DONE (the loop ended ${status} without finish; the fresh final gate run is green)`
-    : ok ? 'DONE' : `NOT DONE (${status !== 'done' ? (status !== agent.status ? 'stopped by signal' : `loop ended ${status}`) : 'final gates not green'})`;
+    : ok ? 'DONE' : `NOT DONE (${notDoneReason(status, agent.status, final.ok, runUnproven)})`;
   store.writeJson('run.json', {
     ...runRecordBase,
     model: finalModel,
@@ -790,6 +821,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     gatesOk: final.ok,
     gates: final.results,
     verdict: verdictText,
+    ...(runUnproven.length > 0 ? { runUnproven } : {}),
     gateStatuses: Object.fromEntries(final.results.map((g) => [g.gate, g.status])),
     standards: report === null ? null : { verdict: report.verdict, rules: report.rules },
     tokens: {

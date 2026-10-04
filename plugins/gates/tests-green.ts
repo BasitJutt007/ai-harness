@@ -14,9 +14,19 @@
  * - a failing test, or a file that fails to load, still fails the gate; the summary says which were
  *   already failing at run start.
  * Without a baseline every skip is unproven.
+ *
+ * Green also needs the runner PROCESS to succeed: exit code 0, not timed out, and the JSON report's `success`
+ * flag (vitest, jest) not false. A non-zero exit with every case passed (an unhandled rejection after the last
+ * case, a crashed worker) is UNPROVEN, never pass. Two more things are never green:
+ * - an inverted case (`it.fails` / `test.failing`): the runner reports pass when its body fails, so its "pass"
+ *   proves nothing (UNPROVEN while one exists);
+ * - a test file on disk that the runner's globs collect (the layout's test globs / regex) but that the run did
+ *   not report: a test that never ran proves nothing (UNPROVEN). With a run-start baseline, a file that existed
+ *   at run start and was not reported then either (e.g. excluded by the runner's config, which the layout does
+ *   not model) is pre-existing: listed under "human must verify", not blocking.
  */
-import { defineGate } from '../../src/core/plugin-api.ts';
-import type { GateResult, TestBaseline, TestCaseResult, TestRunReport } from '../../src/core/plugin-api.ts';
+import { activeLayout, defineGate, graphFiles, isTestFile, matchesTestPattern } from '../../src/core/plugin-api.ts';
+import type { GateResult, RunContext, TestBaseline, TestCaseResult, TestRunReport } from '../../src/core/plugin-api.ts';
 
 const MAX_DETAILS = 12;
 const MAX_LISTED = 20;
@@ -56,6 +66,36 @@ function splitSkips(report: TestRunReport, skipped: number, baseline: TestBaseli
     } else {
       out.introduced.push(c);
     }
+  }
+  return out;
+}
+
+/** How the runner process failed (exit code, timeout, report flag), or null when it succeeded. */
+function processFailure(exit: TestRunReport['exit']): string | null {
+  if (exit === undefined) return null;
+  if (exit.timedOut) return 'the runner timed out';
+  if (exit.code !== 0) return `the runner exited ${String(exit.code)}`;
+  return exit.success === false ? "the runner's JSON report says success: false" : null;
+}
+
+/** Inverted cases (`it.fails` / `test.failing`) of the run, as "file > name". */
+function invertedCases(report: TestRunReport): string[] {
+  return report.observations.flatMap((o) => (o.cases ?? []).filter((c) => c.inverted === true).map((c) => `${o.file} > ${c.name}`));
+}
+
+/**
+ * Test files the runner's globs collect (per the API's layout) that the run did not report: `unreported` blocks,
+ * `preExisting` (existed at run start and were not reported then either, per the baseline) does not.
+ */
+async function unreportedFiles(ctx: RunContext, report: TestRunReport, baseline: TestBaseline | undefined): Promise<{ unreported: string[]; preExisting: string[] }> {
+  const layout = activeLayout();
+  const reported = new Set(report.observations.map((o) => o.file));
+  const onDisk = graphFiles(await ctx.workspace.list(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx']))
+    .filter((f) => isTestFile(f) && matchesTestPattern(f, layout) && !reported.has(f));
+  const before = baseline?.files === undefined ? undefined : new Set(baseline.files);
+  const out = { unreported: [] as string[], preExisting: [] as string[] };
+  for (const f of onDisk) {
+    (before !== undefined && ctx.state.initialHashes.has(f) && !before.has(f) ? out.preExisting : out.unreported).push(f);
   }
   return out;
 }
@@ -108,8 +148,40 @@ export default defineGate({
         logPath: report.logPath,
       };
     }
+    const crashed = processFailure(report.exit);
+    if (crashed !== null) {
+      return {
+        status: 'unproven',
+        summary: `${crashed} although no test case failed (${passed}/${tests} tests passed in ${files} files): something failed outside the cases (e.g. an unhandled error), so the suite is not proven green`,
+        ...base,
+      };
+    }
     if (tests === 0) return { status: 'unproven', summary: 'no tests ran (an empty suite proves nothing)', ...base };
     if (passed === 0) return { status: 'unproven', summary: `0 of ${tests} tests passed: all skipped or todo (a skipped test proves nothing)`, ...base };
+    const inverted = invertedCases(report);
+    if (inverted.length > 0) {
+      return {
+        status: 'unproven',
+        summary: `${inverted.length} inverted test case(s) (it.fails / test.failing pass when their body fails): their result proves nothing; assert the expected behaviour directly`,
+        details: capped([...details, ...inverted.map((c) => `inverted: ${c}`)], MAX_DETAILS + MAX_LISTED),
+        logPath: report.logPath,
+      };
+    }
+    let uncollected: { unreported: string[]; preExisting: string[] };
+    try {
+      uncollected = await unreportedFiles(ctx, report, baseline);
+    } catch (e) {
+      return { status: 'unproven', summary: `could not list the test files on disk: ${e instanceof Error ? e.message : String(e)}`, ...base };
+    }
+    if (uncollected.unreported.length > 0) {
+      return {
+        status: 'unproven',
+        summary: `${uncollected.unreported.length} test file(s) the runner's globs collect were not reported by the run (a test that never ran proves nothing): ${uncollected.unreported.slice(0, 3).join(', ')}${uncollected.unreported.length > 3 ? ', …' : ''}`,
+        details: capped([...details, ...uncollected.unreported.map((f) => `not run: ${f}`)], MAX_DETAILS + MAX_LISTED),
+        logPath: report.logPath,
+      };
+    }
+    const notRunBefore = uncollected.preExisting.map((f) => `pre-existing test file not run by the runner (also not at run start): ${f}`);
 
     let preExisting: TestCaseResult[] = [];
     if (skipped > 0) {
@@ -142,11 +214,15 @@ export default defineGate({
     // The runner's ok is false whenever a case did not run: excused only when every such case is pre-existing.
     const excused = preExisting.length > 0 && passed + preExisting.length === tests;
     if (!report.ok && !excused) return { status: 'fail', summary: `the runner reported failure (${passed}/${tests} tests passed in ${files} files)`, ...base };
-    if (preExisting.length === 0) return { status: 'pass', summary: `${passed}/${tests} tests passed in ${files} files`, ...base };
-    const listed = preExisting.map((c) => `pre-existing skipped (not blocking): ${label(c)}`);
+    if (preExisting.length === 0 && notRunBefore.length === 0) return { status: 'pass', summary: `${passed}/${tests} tests passed in ${files} files`, ...base };
+    const listed = [...preExisting.map((c) => `pre-existing skipped (not blocking): ${label(c)}`), ...notRunBefore];
+    const notes = [
+      ...(preExisting.length > 0 ? [`${preExisting.length} pre-existing skipped (not blocking: skipped or todo at run start)`] : []),
+      ...(notRunBefore.length > 0 ? [`${notRunBefore.length} pre-existing test file(s) not run (not run at run start either)`] : []),
+    ];
     return {
       status: 'pass',
-      summary: `${passed}/${tests} tests passed in ${files} files; ${preExisting.length} pre-existing skipped (not blocking: skipped or todo at run start)`,
+      summary: `${passed}/${tests} tests passed in ${files} files; ${notes.join('; ')}`,
       details: capped([...details, ...listed], MAX_DETAILS + MAX_LISTED),
       logPath: report.logPath,
       humanMustVerify: capped(listed, MAX_LISTED),
