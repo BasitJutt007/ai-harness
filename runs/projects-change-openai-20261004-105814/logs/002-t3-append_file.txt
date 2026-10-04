@@ -1,0 +1,44 @@
+--- a/test/projects.test.ts
++++ b/test/projects.test.ts
+@@ -175,3 +175,41 @@
+     expect(second.body).toEqual(first.body);
+   });
+ });
++
++
++describe('project deletion and status filtering', () => {
++  it('deletes a project with 204 and then returns 404, including on repeat', async () => {
++    const project = await createProject();
++    const deleted = await request(app).delete(`/v1/projects/${project.id}`);
++    expect(deleted.status).toBe(204);
++    expect(deleted.text).toBe('');
++    expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
++    expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('returns problem responses for unknown and malformed delete ids', async () => {
++    expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
++    expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
++  });
++
++  it('filters active and archived projects and paginates the filtered set', async () => {
++    const active = await createProject({ status: 'active' });
++    const archived = await createProject({ status: 'archived' });
++    const active2 = await createProject({ status: 'active' });
++    const first = await request(app).get('/v1/projects').query({ status: 'active', limit: '1' });
++    const firstPage = PageBody.parse(first.body);
++    expect(firstPage.data.every((project) => project.status === 'active')).toBe(true);
++    expect(firstPage.nextCursor).not.toBeNull();
++    const activeIds = await listAll({ status: 'active', limit: '1' });
++    expect(new Set(activeIds)).toEqual(new Set([active.id, active2.id]));
++    const archivedIds = await listAll({ status: 'archived', limit: '1' });
++    expect(archivedIds).toEqual([archived.id]);
++    const allIds = await listAll({ limit: '100' });
++    expect(allIds).toContain(active.id);
++    expect(allIds).toContain(archived.id);
++  });
++
++  it('rejects an unknown status value', async () => {
++    expectProblem(await request(app).get('/v1/projects').query({ status: 'deleted' }), 422);
++  });
++});

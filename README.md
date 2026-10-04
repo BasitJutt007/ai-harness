@@ -167,20 +167,19 @@ placeholder and contract-lock failed the run (4 → 0 endpoints).
 ### The latest code: two DONE runs on gpt-5.6-luna
 
 After the last fixes (a gate-decided `DONE (…)` verdict accepted by `agnostic`; an idempotency store judged
-by its lifetime through properties, aliases and helper calls), both tasks were run again on `gpt-5.6-luna`
-(compat: reasoning off). In both `run.json` files every plugin fingerprint and every `src/core` file hash
-matches the committed code.
+by its lifetime against the whole request, through properties, aliases, helpers, closures, methods and
+reassignment), both tasks were run again on `gpt-5.6-luna` (compat: reasoning off). In both `run.json` files
+every plugin fingerprint (53) and every `src/core` file hash (31) matches the committed code.
 
 | run | task | turns | result |
 |---|---|---|---|
-| `users-api-openai-20261004-103506` | greenfield | 13 | **DONE**: spec-coverage 18/18 (including replay after an update), 33/33 tests, standards 100%, observed red + revert check |
-| `projects-change-openai-20261004-103359` | brownfield | 21 | **DONE**: contract-lock pass (2 additive), 22/22 tests, standards 100%, observed red on 3 source files |
+| `users-api-openai-20261004-105936` | greenfield | 34 | **DONE**: spec-coverage 18/18 (including replay after an update), 31/31 tests, standards 100%, observed red + revert check |
+| `projects-change-openai-20261004-105814` | brownfield | 36 | **DONE**: contract-lock pass (2 additive), 21/21 tests, standards 100%, observed red on 3 source files |
 
-One brownfield attempt before it did not finish (`real-model/projects-change-openai-20261004-103217`: two
-failing agent tests). Earlier runs on the code of one and two fixes before (`users-api-openai-20261004-100537`,
-DONE; `projects-change-openai-20261004-095618`, DONE by fresh green gates at the turn limit, the first real run
-decided by that rule) are kept too. None of these were shipped; the PRs below come from the runs in the next
-section.
+Both finished on the first attempt. Runs on earlier versions of these fixes are kept too
+(`users-api-openai-20261004-103506`, `…100537`; `projects-change-openai-20261004-103359`; `…095618`, DONE by
+fresh green gates at the turn limit, the first real run decided by that rule). None of these were shipped;
+the PRs below come from the runs in the next section.
 
 ### The final code: DONE runs, shipped as PRs
 
