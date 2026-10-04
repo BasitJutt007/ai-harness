@@ -1,3 +1,4 @@
+import { requiredGates } from '../../src/core/gates.ts';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
@@ -154,7 +155,11 @@ export function makeCtx(opts: {
   exec?: Exec; gates?: PluginRecord<GatePlugin>[]; runDir?: string;
 }): RunContext & { logs: ReturnType<typeof memoryLogs> } {
   const logs = memoryLogs();
-  const registry = registryWith(opts.gates ?? []);
+  // The harness's required gates (gates.ts requiredGates) stubbed green unless the test supplies its own: these
+  // tests exercise ship, not the gates, and ship refuses when a required gate is not registered.
+  const given = opts.gates ?? [];
+  const required = requiredGates(opts.task, 'ship').filter((n) => !given.some((g) => g.plugin.name === n));
+  const registry = registryWith([...given, ...required.map((n) => stubGate(n, { status: 'pass', summary: `${n} (stub)` }))]);
   const fail = (): Promise<never> => Promise.reject(new Error('not available in this test'));
   return {
     run: {

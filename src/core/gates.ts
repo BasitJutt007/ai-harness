@@ -4,8 +4,12 @@
  * ok iff no gate is fail/unproven and at least one gate passed.
  * A gate that throws is UNPROVEN (never green). A gate that does not apply to the
  * task kind is reported as n/a and not run.
+ *
+ * Required gates (requiredGates: per task kind and phase) are checked when the caller passes them (the final
+ * DONE run and ship): a required gate that is not registered (disabled in harness.config.json, failed to load)
+ * or that reports n/a where it applies is UNPROVEN, so switching a gate off can never make a run green.
  */
-import type { GatePhase, GatePlugin, GateResult, GateStatus, PluginRecord, RunContext } from './types.ts';
+import type { GatePhase, GatePlugin, GateResult, GateStatus, PluginRecord, RunContext, Task } from './types.ts';
 
 export type NamedGateResult = GateResult & { gate: string };
 
@@ -78,12 +82,39 @@ export function gatesOk(results: GateResult[]): boolean {
   return !bad && results.some((r) => r.status === 'pass');
 }
 
+/** The harness's own gates every task needs at `phase`; a greenfield task needs spec-coverage unless it opted out. */
+export function requiredGates(task: Task, phase: GatePhase): string[] {
+  const out = ['tests-green', 'observed-red', 'scope', 'orphans', 'standards'];
+  if (task.kind === 'brownfield') out.push('contract-lock');
+  else if (!specCoverageOptedOut(task)) out.push('spec-coverage');
+  if (phase === 'ship') out.push('secrets');
+  return out;
+}
+
+/** A free-text greenfield task (no structured resources) that explicitly leaves behaviour coverage to a human (`specCoverage: human`). */
+export function specCoverageOptedOut(task: Task): boolean {
+  return task.kind === 'greenfield' && task.resources.length === 0 && task.specCoverage === 'human';
+}
+
+/** Required gates the run lacks (not registered) or that said n/a: each becomes an UNPROVEN result. */
+function enforceRequired(results: NamedGateResult[], required: readonly string[], ctx: RunContext): NamedGateResult[] {
+  const out = results.map((r): NamedGateResult => (required.includes(r.gate) && r.status === 'n/a'
+    ? { gate: r.gate, status: 'unproven', summary: `required gate reported n/a for a ${ctx.task.kind} task, where it applies (${r.summary})` }
+    : r));
+  for (const name of required) {
+    if (out.some((r) => r.gate === name)) continue;
+    out.push({ gate: name, status: 'unproven', summary: 'required gate is not registered (disabled in harness.config.json or failed to load): nothing proves what it checks' });
+  }
+  return out;
+}
+
 export async function runGates(
   gates: PluginRecord<GatePlugin>[],
   ctx: RunContext,
   phase: GatePhase,
+  opts: { required?: readonly string[] } = {},
 ): Promise<GateOutcome> {
-  const results: NamedGateResult[] = [];
+  let results: NamedGateResult[] = [];
   for (const rec of gates) {
     const g = rec.plugin;
     if (!g.phases.includes(phase)) continue;
@@ -106,6 +137,14 @@ export async function runGates(
       message: `${phase}: ${r.status} ${r.summary}`,
       data: { phase, status: r.status, details: r.details, logPath: r.logPath },
     });
+  }
+  if (opts.required !== undefined) {
+    const before = new Set(results);
+    results = enforceRequired(results, opts.required, ctx);
+    for (const r of results) {
+      if (before.has(r)) continue;
+      ctx.emit({ kind: 'gate', source: r.gate, decision: 'block', message: `${phase}: ${r.status} ${r.summary}`, data: { phase, status: r.status, required: true } });
+    }
   }
   return {
     ok: gatesOk(results),
