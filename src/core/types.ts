@@ -316,6 +316,36 @@ export interface TestCaseObservation {
   constantOnly: boolean;
 }
 
+/** One collected test case as the runner reported it. */
+export interface TestCaseResult {
+  /** API-relative test file. */
+  file: string;
+  /** "describe > ... > title", as the runner reported it. */
+  name: string;
+  /** 'skip' also covers pending and disabled cases; 'todo' is `it.todo`. */
+  status: 'pass' | 'fail' | 'skip' | 'todo';
+}
+
+/**
+ * What the suite looked like at run start (see test-baseline.ts): the cases that did not run or failed,
+ * so a gate can tell what a repository already had from what the run introduced.
+ */
+export interface TestBaseline {
+  /** When it was measured (ISO). */
+  at: string;
+  /** Why the run-start results are unknown (no per-case report); the lists are then empty. */
+  error?: string;
+  totals: { files: number; tests: number; passed: number; failed: number };
+  /** Cases skipped or todo at run start. */
+  skipped: TestCaseResult[];
+  /** Cases failing at run start. */
+  failed: TestCaseResult[];
+  /** Test files that failed to load at run start. */
+  loadErrors: string[];
+  /** Harness-root-relative path of the runner's raw output. */
+  logPath?: string;
+}
+
 export interface RunEvent {
   turn: number;
   at: string;
@@ -335,6 +365,11 @@ export interface RunState {
   written: Set<string>;
   /** sha256 of files at run start (API-relative path -> hash); absent = did not exist. */
   initialHashes: Map<string, string>;
+  /**
+   * The target's own test results at run start, measured before the agent's first turn (brownfield
+   * runs; see test-baseline.ts). Never a test observation. Absent = not measured.
+   */
+  testBaseline?: TestBaseline;
   /** The agent's latest submitted plan, if any. */
   plan: string[];
   events: RunEvent[];
@@ -417,6 +452,8 @@ export interface TestRunReport {
   totals: { files: number; tests: number; passed: number; failed: number };
   /** One observation per test file that was part of the run. */
   observations: TestObservation[];
+  /** Every collected case with the runner's result; absent when the runner produced no per-case report. */
+  results?: TestCaseResult[];
   /** Compact pass/fail lines (failures first, capped). */
   summary: string;
   /** Harness-root-relative path of the raw runner output. */

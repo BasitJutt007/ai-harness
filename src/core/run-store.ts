@@ -4,7 +4,8 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { LogStore, RunEvent, RunState, TestObservation } from './types.ts';
+import { parseTestBaseline } from './test-baseline.ts';
+import type { LogStore, RunEvent, RunState, TestBaseline, TestObservation } from './types.ts';
 
 function pad(n: number, w = 2): string {
   return String(n).padStart(w, '0');
@@ -113,6 +114,7 @@ export interface SerializedState {
   tests: TestObservation[];
   written: string[];
   initialHashes: Array<[string, string]>;
+  testBaseline?: TestBaseline;
   plan: string[];
   events: RunEvent[];
   scratch: Array<[string, unknown]>;
@@ -170,6 +172,7 @@ export function serializeState(s: RunState): SerializedState {
     tests: s.tests,
     written: [...s.written].sort(),
     initialHashes: [...s.initialHashes.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)),
+    ...(s.testBaseline !== undefined ? { testBaseline: s.testBaseline } : {}),
     plan: s.plan,
     events: s.events,
     scratch: [...s.scratch.entries()].map(([k, v]) => [k, encode(v)]),
@@ -199,6 +202,8 @@ export function deserializeState(v: unknown): RunState {
   if (Array.isArray(v.tests)) s.tests = v.tests.filter(isRecord) as unknown as TestObservation[];
   if (Array.isArray(v.written)) s.written = new Set(v.written.filter((x): x is string => typeof x === 'string'));
   s.initialHashes = new Map(stringPairs(v.initialHashes));
+  const baseline = parseTestBaseline(v.testBaseline);
+  if (baseline !== undefined) s.testBaseline = baseline;
   if (Array.isArray(v.plan)) s.plan = v.plan.filter((x): x is string => typeof x === 'string');
   if (Array.isArray(v.events)) s.events = v.events.filter(isRecord) as unknown as RunEvent[];
   if (Array.isArray(v.scratch)) {

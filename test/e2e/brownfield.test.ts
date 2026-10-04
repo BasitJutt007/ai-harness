@@ -4,10 +4,14 @@
  *  (d) projects-breaking.json — an appended red test goes green and no existing test
  *      changes, but POST stops accepting status "archived": contract-lock fails,
  *      finish is refused, the run is not done.
+ *  (e) projects-change.json on a copy whose suite already has an it.skip and an it.todo:
+ *      measured at run start, reported for a human, not blocking — the run is done.
  */
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, type RunSummary } from '../../src/core/run.ts';
+import { deserializeState } from '../../src/core/run-store.ts';
 import { changedFiles, collector, execWithoutGh, finishDecisions, git, PROJECTS_TASK, readEvents, readRunJson, SAMPLE, SCRIPTS, tempRepo, type TempRepo } from './helpers.ts';
 
 let tmp: TempRepo;
@@ -18,16 +22,16 @@ beforeAll(() => {
 });
 afterAll(() => tmp.cleanup());
 
-async function run(script: string): Promise<RunSummary> {
+async function run(script: string, target: TempRepo = tmp): Promise<RunSummary> {
   return executeRun({
     taskFile: PROJECTS_TASK,
     driver: 'scripted',
     driverOptions: { script: join(SCRIPTS, script) },
     baseline: false,
     ship: false,
-    repoBase: tmp.repo,
-    runsDir: tmp.runsDir,
-    tokensDir: tmp.tokensDir,
+    repoBase: target.repo,
+    runsDir: target.runsDir,
+    tokensDir: target.tokensDir,
     exec: execWithoutGh(),
     log: collector().out,
   });
@@ -64,6 +68,54 @@ describe('(b) additive change: projects-change.json', () => {
     expect(r.honesty.proven).toContain('gate:contract-lock');
     expect(r.honesty.unproven).toEqual([]);
     expect(r.honesty.failed).toEqual([]);
+  });
+
+  it('the suite was measured at run start, before the first turn, and is kept in state.json', () => {
+    const state = deserializeState(JSON.parse(readFileSync(join(s.runDir, 'state.json'), 'utf8')));
+    expect(state.testBaseline).toMatchObject({ skipped: [], failed: [], loadErrors: [] });
+    expect(state.testBaseline?.totals.passed).toBeGreaterThan(0);
+    const note = readEvents(s.runDir).find((e) => e.kind === 'note' && e.source === 'tests');
+    expect(note?.message).toMatch(/^test baseline at run start: \d+\/\d+ tests passed/);
+    expect(note?.turn).toBe(0);
+  });
+});
+
+describe('(e) a target whose suite already has skipped and todo cases: projects-change.json', () => {
+  const LEGACY = [
+    "import { describe, expect, it } from 'vitest';",
+    "describe('legacy', () => {",
+    "  it('adds', () => { expect(1 + 1).toBe(2); });",
+    "  it.skip('rate limits bursts', () => { expect(1).toBe(2); });",
+    "  it.todo('exports projects as CSV');",
+    '});',
+    '',
+  ].join('\n');
+  let repo: TempRepo;
+  let s: RunSummary;
+  beforeAll(async () => {
+    repo = tempRepo('brownfield-skips', { 'samples/existing-api': SAMPLE }, { 'samples/existing-api/test/legacy.test.ts': LEGACY });
+    s = await run('projects-change.json', repo);
+  }, 300_000);
+  afterAll(() => repo.cleanup());
+
+  it('reaches DONE: the pre-existing skips are reported for a human, not blocking', () => {
+    expect(s.error).toBeUndefined();
+    expect(s.status).toBe('done');
+    expect(s.ok).toBe(true);
+    const green = s.gates.find((g) => g.gate === 'tests-green');
+    expect(green?.status, green?.summary).toBe('pass');
+    expect(green?.summary).toMatch(/; 2 pre-existing skipped \(not blocking: skipped or todo at run start\)$/);
+    const human = readRunJson(s.runDir).honesty.humanMustVerify.join('\n');
+    expect(human).toContain('pre-existing skipped (not blocking): test/legacy.test.ts > legacy > rate limits bursts');
+    expect(human).toContain('pre-existing skipped (not blocking): test/legacy.test.ts > legacy > exports projects as CSV (todo)');
+  });
+
+  it('state.json holds the run-start baseline with exactly those cases', () => {
+    const state = deserializeState(JSON.parse(readFileSync(join(s.runDir, 'state.json'), 'utf8')));
+    expect(state.testBaseline?.skipped).toEqual([
+      { file: 'test/legacy.test.ts', name: 'legacy > rate limits bursts', status: 'skip' },
+      { file: 'test/legacy.test.ts', name: 'legacy > exports projects as CSV', status: 'todo' },
+    ]);
   });
 });
 
