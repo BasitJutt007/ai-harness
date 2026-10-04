@@ -215,12 +215,13 @@ the commits shipped as #3 and #4 from the exact-code runs; `node bin/harness.mjs
 feature branch, opened with `gh`), on the demo repository whose `main` holds the sample API:
 - [BasitJutt007/harness-demo#1](https://github.com/BasitJutt007/harness-demo/pull/1) (merged, then reverted by #5): greenfield, run `users-api-openai-20261004-045649`
 - [BasitJutt007/harness-demo#2](https://github.com/BasitJutt007/harness-demo/pull/2) (merged, then reverted by #5): brownfield, run `projects-change-openai-20261004-052623`
-- [BasitJutt007/harness-demo#3](https://github.com/BasitJutt007/harness-demo/pull/3): greenfield, run `users-api-openai-20261004-055546` (the exact submitted code)
-- [BasitJutt007/harness-demo#4](https://github.com/BasitJutt007/harness-demo/pull/4): brownfield, run `projects-change-openai-20261004-055658` (the exact submitted code)
+- [BasitJutt007/harness-demo#3](https://github.com/BasitJutt007/harness-demo/pull/3) (merged): greenfield, run `users-api-openai-20261004-055546` (the exact submitted code)
+- [BasitJutt007/harness-demo#4](https://github.com/BasitJutt007/harness-demo/pull/4) (merged): brownfield, run `projects-change-openai-20261004-055658` (the exact submitted code)
 
 #3 and #4 were opened after #1 and #2 had been merged and were built on the same base.
 [#5](https://github.com/BasitJutt007/harness-demo/pull/5) reverts #1 and #2 (two revert commits, no
-history rewrite) so that #3 and #4, the output of the exact submitted code, land cleanly on `main`.
+history rewrite); #3 and #4, the output of the exact submitted code, were then merged, so `main` now
+holds exactly what the submitted code shipped (identical to `governed/`).
 
 The PR bodies quote the run's token totals against the shadow baseline; #3 and #4 label it as a
 shadow estimate (#1 and #2 predate that wording).
