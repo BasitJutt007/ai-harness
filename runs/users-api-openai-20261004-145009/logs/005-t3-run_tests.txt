@@ -1,0 +1,74 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145009/generated/users-api
+
+ ❯ test/users.test.ts (3 tests | 3 failed) 32ms
+   ❯ users API (3)
+     × creates, gets, updates, lists with cursors, and deletes users 25ms
+     × validates inputs, uniqueness, missing users, and malformed JSON 4ms
+     × replays POST idempotently and rejects changed reuse 3ms
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  19:50:23
+   Duration  267ms (import 69%, tests 17%, transform 12%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates, lists with cursors, and deletes users
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:10:28
+      8|     const app = createApp();
+      9|     const created = await request(app).post('/v1/users').send({ email:…
+     10|     expect(created.status).toBe(201);
+       |                            ^
+     11|     expect(created.headers.location).toMatch(/^\/v1\/users\//);
+     12|     expect(created.body.role).toBe('member');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  test/users.test.ts > users API > validates inputs, uniqueness, missing users, and malformed JSON
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:30:28
+     28|     const app = createApp();
+     29|     const invalid = await request(app).post('/v1/users').send({ email:…
+     30|     expect(invalid.status).toBe(422);
+       |                            ^
+     31|     expect(ProblemSchema.parse(invalid.body).detail).toContain('email'…
+     32|     expect(ProblemSchema.parse(invalid.body).detail).toContain('name');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  test/users.test.ts > users API > replays POST idempotently and rejects changed reuse
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:46:27
+     44|     const first = await request(app).post('/v1/users').set('Idempotenc…
+     45|     const replay = await request(app).post('/v1/users').set('Idempoten…
+     46|     expect(replay.status).toBe(201);
+       |                           ^
+     47|     expect(replay.headers['idempotent-replayed']).toBe('true');
+     48|     expect(replay.text).toBe(first.text);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+observed red: test/users.test.ts (source they cover is now writable)

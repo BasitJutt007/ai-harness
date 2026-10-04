@@ -1,0 +1,74 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-131536/generated/users-api
+
+ ❯ test/users.test.ts (3 tests | 3 failed) 39ms
+   ❯ users API (3)
+     × creates, gets, updates, and deletes users 28ms
+     × lists with cursors and validates conflicts and inputs 6ms
+     × replays idempotent creates and rejects changed bodies and empty patches 3ms
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  18:15:52
+   Duration  297ms (import 62%, tests 20%, transform 16%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates, and deletes users
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:11:28
+      9|     const app = createApp();
+     10|     const created = await request(app).post('/v1/users').set('Idempote…
+     11|     expect(created.status).toBe(201);
+       |                            ^
+     12|     expect(created.headers.location).toMatch(/^\/v1\/users\//);
+     13|     expect(created.body.role).toBe('member');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  test/users.test.ts > users API > lists with cursors and validates conflicts and inputs
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ test/users.test.ts:26:98
+     24|     const app = createApp();
+     25|     await request(app).post('/v1/users').set('Idempotency-Key', 'a').s…
+     26|     expect((await request(app).post('/v1/users').set('Idempotency-Key'…
+       |                                                                                                  ^
+     27|     const invalid = await request(app).post('/v1/users').set('Idempote…
+     28|     expect(invalid.status).toBe(422);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects changed bodies and empty patches
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:42:27
+     40|     const first = await request(app).post('/v1/users').set('Idempotenc…
+     41|     const replay = await request(app).post('/v1/users').set('Idempoten…
+     42|     expect(replay.status).toBe(201);
+       |                           ^
+     43|     expect(replay.headers['idempotent-replayed']).toBe('true');
+     44|     expect((await request(app).post('/v1/users').set('Idempotency-Key'…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+observed red: test/users.test.ts (source they cover is now writable)

@@ -115,6 +115,8 @@ const TOP = {
   allowBreaking: ['allowbreaking', 'allowbreakingchanges', 'breakingchanges', 'breaking'],
   /** Brownfield standards policy: strict (default, 100% over the whole API) or the explicit baseline opt-in. */
   standards: ['standards', 'standardsmode', 'standardspolicy', 'standardsgate'],
+  /** Free-text greenfield only: 'human' opts out of the spec-coverage gate (a human verifies behaviour coverage). */
+  specCoverage: ['speccoverage'],
   limits: ['limits'],
 };
 
@@ -1066,6 +1068,7 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
   const scopeHit = pickOne(root, TOP.scope, used);
   const breakingHit = pickOne(root, TOP.allowBreaking, used);
   const standardsHit = pickOne(root, TOP.standards, used);
+  const specCoverageHit = pickOne(root, TOP.specCoverage, used);
   const limitsHit = pickOne(root, TOP.limits, used);
 
   const carried: Obj = {};
@@ -1099,6 +1102,8 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
     if (scopeHit !== undefined) carry(scopeHit[0], scopeHit[1], 'has no effect on a greenfield task (the template decides what is writable)');
     if (breakingHit !== undefined) carry(breakingHit[0], breakingHit[1], 'has no effect on a greenfield task');
     if (standardsHit !== undefined) carry(standardsHit[0], standardsHit[1], 'has no effect on a greenfield task (its standards are always 100% over the whole API)');
+    // Passed through as given: the schema accepts only 'human' (and only without resources), never a guess.
+    if (specCoverageHit !== undefined) candidate.specCoverage = typeof specCoverageHit[1] === 'string' ? specCoverageHit[1].trim().toLowerCase() : specCoverageHit[1];
   } else {
     const tgt = target !== undefined ? cleanPath(target) : '.';
     if (target === undefined) warn('target inferred: "." (the --repo directory)');
@@ -1118,6 +1123,7 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
     if (resourceSpecs.length > 0) candidate.resources = resourceSpecs;
     if (templateHit !== undefined) carry(templateHit[0], templateHit[1], 'has no effect on a brownfield task');
     if (basePathHit !== undefined) carry(basePathHit[0], basePathHit[1], 'has no effect on a brownfield task');
+    if (specCoverageHit !== undefined) carry(specCoverageHit[0], specCoverageHit[1], 'has no effect on a brownfield task (contract-lock covers its contract)');
   }
   if (limitsHit !== undefined) {
     const l = limitsOf(limitsHit[1], warn);

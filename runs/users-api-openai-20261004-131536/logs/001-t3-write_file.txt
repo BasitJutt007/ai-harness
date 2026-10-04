@@ -1,0 +1,50 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,47 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++
++const user = { email: 'a@example.com', name: 'Alice' };
++
++describe('users API', () => {
++  it('creates, gets, updates, and deletes users', async () => {
++    const app = createApp();
++    const created = await request(app).post('/v1/users').set('Idempotency-Key', 'one').send(user);
++    expect(created.status).toBe(201);
++    expect(created.headers.location).toMatch(/^\/v1\/users\//);
++    expect(created.body.role).toBe('member');
++    const id = created.body.id as string;
++    expect((await request(app).get(`/v1/users/${id}`)).status).toBe(200);
++    const patched = await request(app).patch(`/v1/users/${id}`).set('Idempotency-Key', 'patch').send({ name: 'A' });
++    expect(patched.status).toBe(200);
++    expect(patched.body.name).toBe('A');
++    expect((await request(app).delete(`/v1/users/${id}`)).status).toBe(204);
++    expect((await request(app).get(`/v1/users/${id}`)).status).toBe(404);
++  });
++
++  it('lists with cursors and validates conflicts and inputs', async () => {
++    const app = createApp();
++    await request(app).post('/v1/users').set('Idempotency-Key', 'a').send(user);
++    expect((await request(app).post('/v1/users').set('Idempotency-Key', 'b').send(user)).status).toBe(409);
++    const invalid = await request(app).post('/v1/users').set('Idempotency-Key', 'c').send({ email: 'bad', name: '' });
++    expect(invalid.status).toBe(422);
++    expect(invalid.headers['content-type']).toContain('application/problem+json');
++    const page = await request(app).get('/v1/users?limit=1');
++    expect(page.status).toBe(200);
++    expect(page.body.data).toHaveLength(1);
++    expect(page.body.nextCursor).toBeNull();
++    expect((await request(app).get('/v1/users/not-uuid')).status).toBe(422);
++    expect((await request(app).post('/v1/users').set('Idempotency-Key', 'json').set('content-type', 'application/json').send('{')).status).toBe(400);
++  });
++
++  it('replays idempotent creates and rejects changed bodies and empty patches', async () => {
++    const app = createApp();
++    const first = await request(app).post('/v1/users').set('Idempotency-Key', 'same').send(user);
++    const replay = await request(app).post('/v1/users').set('Idempotency-Key', 'same').send(user);
++    expect(replay.status).toBe(201);
++    expect(replay.headers['idempotent-replayed']).toBe('true');
++    expect((await request(app).post('/v1/users').set('Idempotency-Key', 'same').send({ ...user, name: 'Other' })).status).toBe(422);
++    expect((await request(app).patch(`/v1/users/${first.body.id}`).set('Idempotency-Key', 'empty').send({})).status).toBe(422);
++  });
++});

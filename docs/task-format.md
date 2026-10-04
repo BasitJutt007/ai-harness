@@ -60,6 +60,7 @@ Keys are matched ignoring case, `-`, `_`, `.` and spaces. The canonical name is 
 | `resources` | `resource`, `entities`, `entity`, `models` (a map or a list of specs), `tables` | none |
 | `basePath` | `prefix`, `apiPrefix`, `baseUrl` | `/v1` |
 | `template`, `scope`, `allowBreaking`, `limits` | `scaffold`; `allow_breaking` | defaults |
+| `specCoverage` | `spec_coverage` | absent (see below) |
 
 **Limits** are `maxTurns` (also `turns`, `maxSteps`) and `maxOutputTokens` (also `maxTokens`,
 default 16,000); any other key under `limits` is ignored with a note. A `maxTurns` in the task (or
@@ -67,6 +68,12 @@ default 16,000); any other key under `limits` is ignored with a note. A `maxTurn
 resource (a brief-only task or a change counts as one), plus 2 per behaviour, at most 150; when a run
 reaches it while the gates are making progress (the latest refused finish had fewer failing units
 than the one before), it is extended 10 turns at a time, by at most half the limit in all.
+
+**specCoverage** (greenfield, free text only): the `spec-coverage` gate probes a greenfield API
+against the task's resources. A task with only a brief lists none, so nothing compares the API with
+what the brief asks for, and the gate is UNPROVEN: such a run is never DONE. `specCoverage: human`
+is the explicit opt-out: the gate is then `n/a` and the run lists behaviour coverage under "human
+must verify". It is an error on a task that lists resources, and has no effect on a brownfield task.
 
 Any other top-level key is **carried**: the model sees it verbatim under "Additional details from the
 task file". It is never dropped.

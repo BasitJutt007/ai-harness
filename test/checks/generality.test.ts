@@ -14,7 +14,7 @@ import { constString, extractRouteTable, programFile, statusValues } from '../..
 import { constString as helperConstString, hasProperty } from '../../plugins/lib/plugin-helpers.ts';
 import type { RouteInfo } from '../../plugins/lib/api-ast.ts';
 import type { CheckContext, CheckFinding } from '../../src/core/plugin-api.ts';
-import { contextFor, removeTempApi, tempApi } from './_ctx.ts';
+import { contextFor, mountApp, removeTempApi, tempApi } from './_ctx.ts';
 
 const roots: string[] = [];
 afterAll(async () => {
@@ -299,7 +299,8 @@ describe('permissive schemas never validate a request or a response', () => {
     ['z.looseObject({})', true],
     ['z.array(z.unknown())', true],
     ['z.object({ a: z.string() }).nullable().optional()', false],
-    ['z.custom<{ a: string }>()', false],
+    ['z.custom<{ a: string }>()', true], // no check function: an unchecked cast, whatever its type
+    ['z.custom<{ a: string }>((v) => typeof v === "object" && v !== null && "a" in v)', false],
     ['z.record(z.string(), z.string())', false],
     ['z.object({ a: z.string() }).passthrough()', false],
     ['z.array(z.object({ a: z.string() }))', false],
@@ -566,6 +567,7 @@ for (const row of table) {
 }
 r[VERB]('/v1/pings', (_req, res) => { res.status(204).end(); });
 `,
+      ...mountApp(),
     });
     const table = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles);
     expect(table.routes.map((x) => `${x.method} ${x.path}`)).toEqual(['get /v1/pings']);
@@ -688,6 +690,7 @@ function rename(x: ItemT): void { x.name = 'renamed'; }
 function describeIt(x: ItemT): string { return \`\${x.name} (\${x.tags.length})\`; }
 ${lines.join('\n')}
 `,
+      ...mountApp(),
     });
     findings = await zodBoundary.run(ctx);
   });

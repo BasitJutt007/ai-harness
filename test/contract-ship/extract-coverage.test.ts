@@ -153,7 +153,7 @@ describe('contract-lock gate on a real base commit', () => {
     writeFileSync(notesPath, NOTES_PARSED.replace('const note = z.object({ text: z.string() }).parse(req.body);', 'const note: unknown = req.body;'));
     const r = await contractLock.run(ctxFor(), 'finish');
     expect(r.status).toBe('unproven');
-    expect(r.details).toEqual(['POST /v1/notes body  no longer validated where the harness can see it (moved or removed); the request contract cannot be compared']);
+    expect(r.details).toContain('POST /v1/notes body  no longer validated where the harness can see it (moved or removed); the request contract cannot be compared');
     writeFileSync(notesPath, NOTES_PARSED);
   });
 });

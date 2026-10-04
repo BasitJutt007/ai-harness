@@ -10,7 +10,7 @@ import restConventions from '../../plugins/checks/rest-conventions.ts';
 import zodBoundary from '../../plugins/checks/zod-boundary.ts';
 import { extractRouteTable } from '../../plugins/lib/api-ast.ts';
 import type { CheckContext, CheckFinding } from '../../src/core/plugin-api.ts';
-import { contextFor, removeTempApi, tempApi } from './_ctx.ts';
+import { contextFor, mountApp, removeTempApi, tempApi } from './_ctx.ts';
 
 const roots: string[] = [];
 afterAll(async () => {
@@ -129,7 +129,7 @@ describe('program helpers are followed by behaviour', () => {
   let zod: CheckFinding[];
   let rest: CheckFinding[];
   beforeAll(async () => {
-    ctx = await api({ 'src/schemas.ts': SCHEMAS, 'src/helpers.ts': HELPERS, 'src/routes.ts': ROUTES });
+    ctx = await api({ 'src/schemas.ts': SCHEMAS, 'src/helpers.ts': HELPERS, 'src/routes.ts': ROUTES, ...mountApp() });
     zod = await zodBoundary.run(ctx);
     rest = await restConventions.run(ctx);
   });

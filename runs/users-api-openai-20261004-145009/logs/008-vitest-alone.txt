@@ -1,0 +1,45 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145009/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )validates inputs, uniqueness, missing users, and malformed JSON$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145009/generated/users-api
+
+ ❯ test/users.test.ts (3 tests | 1 failed | 2 skipped) 37ms
+   ❯ users API (3)
+     ↓ creates, gets, updates, lists with cursors, and deletes users
+     × validates inputs, uniqueness, missing users, and malformed JSON 36ms
+     ↓ replays POST idempotently and rejects changed reuse
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 skipped (3)
+   Start at  19:50:38
+   Duration  239ms (import 55%, tests 22%, transform 21%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > validates inputs, uniqueness, missing users, and malformed JSON
+AssertionError: expected 422 to be 404 // Object.is equality
+
+- Expected
++ Received
+
+- 404
++ 422
+
+ ❯ test/users.test.ts:39:106
+     37|     expect((await request(app).patch('/v1/users/00000000-0000-0000-000…
+     38|     expect((await request(app).delete('/v1/users/00000000-0000-0000-00…
+     39|     expect((await request(app).patch('/v1/users/00000000-0000-0000-000…
+       |                                                                                                          ^
+     40|   });
+     41|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":3,"numPassedTests":0,"numFailedTests":1,"numPendingTests":2,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791125438964,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates, lists with cursors, and deletes users","status":"skipped","title":"creates, gets, updates, lists with cursors, and deletes users","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates inputs, uniqueness, missing users, and malformed JSON","status":"failed","title":"validates inputs, uniqueness, missing users, and malformed JSON","duration":35.81062499999999,"failureMessages":["AssertionError: expected 422 to be 404 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145009/generated/users-api/test/users.test.ts:39:106\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays POST idempotently and rejects changed reuse","status":"skipped","title":"replays POST idempotently and rejects changed reuse","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791125439166,"endTime":1791125439201.8105,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145009/generated/users-api/test/users.test.ts"}]}

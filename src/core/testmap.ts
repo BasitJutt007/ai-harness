@@ -280,6 +280,11 @@ const SUITE_FNS = new Set(['describe', 'suite']);
 const HOOK_FNS = new Set(['beforeEach', 'beforeAll', 'afterEach', 'afterAll']);
 const ALIASES = new Map([['xit', 'it'], ['xtest', 'test'], ['fit', 'it'], ['xdescribe', 'describe'], ['fdescribe', 'describe']]);
 const TABLE_MODS = new Set(['each', 'for']);
+/**
+ * Modifiers that invert a case's result (vitest `it.fails`, jest `test.failing`): the runner reports PASS when
+ * the body fails. Such a case is never red or green evidence (StaticTestCase.inverted).
+ */
+export const INVERTING_MODS: ReadonlySet<string> = new Set(['fails', 'failing']);
 /** Callee roots that are test structure, never an assertion of their own (expect chains are recognised separately). */
 const STRUCTURE = new Set([...CASE_FNS, ...SUITE_FNS, ...HOOK_FNS, ...ALIASES.keys(), 'vi', 'expect']);
 
@@ -314,6 +319,14 @@ export interface StaticTestCase {
    * in this case's callback or in a same-file function it may call (setup hooks excluded); else undefined.
    */
   statementAt?: (offset: number) => FailedStatement | undefined;
+  /**
+   * Every assertion of the case on a value from source is presence-only (`toBeDefined`, `toBeTruthy`, `toBeInstanceOf`,
+   * `assert.ok(x)`, ...): it shows a binding exists, not what it does. Such a case is no proof for a NEW file whose
+   * only red was its missing module.
+   */
+  presenceOnly?: boolean;
+  /** The case (or an enclosing suite) carries an inverting modifier (INVERTING_MODS): its reported result is the opposite of its body's. */
+  inverted?: boolean;
 }
 
 /** How the case analysis resolves the file's relative imports. */
@@ -495,6 +508,44 @@ function expectSubject(call: ts.CallExpression): ts.Expression | undefined {
   const chained = ts.isPropertyAccessExpression(c) && c.name.text === 'expect'
     && !(ts.isIdentifier(c.expression) && c.expression.text === 'expect') && call.arguments.length > 0;
   return chained ? c.expression : undefined;
+}
+
+/** Matchers that only check a value exists / has a type, never what it is (`.toHaveProperty(k)` without a value too). */
+const PRESENCE_MATCHERS = new Set(['toBeDefined', 'toBeUndefined', 'toBeTruthy', 'toBeFalsy', 'toBeNull', 'toBeTypeOf', 'toBeInstanceOf', 'toBeFunction']);
+/** Assertion APIs (node:assert, chai assert) that only check existence, truthiness or type. */
+const PRESENCE_ASSERTS = new Set(['ok', 'exists', 'isOk', 'isDefined', 'isNotNull', 'isNotUndefined', 'isFunction', 'isObject', 'instanceOf', 'typeOf', 'isString', 'isNumber']);
+
+/** An `expect(x)` chain whose matcher only checks presence or type (`expect(x).not.toBeUndefined()`, `.toHaveProperty('a')`). */
+function presenceOnlyExpect(call: ts.CallExpression): boolean {
+  const c = call.expression;
+  if (!(ts.isIdentifier(c) && c.text === 'expect') && !(ts.isPropertyAccessExpression(c) && ts.isIdentifier(c.expression) && c.expression.text === 'expect')) return false;
+  let cur: ts.Node = call;
+  let matcher: string | undefined;
+  while (ts.isPropertyAccessExpression(cur.parent) && cur.parent.expression === cur) {
+    matcher = cur.parent.name.text;
+    cur = cur.parent;
+  }
+  const invoked = ts.isCallExpression(cur.parent) && cur.parent.expression === cur ? cur.parent : undefined;
+  if (matcher === undefined || invoked === undefined) return false;
+  return PRESENCE_MATCHERS.has(matcher) || (matcher === 'toHaveProperty' && invoked.arguments.length < 2);
+}
+
+const COMPARISONS = new Set([
+  ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.LessThanToken, ts.SyntaxKind.LessThanEqualsToken, ts.SyntaxKind.GreaterThanToken, ts.SyntaxKind.GreaterThanEqualsToken,
+]);
+
+/** An assertion call that only checks presence: `assert.ok(x)`, `assert.exists(x)`, `assert(x)` / `ok(x)` on anything but a comparison. */
+function presenceOnlyEffect(call: ts.CallExpression): boolean {
+  const { root, mods } = calleeChain(call.expression);
+  const name = mods[0] ?? root ?? '';
+  if (PRESENCE_ASSERTS.has(name) && mods.length > 0) return true;
+  if (mods.length === 0 && (name === 'assert' || name === 'ok')) {
+    let arg = call.arguments[0];
+    while (arg !== undefined && ts.isParenthesizedExpression(arg)) arg = arg.expression;
+    return !(arg !== undefined && ts.isBinaryExpression(arg) && COMPARISONS.has(arg.operatorToken.kind));
+  }
+  return false;
 }
 
 /** Runner globals that are assertion APIs (vitest's `globals: true` exposes chai's `assert`). */
@@ -789,20 +840,21 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
    * in the case or file, or a same-file assertion helper is handed such a value (or asserts on one itself).
    * `void x` / `typeof x` and unrelated statements do not count.
    */
-  const assertsOnSource = (cb: ts.ArrowFunction | ts.FunctionExpression, live: ReadonlySet<string>): boolean => {
+  /** With `valueOnly`, presence-only assertions (toBeDefined, toBeTruthy, assert.ok(x), ...: see presenceOnly*) do not count. */
+  const assertsOnSource = (cb: ts.ArrowFunction | ts.FunctionExpression, live: ReadonlySet<string>, valueOnly = false): boolean => {
     const shadowed = declaredNames(cb);
     let found = false;
     const visit = (n: ts.Node): void => {
       if (found) return;
       const effect = effectCall(n, callees);
-      if (effect !== undefined && !shadowed.has(calleeChain(effect.expression).root ?? '')
+      if (effect !== undefined && !shadowed.has(calleeChain(effect.expression).root ?? '') && !(valueOnly && presenceOnlyEffect(effect))
         && effect.arguments.some((a) => usesSource(a, live, new Set(), r, true))) {
         found = true;
         return;
       }
       if (ts.isCallExpression(n)) {
         const subject = expectSubject(n);
-        if (subject !== undefined && usesSource(subject, live, new Set(), r, true)) {
+        if (subject !== undefined && !(valueOnly && presenceOnlyExpect(n)) && usesSource(subject, live, new Set(), r, true)) {
           found = true;
           return;
         }
@@ -840,9 +892,11 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
 
   const out: StaticTestCase[] = [];
   // `patterned`: some segment of the key is a table title or a dynamic title, so match runtime titles by pattern.
-  const visit = (node: ts.Node, titles: string[], sources: string[], patterned: boolean): void => {
+  // `inverted`: an enclosing suite carries an inverting modifier.
+  const visit = (node: ts.Node, titles: string[], sources: string[], patterned: boolean, inverted: boolean): void => {
     if (ts.isCallExpression(node)) {
       const { root, mods } = calleeChain(node.expression);
+      const inverts = inverted || mods.some((m) => INVERTING_MODS.has(m));
       const first = node.arguments[0];
       const literal = first !== undefined && ts.isStringLiteralLike(first) ? first.text : null;
       const table = mods.some((m) => TABLE_MODS.has(m));
@@ -850,7 +904,7 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
       const source = segmentSource(literal, table);
       const pat = patterned || table || literal === null;
       if (root !== null && SUITE_FNS.has(root)) {
-        for (const arg of node.arguments.slice(1)) visit(arg, [...titles, title], [...sources, source], pat);
+        for (const arg of node.arguments.slice(1)) visit(arg, [...titles, title], [...sources, source], pat, inverts);
         return;
       }
       if (root !== null && CASE_FNS.has(root)) {
@@ -862,6 +916,7 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
           exercisesSource: false,
           constantOnly: true,
         };
+        if (inverts) tc.inverted = true;
         if (cb !== undefined) {
           // The whole call: title, callback, options, timeout and any .each table decide the result.
           tc.bodyHash = createHash('sha256').update(bodyTokens(node, sf).join(' ')).digest('hex');
@@ -869,14 +924,15 @@ export function staticTestCases(fileName: string, content: string, r: CaseResolv
           const live = liveIn(cb);
           tc.constantOnly = subs.length === 0 || subs.every(isConstantExpression);
           tc.exercisesSource = assertsOnSource(cb, live);
+          if (tc.exercisesSource && !assertsOnSource(cb, live, true)) tc.presenceOnly = true;
           tc.statementAt = statementAt(cb, live);
         }
         out.push(tc);
         return;
       }
     }
-    ts.forEachChild(node, (child) => visit(child, titles, sources, patterned));
+    ts.forEachChild(node, (child) => visit(child, titles, sources, patterned, inverted));
   };
-  visit(sf, [], [], false);
+  visit(sf, [], [], false, false);
   return out;
 }

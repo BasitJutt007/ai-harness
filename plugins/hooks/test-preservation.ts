@@ -31,7 +31,7 @@ import { isTestFile, isTestSupport, sha256 } from '../lib/red.ts';
 const CASE_FNS = new Set(['it', 'test']);
 const SUITE_FNS = new Set(['describe', 'suite']);
 const HOOK_FNS = new Set(['beforeEach', 'beforeAll', 'afterEach', 'afterAll']);
-const DISABLING = new Set(['skip', 'todo', 'only', 'skipIf', 'runIf', 'fails']);
+const DISABLING = new Set(['skip', 'todo', 'only', 'skipIf', 'runIf', 'fails', 'failing']);
 const DISABLED_ALIASES = new Set(['xit', 'xtest', 'xdescribe', 'fit', 'fdescribe']);
 /** vi.mock is hoisted to the top of the file by vitest, wherever it is written. */
 const MOCK_ANYWHERE = new Set(['mock']);
@@ -41,7 +41,7 @@ const MOCK_AT_COLLECTION = new Set(['doMock', 'hoisted', 'spyOn', 'stubGlobal', 
 export interface TestCase {
   /** "describe > ... > title" ("<dynamic>" for non-literal titles). */
   key: string;
-  /** A modifier (skip/todo/only/skipIf/runIf/fails) applies to the case or an enclosing suite. */
+  /** A modifier (skip/todo/only/skipIf/runIf/fails/failing) applies to the case or an enclosing suite. */
   disabled: boolean;
   line: number;
 }
@@ -374,7 +374,7 @@ export function weakenedCases(fileName: string, before: string, after: string, o
     if (n === undefined) continue;
     matched.set(o, n);
     if (n.disabled && !o.disabled) {
-      problems.push(`${fileName}:${n.line}  ${label(o)} would be disabled (skip/todo/only/skipIf/runIf/fails)`);
+      problems.push(`${fileName}:${n.line}  ${label(o)} would be disabled (skip/todo/only/skipIf/runIf/fails/failing)`);
       continue;
     }
     if (opts.allowBodyChanges === true) continue;

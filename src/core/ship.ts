@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { passThroughEnv } from './exec.ts';
-import { runGates } from './gates.ts';
+import { requiredGates, runGates } from './gates.ts';
 import type { GateOutcome } from './gates.ts';
 import type { ExecResult, RegistryView, RunContext } from './types.ts';
 import { isProtectedBranch, normalizeBranch } from './workspace.ts';
@@ -245,7 +245,7 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
   // 2. Gates, fresh — over a tree we fingerprint first, so a change made while they run is caught.
   const before = await treeFingerprint(git, repo, [pathspec, ...excludes]);
   if (before === null) return refuse('cannot list the files under the API root (git ls-files failed)');
-  const gates = await runGates(opts.registry.gates, ctx, 'ship');
+  const gates = await runGates(opts.registry.gates, ctx, 'ship', { required: requiredGates(ctx.task, 'ship') });
   if (!gates.ok) return refuse('gates are not green (re-run fresh for ship):', ...gates.compact.split('\n'));
 
   // 3. Plan.

@@ -1,0 +1,45 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-131536/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )lists with cursors and validates conflicts and inputs$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-131536/generated/users-api
+
+ ❯ test/users.test.ts (3 tests | 1 failed | 2 skipped) 34ms
+   ❯ users API (3)
+     ↓ creates, gets, updates, and deletes users
+     × lists with cursors and validates conflicts and inputs 33ms
+     ↓ replays idempotent creates and rejects changed bodies and empty patches
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 skipped (3)
+   Start at  18:15:53
+   Duration  269ms (import 63%, tests 19%, transform 16%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > lists with cursors and validates conflicts and inputs
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ test/users.test.ts:26:98
+     24|     const app = createApp();
+     25|     await request(app).post('/v1/users').set('Idempotency-Key', 'a').s…
+     26|     expect((await request(app).post('/v1/users').set('Idempotency-Key'…
+       |                                                                                                  ^
+     27|     const invalid = await request(app).post('/v1/users').set('Idempote…
+     28|     expect(invalid.status).toBe(422);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":3,"numPassedTests":0,"numFailedTests":1,"numPendingTests":2,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791119753953,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates, and deletes users","status":"skipped","title":"creates, gets, updates, and deletes users","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API lists with cursors and validates conflicts and inputs","status":"failed","title":"lists with cursors and validates conflicts and inputs","duration":32.71704200000002,"failureMessages":["AssertionError: expected 404 to be 409 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-131536/generated/users-api/test/users.test.ts:26:98\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed bodies and empty patches","status":"skipped","title":"replays idempotent creates and rejects changed bodies and empty patches","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791119754188,"endTime":1791119754220.717,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-131536/generated/users-api/test/users.test.ts"}]}

@@ -1,0 +1,58 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-131536/samples/existing-api
+
+ ❯ test/projects.test.ts (20 tests | 1 failed) 114ms
+   ✓ POST /v1/projects (6)
+     ✓ creates a project: 201, Location header, status defaults to active 28ms
+     ✓ rejects an invalid body with a 422 problem 6ms
+     ✓ rejects unknown properties with a 422 problem 2ms
+     ✓ rejects malformed JSON with a 400 problem 3ms
+     ✓ honours Idempotency-Key: same key and body replays the first response 8ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 5ms
+   ✓ GET /v1/projects (4)
+     ✓ pages through every project with an opaque cursor 8ms
+     ✓ returns at most `limit` items and a nextCursor while more remain 4ms
+     ✓ defaults to 20 items per page 17ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 3ms
+   ✓ GET /v1/projects/:projectId (3)
+     ✓ returns the project 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ✓ PATCH /v1/projects/:projectId (4)
+     ✓ updates the given fields only 2ms
+     ✓ rejects an empty or invalid patch with a 422 problem 3ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 3ms
+   ❯ project deletion and status filtering (3)
+     ✓ deletes a project with 204 and then returns 404, including on repeat 4ms
+     ✓ rejects malformed delete ids 2ms
+     × filters by status and paginates the filtered set 11ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 19 passed (20)
+   Start at  18:16:17
+   Duration  385ms (import 41%, tests 40%, transform 19%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > filters by status and paginates the filtered set
+AssertionError: expected [ …(3) ] to have a length of 2 but got 3
+
+- Expected
++ Received
+
+- 2
++ 3
+
+ ❯ test/projects.test.ts:199:25
+    197|     const archivedIds = await listAll({ status: 'archived', limit: '1'…
+    198|     expect(archivedIds).toEqual(expect.arrayContaining(archived.map((p…
+    199|     expect(archivedIds).toHaveLength(archived.length);
+       |                         ^
+    200|     const activeIds = await listAll({ status: 'active', limit: '1' });
+    201|     expect(activeIds).toEqual(expect.arrayContaining(active.map((proje…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+test/projects.test.ts > project deletion and status filtering > filters by status and paginates the filtered set: passes when run alone, fails after the other tests in this file: it depends on test order (shared state, e.g. a module-level store, is not reset between tests). Do not assume an empty store; assert only on the records this test created.
+observed red: test/projects.test.ts (source they cover is now writable)

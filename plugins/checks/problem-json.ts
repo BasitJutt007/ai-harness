@@ -15,6 +15,8 @@ import {
   calleeName,
   constInitializer,
   constString,
+  dynamicRouteReason,
+  earlierStatus,
   extractRouteTable,
   isProblemDocument,
   isProblemShaped,
@@ -27,12 +29,14 @@ import {
   propName,
   resolveFunction,
   responseChain,
+  routeUnknownReason,
   unwrap,
   useRegistrations,
   walk,
 } from '../lib/api-ast.ts';
 import type { ApiModel, Env, Producer, ResponseChain, RouteInfo, UseRegistration } from '../lib/api-ast.ts';
 import { discoverEntries } from '../lib/app-entry.ts';
+import { unprovenFinding } from '../lib/plugin-helpers.ts';
 import { runProbe, substituteParams } from '../lib/probe.ts';
 
 const RULE = 'problem-json';
@@ -206,9 +210,9 @@ function problemBodyGaps(checker: ts.TypeChecker, chain: ResponseChain): string[
 }
 
 /** Errors constructed by a handler that are not problems: `throw new Error(...)`, `next(new Error(...))`. */
-function nonProblemErrors(m: ApiModel, fn: ts.FunctionLikeDeclaration): ts.NewExpression[] {
+function nonProblemErrors(m: ApiModel, fn: ts.FunctionLikeDeclaration): Array<ts.NewExpression | ts.Expression> {
   const { checker } = m;
-  const out: ts.NewExpression[] = [];
+  const out: Array<ts.NewExpression | ts.Expression> = [];
   if (fn.body === undefined) return out;
   const nextParam = fn.parameters[2];
   const nextName = nextParam !== undefined && ts.isIdentifier(nextParam.name) ? nextParam.name.text : undefined;
@@ -217,6 +221,11 @@ function nonProblemErrors(m: ApiModel, fn: ts.FunctionLikeDeclaration): ts.NewEx
     if (ts.isThrowStatement(n)) created = n.expression;
     else if (ts.isCallExpression(n) && nextName !== undefined && calleeName(n.expression) === nextName && ts.isIdentifier(n.expression)) created = n.arguments[0];
     const e = created !== undefined ? unwrap(created) : undefined;
+    // `throw { status: 404 }` / `throw 'gone'`: not an error the error middleware can map, the client gets a 500.
+    if (e !== undefined && (ts.isObjectLiteralExpression(e) || ts.isStringLiteralLike(e) || ts.isTemplateExpression(e))) {
+      out.push(e);
+      return;
+    }
     if (e === undefined || !ts.isNewExpression(e)) return;
     if (problemProducer(m, e) !== undefined || isProblemShaped(checker, checker.getTypeAtLocation(e))) return;
     if (/ZodError$/.test(calleeName(e.expression) ?? '')) return; // the error middleware maps it to 422
@@ -255,9 +264,9 @@ function missingProblemFields(m: ApiModel, node: ts.CallExpression | ts.NewExpre
   return [...missing].sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
 
-function statusText(chain: ResponseChain): string {
-  if (chain.statuses !== null) return chain.statuses.join('|');
-  return chain.statusExpr !== undefined ? chain.statusExpr.getText() : '(unknown)';
+function statusText(statuses: number[] | null, expr: ts.Expression | undefined): string {
+  if (statuses !== null) return [...statuses].sort((a, b) => a - b).join('|');
+  return expr !== undefined ? expr.getText() : '(unknown)';
 }
 
 function staticUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): void {
@@ -267,9 +276,12 @@ function staticUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): v
       if (ts.isCallExpression(node)) {
         const chain = responseChain(checker, node);
         if (chain !== undefined && isResponseRoot(checker, unwrap(chain.root), chain.statusSet)) {
+          // A status set by an earlier statement (`res.status(404); res.json(…)`) is the one sent.
+          const earlier = chain.statusSet ? { statuses: chain.statuses, expr: chain.statusExpr } : earlierStatus(checker, node);
+          const statuses = earlier.statuses;
           // A status that is not a constant may be an error: it is judged as one (a replayed record excepted).
-          const unknown = chain.statuses === null;
-          const errorStatus = unknown ? !isReplay(checker, chain) : (chain.statuses ?? []).some((s) => s >= 400);
+          const unknown = statuses === null;
+          const errorStatus = unknown ? !isReplay(checker, chain, earlier.expr) : (statuses ?? []).some((s) => s >= 400);
           const keys = adhocKeys(checker, chain.body);
           if (errorStatus || keys.length > 0) {
             const gaps = errorStatus ? problemBodyGaps(checker, chain) : [];
@@ -277,8 +289,8 @@ function staticUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): v
               keys.length > 0
                 ? `ad-hoc error body with ${keys.map((k) => `"${k}"`).join(', ')}; throw a problem (e.g. notFound(detail)) and let the error middleware send application/problem+json`
                 : unknown
-                  ? `status ${statusText(chain)} is not a constant, so this may be an error response, and its body is not a problem (missing ${gaps.join(', ')}); send a full problem or use a literal success status`
-                  : `status ${statusText(chain)} is sent with a non-problem body (missing ${gaps.join(', ')}); throw a problem helper (notFound/conflict/new HttpProblem) instead`;
+                  ? `status ${statusText(statuses, earlier.expr)} is not a constant, so this may be an error response, and its body is not a problem (missing ${gaps.join(', ')}); send a full problem or use a literal success status`
+                  : `status ${statusText(statuses, earlier.expr)} is sent with a non-problem body (missing ${gaps.join(', ')}); throw a problem helper (notFound/conflict/new HttpProblem) instead`;
             unit(tally(map, file), keys.length === 0 && gaps.length === 0, { location: location(ctx.root, node), message: why });
           }
         }
@@ -345,25 +357,56 @@ function appUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): void
   });
 }
 
+/**
+ * The handler and the program functions it calls, transitively (MAX_DEPTH calls deep): a service or store method
+ * that throws a non-problem error answers the client with a 500 just as the handler would.
+ */
+function reachableFunctions(m: ApiModel, fn: ts.FunctionLikeDeclaration): ts.FunctionLikeDeclaration[] {
+  const out: ts.FunctionLikeDeclaration[] = [fn];
+  const seen = new Set<ts.Node>([fn]);
+  let frontier = [fn];
+  for (let depth = 0; depth < 3 && frontier.length > 0; depth++) {
+    const next: ts.FunctionLikeDeclaration[] = [];
+    for (const f of frontier) {
+      if (f.body === undefined) continue;
+      walk(f.body, (n) => {
+        if (!ts.isCallExpression(n) && !ts.isNewExpression(n)) return;
+        const target = resolveFunction(m.checker, n.expression);
+        if (target === undefined || seen.has(target) || target.getSourceFile().isDeclarationFile || target.body === undefined) return;
+        seen.add(target);
+        next.push(target);
+        out.push(target);
+      });
+    }
+    frontier = next;
+  }
+  return out;
+}
+
 function handlerUnits(ctx: CheckContext, m: ApiModel, routes: RouteInfo[], map: Map<string, Tally>): void {
   const seen = new Set<ts.Node>();
   for (const r of routes) {
-    if (r.handler === undefined || seen.has(r.handler)) continue;
-    seen.add(r.handler);
-    for (const e of nonProblemErrors(m, r.handler)) {
-      const file = location(ctx.root, e).replace(/:\d+:\d+$/, '');
-      unit(tally(map, file), false, {
-        location: location(ctx.root, e),
-        message: `${r.method.toUpperCase()} ${r.path}: new ${e.expression.getText()}(...) is not a problem, so the client gets a 500; throw a problem helper (notFound/conflict/unprocessable/new HttpProblem)`,
-      });
+    if (r.handler === undefined) continue;
+    for (const fn of reachableFunctions(m, r.handler)) {
+      for (const e of nonProblemErrors(m, fn)) {
+        if (seen.has(e)) continue;
+        seen.add(e);
+        const file = location(ctx.root, e).replace(/:\d+:\d+$/, '');
+        const what = ts.isNewExpression(e) ? `new ${e.expression.getText()}(...)` : `throw ${e.getText().slice(0, 40)}`;
+        const via = fn === r.handler ? '' : ` (in ${fn.name?.getText() ?? 'a function'} the handler calls)`;
+        unit(tally(map, file), false, {
+          location: location(ctx.root, e),
+          message: `${r.method.toUpperCase()} ${r.path}: ${what}${via} is not a problem, so the client gets a 500; throw a problem helper (notFound/conflict/unprocessable/new HttpProblem)`,
+        });
+      }
     }
   }
 }
 
 /** The judged probes as one finding, plus an UNPROVEN (skip) finding for any probe that could not be carried out. */
-async function runtimeFinding(ctx: CheckContext, routes: RouteInfo[]): Promise<CheckFinding[]> {
+async function runtimeFinding(ctx: CheckContext, routes: RouteInfo[], known: RouteInfo[]): Promise<CheckFinding[]> {
   const base: Omit<CheckFinding, 'status' | 'units' | 'violations'> = { rule: RULE, file: '(runtime)' };
-  const run = await runProbe(ctx, routes);
+  const run = await runProbe(ctx, routes, { known });
   if (!run.ok) return [{ ...base, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: run.reason }];
   const locs = new Map<string, string>();
   for (const r of routes) {
@@ -394,6 +437,22 @@ async function runtimeFinding(ctx: CheckContext, routes: RouteInfo[]): Promise<C
   }
   const findings: CheckFinding[] = [{ ...base, status: violations.length === 0 ? 'pass' : 'fail', units: { passed, total }, violations }];
   if (unproven.length > 0) findings.push({ ...base, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: `${unproven.join('; ')}${app}` });
+  if (run.unanalysed !== undefined) {
+    const shown = run.unanalysed.slice(0, 5).join(', ');
+    const more = run.unanalysed.length > 5 ? ` and ${run.unanalysed.length - 5} more` : '';
+    findings.push({
+      ...base, status: 'skip', units: { passed: 0, total: 0 }, violations: [],
+      skipReason: `the running app serves routes the static analysis did not find (${shown}${more}), so no rule judged them; register them with a constant method and path on a router the app mounts${app}`,
+    });
+  }
+  if (run.unserved !== undefined) {
+    const shown = run.unserved.slice(0, 5).join(', ');
+    const more = run.unserved.length > 5 ? ` and ${run.unserved.length - 5} more` : '';
+    findings.push({
+      ...base, status: 'skip', units: { passed: 0, total: 0 }, violations: [],
+      skipReason: `the running app does not serve routes the static analysis judged (${shown}${more}), so the code that was checked is not (all of) the app that runs; mount every router on the served app${app}`,
+    });
+  }
   return findings;
 }
 
@@ -412,7 +471,15 @@ export function staticProblemFindings(ctx: CheckContext): CheckFinding[] {
 
 async function run(ctx: CheckContext): Promise<CheckFinding[]> {
   const findings = staticProblemFindings(ctx);
-  findings.push(...(await runtimeFinding(ctx, extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).routes)));
+  const table = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles);
+  // Fail-closed: a route whose chain does something the analysis does not model, or whose method is computed,
+  // may send an error response that none of the units above saw.
+  for (const d of table.dynamic) findings.push(unprovenFinding(RULE, d.file, dynamicRouteReason(ctx.root, d)));
+  for (const r of table.all) {
+    const why = routeUnknownReason(ctx.root, r, 'error-response');
+    if (why !== undefined) findings.push(unprovenFinding(RULE, r.file, why));
+  }
+  findings.push(...(await runtimeFinding(ctx, table.routes, table.all)));
   return findings;
 }
 

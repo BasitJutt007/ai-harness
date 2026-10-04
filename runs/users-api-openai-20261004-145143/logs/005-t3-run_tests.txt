@@ -1,0 +1,109 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145143/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 5 failed) 51ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes users 38ms
+     × validates inputs and reports malformed JSON 4ms
+     × enforces unique email 2ms
+     × paginates with cursors 5ms
+     × replays idempotent creates and rejects changed reuse 2ms
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  19:53:10
+   Duration  497ms (import 64%, tests 22%, transform 12%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes users
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:14:36
+     12|   it('creates, gets, updates and deletes users', async () => {
+     13|     const app = createApp();
+     14|     const made = await create(app).expect(201);
+       |                                    ^
+     15|     expect(made.headers.location).toMatch(/^\/v1\/users\/.+/);
+     16|     expect(made.body.role).toBe('member');
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/users.test.ts > users API > validates inputs and reports malformed JSON
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:26:61
+     24|   it('validates inputs and reports malformed JSON', async () => {
+     25|     const app = createApp();
+     26|     await request(app).post('/v1/users').send({ name: '' }).expect(422…
+       |                                                             ^
+     27|     await request(app).post('/v1/users').set('Content-Type', 'applicat…
+     28|     await request(app).get('/v1/users?limit=0').expect(422);
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  test/users.test.ts > users API > enforces unique email
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:35:23
+     33|   it('enforces unique email', async () => {
+     34|     const app = createApp();
+     35|     await create(app).expect(201);
+       |                       ^
+     36|     await create(app, body).expect(409);
+     37|     const other = await create(app, { email: 'b@example.com', name: 'B…
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  test/users.test.ts > users API > paginates with cursors
+Error: expected 200 "OK", got 404 "Not Found"
+ ❯ test/users.test.ts:45:63
+     43|     await create(app, { email: '2@example.com', name: '2' });
+     44|     await create(app, { email: '3@example.com', name: '3' });
+     45|     const first = await request(app).get('/v1/users?limit=2').expect(2…
+       |                                                               ^
+     46|     const second = await request(app).get(`/v1/users?limit=2&cursor=${…
+     47|     expect([...first.body.data, ...second.body.data]).toHaveLength(3);
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects changed reuse
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:52:50
+     50|   it('replays idempotent creates and rejects changed reuse', async () …
+     51|     const app = createApp();
+     52|     const first = await create(app, body, 'key').expect(201);
+       |                                                  ^
+     53|     const replay = await create(app, body, 'key').expect(201);
+     54|     expect(replay.headers['idempotent-replayed']).toBe('true');
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+observed red: test/users.test.ts (source they cover is now writable)

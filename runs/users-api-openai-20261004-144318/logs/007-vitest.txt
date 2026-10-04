@@ -1,0 +1,19 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-144318/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 0
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-144318/generated/users-api
+
+ ✓ test/users.test.ts (4 tests) 52ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  19:43:50
+   Duration  250ms (import 51%, tests 29%, transform 18%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":2,"numFailedTestSuites":0,"numPendingTestSuites":0,"numTotalTests":4,"numPassedTests":4,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791125030799,"success":true,"testResults":[{"assertionResults":[{"ancestorTitles":["users"],"fullName":"users creates, defaults role, location, gets, patches and deletes","status":"passed","title":"creates, defaults role, location, gets, patches and deletes","duration":31.314707999999996,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users"],"fullName":"users validates fields and malformed JSON","status":"passed","title":"validates fields and malformed JSON","duration":5.109332999999992,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users"],"fullName":"users enforces uniqueness and missing resources","status":"passed","title":"enforces uniqueness and missing resources","duration":3.679833000000002,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users"],"fullName":"users paginates with cursor and idempotency","status":"passed","title":"paginates with cursor and idempotency","duration":11.323959000000002,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791125030997,"endTime":1791125031048.324,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-144318/generated/users-api/test/users.test.ts"}]}

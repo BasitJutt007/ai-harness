@@ -4,6 +4,9 @@ import { contextFor, lineOf, lineOfAfter, removeTempApi, runCheck, tempApi } fro
 
 const USERS = 'src/routes/users.ts';
 
+/** A runnable app for inline fixtures that export their router as `r`: a statically accepted replay is confirmed at runtime. */
+const APP_TS = "import express, { type Express } from 'express';\nimport { r } from './routes.js';\nexport function createApp(): Express {\n  const app = express();\n  app.use(express.json());\n  app.use(r);\n  return app;\n}\n";
+
 describe('rest-conventions', () => {
   const roots: string[] = [];
   afterAll(async () => {
@@ -83,6 +86,7 @@ r.post('/v1/notes', (req, res) => {
   it('flags unknown status codes, missing 404 paths; header-based idempotency that stores and replays is accepted', async () => {
     const root = await tempApi(
       {
+        'src/app.ts': APP_TS,
         'src/routes.ts': `import { Router } from 'express';
 import { z } from 'zod';
 const Item = z.object({ id: z.string() });
@@ -139,7 +143,7 @@ ${fresh ? '  const done = new Map<string, z.infer<typeof Item>>();\n' : ''}  con
 });
 `;
     const verdict = async (fresh: boolean): Promise<string[]> => {
-      const root = await tempApi({ 'src/routes.ts': route(fresh) });
+      const root = await tempApi({ 'src/app.ts': APP_TS, 'src/routes.ts': route(fresh) });
       roots.push(root);
       const findings = await restConventions.run(await contextFor(root));
       return findings.map((f) => `${f.status} ${f.skipReason ?? ''} ${f.violations.map((v) => v.message).join(' | ')}`);
@@ -175,7 +179,7 @@ void makeStore;
 `;
     const MAP = 'new Map<string, z.infer<typeof Item>>()';
     const idemp = async (top: string, inner: string): Promise<'pass' | 'fail' | 'unproven'> => {
-      const root = await tempApi({ 'src/routes.ts': route(top, inner) });
+      const root = await tempApi({ 'src/app.ts': APP_TS, 'src/routes.ts': route(top, inner) });
       roots.push(root);
       const text = (await restConventions.run(await contextFor(root))).map((f) => `${f.status} ${f.skipReason ?? ''} ${f.violations.map((v) => v.message).join(' | ')}`).join('\n');
       if (!/Idempotency-Key|idempotency/.test(text)) return 'pass';
@@ -226,7 +230,7 @@ void makeStore;
 `;
     const MAP = 'new Map<string, ItemT>()';
     const idemp = async (top: string, inner: string): Promise<'pass' | 'not pass'> => {
-      const root = await tempApi({ 'src/routes.ts': route(top, inner) });
+      const root = await tempApi({ 'src/app.ts': APP_TS, 'src/routes.ts': route(top, inner) });
       roots.push(root);
       const text = (await restConventions.run(await contextFor(root))).map((f) => `${f.status} ${f.skipReason ?? ''} ${f.violations.map((v) => v.message).join(' | ')}`).join('\n');
       return /Idempotency-Key|idempotency/.test(text) ? 'not pass' : 'pass';

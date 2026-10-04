@@ -56,7 +56,14 @@ const TICKETS = 'src/routes/tickets.ts';
 const STATUS_CONSTS = 'export const HttpStatus = { OK: 200, CREATED: 201, NO_CONTENT: 204, NOT_FOUND: 404, CONFLICT: 409 } as const;\n';
 
 /** Each variant changes how the code is written, never what it does: every one must stay at 100%. */
-const COMPLIANT: Array<{ name: string; style: StyleName; edits: Edits; units?: number }> = [
+interface Compliant {
+  name: string;
+  style: StyleName;
+  edits: Edits;
+  units?: number;
+}
+
+const COMPLIANT: Compliant[] = [
   {
     name: 'statuses from an `as const` object (HttpStatus.CREATED, sendStatus(HttpStatus.NO_CONTENT))',
     style: 'c-app-instance',
@@ -78,22 +85,6 @@ const COMPLIANT: Array<{ name: string; style: StyleName; edits: Edits; units?: n
         ["import { Router } from 'express';", "import { Router } from 'express';\nimport { Status } from '../http/status.js';"],
         ['res.status(201)', 'res.status(Status.Created)'],
         ['res.sendStatus(204)', 'res.sendStatus(Status.NoContent)'],
-      ],
-    },
-  },
-  {
-    name: 'statuses from declared library-style constants (literal types only)',
-    style: 'c-app-instance',
-    edits: {
-      // Declarations only (statuses come from their literal types), with the values a library ships at
-      // runtime next to them: the replay probe serves the app, and a status that is undefined at runtime
-      // would turn the keyed replay into a 500.
-      'src/http/codes.d.ts': 'export declare const CREATED: 201;\nexport declare const NO_CONTENT: 204;\n',
-      'src/http/codes.js': 'export const CREATED = 201;\nexport const NO_CONTENT = 204;\n',
-      [PRODUCTS]: [
-        ["import { Router } from 'express';", "import { Router } from 'express';\nimport * as codes from '../http/codes.js';"],
-        ['res.status(201)', 'res.status(codes.CREATED)'],
-        ['res.sendStatus(204)', 'res.sendStatus(codes.NO_CONTENT)'],
       ],
     },
   },
@@ -254,6 +245,39 @@ const COMPLIANT: Array<{ name: string; style: StyleName; edits: Edits; units?: n
     },
   },
 ];
+
+/**
+ * Declared library-style constants whose values live in a hand-written .js next to their .d.ts: the statuses
+ * read right (literal types), but the .js under the source roots is code no rule reads, and the .d.ts can claim
+ * anything about it, so the result is UNPROVEN (fail-closed), never 100%.
+ */
+const DECLARED_JS: Compliant = {
+    name: 'statuses from declared library-style constants (literal types only)',
+    style: 'c-app-instance',
+    edits: {
+      // Declarations only (statuses come from their literal types), with the values a library ships at
+      // runtime next to them: the replay probe serves the app, and a status that is undefined at runtime
+      // would turn the keyed replay into a 500.
+      'src/http/codes.d.ts': 'export declare const CREATED: 201;\nexport declare const NO_CONTENT: 204;\n',
+      'src/http/codes.js': 'export const CREATED = 201;\nexport const NO_CONTENT = 204;\n',
+      [PRODUCTS]: [
+        ["import { Router } from 'express';", "import { Router } from 'express';\nimport * as codes from '../http/codes.js';"],
+        ['res.status(201)', 'res.status(codes.CREATED)'],
+        ['res.sendStatus(204)', 'res.sendStatus(codes.NO_CONTENT)'],
+      ],
+    },
+  };
+
+describe('a hand-written .js under the source roots', () => {
+  it('is UNPROVEN on zod-boundary, naming the file; the other rules still pass', async () => {
+    const { findings, compact, rules } = await run(DECLARED_JS.style, DECLARED_JS.edits);
+    const skips = findings.filter((f) => f.status === 'skip');
+    expect(skips.map((f) => [f.rule, f.file]), compact).toEqual([['zod-boundary', 'src/http/codes.js']]);
+    expect(skips[0]?.skipReason).toContain('is not TypeScript the analysis reads');
+    expect(rules.get('rest-conventions')?.status, compact).toBe('pass');
+    expect(rules.get('problem-json')?.status, compact).toBe('pass');
+  });
+});
 
 describe('compliant variants of the foreign styles', () => {
   it.each(COMPLIANT.map((c) => [c.name, c] as const))('%s', async (_name, c) => {

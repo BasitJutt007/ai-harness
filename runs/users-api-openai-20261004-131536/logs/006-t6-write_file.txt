@@ -1,0 +1,51 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -1,9 +1,42 @@
+-import type { Router } from 'express';
++import { Router } from 'express';
++import { z } from 'zod';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { CursorQuerySchema, pageSchema, paginate } from '../lib/pagination.ts';
++import { idempotency } from '../lib/idempotency.ts';
+ 
+-/**
+- * Mount resource routers here, e.g. `app.use(usersRouter)`.
+- * Routers register full versioned paths (`/v1/users`, `/v1/users/:userId`).
+- */
++const UserSchema = z.object({
++  id: z.uuid(),
++  email: z.email(),
++  name: z.string().min(1).max(100),
++  role: z.enum(['admin', 'member']),
++  createdAt: z.iso.datetime(),
++  updatedAt: z.iso.datetime(),
++});
++const CreateSchema = z.object({ email: z.email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']).default('member') }).strict();
++const PatchSchema = z.object({ email: z.email().optional(), name: z.string().min(1).max(100).optional(), role: z.enum(['admin', 'member']).optional() }).strict();
++const IdSchema = z.object({ userId: z.uuid() });
++const users = new WeakMap<object, z.infer<typeof UserSchema>[]>();
++
+ export function registerRoutes(app: Router): void {
+-  // No resources yet.
++  const store: z.infer<typeof UserSchema>[] = [];
++  users.set(app, store);
++  const router = Router();
++  const find = (id: string) => store.find((u) => u.id === id);
++  router.get('/v1/users', (req, res) => {
++    const query = CursorQuerySchema.safeParse(req.query);
++    if (!query.success) throw unprocessable(query.error.issues.map((i) => `${String(i.path[0] ?? 'query')}: ${i.message}`).join('; '));
++    res.json(pageSchema(UserSchema).parse(paginate(store, query.data, (u) => `${u.createdAt}|${u.id}`)));
++  });
++  router.post('/v1/users', idempotency(), (req, res) => {
++    const parsed = CreateSchema.safeParse(req.body);
++    if (!parsed.success) throw unprocessable(parsed.error.issues.map((i) => `${String(i.path[0] ?? 'body')}: ${i.message}`).join('; '));
++    if (store.some((u) => u.email === parsed.data.email)) throw conflict('email: Already exists');
++    const now = new Date().toISOString();
++    const user = UserSchema.parse({ id: crypto.randomUUID(), ...parsed.data, createdAt: now, updatedAt: now });
++    store.push(user); res.location(`/v1/users/${user.id}`).status(201).json(user);
++  });
++  router.get('/v1/users/:userId', (req, res) => { const p = IdSchema.safeParse(req.params); if (!p.success) throw unprocessable('userId: Invalid uuid'); const u = find(p.data.userId); if (!u) throw notFound('User not found'); res.json(UserSchema.parse(u)); });
++  router.patch('/v1/users/:userId', idempotency(), (req, res) => { const p = IdSchema.safeParse(req.params); if (!p.success) throw unprocessable('userId: Invalid uuid'); const u = find(p.data.userId); if (!u) throw notFound('User not found'); const body = PatchSchema.safeParse(req.body); if (!body.success || Object.keys(body.data).length === 0) throw unprocessable(body.success ? 'body: Must not be empty' : body.error.issues.map((i) => `${String(i.path[0] ?? 'body')}: ${i.message}`).join('; ')); if (body.data.email !== undefined && store.some((x) => x.id !== u.id && x.email === body.data.email)) throw conflict('email: Already exists'); Object.assign(u, body.data, { updatedAt: new Date().toISOString() }); res.json(UserSchema.parse(u)); });
++  router.delete('/v1/users/:userId', (req, res) => { const p = IdSchema.safeParse(req.params); if (!p.success) throw unprocessable('userId: Invalid uuid'); const i = store.findIndex((u) => u.id === p.data.userId); if (i < 0) throw notFound('User not found'); store.splice(i, 1); res.status(204).send(); });
++  app.use(router);
+ }

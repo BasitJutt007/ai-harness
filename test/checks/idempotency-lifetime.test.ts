@@ -18,6 +18,7 @@ import express, { type Router } from 'express';
 import request from 'supertest';
 import { afterAll, describe, expect, it } from 'vitest';
 import restConventions from '../../plugins/checks/rest-conventions.ts';
+import { extractRouteTable } from '../../plugins/lib/api-ast.ts';
 import { contextFor, removeTempApi, tempApi } from './_ctx.ts';
 
 const roots: string[] = [];
@@ -103,9 +104,13 @@ interface Outcome {
 }
 
 async function outcome(source: string, extra: Record<string, string> = {}): Promise<Outcome> {
-  const root = await tempApi({ 'src/routes.ts': source, ...extra });
+  // A runnable app: rest-conventions confirms a statically accepted replay at runtime (unconfirmed = UNPROVEN).
+  const appSource = "import express, { type Express } from 'express';\nimport { r } from './routes.js';\nexport function createApp(): Express {\n  const app = express();\n  app.use(express.json());\n  app.use(r);\n  return app;\n}\n";
+  const root = await tempApi({ 'src/routes.ts': source, 'src/app.ts': appSource, ...extra });
   roots.push(root);
-  const findings = await restConventions.run(await contextFor(root));
+  const ctx = await contextFor(root);
+  const findings = await restConventions.run(ctx);
+  const post = extractRouteTable(ctx.program(), ctx.root, ctx.sourceFiles).all.find((x) => x.method === 'post' && x.path === '/v1/items');
   const text = findings.map((f) => `${f.status} ${f.skipReason ?? ''} ${f.violations.map((v) => v.message).join(' | ')}`).join('\n');
   // The route was analysed: a passing route has counted units; an unproven one a skip finding naming the POST.
   expect(findings.some((f) => f.units.total > 0) || /POST \/v1\/items/.test(text), text).toBe(true);
@@ -120,7 +125,8 @@ async function outcome(source: string, extra: Record<string, string> = {}): Prom
   expect(first.status).toBe(201);
   return {
     verdict: /Idempotency-Key|idempotency/.test(text) ? 'not pass' : 'pass',
-    unproven: findings.some((f) => f.status === 'skip' && /POST \/v1\/items reads the Idempotency-Key header/.test(f.skipReason ?? '')),
+    // The static analysis itself admitted it cannot establish the store (independent of the runtime probe's verdict).
+    unproven: post?.idempotencyUse === 'unproven',
     replays: second.status === 201 && JSON.stringify(second.body) === JSON.stringify(first.body),
   };
 }

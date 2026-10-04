@@ -12,7 +12,11 @@
  * Non-relative specifiers are resolved the way the API resolves them (tsconfig paths/baseUrl,
  * package.json `imports`, the runner's aliases) before they count as packages, so `@test/x` mapped
  * to test/x.ts is test code like `../test/x.ts`.
- * Only NEW violations are blocked, so legacy code stays editable.
+ * Production code may not detect that it runs under a test either: reading process.env.VITEST* /
+ * JEST_WORKER_ID, comparing NODE_ENV with 'test', or reading import.meta.env.MODE / .VITEST / import.meta.vitest
+ * would let it behave one way under the harness's runner and another in production (a test could then go
+ * green on a code path production never takes).
+ * Only NEW violations are blocked, so legacy code stays editable (a read present at run start stays allowed).
  */
 import path from 'node:path';
 import ts from 'typescript';
@@ -58,6 +62,82 @@ function specifiers(sf: ts.SourceFile): Spec[] {
   return out;
 }
 
+/** Env variables test runners set in the processes they run: reading them tells code it is under test. */
+const TEST_ENV_RE = /^(__)?VITEST(_.*)?$|^JEST_WORKER_ID$/;
+/** import.meta.env keys vite/vitest fill in for a test run. */
+const META_ENV_KEYS = new Set(['MODE', 'VITEST', 'TEST']);
+
+/** `process.env` (also `globalThis.process.env`). */
+function isProcessEnv(e: ts.Expression): boolean {
+  if (!ts.isPropertyAccessExpression(e) || e.name.text !== 'env') return false;
+  const p = e.expression;
+  return (ts.isIdentifier(p) && p.text === 'process')
+    || (ts.isPropertyAccessExpression(p) && p.name.text === 'process' && ts.isIdentifier(p.expression) && p.expression.text === 'globalThis');
+}
+
+/** The key of `process.env.X` / `process.env['X']`, else null. */
+function processEnvKey(e: ts.Node): string | null {
+  if (ts.isPropertyAccessExpression(e) && isProcessEnv(e.expression)) return e.name.text;
+  if (ts.isElementAccessExpression(e) && isProcessEnv(e.expression) && ts.isStringLiteralLike(e.argumentExpression)) return e.argumentExpression.text;
+  return null;
+}
+
+function isImportMeta(e: ts.Expression): boolean {
+  return ts.isMetaProperty(e) && e.keywordToken === ts.SyntaxKind.ImportKeyword && e.name.text === 'meta';
+}
+
+function isTestLiteral(e: ts.Expression): boolean {
+  return ts.isStringLiteralLike(e) && e.text === 'test';
+}
+
+const EQUALITY = new Set([ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken]);
+
+/**
+ * Reads in `sf` that tell code it runs under a test runner: process.env.VITEST* / JEST_WORKER_ID (property,
+ * element access, `in`, destructuring), NODE_ENV compared with 'test' (also a `case 'test'` of a switch on it),
+ * import.meta.env.MODE / .VITEST / .TEST and import.meta.vitest.
+ */
+export function testEnvironmentReads(sf: ts.SourceFile): Spec[] {
+  const out: Spec[] = [];
+  const add = (text: string, node: ts.Node): void => {
+    out.push({ text, node });
+  };
+  const visit = (node: ts.Node): void => {
+    const key = processEnvKey(node);
+    if (key !== null && TEST_ENV_RE.test(key)) add(`process.env.${key}`, node);
+    if (ts.isBinaryExpression(node)) {
+      const k = node.operatorToken.kind;
+      if (EQUALITY.has(k)) {
+        const nodeEnv = (e: ts.Expression): boolean => processEnvKey(e) === 'NODE_ENV';
+        if ((nodeEnv(node.left) && isTestLiteral(node.right)) || (nodeEnv(node.right) && isTestLiteral(node.left))) add("process.env.NODE_ENV === 'test'", node);
+      } else if (k === ts.SyntaxKind.InKeyword && ts.isStringLiteralLike(node.left) && TEST_ENV_RE.test(node.left.text) && isProcessEnv(node.right)) {
+        add(`process.env.${node.left.text}`, node);
+      }
+    }
+    if (ts.isSwitchStatement(node) && processEnvKey(node.expression) === 'NODE_ENV'
+      && node.caseBlock.clauses.some((c) => ts.isCaseClause(c) && isTestLiteral(c.expression))) {
+      add("process.env.NODE_ENV === 'test'", node);
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer !== undefined && isProcessEnv(node.initializer) && ts.isObjectBindingPattern(node.name)) {
+      for (const el of node.name.elements) {
+        const name = el.propertyName !== undefined && (ts.isIdentifier(el.propertyName) || ts.isStringLiteralLike(el.propertyName)) ? el.propertyName.text
+          : ts.isIdentifier(el.name) ? el.name.text : '';
+        if (TEST_ENV_RE.test(name)) add(`process.env.${name}`, el);
+      }
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      if (isImportMeta(node.expression) && node.name.text === 'vitest') add('import.meta.vitest', node);
+      const env = node.expression;
+      if (ts.isPropertyAccessExpression(env) && isImportMeta(env.expression) && env.name.text === 'env' && META_ENV_KEYS.has(node.name.text)) {
+        add(`import.meta.env.${node.name.text}`, node);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
 /**
  * Import-boundary violations of `content` as file `rel` (API-relative). Every specifier is resolved with the
  * harness resolver (testmap.ts resolveImport, the active layout) before it counts as a package, so an alias
@@ -69,6 +149,15 @@ export function boundaryViolations(rel: string, content: string, existing: Reado
   const roots = activeLayout().sourceRoots;
   const inSrc = underAny(rel, roots);
   const out: BoundaryViolation[] = [];
+  for (const r of testEnvironmentReads(sf)) {
+    const lc = sf.getLineAndCharacterOfPosition(r.node.getStart(sf));
+    out.push({
+      line: lc.line + 1,
+      col: lc.character + 1,
+      key: `testenv|${r.text ?? ''}`,
+      message: `${r.text ?? 'a test-runner variable'} tells the code it runs under a test runner; production code must behave the same under test (pass configuration in explicitly instead)`,
+    });
+  }
   for (const s of specifiers(sf)) {
     const lc = sf.getLineAndCharacterOfPosition(s.node.getStart(sf));
     const at = { line: lc.line + 1, col: lc.character + 1 };
@@ -131,7 +220,7 @@ export function newBoundaryViolations(rel: string, before: string | null, after:
 
 export default defineHook({
   name: 'source-boundary',
-  description: 'Blocks source files that import test code, reach outside the source roots of the API, or use computed/absolute imports.',
+  description: 'Blocks source files that import test code, reach outside the source roots of the API, use computed/absolute imports, or detect the test runner.',
   events: ['pre_tool'],
   effects: ['write'],
   async run(event, ctx) {
@@ -152,7 +241,7 @@ export default defineHook({
       return {
         decision: 'block',
         reason: [
-          `source-boundary: ${r.rel} would import outside the production code boundary:`,
+          `source-boundary: ${r.rel} would cross the production code boundary:`,
           ...violations.map((v) => `  ${r.rel}:${v.line}:${v.col}  ${v.message}`),
           'Move shared code into src/ (under observed red) and import it with a relative string literal.',
         ].join('\n'),

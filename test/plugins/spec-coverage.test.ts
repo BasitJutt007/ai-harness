@@ -86,8 +86,17 @@ describe('spec-coverage gate (sandboxed runtime probes)', () => {
     expect(r.details?.join('\n')).toContain('answered 401');
   }, 180_000);
 
-  it('(c) free-text-only greenfield: n/a, and the honesty block lists the human check', async () => {
+  it('(c) free-text-only greenfield without the opt-out: unproven (nothing compared the API with the brief), never DONE', async () => {
     const task: GreenfieldTask = { ...TASK, resources: [], brief: 'A todo API with tags.' };
+    const h = await makeHarness({ label: 'spec-free-unproven', task, exec });
+    dirs.push(h.dir);
+    const out = await runGates([{ plugin: specGate, file: 'plugins/gates/spec-coverage.ts', sha256: 'x' }], h.ctx, 'finish');
+    expect(out.results[0]).toMatchObject({ gate: 'spec-coverage', status: 'unproven' });
+    expect(out.ok).toBe(false);
+  });
+
+  it('(c) free-text-only greenfield with specCoverage: human: n/a, and the honesty block lists the human check', async () => {
+    const task: GreenfieldTask = { ...TASK, resources: [], brief: 'A todo API with tags.', specCoverage: 'human' };
     const h = await makeHarness({ label: 'spec-free', task, exec });
     dirs.push(h.dir);
     const out = await runGates([{ plugin: specGate, file: 'plugins/gates/spec-coverage.ts', sha256: 'x' }], h.ctx, 'finish');

@@ -233,3 +233,54 @@ describe('parseReport / missingSourceModule', () => {
     expect(missingSourceModule(api, 'SyntaxError: Unexpected token')).toBeNull();
   });
 });
+
+describe('runVitest: fail-closed outcomes (real vitest runs)', () => {
+  const api3 = join(base, 'api3');
+  const extra: Record<string, string> = {
+    'package.json': JSON.stringify({ name: 'probe-api-3', type: 'module', private: true }),
+    'vitest.config.ts': "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['test/**/*.test.ts'] } });\n",
+    'src/one.ts': 'export const one = 1;\n',
+    // Every case passes, but a rejection nobody handles fails the run after the last case.
+    'test/unhandled.test.ts': "import { it, expect } from 'vitest';\nimport { one } from '../src/one.js';\nit('passes', () => { void Promise.reject(new Error('late')); expect(one).toBe(1); });\n",
+    'test/clean.test.ts': "import { it, expect } from 'vitest';\nimport { one } from '../src/one.js';\nit('passes', () => { expect(one).toBe(1); });\n",
+    // it.fails reports PASS because its body fails.
+    'test/inverted.test.ts': "import { it, expect } from 'vitest';\nimport { one } from '../src/one.js';\nit.fails('inverted', () => { expect(one).toBe(2); });\n",
+    'test/presence.test.ts': "import { it, expect } from 'vitest';\nimport { make } from '../src/made.js';\nit('exists', () => { expect(make).toBeDefined(); });\n",
+    'test/value.test.ts': "import { it, expect } from 'vitest';\nimport { make } from '../src/made.js';\nit('value', () => { expect(make()).toBe(3); });\n",
+  };
+  beforeAll(async () => {
+    for (const [rel, content] of Object.entries(extra)) {
+      await mkdir(dirname(join(api3, rel)), { recursive: true });
+      await writeFile(join(api3, rel), content);
+    }
+  });
+  const run = (files: string[]) => runVitest({ root: api3, files, exec, harnessRoot: HARNESS_ROOT, logs, turn: 1 });
+
+  it('every case passed but the runner exited non-zero: not ok, the exit is reported', async () => {
+    const report = await run(['test/unhandled.test.ts']);
+    expect(report.totals).toMatchObject({ tests: 1, passed: 1, failed: 0 });
+    expect(report.exit?.code).not.toBe(0);
+    expect(report.ok).toBe(false);
+    expect(report.summary).toMatch(/not green: the runner exited/);
+  });
+
+  it('legitimate: a clean run exits 0 and is ok', async () => {
+    const report = await run(['test/clean.test.ts']);
+    expect(report.exit).toMatchObject({ code: 0, timedOut: false });
+    expect(report.ok).toBe(true);
+  });
+
+  it('an it.fails case is marked inverted and its failure never counts as red', async () => {
+    const report = await run(['test/inverted.test.ts']);
+    const o = byFile(report.observations, 'test/inverted.test.ts');
+    expect(o.cases?.[0]).toMatchObject({ name: 'inverted', status: 'pass', inverted: true });
+  });
+
+  it('a missing-module red counts only for a case asserting a value, not presence', async () => {
+    const report = await run(['test/presence.test.ts', 'test/value.test.ts']);
+    const presence = byFile(report.observations, 'test/presence.test.ts');
+    expect(presence).toMatchObject({ status: 'error', validRed: false });
+    expect(presence.reason).toMatch(/only check that values exist/);
+    expect(byFile(report.observations, 'test/value.test.ts')).toMatchObject({ status: 'error', validRed: true });
+  });
+});

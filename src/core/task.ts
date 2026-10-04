@@ -126,11 +126,16 @@ const GreenfieldSchema = z
       .regex(/^\/([A-Za-z0-9._~-]+(\/[A-Za-z0-9._~-]+)*)?$/, 'basePath must be a URL path such as /v1')
       .default('/v1'),
     resources: z.array(ResourceSchema).default([]),
+    // Free-text tasks only: 'human' opts out of the spec-coverage gate (a human verifies behaviour coverage).
+    specCoverage: z.literal('human').optional(),
   })
   .strict()
   .superRefine((t, ctx) => {
     if (t.resources.length === 0 && t.brief === undefined) {
       ctx.addIssue({ code: 'custom', path: ['resources'], message: 'a greenfield task needs resources or a brief (a free-text description of the API)' });
+    }
+    if (t.specCoverage !== undefined && t.resources.length > 0) {
+      ctx.addIssue({ code: 'custom', path: ['specCoverage'], message: 'specCoverage: human is only for a free-text task without resources (with resources the spec-coverage gate probes them)' });
     }
   });
 

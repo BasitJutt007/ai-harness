@@ -9,10 +9,10 @@ import pluralize from 'pluralize';
 import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
-import { dynamicRouteReason, extractRouteTable, hasPathParams, isCollectionPath, location, propertyType, routeLabel } from '../lib/api-ast.ts';
+import { dynamicRouteReason, extractRouteTable, routeUnknownReason, hasPathParams, isCollectionPath, location, propertyType, routeLabel } from '../lib/api-ast.ts';
 import type { ResponseSite, RouteInfo } from '../lib/api-ast.ts';
 import { unprovenFinding } from '../lib/plugin-helpers.ts';
-import { runReplayProbe } from '../lib/replay-probe.ts';
+import { PROBE_INPUT_FILE, runReplayProbe } from '../lib/replay-probe.ts';
 
 const RULE = 'rest-conventions';
 export const ALLOWED_STATUSES = new Set([200, 201, 202, 204, 304, 400, 401, 403, 404, 409, 412, 415, 422, 428, 429, 500, 503]);
@@ -225,7 +225,7 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
   const program = ctx.program();
   const checker = program.getTypeChecker();
   const { all, dynamic } = extractRouteTable(program, ctx.root, ctx.sourceFiles);
-  const notReplayed = await replayEvidence(ctx, all);
+  const { notReplayed, unconfirmed } = await replayEvidence(ctx, all);
   const files = [...new Set([...all.map((r) => r.file), ...dynamic.map((d) => d.file)])].sort();
   const findings: CheckFinding[] = [];
   for (const file of files) {
@@ -252,6 +252,17 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
         findings.push(unprovenFinding(RULE, file, `${location(ctx.root, r.registration)}: ${idem}`));
         continue;
       }
+      const unrun = unconfirmed.get(r);
+      if (unrun !== undefined && v.length === 0) {
+        findings.push(unprovenFinding(RULE, file, `${location(ctx.root, r.registration)}: ${routeLabel(r)}: its replay looks right in the code, but it was not confirmed at runtime (${unrun}), so its idempotency is unproven; add a valid request body for "${r.method.toUpperCase()} ${r.path}" to ${PROBE_INPUT_FILE} in the API root to let the replay probe run`));
+        continue;
+      }
+      // Fail-closed, after the specific reasons above: anything in the chain the analysis does not model.
+      const unknown = routeUnknownReason(ctx.root, r, 'REST');
+      if (unknown !== undefined && v.length === 0) {
+        findings.push(unprovenFinding(RULE, file, unknown));
+        continue;
+      }
       total++;
       if (v.length === 0) passed++;
       violations.push(...v);
@@ -266,15 +277,18 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
  * statically (it never upgrades a verdict): a keyed retry that is not replayed is a violation of the route.
  * Every outcome, inconclusive ones included, is logged.
  */
-async function replayEvidence(ctx: CheckContext, all: RouteInfo[]): Promise<Map<RouteInfo, Violation>> {
+async function replayEvidence(ctx: CheckContext, all: RouteInfo[]): Promise<{ notReplayed: Map<RouteInfo, Violation>; unconfirmed: Map<RouteInfo, string> }> {
   const out = new Map<RouteInfo, Violation>();
+  // Statically accepted routes whose replay the probe could not run: no runtime evidence, so not a pass.
+  const unconfirmed = new Map<RouteInfo, string>();
   const resolved = all.filter((r) => r.unresolvedPath === undefined);
   const candidates = resolved.filter((r) => (r.method === 'post' || r.method === 'patch') && r.readsIdempotencyKey && r.idempotencyUse !== 'ignored');
-  if (candidates.length === 0) return out;
+  if (candidates.length === 0) return { notReplayed: out, unconfirmed };
   const run = await runReplayProbe(ctx, candidates, resolved);
   const notes: string[] = [];
   for (const o of run.outcomes) {
     notes.push(`${routeLabel(o.route)}: ${o.result}: ${o.detail}`);
+    if (o.result === 'inconclusive' && o.route.idempotencyUse === 'replays') unconfirmed.set(o.route, o.detail);
     if (o.result !== 'not-replayed') continue;
     out.set(o.route, {
       location: location(ctx.root, o.route.registration),
@@ -282,7 +296,7 @@ async function replayEvidence(ctx: CheckContext, all: RouteInfo[]): Promise<Map<
     });
   }
   await ctx.logs.write('rest-conventions-replay.txt', [`replay probe${run.logPath !== undefined ? ` (transcript: ${run.logPath})` : ''}`, ...notes].join('\n'));
-  return out;
+  return { notReplayed: out, unconfirmed };
 }
 
 export default defineCheck({

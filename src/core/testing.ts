@@ -141,7 +141,7 @@ export async function runTargetTests(opts: RunTestsOptions): Promise<TestRunRepo
     return { ok: false, totals: { files: 0, tests: 0, passed: 0, failed: 0 }, observations: [], summary: `tests: not run (UNPROVEN): ${why}`, logPath, console: '' };
   }
   const layout = opts.layout ?? activeLayout();
-  const { res, parsed, consoleText, logPath } = await execRunner(opts, files, []);
+  const { res, parsed, success, consoleText, logPath } = await execRunner(opts, files, []);
   if (parsed === null) {
     const why = res.timedOut ? 'timed out' : `exit ${String(res.code)}`;
     const first = firstLine(stripAnsi(res.stderr || res.stdout)) || 'no JSON report';
@@ -158,7 +158,8 @@ export async function runTargetTests(opts: RunTestsOptions): Promise<TestRunRepo
   const graph = await sourceGraph(opts.root, layout);
   const observations: TestObservation[] = [];
   for (const fr of parsed) observations.push(await observe(opts.root, fr, opts.turn, at, graph, layout));
-  const report: TestRunReport = { ...buildReport(opts.root, parsed, observations, logPath, consoleText), console: consoleText };
+  const exit: NonNullable<TestRunReport['exit']> = { code: exitCode(opts.runner, res, success), timedOut: res.timedOut, ...(success !== undefined ? { success } : {}) };
+  const report: TestRunReport = { ...buildReport(opts.root, parsed, observations, logPath, consoleText, exit), console: consoleText };
   if (opts.isolateFailures !== true || report.totals.failed === 0) return report;
   const diagnosis = await orderDependence(opts, parsed, observations);
   return diagnosis.length > 0 ? { ...report, diagnosis } : report;
@@ -168,6 +169,8 @@ export async function runTargetTests(opts: RunTestsOptions): Promise<TestRunRepo
 interface RunnerOutput {
   res: ExecResult;
   parsed: VitestFileResult[] | null;
+  /** The report's top-level `success` flag (vitest, jest), absent when it has none. */
+  success: boolean | undefined;
   consoleText: string;
   logPath: string;
 }
@@ -203,7 +206,7 @@ async function execRunner(opts: RunTestsOptions, files: string[], filter: string
       [`$ ${run.label} ${args.join(' ')}`, `exit: ${String(res.code)}${res.timedOut ? ' (timed out)' : ''}`,
         '--- stdout ---', res.stdout, '--- stderr ---', res.stderr, '--- json ---', json ?? '(no report written)'].join('\n'),
     );
-    return { res, parsed: json === null ? null : parseReport(json), consoleText, logPath };
+    return { res, parsed: json === null ? null : parseReport(json), success: json === null ? undefined : reportSuccess(json), consoleText, logPath };
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -415,6 +418,16 @@ export function parseReport(json: string): VitestFileResult[] | null {
   return out;
 }
 
+/** The JSON report's top-level `success` flag (vitest and jest write one; node-test-reporter.mjs does not), else undefined. */
+export function reportSuccess(json: string): boolean | undefined {
+  try {
+    const data: unknown = JSON.parse(json);
+    return isRecord(data) && typeof data['success'] === 'boolean' ? data['success'] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Import graph of the API root's TypeScript files as they are on disk after the run (for "does this import reach source?"). */
 async function sourceGraph(root: string, layout: TargetLayout): Promise<ImportGraph> {
   const listed = await glob(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx'], { cwd: root, ignore: ['**/node_modules/**', '**/.git/**'] }).catch(() => []);
@@ -446,7 +459,8 @@ async function observe(root: string, fr: VitestFileResult, turn: number, at: str
     const missing = missingSourceModule(root, fr.message, layout);
     if (missing !== null) {
       const why = `imports ${missing}, which does not exist yet`;
-      const counts = cases.some(countsAsRed);
+      // Nothing ran: the case's own assertions are the only evidence, so presence-only ones (toBeDefined, ...) do not count.
+      const counts = cases.some(countsAsMissingModuleRed);
       return { ...base, status: 'error', validRed: counts, reason: counts ? why : `${why}; ${rejectedCases(cases, where)}` };
     }
     const msg = shortMessage(root, fr.message) || 'suite failed to load';
@@ -457,13 +471,14 @@ async function observe(root: string, fr: VitestFileResult, turn: number, at: str
 
 /** A case whose failure can count as red: an assertion (any library) uses a value from the API's source and is not constant-only. */
 export function countsAsRed(c: TestCaseObservation): boolean {
-  return c.exercisesSource && !c.constantOnly;
+  return c.exercisesSource && !c.constantOnly && c.inverted !== true;
 }
 
 /** Why the failing cases of a run do not count as red (`where`: the source roots, e.g. "src/"). */
 function rejectedFailures(cases: TestCaseObservation[], where: string): string {
   const failing = cases.filter((c) => c.status === 'fail');
   if (failing.length === 0) return 'red rejected: the failing tests could not be matched to a test case in the file (use literal titles)';
+  if (failing.every((c) => c.inverted === true)) return 'red rejected: the failing cases are inverted (it.fails / test.failing report the opposite of their body)';
   if (failing.every((c) => c.constantOnly)) return 'red rejected: the failing cases only assert constants';
   if (failing.every((c) => !c.exercisesSource)) {
     return `red rejected: the failing cases do not assert on anything imported from ${where} (an assertion, of any library, must use its value; side-effect imports, void x and typeof x don't count)`;
@@ -471,10 +486,18 @@ function rejectedFailures(cases: TestCaseObservation[], where: string): string {
   return `red rejected: no failing case both asserts on something imported from ${where} and has a non-constant subject`;
 }
 
+/** A case whose missing-module red can count: it counts as red and asserts on a VALUE from source, not only its presence. */
+export function countsAsMissingModuleRed(c: TestCaseObservation): boolean {
+  return countsAsRed(c) && c.presenceOnly !== true;
+}
+
 /** Why a missing-module red does not count: no case would exercise the missing code. */
 function rejectedCases(cases: TestCaseObservation[], where: string): string {
   if (cases.every((c) => !c.exercisesSource)) {
     return `red rejected: no test case uses anything imported from ${where} (side-effect imports don't count)`;
+  }
+  if (cases.some((c) => countsAsRed(c) && c.presenceOnly === true)) {
+    return `red rejected: the test cases that use ${where} only check that values exist (toBeDefined, toBeTruthy, toBeInstanceOf, assert.ok, ...); a missing module needs a case that asserts what the code returns or does`;
   }
   return `red rejected: the test cases that use ${where} only assert constants`;
 }
@@ -525,6 +548,8 @@ export function joinCases(
     const judged = status === 'fail' && located !== undefined ? locatedRed(s, messages[i] ?? [], located.file, located.content) : null;
     const c: TestCaseObservation = { name: s.name, status, exercisesSource: judged?.exercisesSource ?? s.exercisesSource, constantOnly: judged?.constantOnly ?? s.constantOnly };
     if (s.bodyHash !== undefined) c.bodyHash = s.bodyHash;
+    if (s.inverted === true) c.inverted = true;
+    if (s.presenceOnly === true) c.presenceOnly = true;
     return c;
   });
 }
@@ -613,7 +638,23 @@ function escapeRegExp(s: string): string {
 /** A case's result as reported (vitest: passed, failed, skipped, pending, todo); anything that did not run is 'skip'. */
 const CASE_RESULT: Record<string, TestCaseResult['status']> = { passed: 'pass', failed: 'fail', todo: 'todo' };
 
-function buildReport(root: string, files: VitestFileResult[], observations: TestObservation[], logPath: string, consoleText = ''): TestRunReport {
+/**
+ * The runner's exit code as evidence. node:test is the one exception: its file reporter destination (our fd-3
+ * pipe) is fsync'd on close, which a pipe refuses (EINVAL), so `node --test` exits 1 after every run. When its
+ * own run-level verdict (test:summary success, relayed by node-test-reporter.mjs) is true and that EINVAL is the
+ * only crash, the run counts as exit 0; anything else keeps the real code.
+ */
+function exitCode(runner: TestRunnerInfo | undefined, res: ExecResult, success: boolean | undefined): number | null {
+  if (runner?.kind === 'node-test' && res.code === 1 && success === true && /Error: EINVAL: invalid argument, fsync/.test(res.stderr)) return 0;
+  return res.code;
+}
+
+/** The runner process succeeded: exit code 0, not timed out, and a report `success` flag (if any) that is not false. */
+export function runnerSucceeded(exit: TestRunReport['exit']): boolean {
+  return exit === undefined || (exit.code === 0 && !exit.timedOut && exit.success !== false);
+}
+
+function buildReport(root: string, files: VitestFileResult[], observations: TestObservation[], logPath: string, consoleText = '', exit?: TestRunReport['exit']): TestRunReport {
   let tests = 0;
   let passed = 0;
   let failed = 0;
@@ -649,16 +690,28 @@ function buildReport(root: string, files: VitestFileResult[], observations: Test
   if (tests === 0 && errors === 0) lines.push('no tests ran');
   else if (passed === 0 && failed === 0 && errors === 0) lines.push('no test passed: skipped/todo tests are not green');
   else if (skipped > 0 && failed === 0 && errors === 0) lines.push('not green: skipped/todo tests count as not passed');
+  const processOk = runnerSucceeded(exit);
+  if (!processOk && failed === 0 && errors === 0) lines.push(`not green: ${runnerFailure(exit)} although no case failed (an error outside the cases, e.g. an unhandled rejection)`);
   // The raw log path stays in report.logPath for humans; the model cannot read harness logs.
   return {
-    // Green means every collected test ran and passed: all-skipped / todo suites are not green.
-    ok: passed > 0 && passed === tests && errors === 0,
+    // Green means every collected test ran and passed (all-skipped / todo suites are not green) and the runner
+    // process itself succeeded: an unhandled error after the last case still exits non-zero.
+    ok: passed > 0 && passed === tests && errors === 0 && processOk,
+    ...(exit !== undefined ? { exit } : {}),
     totals: { files: files.length, tests, passed, failed },
     observations,
     results,
     summary: lines.join('\n'),
     logPath,
   };
+}
+
+/** How the runner process failed, e.g. "the runner exited 1" / "the runner timed out" / "the runner's report says success: false". */
+export function runnerFailure(exit: TestRunReport['exit']): string {
+  if (exit === undefined) return 'the runner did not run';
+  if (exit.timedOut) return 'the runner timed out';
+  if (exit.code !== 0) return `the runner exited ${String(exit.code)}`;
+  return exit.success === false ? "the runner's report says success: false" : 'the runner succeeded';
 }
 
 // ───────────────────────────── helpers ─────────────────────────────

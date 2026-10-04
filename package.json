@@ -15,7 +15,8 @@
     "harness": "node bin/harness.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --config vitest.config.ts",
-    "verify": "npm run typecheck && npm test"
+    "verify": "npm run typecheck && npm test",
+    "audit:mutations": "vitest run --config vitest.audit.config.ts"
   },
   "license": "MIT",
   "dependencies": {

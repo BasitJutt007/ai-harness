@@ -5,7 +5,9 @@
  * (file lists, parsed source files, one strict ts.Program) and renders their
  * findings into the fixed-width report. Honesty boundary: a check that throws
  * is a `skip` (UNPROVEN), and a standards rule with nothing to check is never
- * reported as compliant.
+ * reported as compliant. Plugin findings are validated, never trusted: a malformed
+ * one (unknown status, non-finite or negative units, passed > total, no violation list)
+ * becomes a `skip` naming why, and a `pass` that carries violations is a `fail`.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -149,7 +151,9 @@ export async function runChecks(opts: {
   const findings: CheckFinding[] = [];
   for (const check of selected) {
     try {
-      findings.push(...(await check.run(ctx)));
+      const out: unknown = await check.run(ctx);
+      if (!Array.isArray(out)) throw new Error('returned no list of findings');
+      findings.push(...out.map((f) => validFinding(f, check.id)));
     } catch (e) {
       findings.push({
         rule: check.id,
@@ -170,6 +174,46 @@ export function selectChecks(checks: CheckPlugin[], categories?: string[], rules
     && (rules === undefined || rules.length === 0 || rules.includes(c.id)));
 }
 
+/** Units of a finding are counts: finite, non-negative integers with passed <= total. Null when they are. */
+function unitsProblem(u: unknown): string | null {
+  if (typeof u !== 'object' || u === null) return 'no units';
+  const { passed, total } = u as { passed?: unknown; total?: unknown };
+  const count = (x: unknown): boolean => typeof x === 'number' && Number.isInteger(x) && x >= 0;
+  if (!count(passed) || !count(total)) return `units are not non-negative integer counts (passed ${String(passed)}, total ${String(total)})`;
+  if ((passed as number) > (total as number)) return `units passed ${String(passed)} > total ${String(total)}`;
+  return null;
+}
+
+/**
+ * A plugin finding as the report may trust it. Malformed (not an object, unknown status, bad units, no violation
+ * list) → a `skip` of the same rule and file whose reason says what was wrong (UNPROVEN, never counted); a `pass`
+ * that carries violations → `fail`. `rule` names the check when the finding names no rule.
+ */
+export function validFinding(raw: unknown, rule: string): CheckFinding {
+  const skip = (file: string, r: string, why: string): CheckFinding => ({
+    rule: r, file, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: `invalid finding from the check: ${why}`,
+  });
+  if (typeof raw !== 'object' || raw === null) return skip(PROJECT, rule, 'not an object');
+  const f = raw as Partial<Record<keyof CheckFinding, unknown>>;
+  const r = typeof f.rule === 'string' && f.rule !== '' ? f.rule : rule;
+  const file = typeof f.file === 'string' && f.file !== '' ? f.file : PROJECT;
+  if (f.status !== 'pass' && f.status !== 'fail' && f.status !== 'skip') return skip(file, r, `unknown status ${JSON.stringify(f.status) ?? 'undefined'}`);
+  if (!Array.isArray(f.violations)) return skip(file, r, 'no violation list');
+  const violations = f.violations.filter((v): v is CheckFinding['violations'][number] =>
+    typeof v === 'object' && v !== null && typeof (v as { location?: unknown }).location === 'string' && typeof (v as { message?: unknown }).message === 'string');
+  if (violations.length !== f.violations.length) return skip(file, r, 'a violation without a location and message');
+  if (f.status === 'skip') {
+    const units = unitsProblem(f.units) === null ? f.units as CheckFinding['units'] : { passed: 0, total: 0 };
+    return { rule: r, file, status: 'skip', units: { passed: units.passed, total: units.total }, violations, skipReason: typeof f.skipReason === 'string' && f.skipReason !== '' ? f.skipReason : 'no reason given' };
+  }
+  const bad = unitsProblem(f.units);
+  if (bad !== null) return skip(file, r, bad);
+  const units = f.units as CheckFinding['units'];
+  // A pass that names violations is not a pass.
+  const status = f.status === 'pass' && violations.length > 0 ? 'fail' : f.status;
+  return { rule: r, file, status, units: { passed: units.passed, total: units.total }, violations };
+}
+
 // ───────────────────────────── report ─────────────────────────────
 
 interface RuleView {
@@ -186,7 +230,7 @@ export function formatReport(
   checks: CheckPlugin[],
   root: string,
 ): Pick<CheckReport, 'rules' | 'verdict' | 'text' | 'compact'> {
-  const views = ruleViews(findings.map((f) => relativizeFinding(f, root)), checks);
+  const views = ruleViews(findings.map((f) => relativizeFinding(validFinding(f, f.rule), root)), checks);
   const fileW = Math.max(FILE_MIN_W, ...views.flatMap((v) => v.findings.map((f) => f.file.length + 2)));
   const ruleW = ruleWidth(views.map((v) => v.summary.rule));
 

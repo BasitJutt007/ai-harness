@@ -1,0 +1,41 @@
+{
+  "file": "/Users/abdulbasit/Documents/GitHub/ai-harness/tasks/projects-change.task.yaml",
+  "format": "yaml",
+  "strict": false,
+  "sha256": "5989d7c7716a48454801be7c511e81e42082d625dfbb580a70d96bc3ad798ad3",
+  "normalizedSha256": "1f248b49e00b4ce2690c7203d9ebb29672b9ede555354ba013d3599cb4428e55",
+  "warnings": [],
+  "scopeSource": "task",
+  "task": {
+    "kind": "brownfield",
+    "id": "projects-change",
+    "title": "Delete projects and filter the project list by status",
+    "behaviours": [
+      "DELETE /v1/projects/{projectId} returns 204 with an empty body, after which GET /v1/projects/{projectId} returns 404.",
+      "DELETE /v1/projects/{projectId} for an id that does not exist (including a second delete of the same project) returns 404 application/problem+json.",
+      "DELETE /v1/projects/{projectId} with a malformed id returns 422 application/problem+json.",
+      "GET /v1/projects?status=archived returns only archived projects and GET /v1/projects?status=active only active ones.",
+      "GET /v1/projects with a status filter is still cursor-paginated: limit and cursor work as before and following nextCursor visits every matching project exactly once.",
+      "GET /v1/projects without status returns projects of every status, as before.",
+      "GET /v1/projects with an unknown status value returns 422 application/problem+json.",
+      "All existing tests keep passing and the public contract only gains (never loses or narrows) routes and properties."
+    ],
+    "limits": {
+      "maxTurns": 40,
+      "maxOutputTokens": 16000
+    },
+    "target": "samples/existing-api",
+    "change": "Add two capabilities to the existing Projects API without breaking any current client:\n\n1. DELETE /v1/projects/{projectId} removes a project. It returns 204 with no body,\n   and 404 application/problem+json when the project does not exist.\n2. GET /v1/projects accepts an optional `status` query parameter (active | archived)\n   that returns only projects with that status. The list stays cursor-paginated\n   (cursor + limit, response { data, nextCursor }) and the filter is applied before\n   paginating, so following nextCursor walks the filtered set.\n\nExisting routes, request schemas and response schemas must keep working exactly as\nthey do today; both changes are additive.",
+    "scope": {
+      "allow": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ],
+      "deny": [
+        "src/lib/**",
+        "src/server.ts"
+      ]
+    },
+    "allowBreaking": false
+  }
+}

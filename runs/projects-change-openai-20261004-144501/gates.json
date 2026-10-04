@@ -1,0 +1,52 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "pass",
+      "summary": "contract preserved (4 → 5 endpoints, via runtime): 2 additive (GET /v1/projects query.status: new optional property; DELETE /v1/projects/:projectId: new route)",
+      "logPath": "runs/projects-change-openai-20261004-144501/logs/029-contract-diff.txt"
+    },
+    {
+      "gate": "observed-red",
+      "status": "unproven",
+      "summary": "1 of 3 changed source files not proven by their own revert: src/modules/projects/schema.ts",
+      "details": [
+        "src/modules/projects/schema.ts: test/projects.test.ts: \"project deletion and status filtering > deletes a project and then returns 404\" also passes with src/modules/projects/schema.ts alone at its run-start content (revert check): no accepted case depends on src/modules/projects/schema.ts's own change",
+        "Each changed file must be proven on its own: some case that went red -> green must fail again when that file ALONE is back at its original content. A change no case depends on (e.g. a refactor) needs a case that observes it, or must be left out."
+      ],
+      "logPath": "runs/projects-change-openai-20261004-144501/logs/030-vitest.txt"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "no new non-test files"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "4 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "n/a",
+      "summary": "not applicable to brownfield tasks"
+    },
+    {
+      "gate": "standards",
+      "status": "pass",
+      "summary": "verdict 100% (4 rules)"
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "1 of 20 tests failed in 1 files",
+      "details": [
+        "tests: 1 failed, 19 passed (20) in 1 files",
+        "FAIL test/projects.test.ts > project deletion and status filtering > filters status before cursor pagination: expected [ …(20) ] to include '10303131-fcdd-4043-980a-9fd5a52adba8'"
+      ],
+      "logPath": "runs/projects-change-openai-20261004-144501/logs/041-vitest.txt"
+    }
+  ]
+}
