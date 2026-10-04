@@ -1,0 +1,90 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-144318/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 4 failed) 29ms
+   ❯ users (4)
+     × creates, defaults role, location, gets, patches and deletes 21ms
+     × validates fields and malformed JSON 4ms
+     × enforces uniqueness and missing resources 2ms
+     × paginates with cursor and idempotency 2ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  19:43:38
+   Duration  229ms (import 61%, tests 20%, transform 17%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users > creates, defaults role, location, gets, patches and deletes
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:11:69
+      9|   it('creates, defaults role, location, gets, patches and deletes', as…
+     10|     const app = createApp();
+     11|     const created = await request(app).post('/v1/users').send(user).ex…
+       |                                                                     ^
+     12|     expect(created.headers.location).toMatch(/^\/v1\/users\//); expect…
+     13|     await request(app).get(created.headers.location).expect(200);
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users > validates fields and malformed JSON
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:21:86
+     19|   it('validates fields and malformed JSON', async () => {
+     20|     const app = createApp();
+     21|     const bad = await request(app).post('/v1/users').send({ email: 'no…
+       |                                                                                      ^
+     22|     const empty = await request(app).patch('/v1/users/not-real').send(…
+     23|     const malformed = await request(app).post('/v1/users').set('Conten…
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users > enforces uniqueness and missing resources
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:26:78
+     24|   });
+     25|   it('enforces uniqueness and missing resources', async () => {
+     26|     const app = createApp(); await request(app).post('/v1/users').send…
+       |                                                                              ^
+     27|     const duplicate = await request(app).post('/v1/users').send(user).…
+     28|     const missing = await request(app).get('/v1/users/00000000-0000-40…
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users > paginates with cursor and idempotency
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:32:94
+     30|   it('paginates with cursor and idempotency', async () => {
+     31|     const app = createApp(); const key = 'k';
+     32|     const first = await request(app).post('/v1/users').set('Idempotenc…
+       |                                                                                              ^
+     33|     const replay = await request(app).post('/v1/users').set('Idempoten…
+     34|     await request(app).post('/v1/users').set('Idempotency-Key',key).se…
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+observed red: test/users.test.ts (source they cover is now writable)

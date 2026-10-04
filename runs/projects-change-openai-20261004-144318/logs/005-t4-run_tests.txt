@@ -1,0 +1,176 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-144318/samples/existing-api
+
+ ❯ test/projects.test.ts (22 tests | 5 failed) 97ms
+   ✓ POST /v1/projects (6)
+     ✓ creates a project: 201, Location header, status defaults to active 22ms
+     ✓ rejects an invalid body with a 422 problem 4ms
+     ✓ rejects unknown properties with a 422 problem 1ms
+     ✓ rejects malformed JSON with a 400 problem 2ms
+     ✓ honours Idempotency-Key: same key and body replays the first response 6ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 4ms
+   ✓ GET /v1/projects (4)
+     ✓ pages through every project with an opaque cursor 6ms
+     ✓ returns at most `limit` items and a nextCursor while more remain 3ms
+     ✓ defaults to 20 items per page 12ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 2ms
+   ✓ GET /v1/projects/:projectId (3)
+     ✓ returns the project 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ✓ PATCH /v1/projects/:projectId (4)
+     ✓ updates the given fields only 2ms
+     ✓ rejects an empty or invalid patch with a 422 problem 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 2ms
+   ❯ project deletion and status filtering (5)
+     × deletes a project with 204 and then returns 404 3ms
+     × returns problem 404 for missing or repeatedly deleted projects 3ms
+     × rejects malformed delete ids 1ms
+     × filters by status and paginates the filtered set 17ms
+     × rejects an unknown status 1ms
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 17 passed (22)
+   Start at  19:43:32
+   Duration  307ms (tests 43%, import 40%, transform 16%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > deletes a project with 204 and then returns 404
+AssertionError: expected 404 to be 204 // Object.is equality
+
+- Expected
++ Received
+
+- 204
++ 404
+
+ ❯ test/projects.test.ts:184:28
+    182|     const project = await createProject();
+    183|     const deleted = await request(app).delete(`/v1/projects/${project.…
+    184|     expect(deleted.status).toBe(204);
+       |                            ^
+    185|     expect(deleted.text).toBe('');
+    186|     expectProblem(await request(app).get(`/v1/projects/${project.id}`)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > returns problem 404 for missing or repeatedly deleted projects
+Error: expected 204 "No Content", got 404 "Not Found"
+ ❯ test/projects.test.ts:192:61
+    190|     expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID…
+    191|     const project = await createProject();
+    192|     await request(app).delete(`/v1/projects/${project.id}`).expect(204…
+       |                                                             ^
+    193|     expectProblem(await request(app).delete(`/v1/projects/${project.id…
+    194|   });
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > rejects malformed delete ids
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/projects.test.ts:25:22
+     23|
+     24| function expectProblem(res: Response, status: number) {
+     25|   expect(res.status).toBe(status);
+       |                      ^
+     26|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     27|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/projects.test.ts:197:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > filters by status and paginates the filtered set
+AssertionError: expected [ …(39) ] to deeply equal [ …(3) ]
+
+- Expected
++ Received
+
+  [
++   "1aa3ef50-6b8e-4e10-9fb3-f70d7548fcc3",
++   "0a7ca85c-d083-4f5d-a80a-e1f971aef130",
++   "3b938d21-9ea3-4aab-9bc0-b5a1dc3f0753",
++   "d1be6755-934a-4b61-9b64-b1cdb90b3db7",
++   "964f9f1d-c988-49b8-81ef-5167d2f6c638",
++   "09945ef7-b488-400b-b84c-57782b743203",
++   "3adef293-71ac-421a-a918-f95803a9c7fd",
++   "ca80b0aa-5cba-441c-b82e-a575484f8bc5",
++   "8fe12f31-4207-4a73-87f4-4357491f87ce",
++   "481e93f8-e78e-4d15-9014-915fa9f736e5",
++   "7a3b1336-caa5-49a7-a05d-8f7d96c7db27",
++   "809e10ca-eb92-45e4-9fc3-d724b5721439",
++   "de93257c-8ac5-4fab-886e-2c08b7396a92",
++   "54674411-f01a-4594-99db-ecc8a8db2fb2",
++   "1f7bbe3e-197b-4023-9ed4-b987cd504ea3",
++   "d63dfafb-e8be-49c2-b0f7-07297d1a4309",
++   "be9415e2-4556-480e-bfa1-202965e0a634",
++   "dbb14c2d-f62d-41e7-9c81-2723e7a6e416",
++   "16bd4a4d-0120-4371-b87f-70cffb2d103a",
++   "ce945a8c-23b5-4c5d-96b5-0f3bfb520d2a",
++   "397e9e7d-ddc8-44f8-b92e-299c2c3b27e9",
++   "ccfc577c-c7d8-4cde-8d6a-4ad689ded6d0",
++   "a836f937-0e8f-4509-b16b-bb983b3e8a35",
++   "e56d5cd5-55c8-4e0c-b89b-ba3dea8a5c03",
++   "5bd2cd62-b65f-432b-9400-a8bf3c480181",
++   "a03af478-8849-4e80-8319-f4e77bfdd7ce",
++   "6ed74019-680f-46a9-a7cd-b028c2cc7348",
++   "77ec7e02-169f-4237-aa7c-2e00afb854de",
++   "a8503089-a755-447a-ba0c-ae476e59fa0e",
++   "1b8a4e68-ba19-47d4-9f4b-1d2696df78e2",
++   "642c5953-8a19-4ef0-bf73-707d55c77e24",
++   "9751f5fe-df3b-43d8-bb20-6a15bcef6133",
++   "7794b013-dad8-4c6a-a81d-81ae41ba6541",
++   "cb8d9de5-5ad2-4b38-bbb7-e97b252f4893",
++   "df66b5bf-938d-4c49-8054-24870372671a",
++   "35c94325-8638-43d6-9a7d-ca3f6dd97859",
+    "8ccae6ac-6825-4ef6-aa3b-fc2f801afda6",
+    "c49c072f-11fb-4dec-b5ce-19fb3d3991c6",
+-   "35c94325-8638-43d6-9a7d-ca3f6dd97859",
++   "3932f5f2-39bc-4040-a4ea-9fbd68f437fd",
+  ]
+
+ ❯ test/projects.test.ts:204:17
+    202|     await createProject({ status: 'active' });
+    203|     const ids = await listAll({ status: 'archived', limit: '2' });
+    204|     expect(ids).toEqual(archived.map((project) => project.id));
+       |                 ^
+    205|     const active = await request(app).get('/v1/projects').query({ stat…
+    206|     expect(PageBody.parse(active.body).data.every((project) => project…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > rejects an unknown status
+AssertionError: expected 200 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 200
+
+ ❯ expectProblem test/projects.test.ts:25:22
+     23|
+     24| function expectProblem(res: Response, status: number) {
+     25|   expect(res.status).toBe(status);
+       |                      ^
+     26|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     27|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/projects.test.ts:212:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+observed red: test/projects.test.ts (source they cover is now writable)

@@ -1,0 +1,9 @@
+TypeScript 6.0.3 (in-process), forced: --strict --noImplicitAny --strictNullChecks --strictFunctionTypes --strictBindCallApply --strictPropertyInitialization --strictBuiltinIteratorReturn --noImplicitThis --useUnknownInCatchVariables --alwaysStrict --noUncheckedIndexedAccess --noEmit
+project tsconfig.json (primary: also checks files no tsconfig lists): 13 files checked
+checked 13 files (0 declaration files)
+listed by no tsconfig, checked with the primary project's options: vitest.config.ts
+files: 13, errors: 4
+test/users.test.ts:13:28  TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+test/users.test.ts:14:46  TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+test/users.test.ts:16:31  TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+test/users.test.ts:17:28  TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.

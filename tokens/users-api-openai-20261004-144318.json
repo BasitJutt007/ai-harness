@@ -1,0 +1,181 @@
+{
+  "runId": "users-api-openai-20261004-144318",
+  "task": "users-api",
+  "driver": "openai",
+  "model": "gpt-5.6-luna (compat)",
+  "mode": "jit",
+  "counter": "js-tiktoken o200k_base (local, OpenAI chat format)",
+  "baseline_kind": "shadow",
+  "method": "shadow-baseline",
+  "baselineDefinition": "the same task on the same driver and model with the context fetchers and compaction disabled. Request per turn: system = the baseline system prompt (it says the repository is included) + every text file under the API root, re-read from the current tree before that turn (node_modules/.git/dist and binary files excluded, 200 KB cap) + every standards doc in full; tools = the same tools minus the context fetchers (read tools and tools that declare fetcher: true), tool schemas counted once in the tools array, not repeated in the system prompt; the same task brief; history = the same assistant turns verbatim with each tool result replaced by its raw (naive, uncapped) return: whole files with line numbers, the test runner console output, the full standards report, the full contract diff; no input elision, no history compaction; counted with the same token counter as the actual request",
+  "baseline_note": "baseline_kind \"shadow\": an estimate that was never sent. Every turn the baseline request (baselineDefinition) is rebuilt from THIS run's own trajectory: the same assistant turns with raw returns, the current tree front-loaded, and this run's context-fetch calls left out (a baseline harness has that content front-loaded). A real baseline run may take a different path. For the measured baseline, run the same task on the same driver and model with `harness run <task> --baseline`, then `harness tokens compare <thisRunId> <baselineRunId>`; prefer that measured comparison wherever it exists.",
+  "provider_usage": "reported",
+  "turns": [
+    {
+      "turn": 1,
+      "actual_input_tokens": 2641,
+      "baseline_input_tokens": 12276,
+      "reduction_pct": 78.5,
+      "provider_reported_input_tokens": 2416,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 51
+    },
+    {
+      "turn": 2,
+      "actual_input_tokens": 2754,
+      "baseline_input_tokens": 12389,
+      "reduction_pct": 77.8,
+      "provider_reported_input_tokens": 2483,
+      "provider_cached_input_tokens": 2413,
+      "output_tokens": 149
+    },
+    {
+      "turn": 3,
+      "actual_input_tokens": 6519,
+      "baseline_input_tokens": 12389,
+      "reduction_pct": 47.4,
+      "provider_reported_input_tokens": 6240,
+      "provider_cached_input_tokens": 2480,
+      "output_tokens": 20
+    },
+    {
+      "turn": 4,
+      "actual_input_tokens": 7261,
+      "baseline_input_tokens": 12389,
+      "reduction_pct": 41.4,
+      "provider_reported_input_tokens": 6992,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 882
+    },
+    {
+      "turn": 5,
+      "actual_input_tokens": 5928,
+      "baseline_input_tokens": 15163,
+      "reduction_pct": 60.9,
+      "provider_reported_input_tokens": 5625,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 51
+    },
+    {
+      "turn": 6,
+      "actual_input_tokens": 5300,
+      "baseline_input_tokens": 15291,
+      "reduction_pct": 65.3,
+      "provider_reported_input_tokens": 4993,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 20
+    },
+    {
+      "turn": 7,
+      "actual_input_tokens": 6059,
+      "baseline_input_tokens": 15291,
+      "reduction_pct": 60.4,
+      "provider_reported_input_tokens": 5754,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 21
+    },
+    {
+      "turn": 8,
+      "actual_input_tokens": 4924,
+      "baseline_input_tokens": 17005,
+      "reduction_pct": 71,
+      "provider_reported_input_tokens": 4614,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 106
+    },
+    {
+      "turn": 9,
+      "actual_input_tokens": 7792,
+      "baseline_input_tokens": 17005,
+      "reduction_pct": 54.2,
+      "provider_reported_input_tokens": 7630,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 902
+    },
+    {
+      "turn": 10,
+      "actual_input_tokens": 7681,
+      "baseline_input_tokens": 19664,
+      "reduction_pct": 60.9,
+      "provider_reported_input_tokens": 7518,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 21
+    },
+    {
+      "turn": 11,
+      "actual_input_tokens": 5563,
+      "baseline_input_tokens": 19849,
+      "reduction_pct": 72,
+      "provider_reported_input_tokens": 5246,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 13
+    },
+    {
+      "turn": 12,
+      "actual_input_tokens": 5573,
+      "baseline_input_tokens": 20081,
+      "reduction_pct": 72.2,
+      "provider_reported_input_tokens": 5260,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 15
+    },
+    {
+      "turn": 13,
+      "actual_input_tokens": 5807,
+      "baseline_input_tokens": 20535,
+      "reduction_pct": 71.7,
+      "provider_reported_input_tokens": 5500,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 30
+    },
+    {
+      "turn": 14,
+      "actual_input_tokens": 5471,
+      "baseline_input_tokens": 20535,
+      "reduction_pct": 73.4,
+      "provider_reported_input_tokens": 5169,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 313
+    },
+    {
+      "turn": 15,
+      "actual_input_tokens": 5296,
+      "baseline_input_tokens": 21236,
+      "reduction_pct": 75.1,
+      "provider_reported_input_tokens": 4991,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 21
+    },
+    {
+      "turn": 16,
+      "actual_input_tokens": 4442,
+      "baseline_input_tokens": 21423,
+      "reduction_pct": 79.3,
+      "provider_reported_input_tokens": 4126,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 35
+    },
+    {
+      "turn": 17,
+      "actual_input_tokens": 4525,
+      "baseline_input_tokens": 21750,
+      "reduction_pct": 79.2,
+      "provider_reported_input_tokens": 4208,
+      "provider_cached_input_tokens": 1123,
+      "output_tokens": 111
+    }
+  ],
+  "totals": {
+    "actual_input_tokens": 93536,
+    "baseline_input_tokens": 294271,
+    "reduction_pct": 68.2,
+    "provider_reported_input_tokens": 88765,
+    "output_tokens": 2761
+  },
+  "attribution_chars": {
+    "front_load_avoided": 723863,
+    "raw_returns_avoided": 121669,
+    "history_compacted": 297058,
+    "fetch_traffic_left_out": 364204
+  }
+}

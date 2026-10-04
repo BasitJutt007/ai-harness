@@ -164,28 +164,26 @@ placeholder and contract-lock failed the run (4 → 0 endpoints).
 
 ## Evidence in this repository
 
-### The latest code: two DONE runs on gpt-5.6-luna
+### The latest code: fail-closed checks and gates, DONE on gpt-5.6-luna
 
-The idempotency check tracks the store as an object (allocation site, every alias, property path,
-helper argument and closure), rejects any request-time replacement, clearing or escape of it, and
-requires the keyed write and the replayed read to hit the same persistent store. A replay is accepted
-statically only when the response body is the stored value itself, and even then a route passes only
-when the runtime replay probe (the same keyed request sent twice to the running app) confirms it; when
-the probe cannot run, the route is UNPROVEN (a valid body in `harness.probe.json` lets it run). Both
-tasks were run again on `gpt-5.6-luna` (compat: reasoning off). In both DONE `run.json` files every
-plugin fingerprint (55) and every `src/core` file hash (31) matches the committed code.
+The checks and gates are now fail-closed: whatever they do not model is UNPROVEN, never a pass (see
+`docs/design.md` §5). Route rules carry every unmodelled construct of a route's chain, the running app's
+own route listing can withhold a pass, observed-red proves each changed file by reverting it alone, and
+`npm run audit:mutations` requires that none of 31 mutations of `governed/users-api` reads 100%. Both
+tasks were run again on `gpt-5.6-luna` (compat: reasoning off). In both DONE `run.json` files every plugin
+fingerprint (55) and every `src/core` file hash (31) matches the committed code.
 
 | run | task | turns | result |
 |---|---|---|---|
-| `users-api-openai-20261004-131536` | greenfield | 12 | **DONE**: spec-coverage 18/18 (including replay after an update), 31/31 tests, standards 100%; the runtime replay probe saw POST and PATCH replayed (`replay-probe.txt`) |
-| `projects-change-openai-20261004-131725` | brownfield | 18 | **DONE**: contract-lock pass (2 additive), 21/21 tests, standards 100%; runtime replay probe: POST and PATCH replayed |
-| `projects-change-openai-20261004-131536` | brownfield | 40 | **NOT DONE** (max_turns): standards 100%, but one of the model's own tests (status filter with pagination) stayed red |
+| `users-api-openai-20261004-144318` | greenfield | 17 | **DONE**: spec-coverage 18/18, 32/32 tests, standards 100%, each changed file proven by its own revert; the app's 5 routes match the static table (`problem-json-probe.txt`); POST and PATCH replayed (`replay-probe.txt`) |
+| `projects-change-openai-20261004-144649` | brownfield | 24 | **DONE** (third attempt): contract-lock pass (2 additive), 20/20 tests, standards 100%, 3 changed files each proven by its own revert |
+| `projects-change-openai-20261004-144318` | brownfield | 40 | **NOT DONE** (max_turns): the model's own status-filter pagination test stayed red |
+| `projects-change-openai-20261004-144501` | brownfield | 40 | **NOT DONE** (max_turns): the same test red, and `schema.ts` UNPROVEN because no passing case depended on it |
 
-The greenfield run and the second brownfield attempt finished DONE; the first brownfield attempt is
-kept as it ended. Runs on earlier versions of the idempotency analysis are kept too
-(`users-api-openai-20261004-122310`, `…105936`, `…103506`, `…100537`;
-`projects-change-openai-20261004-122152`, `…105814`, `…103359`, `…095618`). None of these were
-shipped; the PRs below come from the runs in the next section.
+The two NOT DONE attempts are kept as they ended. Runs on earlier versions are kept too
+(`users-api-openai-20261004-131536`, `…122310`, `…105936`, `…103506`, `…100537`;
+`projects-change-openai-20261004-131725`, `…131536`, `…122152`, `…105814`, `…103359`, `…095618`). None of
+these were shipped; the PRs below come from the runs in the next section.
 
 ### The final code: DONE runs, shipped as PRs
 

@@ -1,0 +1,46 @@
+target     framework express 5.2.1  runner vitest 5.0.3 (harness)
+           source src/  tests test/ [test/**/*.test.ts]  test dirs test/
+           entry src/server.ts, src/app.ts  zod 4.6.5 → toJSONSchema
+           deps express 5.2.1 (harness), zod 4.6.5 (harness), vitest 5.0.3 (harness), typescript 6.0.3 (harness)
+run        projects-change-openai-20261004-144501
+status     max_turns  turns 40  finish attempts 0  driver openai  model gpt-5.6-luna (compat)
+limit      40 turns (task file maxTurns (hard cap))
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  pass      contract preserved (4 → 5 endpoints, via runtime): 2 additive (GET /v1/projects query.status: new optional property; DELETE /v1/projects/:projectId: new route)
+gate  observed-red   unproven  1 of 3 changed source files not proven by their own revert: src/modules/projects/schema.ts
+    src/modules/projects/schema.ts: test/projects.test.ts: "project deletion and status filtering > deletes a project and then returns 404" also passes with src/modules/projects/schema.ts alone at its run-start content (revert check): no accepted case depends on src/modules/projects/schema.ts's own change
+    Each changed file must be proven on its own: some case that went red -> green must fail again when that file ALONE is back at its original content. A change no case depends on (e.g. a refactor) needs a case that observes it, or must be left out.
+    log: runs/projects-change-openai-20261004-144501/logs/030-vitest.txt
+gate  orphans        pass      no new non-test files
+gate  scope          pass      4 changed files, all in scope
+gate  spec-coverage  n/a       not applicable to brownfield tasks
+gate  standards      pass      verdict 100% (4 rules)
+gate  tests-green    fail      1 of 20 tests failed in 1 files
+    tests: 1 failed, 19 passed (20) in 1 files
+    FAIL test/projects.test.ts > project deletion and status filtering > filters status before cursor pagination: expected [ …(20) ] to include '10303131-fcdd-4043-980a-9fd5a52adba8'
+    log: runs/projects-change-openai-20261004-144501/logs/041-vitest.txt
+standards  pass 100%  problem-json pass, rest-conventions pass, tsc-strict pass, zod-boundary pass
+tokens     actual 179145  baseline 688541  reduction 74%  over 40 turns  (output 2469, provider-reported input 166520)
+           baseline is a shadow estimate (never sent); measured: harness run <task> --baseline, then harness tokens compare projects-change-openai-20261004-144501 <baselineRunId>
+evidence   runs/projects-change-openai-20261004-144501/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/projects-change-openai-20261004-144501.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-144501  branch harness/projects-change-openai-20261004-144501  (base main @ 7c3a120022b4; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/final4 untouched)
+honesty
+  proven             gate:contract-lock
+                     gate:orphans
+                     gate:scope
+                     gate:standards
+                     check:problem-json
+                     check:rest-conventions
+                     check:tsc-strict
+                     check:zod-boundary
+                     isolation:sandbox-exec (agent code: reads only its worktree, node_modules and toolchain; writes only to a per-call temp dir; env allow-list; network loopback only)
+  failed             gate:tests-green (1 of 20 tests failed in 1 files)
+  UNPROVEN           gate:observed-red (1 of 3 changed source files not proven by their own revert: src/modules/projects/schema.ts)
+  n/a                gate:spec-coverage
+  human must verify  behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+                     behaviour changes that keep the contract shape (the contract lock compares schemas and status codes only)
+verdict    NOT DONE (loop ended max_turns)
