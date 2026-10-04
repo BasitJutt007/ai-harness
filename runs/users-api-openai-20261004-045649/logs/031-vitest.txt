@@ -1,0 +1,278 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api
+
+ ❯ test/users.test.ts (14 tests | 10 failed) 63ms
+   ❯ users API (14)
+     × creates a user with default role member and returns 201 with Location 24ms
+     × gets a created user by id 6ms
+     × lists users with cursor pagination that visits every user exactly once 8ms
+     ✓ returns 404 problem when getting an unknown user id 2ms
+     ✓ returns 404 problem when patching an unknown user id 2ms
+     ✓ returns 404 problem when deleting an unknown user id 1ms
+     × rejects duplicate emails on create with 409 problem 3ms
+     × rejects changing a user email to another users email with 409 problem 3ms
+     × returns 422 problem whose detail names each invalid body field 2ms
+     × returns 422 problem for invalid query and path parameters 2ms
+     ✓ returns 400 problem for malformed JSON body 3ms
+     × replays POST by Idempotency-Key with same body and rejects reuse with different body 3ms
+     × patches only provided fields and rejects an empty patch 2ms
+     × deletes a user with 204 and the user is then gone 2ms
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 4 passed (14)
+   Start at  10:04:33
+   Duration  289ms (import 51%, tests 32%, transform 16%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates a user with default role member and returns 201 with Location
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:46:24
+     44|       .send({ email: 'alice@example.com', name: 'Alice' });
+     45|
+     46|     expect(res.status).toBe(201);
+       |                        ^
+     47|     const user = expectUser(res.body);
+     48|     expect(user.email).toBe('alice@example.com');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  test/users.test.ts > users API > gets a created user by id
+AssertionError: expected { …(5) } to deeply equal { id: Any<String>, …(5) }
+
+- Expected
++ Received
+
+  {
+-   "createdAt": Any<String>,
+-   "email": Any<String>,
+-   "id": Any<String>,
+-   "name": Any<String>,
+-   "role": StringMatching /^(admin|member)$/,
+-   "updatedAt": Any<String>,
++   "detail": "No route matches POST /v1/users.",
++   "instance": "/v1/users",
++   "status": 404,
++   "title": "Not Found",
++   "type": "https://api.sf/problems/not-found",
+  }
+
+ ❯ expectUser test/users.test.ts:26:16
+     24|
+     25| function expectUser(user: unknown): UserResponse {
+     26|   expect(user).toEqual({
+       |                ^
+     27|     id: expect.any(String),
+     28|     createdAt: expect.any(String),
+ ❯ test/users.test.ts:61:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  test/users.test.ts > users API > lists users with cursor pagination that visits every user exactly once
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:79:26
+     77|
+     78|     const page1 = await request(app).get('/v1/users?limit=2');
+     79|     expect(page1.status).toBe(200);
+       |                          ^
+     80|     expect(page1.body.data).toHaveLength(2);
+     81|     expect(page1.body.nextCursor).toEqual(expect.any(String));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate emails on create with 409 problem
+AssertionError: expected 404 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 404
+
+ ❯ expectProblem test/users.test.ts:17:22
+     15|
+     16| function expectProblem(res: Response, status: number, slug: string) {
+     17|   expect(res.status).toBe(status);
+       |                      ^
+     18|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     19|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/users.test.ts:131:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  test/users.test.ts > users API > rejects changing a user email to another users email with 409 problem
+AssertionError: expected { …(5) } to deeply equal { id: Any<String>, …(5) }
+
+- Expected
++ Received
+
+  {
+-   "createdAt": Any<String>,
+-   "email": Any<String>,
+-   "id": Any<String>,
+-   "name": Any<String>,
+-   "role": StringMatching /^(admin|member)$/,
+-   "updatedAt": Any<String>,
++   "detail": "No route matches POST /v1/users.",
++   "instance": "/v1/users",
++   "status": 404,
++   "title": "Not Found",
++   "type": "https://api.sf/problems/not-found",
+  }
+
+ ❯ expectUser test/users.test.ts:26:16
+     24|
+     25| function expectUser(user: unknown): UserResponse {
+     26|   expect(user).toEqual({
+       |                ^
+     27|     id: expect.any(String),
+     28|     createdAt: expect.any(String),
+ ❯ test/users.test.ts:145:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  test/users.test.ts > users API > returns 422 problem whose detail names each invalid body field
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/users.test.ts:17:22
+     15|
+     16| function expectProblem(res: Response, status: number, slug: string) {
+     17|   expect(res.status).toBe(status);
+       |                      ^
+     18|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     19|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/users.test.ts:161:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  test/users.test.ts > users API > returns 422 problem for invalid query and path parameters
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/users.test.ts:17:22
+     15|
+     16| function expectProblem(res: Response, status: number, slug: string) {
+     17|   expect(res.status).toBe(status);
+       |                      ^
+     18|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     19|   const problem = ProblemSchema.parse(res.body);
+ ❯ test/users.test.ts:171:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  test/users.test.ts > users API > replays POST by Idempotency-Key with same body and rejects reuse with different body
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:205:26
+    203|       .send({ email: 'idem@example.com', name: 'Changed' });
+    204|
+    205|     expect(first.status).toBe(201);
+       |                          ^
+    206|     expect(replay.status).toBe(201);
+    207|     expect(replay.headers['idempotent-replayed']).toBe('true');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  test/users.test.ts > users API > patches only provided fields and rejects an empty patch
+AssertionError: expected { …(5) } to deeply equal { id: Any<String>, …(5) }
+
+- Expected
++ Received
+
+  {
+-   "createdAt": Any<String>,
+-   "email": Any<String>,
+-   "id": Any<String>,
+-   "name": Any<String>,
+-   "role": StringMatching /^(admin|member)$/,
+-   "updatedAt": Any<String>,
++   "detail": "No route matches POST /v1/users.",
++   "instance": "/v1/users",
++   "status": 404,
++   "title": "Not Found",
++   "type": "https://api.sf/problems/not-found",
+  }
+
+ ❯ expectUser test/users.test.ts:26:16
+     24|
+     25| function expectUser(user: unknown): UserResponse {
+     26|   expect(user).toEqual({
+       |                ^
+     27|     id: expect.any(String),
+     28|     createdAt: expect.any(String),
+ ❯ test/users.test.ts:221:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  test/users.test.ts > users API > deletes a user with 204 and the user is then gone
+AssertionError: expected { …(5) } to deeply equal { id: Any<String>, …(5) }
+
+- Expected
++ Received
+
+  {
+-   "createdAt": Any<String>,
+-   "email": Any<String>,
+-   "id": Any<String>,
+-   "name": Any<String>,
+-   "role": StringMatching /^(admin|member)$/,
+-   "updatedAt": Any<String>,
++   "detail": "No route matches POST /v1/users.",
++   "instance": "/v1/users",
++   "status": 404,
++   "title": "Not Found",
++   "type": "https://api.sf/problems/not-found",
+  }
+
+ ❯ expectUser test/users.test.ts:26:16
+     24|
+     25| function expectUser(user: unknown): UserResponse {
+     26|   expect(user).toEqual({
+       |                ^
+     27|     id: expect.any(String),
+     28|     createdAt: expect.any(String),
+ ❯ test/users.test.ts:248:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":14,"numPassedTests":4,"numFailedTests":10,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791090273438,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates a user with default role member and returns 201 with Location","status":"failed","title":"creates a user with default role member and returns 201 with Location","duration":24.040875,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:46:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API gets a created user by id","status":"failed","title":"gets a created user by id","duration":6.032916999999998,"failureMessages":["AssertionError: expected { …(5) } to deeply equal { id: Any<String>, …(5) }\n    at expectUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:26:16)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:61:18\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API lists users with cursor pagination that visits every user exactly once","status":"failed","title":"lists users with cursor pagination that visits every user exactly once","duration":8.31170800000001,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:79:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 404 problem when getting an unknown user id","status":"passed","title":"returns 404 problem when getting an unknown user id","duration":2.1279580000000067,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 404 problem when patching an unknown user id","status":"passed","title":"returns 404 problem when patching an unknown user id","duration":1.7052500000000066,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 404 problem when deleting an unknown user id","status":"passed","title":"returns 404 problem when deleting an unknown user id","duration":1.4321250000000134,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects duplicate emails on create with 409 problem","status":"failed","title":"rejects duplicate emails on create with 409 problem","duration":2.7682089999999846,"failureMessages":["AssertionError: expected 404 to be 409 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:17:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:131:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects changing a user email to another users email with 409 problem","status":"failed","title":"rejects changing a user email to another users email with 409 problem","duration":3.1344999999999743,"failureMessages":["AssertionError: expected { …(5) } to deeply equal { id: Any<String>, …(5) }\n    at expectUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:26:16)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:145:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 422 problem whose detail names each invalid body field","status":"failed","title":"returns 422 problem whose detail names each invalid body field","duration":1.6917080000000055,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:17:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:161:21\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 422 problem for invalid query and path parameters","status":"failed","title":"returns 422 problem for invalid query and path parameters","duration":1.5327920000000006,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:17:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:171:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 400 problem for malformed JSON body","status":"passed","title":"returns 400 problem for malformed JSON body","duration":2.732083000000017,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays POST by Idempotency-Key with same body and rejects reuse with different body","status":"failed","title":"replays POST by Idempotency-Key with same body and rejects reuse with different body","duration":3.3615000000000066,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:205:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API patches only provided fields and rejects an empty patch","status":"failed","title":"patches only provided fields and rejects an empty patch","duration":1.5942499999999882,"failureMessages":["AssertionError: expected { …(5) } to deeply equal { id: Any<String>, …(5) }\n    at expectUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:26:16)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:221:18\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API deletes a user with 204 and the user is then gone","status":"failed","title":"deletes a user with 204 and the user is then gone","duration":1.6669999999999732,"failureMessages":["AssertionError: expected { …(5) } to deeply equal { id: Any<String>, …(5) }\n    at expectUser (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:26:16)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts:248:18\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791090273657,"endTime":1791090273718.667,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-91572-4e50c0f2/generated/users-api/test/users.test.ts"}]}

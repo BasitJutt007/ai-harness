@@ -1,0 +1,63 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-050613/samples/existing-api
+
+ ❯ test/projects.test.ts (21 tests | 1 failed) 103ms
+   ✓ POST /v1/projects (6)
+     ✓ creates a project: 201, Location header, status defaults to active 25ms
+     ✓ rejects an invalid body with a 422 problem 5ms
+     ✓ rejects unknown properties with a 422 problem 2ms
+     ✓ rejects malformed JSON with a 400 problem 2ms
+     ✓ honours Idempotency-Key: same key and body replays the first response 6ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 4ms
+   ✓ GET /v1/projects (4)
+     ✓ pages through every project with an opaque cursor 7ms
+     ✓ returns at most `limit` items and a nextCursor while more remain 3ms
+     ✓ defaults to 20 items per page 20ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 2ms
+   ✓ GET /v1/projects/:projectId (3)
+     ✓ returns the project 3ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ✓ PATCH /v1/projects/:projectId (4)
+     ✓ updates the given fields only 2ms
+     ✓ rejects an empty or invalid patch with a 422 problem 3ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 2ms
+   ❯ project deletion and status filtering (4)
+     ✓ deletes a project with 204, then it is not found, and repeated/unknown deletes are problem 404s 3ms
+     ✓ rejects a malformed delete id with a 422 problem 1ms
+     × filters by status and paginates the filtered set 7ms
+     ✓ rejects an unknown status with a 422 problem 1ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 20 passed (21)
+   Start at  10:06:43
+   Duration  399ms (import 49%, tests 34%, transform 16%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > filters by status and paginates the filtered set
+AssertionError: expected [ …(4) ] to deeply equal [ …(3) ]
+
+- Expected
++ Received
+
+  [
++   "978ecd47-44a4-410c-8a4b-3d99078a09c8",
++   "4b4416a7-7763-49aa-a871-576af05899ce",
+    "9f62c3ba-c0d6-4d8d-ada0-572e39477aee",
+    "de005edb-1c20-47b8-bef5-d2f8a32ecb11",
+-   "4b4416a7-7763-49aa-a871-576af05899ce",
+  ]
+
+ ❯ test/projects.test.ts:203:25
+    201|     ]);
+    202|     const archivedIds = await listAll({ status: 'archived', limit: '2'…
+    203|     expect(archivedIds).toEqual(archived.map((project) => project.id));
+       |                         ^
+    204|     const activeIds = await listAll({ status: 'active', limit: '2' });
+    205|     expect(activeIds).toEqual(active.map((project) => project.id));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+observed red: test/projects.test.ts (source they cover is now writable)

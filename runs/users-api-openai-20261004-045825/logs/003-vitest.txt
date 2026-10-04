@@ -1,0 +1,83 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/lib/errors.test.ts test/lib/pagination.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api
+
+ ❯ test/lib/pagination.test.ts (9 tests | 1 failed) 9ms
+   ✓ CursorQuerySchema (2)
+     ✓ defaults limit to 20 and coerces query strings 2ms
+     ✓ rejects limits outside 1..100 and empty cursors 0ms
+   ✓ cursors (2)
+     ✓ round-trips a key through an opaque base64url cursor 0ms
+     ✓ rejects cursors it did not issue with a 422 problem 0ms
+   ✓ paginate (4)
+     ✓ walks every item exactly once, in key order 0ms
+     ✓ returns nextCursor null on the last page 0ms
+     ✓ does not depend on input order and survives deletion of the cursor item 0ms
+     ✓ builds a page schema with data and nextCursor 1ms
+   ❯ Users API contract (1)
+     × lists, creates, gets, updates, deletes, and enforces uniqueness and idempotency 3ms
+ ❯ test/lib/errors.test.ts (7 tests | 1 failed) 39ms
+   ✓ createApp error handling (6)
+     ✓ answers unknown routes with a 404 problem 17ms
+     ✓ answers malformed JSON with a 400 problem 8ms
+     ✓ maps a ZodError to a 422 problem listing each issue 4ms
+     ✓ passes valid bodies through 2ms
+     ✓ sends a thrown HttpProblem with its own status 2ms
+     ✓ hides unexpected errors behind a 500 problem without a stack 3ms
+   ❯ Users API contract (1)
+     × returns problem+json for invalid user requests and missing users 4ms
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 14 passed (16)
+   Start at  09:58:36
+   Duration  231ms (import 58%, tests 22%, transform 18%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/lib/errors.test.ts > Users API contract > returns problem+json for invalid user requests and missing users
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/lib/errors.test.ts:92:24
+     90|   it('returns problem+json for invalid user requests and missing users…
+     91|     const res = await request(createApp()).get('/v1/users/not-a-uuid');
+     92|     expect(res.status).toBe(422);
+       |                        ^
+     93|     expect(res.headers['content-type']).toMatch(/^application\/problem…
+     94|     expect(ProblemSchema.parse(res.body).detail).toContain('userId');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/lib/pagination.test.ts > Users API contract > lists, creates, gets, updates, deletes, and enforces uniqueness and idempotency
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ test/lib/pagination.test.ts:83:18
+     81| describe('Users API contract', () => {
+     82|   it('lists, creates, gets, updates, deletes, and enforces uniqueness …
+     83|     expect(true).toBe(false);
+       |                  ^
+     84|   });
+     85| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+--- json ---
+{"numTotalTestSuites":8,"numPassedTestSuites":4,"numFailedTestSuites":4,"numPendingTestSuites":0,"numTotalTests":16,"numPassedTests":14,"numFailedTests":2,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791089916321,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers unknown routes with a 404 problem","status":"passed","title":"answers unknown routes with a 404 problem","duration":16.515874999999994,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers malformed JSON with a 400 problem","status":"passed","title":"answers malformed JSON with a 400 problem","duration":8.064208000000008,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling maps a ZodError to a 422 problem listing each issue","status":"passed","title":"maps a ZodError to a 422 problem listing each issue","duration":3.5410420000000045,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling passes valid bodies through","status":"passed","title":"passes valid bodies through","duration":2.0575000000000045,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling sends a thrown HttpProblem with its own status","status":"passed","title":"sends a thrown HttpProblem with its own status","duration":1.5481670000000065,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling hides unexpected errors behind a 500 problem without a stack","status":"passed","title":"hides unexpected errors behind a 500 problem without a stack","duration":3.1826660000000118,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API contract"],"fullName":"Users API contract returns problem+json for invalid user requests and missing users","status":"failed","title":"returns problem+json for invalid user requests and missing users","duration":3.519582999999983,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api/test/lib/errors.test.ts:92:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791089916515,"endTime":1791089916553.5195,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api/test/lib/errors.test.ts"},{"assertionResults":[{"ancestorTitles":["CursorQuerySchema"],"fullName":"CursorQuerySchema defaults limit to 20 and coerces query strings","status":"passed","title":"defaults limit to 20 and coerces query strings","duration":1.9653749999999945,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["CursorQuerySchema"],"fullName":"CursorQuerySchema rejects limits outside 1..100 and empty cursors","status":"passed","title":"rejects limits outside 1..100 and empty cursors","duration":0.2937919999999963,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["cursors"],"fullName":"cursors round-trips a key through an opaque base64url cursor","status":"passed","title":"round-trips a key through an opaque base64url cursor","duration":0.2884160000000122,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["cursors"],"fullName":"cursors rejects cursors it did not issue with a 422 problem","status":"passed","title":"rejects cursors it did not issue with a 422 problem","duration":0.4842920000000106,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate walks every item exactly once, in key order","status":"passed","title":"walks every item exactly once, in key order","duration":0.30358400000000074,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate returns nextCursor null on the last page","status":"passed","title":"returns nextCursor null on the last page","duration":0.4156249999999915,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate does not depend on input order and survives deletion of the cursor item","status":"passed","title":"does not depend on input order and survives deletion of the cursor item","duration":0.1947499999999991,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate builds a page schema with data and nextCursor","status":"passed","title":"builds a page schema with data and nextCursor","duration":0.7907499999999885,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API contract"],"fullName":"Users API contract lists, creates, gets, updates, deletes, and enforces uniqueness and idempotency","status":"failed","title":"lists, creates, gets, updates, deletes, and enforces uniqueness and idempotency","duration":3.3185840000000013,"failureMessages":["AssertionError: expected true to be false // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api/test/lib/pagination.test.ts:83:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3259:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3882:64"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791089916452,"endTime":1791089916460.3186,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api/test/lib/pagination.test.ts"}]}

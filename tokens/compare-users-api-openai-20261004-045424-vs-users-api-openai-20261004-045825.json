@@ -1,0 +1,47 @@
+{
+  "method": "measured",
+  "baseline_kind": "measured",
+  "definition": "two real runs of the same task: one normal run (context fetchers, compact returns, history compaction) and one --baseline run (context fetchers and compaction disabled; baselineDefinition of its token report). Both numbers are what each run counted for the requests it actually sent.",
+  "task": "users-api",
+  "jit": {
+    "runId": "users-api-openai-20261004-045424",
+    "driver": "openai",
+    "model": "gpt-5.4-mini",
+    "mode": "jit",
+    "baseline_kind": "shadow",
+    "counter": "js-tiktoken o200k_base (local, OpenAI chat format)",
+    "provider_usage": "reported",
+    "turns": 60,
+    "input_tokens": 387022,
+    "provider_reported_input_tokens": 369557,
+    "output_tokens": 7215,
+    "avg_input_tokens_per_turn": 6450
+  },
+  "baseline": {
+    "runId": "users-api-openai-20261004-045825",
+    "driver": "openai",
+    "model": "gpt-5.4-mini",
+    "mode": "baseline",
+    "baseline_kind": "measured",
+    "counter": "js-tiktoken o200k_base (local, OpenAI chat format)",
+    "provider_usage": "reported",
+    "turns": 16,
+    "input_tokens": 277791,
+    "provider_reported_input_tokens": 270016,
+    "output_tokens": 4169,
+    "avg_input_tokens_per_turn": 17362
+  },
+  "reduction_pct": -39.3,
+  "per_turn_reduction_pct": 62.8,
+  "provider_reported_reduction_pct": -36.9,
+  "jit_shadow_reduction_pct": 75.3,
+  "explanations": {
+    "reduction_pct": "per-run totals: 1 - (input tokens summed over every turn of the normal run) / (the same sum for the --baseline run). It depends on how many turns each run took, so it mixes context size with the path each run took.",
+    "per_turn_reduction_pct": "per-turn average: 1 - (normal run's input tokens per turn) / (--baseline run's input tokens per turn), each run's total divided by its own turn count. Independent of the turn counts: the closer measure of context size per request when the runs took different paths.",
+    "provider_reported_reduction_pct": "the per-run-totals ratio over the input tokens the provider reported; null when either run has no provider-reported usage (an offline driver).",
+    "jit_shadow_reduction_pct": "the normal run's own shadow estimate (its token report), shown for reference: an estimate from one trajectory, never sent."
+  },
+  "caveats": [
+    "turn counts differ (60 vs 16): the runs took different paths; reduction_pct (per-run totals) reflects that, per_turn_reduction_pct (per-turn averages) does not"
+  ]
+}

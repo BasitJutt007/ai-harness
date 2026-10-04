@@ -1,0 +1,92 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-73092-0e3b69f3/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/lib/errors.test.ts test/users-api.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-73092-0e3b69f3/generated/users-api
+
+ ❯ test/users-api.test.ts (2 tests | 2 failed) 31ms
+   ❯ Users API (2)
+     × creates, gets, updates, deletes, validates, paginates, and enforces idempotency 22ms
+     × paginates through all users with cursor and limit 8ms
+ ❯ test/lib/errors.test.ts (7 tests | 1 failed) 39ms
+   ✓ createApp error handling (6)
+     ✓ answers unknown routes with a 404 problem 16ms
+     ✓ answers malformed JSON with a 400 problem 8ms
+     ✓ maps a ZodError to a 422 problem listing each issue 4ms
+     ✓ passes valid bodies through 2ms
+     ✓ sends a thrown HttpProblem with its own status 2ms
+     ✓ hides unexpected errors behind a 500 problem without a stack 3ms
+   ❯ Users API contract (1)
+     × returns problem+json for invalid user requests and missing users 3ms
+
+ Test Files  2 failed (2)
+      Tests  3 failed | 6 passed (9)
+   Start at  09:59:11
+   Duration  231ms (import 60%, tests 23%, transform 15%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users-api.test.ts > Users API > creates, gets, updates, deletes, validates, paginates, and enforces idempotency
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users-api.test.ts:17:28
+     15|
+     16|     const created = await createUser(app, { email: 'alice@example.com'…
+     17|     expect(created.status).toBe(201);
+       |                            ^
+     18|     expect(created.headers.location).toMatch(/^\/v1\/users\//);
+     19|     expect(created.body.role).toBe('member');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  test/users-api.test.ts > Users API > paginates through all users with cursor and limit
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users-api.test.ts:71:26
+     69|
+     70|     const page1 = await request(app).get('/v1/users').query({ limit: '…
+     71|     expect(page1.status).toBe(200);
+       |                          ^
+     72|     expect(page1.body.data).toHaveLength(2);
+     73|     expect(typeof page1.body.nextCursor).toBe('string');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  test/lib/errors.test.ts > Users API contract > returns problem+json for invalid user requests and missing users
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/lib/errors.test.ts:92:24
+     90|   it('returns problem+json for invalid user requests and missing users…
+     91|     const res = await request(createApp()).get('/v1/users/not-a-uuid');
+     92|     expect(res.status).toBe(422);
+       |                        ^
+     93|     expect(res.headers['content-type']).toMatch(/^application\/problem…
+     94|     expect(ProblemSchema.parse(res.body).detail).toContain('userId');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+--- json ---
+{"numTotalTestSuites":5,"numPassedTestSuites":1,"numFailedTestSuites":4,"numPendingTestSuites":0,"numTotalTests":9,"numPassedTests":6,"numFailedTests":3,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791089951469,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["Users API"],"fullName":"Users API creates, gets, updates, deletes, validates, paginates, and enforces idempotency","status":"failed","title":"creates, gets, updates, deletes, validates, paginates, and enforces idempotency","duration":22.10454200000001,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-73092-0e3b69f3/generated/users-api/test/users-api.test.ts:17:28\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API"],"fullName":"Users API paginates through all users with cursor and limit","status":"failed","title":"paginates through all users with cursor and limit","duration":7.988707999999974,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-73092-0e3b69f3/generated/users-api/test/users-api.test.ts:71:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791089951662,"endTime":1791089951692.9888,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-73092-0e3b69f3/generated/users-api/test/users-api.test.ts"},{"assertionResults":[{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers unknown routes with a 404 problem","status":"passed","title":"answers unknown routes with a 404 problem","duration":16.468500000000006,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers malformed JSON with a 400 problem","status":"passed","title":"answers malformed JSON with a 400 problem","duration":7.950209000000001,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling maps a ZodError to a 422 problem listing each issue","status":"passed","title":"maps a ZodError to a 422 problem listing each issue","duration":3.5157079999999894,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling passes valid bodies through","status":"passed","title":"passes valid bodies through","duration":1.841916000000026,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling sends a thrown HttpProblem with its own status","status":"passed","title":"sends a thrown HttpProblem with its own status","duration":1.7037499999999852,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling hides unexpected errors behind a 500 problem without a stack","status":"passed","title":"hides unexpected errors behind a 500 problem without a stack","duration":3.2089590000000214,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API contract"],"fullName":"Users API contract returns problem+json for invalid user requests and missing users","status":"failed","title":"returns problem+json for invalid user requests and missing users","duration":3.4325830000000224,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-73092-0e3b69f3/generated/users-api/test/lib/errors.test.ts:92:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791089951662,"endTime":1791089951699.4326,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/revert-73092-0e3b69f3/generated/users-api/test/lib/errors.test.ts"}]}

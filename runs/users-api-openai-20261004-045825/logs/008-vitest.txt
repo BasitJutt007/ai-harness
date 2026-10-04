@@ -1,0 +1,44 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users-api.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api
+
+ ❯ test/users-api.test.ts (2 tests | 1 failed) 52ms
+   ❯ Users API (2)
+     × creates, gets, updates, deletes, validates, paginates, and enforces idempotency 42ms
+     ✓ paginates through all users with cursor and limit 8ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  09:58:52
+   Duration  349ms (import 64%, tests 20%, transform 16%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users-api.test.ts > Users API > creates, gets, updates, deletes, validates, paginates, and enforces idempotency
+AssertionError: expected 200 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 200
+
+ ❯ test/users-api.test.ts:46:29
+     44|
+     45|     const badPatch = await request(app).patch(`/v1/users/${userId}`).s…
+     46|     expect(badPatch.status).toBe(422);
+       |                             ^
+     47|
+     48|     const updated = await request(app).patch(`/v1/users/${userId}`).se…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":2,"numPassedTests":1,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791089932545,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["Users API"],"fullName":"Users API creates, gets, updates, deletes, validates, paginates, and enforces idempotency","status":"failed","title":"creates, gets, updates, deletes, validates, paginates, and enforces idempotency","duration":42.48445800000002,"failureMessages":["AssertionError: expected 200 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api/test/users-api.test.ts:46:29\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Users API"],"fullName":"Users API paginates through all users with cursor and limit","status":"passed","title":"paginates through all users with cursor and limit","duration":8.220624999999984,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791089932842,"endTime":1791089932893.2207,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api/test/users-api.test.ts"}]}

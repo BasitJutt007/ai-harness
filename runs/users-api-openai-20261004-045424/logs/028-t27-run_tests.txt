@@ -1,0 +1,59 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 2 failed) 72ms
+   ❯ users API (4)
+     ✓ creates, gets, updates, lists, and deletes users 42ms
+     ✓ returns problem json for duplicate email and missing users 9ms
+     × validates bodies, params, query, malformed json, and idempotency 4ms
+     × paginates with cursor and limit 16ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  09:55:27
+   Duration  284ms (import 46%, tests 35%, transform 18%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > validates bodies, params, query, malformed json, and idempotency
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:80:89
+     78|     expect(invalidCreate.body.detail).toContain('name');
+     79|
+     80|     await request(app).patch('/v1/users/00000000-0000-0000-0000-000000…
+       |                                                                                         ^
+     81|     await request(app).get('/v1/users?limit=101').expect(422);
+     82|
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/users.test.ts > users API > paginates with cursor and limit
+AssertionError: expected [ 'user0@example.com', …(2) ] to deeply equal [ 'user0@example.com', …(2) ]
+
+- Expected
++ Received
+
+  [
+    "user0@example.com",
+-   "user1@example.com",
+    "user2@example.com",
++   "user1@example.com",
+  ]
+
+ ❯ test/users.test.ts:130:18
+    128|
+    129|     const seen = [...firstPage.body.data, ...secondPage.body.data].map…
+    130|     expect(seen).toEqual(emails);
+       |                  ^
+    131|   });
+    132| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+observed red: test/users.test.ts (source they cover is now writable)

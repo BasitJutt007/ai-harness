@@ -1,0 +1,76 @@
+--- a/test/projects.test.ts
++++ b/test/projects.test.ts
+@@ -175,3 +175,73 @@
+     expect(second.body).toEqual(first.body);
+   });
+ });
++
++
++describe('DELETE /v1/projects/:projectId', () => {
++  it('deletes a project with 204 and no body, after which GET returns 404', async () => {
++    const project = await createProject();
++    const res = await request(app).delete(`/v1/projects/${project.id}`);
++    expect(res.status).toBe(204);
++    expect(res.text).toBe('');
++    expect(res.body).toEqual({});
++    expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('returns a 404 problem for an unknown id and for deleting the same project twice', async () => {
++    expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
++
++    const project = await createProject();
++    await request(app).delete(`/v1/projects/${project.id}`).expect(204);
++    expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('answers a malformed id with a 422 problem', async () => {
++    expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
++  });
++});
++
++describe('GET /v1/projects with status filter', () => {
++  it('returns only projects matching the requested status and keeps unfiltered listing additive', async () => {
++    const active = await createProject({ status: 'active' });
++    const archived = await createProject({ status: 'archived' });
++
++    const activeRes = await request(app).get('/v1/projects').query({ status: 'active', limit: '100' });
++    expect(activeRes.status).toBe(200);
++    const activePage = PageBody.parse(activeRes.body);
++    expect(activePage.data.every((project) => project.status === 'active')).toBe(true);
++    expect(activePage.data.map((project) => project.id)).toContain(active.id);
++    expect(activePage.data.map((project) => project.id)).not.toContain(archived.id);
++
++    const archivedRes = await request(app).get('/v1/projects').query({ status: 'archived', limit: '100' });
++    expect(archivedRes.status).toBe(200);
++    const archivedPage = PageBody.parse(archivedRes.body);
++    expect(archivedPage.data.every((project) => project.status === 'archived')).toBe(true);
++    expect(archivedPage.data.map((project) => project.id)).toContain(archived.id);
++    expect(archivedPage.data.map((project) => project.id)).not.toContain(active.id);
++
++    const allRes = await request(app).get('/v1/projects').query({ limit: '100' });
++    expect(allRes.status).toBe(200);
++    const allPage = PageBody.parse(allRes.body);
++    expect(allPage.data.map((project) => project.id)).toContain(active.id);
++    expect(allPage.data.map((project) => project.id)).toContain(archived.id);
++  });
++
++  it('applies the status filter before cursor pagination', async () => {
++    const archivedProjects = [
++      await createProject({ status: 'archived' }),
++      await createProject({ status: 'archived' }),
++      await createProject({ status: 'archived' }),
++    ];
++    await createProject({ status: 'active' });
++    await createProject({ status: 'active' });
++
++    const ids = await listAll({ status: 'archived', limit: '2' });
++    expect(ids).toHaveLength(archivedProjects.length);
++    expect(new Set(ids).size).toBe(ids.length);
++    for (const project of archivedProjects) expect(ids).toContain(project.id);
++  });
++
++  it('rejects an unknown status with a 422 problem', async () => {
++    expectProblem(await request(app).get('/v1/projects').query({ status: 'deleted' }), 422);
++  });
++});

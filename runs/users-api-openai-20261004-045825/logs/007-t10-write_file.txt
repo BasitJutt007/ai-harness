@@ -1,0 +1,87 @@
+--- /dev/null
++++ b/test/users-api.test.ts
+@@ -0,0 +1,84 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++import { ProblemSchema } from '../src/lib/problem.ts';
++
++function createUser(app: ReturnType<typeof createApp>, body: Record<string, unknown>, key?: string) {
++  let req = request(app).post('/v1/users').send(body);
++  if (key !== undefined) req = req.set('Idempotency-Key', key);
++  return req;
++}
++
++describe('Users API', () => {
++  it('creates, gets, updates, deletes, validates, paginates, and enforces idempotency', async () => {
++    const app = createApp();
++
++    const created = await createUser(app, { email: 'alice@example.com', name: 'Alice' }, 'k1');
++    expect(created.status).toBe(201);
++    expect(created.headers.location).toMatch(/^\/v1\/users\//);
++    expect(created.body.role).toBe('member');
++
++    const userId = String(created.body.id);
++    const second = await createUser(app, { email: 'alice@example.com', name: 'Alice' }, 'k1');
++    expect(second.status).toBe(201);
++    expect(second.headers['idempotent-replayed']).toBe('true');
++    expect(second.body).toEqual(created.body);
++
++    const conflict = await createUser(app, { email: 'alice@example.com', name: 'Other' }, 'k2');
++    expect(conflict.status).toBe(409);
++    expect(conflict.headers['content-type']).toMatch(/^application\/problem\+json/);
++    expect(ProblemSchema.parse(conflict.body).type).toBe('https://api.sf/problems/duplicate-email');
++
++    const list = await request(app).get('/v1/users');
++    expect(list.status).toBe(200);
++    expect(list.body.data).toHaveLength(1);
++    expect(list.body.nextCursor).toBeNull();
++
++    const got = await request(app).get(`/v1/users/${userId}`);
++    expect(got.status).toBe(200);
++    expect(got.body.email).toBe('alice@example.com');
++
++    const invalidGet = await request(app).get('/v1/users/not-a-uuid');
++    expect(invalidGet.status).toBe(422);
++    expect(ProblemSchema.parse(invalidGet.body).detail).toContain('userId');
++
++    const badPatch = await request(app).patch(`/v1/users/${userId}`).set('Idempotency-Key', 'k3').send({});
++    expect(badPatch.status).toBe(422);
++
++    const updated = await request(app).patch(`/v1/users/${userId}`).set('Idempotency-Key', 'k4').send({ name: 'Alice Updated' });
++    expect(updated.status).toBe(200);
++    expect(updated.body.name).toBe('Alice Updated');
++    expect(updated.body.email).toBe('alice@example.com');
++
++    const deleted = await request(app).delete(`/v1/users/${userId}`);
++    expect(deleted.status).toBe(204);
++    expect(deleted.text).toBe('');
++
++    const gone = await request(app).get(`/v1/users/${userId}`);
++    expect(gone.status).toBe(404);
++    expect(ProblemSchema.parse(gone.body).type).toBe('https://api.sf/problems/not-found');
++  });
++
++  it('paginates through all users with cursor and limit', async () => {
++    const app = createApp();
++    const createdIds: string[] = [];
++    for (let i = 0; i < 3; i += 1) {
++      const res = await createUser(app, { email: `u${i}@example.com`, name: `User ${i}` }, `p${i}`);
++      createdIds.push(String(res.body.id));
++    }
++
++    const page1 = await request(app).get('/v1/users').query({ limit: '2' });
++    expect(page1.status).toBe(200);
++    expect(page1.body.data).toHaveLength(2);
++    expect(typeof page1.body.nextCursor).toBe('string');
++
++    const page2 = await request(app).get('/v1/users').query({ limit: '2', cursor: page1.body.nextCursor });
++    expect(page2.status).toBe(200);
++    expect(page2.body.data).toHaveLength(1);
++    expect(page2.body.nextCursor).toBeNull();
++
++    const seen = [...page1.body.data, ...page2.body.data].map((user: { id: string }) => user.id);
++    expect(new Set(seen).size).toBe(3);
++    expect(seen.sort()).toEqual(createdIds.sort());
++  });
++});
