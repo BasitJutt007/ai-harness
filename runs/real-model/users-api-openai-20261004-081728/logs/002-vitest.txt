@@ -1,0 +1,99 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 4 failed) 71ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes users 51ms
+     ✓ validates input and missing resources as problem responses 11ms
+     × enforces uniqueness and idempotency 3ms
+     × paginates without duplicates 4ms
+     × rejects empty patch 2ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 1 passed (5)
+   Start at  13:17:45
+   Duration  258ms (import 47%, tests 39%, transform 13%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes users
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:11:28
+      9|   it('creates, gets, updates and deletes users', async () => {
+     10|     const created = await app().post('/v1/users').send(body());
+     11|     expect(created.status).toBe(201); expect(created.headers.location)…
+       |                            ^
+     12|     expect(created.body.role).toBe('member');
+     13|     const id = created.body.id;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > enforces uniqueness and idempotency
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:31:27
+     29|     const first = await app().post('/v1/users').set('Idempotency-Key',…
+     30|     const replay = await app().post('/v1/users').set('Idempotency-Key'…
+     31|     expect(replay.status).toBe(201); expect(replay.headers['idempotent…
+       |                           ^
+     32|     expect((await app().post('/v1/users').send(value)).status).toBe(40…
+     33|     expect((await app().post('/v1/users').set('Idempotency-Key','k').s…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > paginates without duplicates
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:38:95
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > rejects empty patch
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:41:165
+     39|     expect(new Set(seen).size).toBe(seen.length);
+     40|   });
+     41|   it('rejects empty patch', async () => { const c=await app().post('/v…
+       |                                                                                                                                                                     ^
+     42| });
+     43|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":1,"numFailedTests":4,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791101865727,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes users","status":"failed","title":"creates, gets, updates and deletes users","duration":50.85320899999999,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts:11:28\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates input and missing resources as problem responses","status":"passed","title":"validates input and missing resources as problem responses","duration":10.892124999999993,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API enforces uniqueness and idempotency","status":"failed","title":"enforces uniqueness and idempotency","duration":2.669167000000016,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts:31:27\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates without duplicates","status":"failed","title":"paginates without duplicates","duration":4.328374999999994,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts:38:95\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects empty patch","status":"failed","title":"rejects empty patch","duration":1.922124999999994,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts:41:165\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791101865912,"endTime":1791101865981.922,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-081728/generated/users-api/test/users.test.ts"}]}

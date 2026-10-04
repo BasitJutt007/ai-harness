@@ -1,0 +1,45 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,42 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++
++const app = () => request(createApp());
++const body = (email = `u-${Date.now()}@example.com`, name = 'Alice') => ({ email, name });
++
++describe('users API', () => {
++  it('creates, gets, updates and deletes users', async () => {
++    const created = await app().post('/v1/users').send(body());
++    expect(created.status).toBe(201); expect(created.headers.location).toMatch(/^\/v1\/users\//);
++    expect(created.body.role).toBe('member');
++    const id = created.body.id;
++    expect((await app().get(`/v1/users/${id}`)).status).toBe(200);
++    const patched = await app().patch(`/v1/users/${id}`).send({ name: 'Bob' });
++    expect(patched.status).toBe(200); expect(patched.body.name).toBe('Bob');
++    expect((await app().delete(`/v1/users/${id}`)).status).toBe(204);
++    expect((await app().get(`/v1/users/${id}`)).status).toBe(404);
++  });
++  it('validates input and missing resources as problem responses', async () => {
++    for (const res of [await app().post('/v1/users').send({}), await app().get('/v1/users?limit=0'), await app().get('/v1/users/not-a-uuid'), await app().patch('/v1/users/not-a-uuid').send({}), await app().delete('/v1/users/not-a-uuid')]) {
++      expect(res.status).toBeGreaterThanOrEqual(400); expect(res.headers['content-type']).toContain('application/problem+json'); expect(res.body.detail).toBeTruthy();
++    }
++    const malformed = await app().post('/v1/users').set('Content-Type','application/json').send('{');
++    expect(malformed.status).toBe(400);
++  });
++  it('enforces uniqueness and idempotency', async () => {
++    const value = body('same@example.com');
++    const first = await app().post('/v1/users').set('Idempotency-Key','k').send(value);
++    const replay = await app().post('/v1/users').set('Idempotency-Key','k').send(value);
++    expect(replay.status).toBe(201); expect(replay.headers['idempotent-replayed']).toBe('true'); expect(replay.body.id).toBe(first.body.id);
++    expect((await app().post('/v1/users').send(value)).status).toBe(409);
++    expect((await app().post('/v1/users').set('Idempotency-Key','k').send(body('other@example.com'))).status).toBe(422);
++  });
++  it('paginates without duplicates', async () => {
++    for (let i=0;i<3;i++) await app().post('/v1/users').send(body(`page${i}-${Date.now()}@x.com`));
++    const seen: string[] = []; let cursor: string | undefined;
++    do { const r = await app().get('/v1/users').query({ limit: 2, cursor }); expect(r.status).toBe(200); seen.push(...r.body.data.map((u: {id:string})=>u.id)); cursor = r.body.nextCursor ?? undefined; } while (cursor);
++    expect(new Set(seen).size).toBe(seen.length);
++  });
++  it('rejects empty patch', async () => { const c=await app().post('/v1/users').send(body()); expect((await app().patch(`/v1/users/${c.body.id}`).send({})).status).toBe(422); });
++});

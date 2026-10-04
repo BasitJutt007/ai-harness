@@ -1,0 +1,61 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-073446/samples/existing-api
+
+ ❯ test/projects.test.ts (19 tests | 1 failed) 92ms
+   ✓ POST /v1/projects (6)
+     ✓ creates a project: 201, Location header, status defaults to active 22ms
+     ✓ rejects an invalid body with a 422 problem 4ms
+     ✓ rejects unknown properties with a 422 problem 1ms
+     ✓ rejects malformed JSON with a 400 problem 2ms
+     ✓ honours Idempotency-Key: same key and body replays the first response 6ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 4ms
+   ✓ GET /v1/projects (4)
+     ✓ pages through every project with an opaque cursor 6ms
+     ✓ returns at most `limit` items and a nextCursor while more remain 3ms
+     ✓ defaults to 20 items per page 14ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 3ms
+   ✓ GET /v1/projects/:projectId (3)
+     ✓ returns the project 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ✓ PATCH /v1/projects/:projectId (4)
+     ✓ updates the given fields only 2ms
+     ✓ rejects an empty or invalid patch with a 422 problem 3ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 2ms
+   ❯ project deletion and status filtering (2)
+     ✓ deletes a project, rejects repeats, and validates ids 4ms
+     × filters by status and paginates the filtered set 8ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 18 passed (19)
+   Start at  12:35:53
+   Duration  302ms (import 42%, tests 40%, transform 17%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > filters by status and paginates the filtered set
+AssertionError: expected Set{ …(4) } to deeply equal Set{ …(3) }
+
+- Expected
++ Received
+
+  Set {
+    "1b978614-7b07-4341-a617-0a1160309040",
+    "5e50ce3c-c786-4eff-b1ae-9859c57a6254",
++   "83db89b3-2e93-40af-99f2-5bab779d9936",
+    "d548f47f-a261-4dd4-bd6b-509b46a69dd3",
+  }
+
+ ❯ test/projects.test.ts:201:34
+    199|     const archivedIds = await listAll({ status: 'archived', limit: '1'…
+    200|     expect(archivedIds).toEqual(expect.arrayContaining(archived.map((p…
+    201|     expect(new Set(archivedIds)).toEqual(new Set(archived.map((p) => p…
+       |                                  ^
+    202|     expect(archivedIds.some((id) => active.some((p) => p.id === id))).…
+    203|     const activeIds = await listAll({ status: 'active', limit: '1' });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+test/projects.test.ts > project deletion and status filtering > filters by status and paginates the filtered set: passes when run alone, fails after the other tests in this file: it depends on test order (shared state, e.g. a module-level store, is not reset between tests). Do not assume an empty store; assert only on the records this test created.
+observed red: test/projects.test.ts (source they cover is now writable)

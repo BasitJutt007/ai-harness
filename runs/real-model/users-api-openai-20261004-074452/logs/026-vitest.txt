@@ -1,0 +1,19 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-074452/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 0
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-074452/generated/users-api
+
+ ✓ test/users.test.ts (2 tests) 47ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  12:46:18
+   Duration  249ms (import 53%, tests 27%, transform 19%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":2,"numFailedTestSuites":0,"numPendingTestSuites":0,"numTotalTests":2,"numPassedTests":2,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791099978306,"success":true,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates, and deletes users","status":"passed","title":"creates, gets, updates, and deletes users","duration":29.680374999999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API enforces validation, conflicts, idempotency, and pagination","status":"passed","title":"enforces validation, conflicts, idempotency, and pagination","duration":15.944957999999986,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791099978510,"endTime":1791099978555.945,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-074452/generated/users-api/test/users.test.ts"}]}

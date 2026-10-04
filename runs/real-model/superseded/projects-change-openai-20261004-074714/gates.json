@@ -1,0 +1,46 @@
+{
+  "phase": "finish",
+  "ok": true,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "pass",
+      "summary": "contract preserved (4 → 5 endpoints, via runtime): 2 additive (GET /v1/projects query.status: new optional property; DELETE /v1/projects/:projectId: new route)",
+      "logPath": "runs/projects-change-openai-20261004-074714/logs/031-contract-diff.txt"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "4 red observations (1 test files); 3 changed source files went red -> green (3 on unchanged cases, 0 on edited cases by differential proof), red again with the original source"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "no new non-test files"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "4 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "n/a",
+      "summary": "not applicable to brownfield tasks"
+    },
+    {
+      "gate": "standards",
+      "status": "pass",
+      "summary": "verdict 100% (4 rules)"
+    },
+    {
+      "gate": "tests-green",
+      "status": "pass",
+      "summary": "20/20 tests passed in 1 files",
+      "details": [
+        "tests: 0 failed, 20 passed (20) in 1 files"
+      ],
+      "logPath": "runs/projects-change-openai-20261004-074714/logs/037-vitest.txt"
+    }
+  ]
+}

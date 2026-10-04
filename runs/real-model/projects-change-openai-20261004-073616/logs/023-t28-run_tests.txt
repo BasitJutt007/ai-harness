@@ -1,0 +1,67 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-073616/samples/existing-api
+
+ ❯ test/projects.test.ts (22 tests | 1 failed) 102ms
+   ✓ POST /v1/projects (6)
+     ✓ creates a project: 201, Location header, status defaults to active 22ms
+     ✓ rejects an invalid body with a 422 problem 4ms
+     ✓ rejects unknown properties with a 422 problem 2ms
+     ✓ rejects malformed JSON with a 400 problem 2ms
+     ✓ honours Idempotency-Key: same key and body replays the first response 6ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 4ms
+   ✓ GET /v1/projects (4)
+     ✓ pages through every project with an opaque cursor 6ms
+     ✓ returns at most `limit` items and a nextCursor while more remain 2ms
+     ✓ defaults to 20 items per page 15ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 3ms
+   ✓ GET /v1/projects/:projectId (3)
+     ✓ returns the project 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ✓ PATCH /v1/projects/:projectId (4)
+     ✓ updates the given fields only 2ms
+     ✓ rejects an empty or invalid patch with a 422 problem 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 2ms
+   ✓ DELETE /v1/projects/:projectId (2)
+     ✓ deletes a project with 204 and then returns 404 2ms
+     ✓ returns a problem for missing or malformed ids 2ms
+   ❯ filtered GET /v1/projects (3)
+     ✓ filters by active and archived status and rejects unknown status 4ms
+     × paginates the filtered set without duplicates or omissions 11ms
+     ✓ returns both statuses without a filter 3ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 21 passed (22)
+   Start at  12:37:09
+   Duration  308ms (tests 44%, import 40%, transform 15%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > filtered GET /v1/projects > paginates the filtered set without duplicates or omissions
+AssertionError: expected [ …(5) ] to deeply equal [ …(3) ]
+
+- Expected
++ Received
+
+  [
+-   "3e823f04-4bae-4fb7-b2e1-d45200b4500c",
++   "a4c6be75-bc35-47ad-9528-7eb94f832111",
++   "f4c46431-5ebb-4af7-a28c-0961ca56da83",
+    "2a3f846a-91e8-4079-b268-a6f5f93aff43",
++   "3e823f04-4bae-4fb7-b2e1-d45200b4500c",
+    "bee870ef-ad10-4fff-a213-cebdaa2b2691",
+  ]
+
+ ❯ test/projects.test.ts:212:17
+    210|     await createProject({ status: 'active' });
+    211|     const ids = await listAll({ status: 'archived', limit: '1' });
+    212|     expect(ids).toEqual(created.map((project) => project.id));
+       |                 ^
+    213|     expect(new Set(ids).size).toBe(ids.length);
+    214|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+test/projects.test.ts > filtered GET /v1/projects > paginates the filtered set without duplicates or omissions: passes when run alone, fails after the other tests in this file: it depends on test order (shared state, e.g. a module-level store, is not reset between tests). Do not assume an empty store; assert only on the records this test created.
+observed red: test/projects.test.ts (source they cover is now writable)

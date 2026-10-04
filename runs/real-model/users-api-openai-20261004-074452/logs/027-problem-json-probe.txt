@@ -1,0 +1,32 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-074452/generated/users-api (port 53741)
+exit=0 timedOut=false served=true
+candidates: src/app.ts (conventional entry file), src/server.ts (conventional entry file)
+app (as reported by the runtime): src/app.ts: export createApp()
+control /__harness_probe__/control -> {"status":200,"contentType":"text/plain; charset=utf-8","body":"harness-probe-control-36cacbee1008"} injected=true
+--- responses (sent and recorded by the harness)
+GET /v1/__harness_probe__/does-not-exist -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"No route matches GET /v1/__harness_probe__/does-not-exist.\",\"instance\":\"/v1/__harness_probe__/does-not-exist\"}"}
+GET /v1/users -> {"status":200,"contentType":"application/json; charset=utf-8","body":"{\"data\":[],\"nextCursor\":null}"}
+POST /v1/users -> {"status":400,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/malformed-json\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"The request body is not valid JSON.\",\"instance\":\"/v1/users\"}"}
+POST /v1/users -> {"status":422,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/validation\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"request\",\"instance\":\"/v1/users\"}"}
+POST /v1/users -> {"status":422,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/validation\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"request\",\"instance\":\"/v1/users\"}"}
+GET /v1/users/00000000-0000-4000-8000-000000000000 -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"User 00000000-0000-4000-8000-000000000000 was not found.\",\"instance\":\"/v1/users/00000000-0000-4000-8000-000000000000\"}"}
+PATCH /v1/users/00000000-0000-4000-8000-000000000000 -> {"status":400,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/malformed-json\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"The request body is not valid JSON.\",\"instance\":\"/v1/users/00000000-0000-4000-8000-000000000000\"}"}
+PATCH /v1/users/00000000-0000-4000-8000-000000000000 -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"User 00000000-0000-4000-8000-000000000000 was not found.\",\"instance\":\"/v1/users/00000000-0000-4000-8000-000000000000\"}"}
+PATCH /v1/users/00000000-0000-4000-8000-000000000000 -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"User 00000000-0000-4000-8000-000000000000 was not found.\",\"instance\":\"/v1/users/00000000-0000-4000-8000-000000000000\"}"}
+DELETE /v1/users/00000000-0000-4000-8000-000000000000 -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"User 00000000-0000-4000-8000-000000000000 was not found.\",\"instance\":\"/v1/users/00000000-0000-4000-8000-000000000000\"}"}
+GET /__harness_probe__/internal-error -> {"status":500,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/internal\",\"title\":\"Internal Server Error\",\"status\":500,\"detail\":\"An unexpected error occurred.\",\"instance\":\"/__harness_probe__/internal-error\"}"}
+--- stdout
+
+--- stderr
+probe runtime: serving src/app.ts: export createApp(); probe routes injected
+Error: harness-probe-secret-95db747d45a3
+    at handler (/Users/abdulbasit/Documents/GitHub/ai-harness/plugins/lib/probe-runtime.ts:325:17)
+    at Layer.handleRequest (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/layer.js:152:17)
+    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:295:15
+    at processParams (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:582:12)
+    at next (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:291:5)
+    at router.handle (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:186:3)

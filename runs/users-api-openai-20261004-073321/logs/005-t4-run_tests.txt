@@ -1,0 +1,90 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-073321/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 4 failed) 52ms
+   ❯ users API (4)
+     × creates, gets, updates, and deletes a user 44ms
+     × validates fields, malformed JSON, missing resources, and conflicts as problems 4ms
+     × rejects empty patches and duplicate email patches 2ms
+     × replays idempotent creates and rejects changed bodies 2ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  12:33:37
+   Duration  330ms (import 65%, tests 23%, transform 12%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates, and deletes a user
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:12:72
+     10|   it('creates, gets, updates, and deletes a user', async () => {
+     11|     const app = make();
+     12|     const created = await request(app).post('/v1/users').send(valid())…
+       |                                                                        ^
+     13|     expect(created.headers.location).toMatch(/^\/v1\/users\/[0-9a-f-]+…
+     14|     expect(created.body.role).toBe('member');
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > validates fields, malformed JSON, missing resources, and conflicts as problems
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:27:86
+     25|   it('validates fields, malformed JSON, missing resources, and conflic…
+     26|     const app = make();
+     27|     const bad = await request(app).post('/v1/users').send({ email: 'no…
+       |                                                                                      ^
+     28|     expect(ProblemSchema.parse(bad.body).detail).toContain('email');
+     29|     expect(bad.body.detail).toContain('name');
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > rejects empty patches and duplicate email patches
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:47:85
+     45|   it('rejects empty patches and duplicate email patches', async () => {
+     46|     const app = make();
+     47|     const one = await request(app).post('/v1/users').send(valid('one@e…
+       |                                                                                     ^
+     48|     const two = await request(app).post('/v1/users').send(valid('two@e…
+     49|     await request(app).patch(`/v1/users/${one.body.id}`).send({}).expe…
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects changed bodies
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:55:104
+     53|   it('replays idempotent creates and rejects changed bodies', async ()…
+     54|     const app = make();
+     55|     const first = await request(app).post('/v1/users').set('Idempotenc…
+       |                                                                                                        ^
+     56|     const replay = await request(app).post('/v1/users').set('Idempoten…
+     57|     expect(replay.headers['idempotent-replayed']).toBe('true');
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+observed red: test/users.test.ts (source they cover is now writable)

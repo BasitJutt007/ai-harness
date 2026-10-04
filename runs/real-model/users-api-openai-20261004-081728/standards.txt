@@ -1,0 +1,16 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                6/6 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               6/6 error paths
+problem-json      pass  src/routes/index.ts              7/7 error paths
+problem-json      pass  (runtime)                        13/13 error paths
+rest-conventions  pass  src/routes/index.ts              7/7 routes
+tsc-strict        pass  (project)                        0 errors
+zod-boundary      pass  src/routes/index.ts              7/7 handlers
+────────────────────────────────────────────────────────────
+problem-json      pass    37/37 error paths
+rest-conventions  pass     7/7 routes
+tsc-strict        pass     0 errors
+zod-boundary      pass     7/7 handlers
+verdict           100%    → all rules green

@@ -1,0 +1,19 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-39030-15c78b5f/7eac9bb226fa/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 0
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-39030-15c78b5f/7eac9bb226fa/generated/users-api
+
+ ✓ test/users.test.ts (4 tests) 57ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  12:34:29
+   Duration  250ms (import 49%, tests 32%, transform 17%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":2,"numFailedTestSuites":0,"numPendingTestSuites":0,"numTotalTests":4,"numPassedTests":4,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791099269874,"success":true,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates, and deletes a user","status":"passed","title":"creates, gets, updates, and deletes a user","duration":31.054749999999984,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates fields, malformed JSON, missing resources, and conflicts as problems","status":"passed","title":"validates fields, malformed JSON, missing resources, and conflicts as problems","duration":15.419916,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects empty patches and duplicate email patches","status":"passed","title":"rejects empty patches and duplicate email patches","duration":5.908417000000014,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed bodies","status":"passed","title":"replays idempotent creates and rejects changed bodies","duration":3.9658330000000035,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791099270068,"endTime":1791099270123.9658,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-39030-15c78b5f/7eac9bb226fa/generated/users-api/test/users.test.ts"}]}

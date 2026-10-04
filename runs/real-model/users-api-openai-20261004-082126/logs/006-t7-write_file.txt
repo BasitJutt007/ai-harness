@@ -1,0 +1,48 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -1,9 +1,39 @@
+-import type { Router } from 'express';
++import type { Router, Request, Response, NextFunction } from 'express';
++import { randomUUID } from 'node:crypto';
++import { z } from 'zod';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { CursorQuerySchema, paginate, pageSchema } from '../lib/pagination.ts';
++import { idempotency } from '../lib/idempotency.ts';
+ 
+-/**
+- * Mount resource routers here, e.g. `app.use(usersRouter)`.
+- * Routers register full versioned paths (`/v1/users`, `/v1/users/:userId`).
+- */
++const UserSchema = z.object({ id: z.uuid(), email: z.email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() });
++const CreateSchema = z.object({ email: z.email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']).default('member') }).strict();
++const PatchSchema = z.object({ email: z.email().optional(), name: z.string().min(1).max(100).optional(), role: z.enum(['admin', 'member']).optional() }).strict().refine((v) => Object.keys(v).length > 0, { message: 'at least one field is required', path: ['body'] });
++const IdSchema = z.object({ userId: z.uuid() });
++type User = z.infer<typeof UserSchema>;
++
++function asyncHandler(handler: (req: Request, res: Response) => void): (req: Request, res: Response, next: NextFunction) => void {
++  return (req, res, next) => { try { handler(req, res); } catch (error) { next(error); } };
++}
++
+ export function registerRoutes(app: Router): void {
+-  // No resources yet.
++  const users: User[] = [];
++  const find = (id: string): User => { const user = users.find((item) => item.id === id); if (user === undefined) throw notFound(`User ${id} was not found.`); return user; };
++  app.post('/v1/users', idempotency(), asyncHandler((req, res) => {
++    const input = CreateSchema.parse(req.body);
++    if (users.some((user) => user.email === input.email)) throw conflict('email: already exists');
++    const now = new Date().toISOString();
++    const user = UserSchema.parse({ ...input, id: randomUUID(), createdAt: now, updatedAt: now });
++    users.push(user); res.location(`/v1/users/${user.id}`).status(201).json(UserSchema.parse(user));
++  }));
++  app.get('/v1/users', asyncHandler((req, res) => {
++    const query = CursorQuerySchema.parse(req.query);
++    res.json(pageSchema(UserSchema).parse(paginate(users, query, (user) => `${user.createdAt}|${user.id}`)));
++  }));
++  app.get('/v1/users/:userId', asyncHandler((req, res) => { const { userId } = IdSchema.parse(req.params); res.json(UserSchema.parse(find(userId))); }));
++  app.patch('/v1/users/:userId', idempotency(), asyncHandler((req, res) => {
++    const { userId } = IdSchema.parse(req.params); const user = find(userId); const input = PatchSchema.parse(req.body);
++    if (input.email !== undefined && users.some((item) => item.id !== userId && item.email === input.email)) throw conflict('email: already exists');
++    Object.assign(user, input, { updatedAt: new Date().toISOString() }); res.json(UserSchema.parse(user));
++  }));
++  app.delete('/v1/users/:userId', asyncHandler((req, res) => { const { userId } = IdSchema.parse(req.params); const index = users.findIndex((user) => user.id === userId); if (index < 0) throw notFound(`User ${userId} was not found.`); users.splice(index, 1); res.status(204).send(); }));
+ }

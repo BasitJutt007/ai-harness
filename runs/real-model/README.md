@@ -221,3 +221,14 @@ Notes:
 - **Models that stop calling finish.** `…045424` never called finish after turn 19, and the three
   failed 4 Oct brownfield runs never called it at all; DONE requires an accepted finish, so they
   ended at the turn limit.
+
+## 4 Oct, after the external review's fixes (gpt-5.6-luna, compat)
+
+| run | task | turns | outcome | finding |
+|---|---|---|---|---|
+| `projects-change-openai-20261004-073446` | brownfield | 40 | max turns, 1 failing agent test | shared-state trap; the order-dependence note fired 7 times, not acted on |
+| `projects-change-openai-20261004-073616` | brownfield | 40 | max turns, 1 failing agent test; contract-lock UNPROVEN | a reformatted schema (trailing commas dropped) read as an invisible validation change: fixed in `plugins/lib/contract.ts` |
+| `projects-change-openai-20261004-073856` | brownfield | 40 | max turns, every gate green at the end, finish never called | led to the rule that fresh green final gates decide DONE (`src/core/run.ts`) |
+| `users-api-openai-20261004-074452`, `…074855` | greenfield | 60 | max turns, standards 88% | the model's own `validate(schema, value)` and `res`-sending helpers were not followed by the checker: fixed (helpers followed by behaviour) |
+| `users-api-openai-20261004-081728`, `…082126` | greenfield | 60 | max turns: agent tests failing; once a permissive body schema | genuine model errors; spec-coverage 18/18 in both |
+| `superseded/projects-change-openai-20261004-074714` | brownfield | 28 | DONE, superseded by `…081959` on the final code | none |
