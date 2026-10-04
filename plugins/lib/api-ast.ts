@@ -2124,7 +2124,13 @@ interface KeyFlow {
 /** How deep keyFlow follows the key into the program functions it is passed to. */
 const MAX_KEY_FLOW_DEPTH = 3;
 
-function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds: ts.Symbol[], depth: number, active: Set<ts.Node>): KeyFlow {
+type StoreLifetime = 'persistent' | 'fresh' | 'unknown';
+
+/**
+ * `paramLives`: when keyFlow follows a call into a program function, the lifetime (at the call site) of each
+ * argument, by the callee's parameter: a store the caller created per request stays per request inside it.
+ */
+function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds: ts.Symbol[], depth: number, active: Set<ts.Node>, paramLives: ReadonlyMap<ts.Symbol, StoreLifetime> = new Map()): KeyFlow {
   const readSet = new Set<ts.Node>(reads);
   const keySyms = new Set<ts.Symbol>(seeds);
   const lookupSyms = new Set<ts.Symbol>();
@@ -2145,14 +2151,17 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     const fn = depth < MAX_KEY_FLOW_DEPTH ? resolveFunction(checker, call.expression) : undefined;
     if (fn?.body !== undefined && isProgramNode(fn) && !active.has(fn)) {
       const params: ts.Symbol[] = [];
+      const lives = new Map<ts.Symbol, StoreLifetime>();
       call.arguments.forEach((a, i) => {
         const p = fn.parameters[i];
         const sym = p !== undefined && ts.isIdentifier(p.name) && p.dotDotDotToken === undefined ? checker.getSymbolAtLocation(p.name) : undefined;
-        if (sym !== undefined && carriesKey(a)) params.push(sym);
+        if (sym === undefined) return;
+        if (carriesKey(a)) params.push(sym);
+        else lives.set(sym, lifetime(a));
       });
       if (params.length > 0) {
         active.add(fn);
-        out = keyFlow(checker, fn.body, [], params, depth + 1, active);
+        out = keyFlow(checker, fn.body, [], params, depth + 1, active, lives);
         active.delete(fn);
       }
     }
@@ -2240,7 +2249,7 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
    *  - 'unknown': anything this analysis cannot follow (a call's result, a `let` without initializer): never
    *    counted as proof of storage.
    */
-  const lifetime = (e0: ts.Expression, seen: Set<ts.Node> = new Set()): 'persistent' | 'fresh' | 'unknown' => {
+  function lifetime(e0: ts.Expression, seen: Set<ts.Node> = new Set()): StoreLifetime {
     let e: ts.Expression = e0;
     while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) e = e.expression;
     if (e.kind === ts.SyntaxKind.ThisKeyword) return 'persistent';
@@ -2250,8 +2259,10 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     const decl = sym?.valueDeclaration ?? sym?.declarations?.[0];
     if (decl === undefined) return 'unknown';
     const inside = decl.getSourceFile() === body.getSourceFile() && decl.pos >= body.pos && decl.end <= body.end;
+    // A parameter of the analysed function (or of a function inside it) lives as long as what its caller
+    // passed: known only when this analysis followed that call; the handler's own `req`/`res` live one request.
+    if (ts.isParameter(decl) && (inside || decl.parent === body.parent)) return (sym !== undefined ? paramLives.get(sym) : undefined) ?? 'unknown';
     if (!inside) return 'persistent';
-    if (ts.isParameter(decl)) return 'persistent';
     if (!ts.isVariableDeclaration(decl) || decl.initializer === undefined || seen.has(decl)) return 'unknown';
     seen.add(decl);
     let init: ts.Expression = decl.initializer;
@@ -2259,7 +2270,7 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     if (ts.isNewExpression(init) || ts.isObjectLiteralExpression(init) || ts.isArrayLiteralExpression(init)) return 'fresh';
     if (ts.isIdentifier(init) || ts.isPropertyAccessExpression(init) || ts.isElementAccessExpression(init) || init.kind === ts.SyntaxKind.ThisKeyword) return lifetime(init, seen);
     return 'unknown';
-  };
+  }
   /** A keyed write into `obj`: counts as storage only when `obj` outlives the call; an unknown lifetime is unproven. */
   const keyedWrite = (obj: ts.Expression): void => {
     const life = lifetime(obj);
