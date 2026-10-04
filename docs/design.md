@@ -202,6 +202,32 @@ adds the `examples/plugins/` versions to a throwaway copy and asserts that only 
 
 ## 5. Honesty boundary
 
+**Fail-closed by construction.** A check or gate passes only on positive evidence; whatever it does not
+model is UNPROVEN (or FAIL), never pass. Concretely:
+
+- *Route rules* carry, per route, everything in its chain the analysis does not follow
+  (`RouteInfo.unknowns` in `plugins/lib/api-ast.ts`): an unresolved, library or declared-only handler or
+  middleware (body parsers, `cors`, `helmet`, `compression`, `morgan`, `cookie-parser` excepted), a `res`
+  member that may send or set the status (`write`, `redirect`, `sendFile`, `format`, `statusCode =`,
+  computed members, aliasing, `res` handed to code it cannot follow), a status that is not a constant
+  (outside a recorded replay), an Express request member that may carry input (`req.param()`, `req.res`,
+  …), and a router no followed mount serves. Each route rule reports such a route UNPROVEN unless it
+  already fails.
+- *Files*: JavaScript/JSX/TSX under the source roots is code no rule reads: UNPROVEN.
+- *Schemas* are judged by construction as well as by output type (`z.any()`/`z.unknown()`/unchecked
+  `z.custom()` roots, `.catch()` fallbacks), and a `safeParse` counts only where `success` is tested.
+- *Runtime as a witness that can only withhold*: the probe runtime lists the routes the served app
+  registers; a served route the static table lacks (`app.all`, loops, unmodelled registrations) or an
+  analysed route the app does not serve is UNPROVEN, as is a probe answered by authentication before the
+  route. The listing comes from agent code, so it never grants a pass.
+- *Gates*: observed-red proves each changed file by reverting it alone; no source change, an inverted
+  case (`it.fails`), a non-zero runner exit, test files the runner did not collect, a missing required
+  gate, sandbox isolation off and similar run-level gaps keep a run from DONE.
+- *Regression guard*: `npm run audit:mutations` applies 31 mutations to `governed/users-api` (broken
+  standards and unmodelled constructs alike) and requires that none reads 100% under the full check. A
+  new bypass is fixed in the checker and added to that list, never excused.
+
+
 **Proven when the gates pass:** the tests pass when the harness runs them fresh; each changed source
 file has a case seen red that now passes and fails again with the run-start source; pre-existing
 cases were only appended to; strict `tsc` is clean with no `any`/`x!`/`@ts-ignore`; handlers parse
