@@ -4,8 +4,9 @@
  *   - was let through by the observed-red hook (so nothing changed it behind the
  *     write tools' back, e.g. test code writing source files), and
  *   - has a covering test T with a case C that an earlier run of T saw red (failing,
- *     or not loadable because a src/ module was missing, only for a file that did not
- *     exist at run start), using code imported from src/ with a non-constant assertion,
+ *     or not loadable because a source module was missing, only for a file that did not
+ *     exist at run start), using code imported from the API's source roots (its TargetProfile)
+ *     with a non-constant assertion,
  *     and that the fresh run sees PASS with the same body hash (the hash covers the whole case call:
  *     title, callback, options, timeout, .each table), and
  *   - REVERT CHECK: that same case FAILS again when the harness runs it in a scratch copy of the
@@ -17,12 +18,12 @@
  * the source change, not the edit, is what makes it pass. An edit that makes the case pass regardless of
  * the source (`toBe(1)` -> `toBe(0)` over unchanged behaviour) still fails the revert check.
  */
-import { defineGate } from '../../src/core/plugin-api.ts';
+import { defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import type { TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
-import { isGovernedSource, sha256, unlockedSources } from '../lib/red.ts';
+import { isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
 
 /** What is missing for one covering test, from least to most progress (the gate reports the most advanced one). */
-const RANK = ['never red', 'only a missing-module red (the file existed at run start)', 'red only on constants', 'red only in cases that use nothing from src/', 'edited after red', 'still failing'] as const;
+const RANK = ['never red', 'only a missing-module red (the file existed at run start)', 'red only on constants', 'red only in cases that use nothing from the source', 'edited after red', 'still failing'] as const;
 type Missing = (typeof RANK)[number];
 
 function countsAsRed(c: TestCaseObservation): boolean {
@@ -50,7 +51,7 @@ function evidence(test: string, earlier: TestObservation[], fresh: TestObservati
   if (reds.length === 0) {
     const failing = runs.flatMap((o) => (o.cases ?? []).filter((c) => c.status === 'fail'));
     if (failing.length > 0 && failing.every((c) => c.constantOnly)) return { missing: 'red only on constants', detail: '' };
-    if (failing.some((c) => !c.exercisesSource)) return { missing: 'red only in cases that use nothing from src/', detail: '' };
+    if (failing.some((c) => !c.exercisesSource)) return { missing: 'red only in cases that use nothing from the source', detail: ` (nothing imported from ${sourceRootsLabel()})` };
     if (existedAtStart && runs.some((o) => o.validRed && o.status === 'error')) {
       return { missing: 'only a missing-module red (the file existed at run start)', detail: '' };
     }
@@ -88,7 +89,7 @@ export default defineGate({
       return {
         status: 'fail',
         summary: 'no observed red in this run',
-        details: ['Write test/<name>.test.ts for the behaviour, run it with run_tests and see it fail before changing source.'],
+        details: [`Write ${suggestedTest('<name>.ts')} (a test the API's runner collects) for the behaviour, run it with run_tests and see it fail before changing source.`],
       };
     }
     let changed: string[];

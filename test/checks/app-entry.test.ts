@@ -144,6 +144,21 @@ describe('discoverEntries', () => {
     expect(modules(root)).toEqual(['src/server.ts']);
   });
 
+  // The API's layout (TargetProfile source roots, from its tsconfig include/rootDir) widens the search
+  // beyond src/ and rootDir; with no layout the result is unchanged (the first row).
+  it.each<[string, Record<string, string>, string[], string[]]>([
+    ['include lib/, no layout passed', { 'tsconfig.json': JSON.stringify({ include: ['lib'] }), 'lib/app.ts': '' }, [], []],
+    ['include lib/, layout source root lib', { 'tsconfig.json': JSON.stringify({ include: ['lib'] }), 'lib/app.ts': '', 'lib/util.ts': '' }, ['lib'], ['lib/app.ts']],
+    ['two source roots, in layout order', { 'server/main.ts': '', 'api/index.ts': '' }, ['server', 'api'], ['server/main.ts', 'api/index.ts']],
+    ['src/ still first', { 'src/server.ts': '', 'service/app.ts': '' }, ['service'], ['src/server.ts', 'service/app.ts']],
+    ['built main mapped into a source root', { 'service/http/boot.ts': '', 'package.json': pkg({ main: 'dist/http/boot.js' }) }, ['service'], ['service/http/boot.ts']],
+    ['root as a source root', { 'main.ts': '', 'package.json': pkg({ main: 'dist/main.js' }) }, ['.'], ['main.ts']],
+  ])('layout: %s', (_name, files, roots, want) => {
+    const d = discoverEntries(project(files), undefined, roots);
+    expect(d.candidates.map((c) => c.module)).toEqual(want);
+    for (const r of roots.filter((x) => x !== '.')) expect(d.searched).toContain(`${r}/app.ts`);
+  });
+
   it('the UNPROVEN text names every place that was looked at', () => {
     const d = discoverEntries(project({ 'tsconfig.json': tsconfig({ rootDir: 'lib' }), 'package.json': pkg({ main: 'dist/x.js' }) }));
     const text = describeSearch(d);

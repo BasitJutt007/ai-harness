@@ -1,0 +1,45 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649/generated/users-api
+
+ ❯ test/users.test.ts (14 tests | 1 failed) 75ms
+   ❯ users API (14)
+     ✓ creates a user with default role member and returns 201 with Location 25ms
+     ✓ gets a created user by id 6ms
+     ✓ lists users with cursor pagination that visits every user exactly once 10ms
+     ✓ returns 404 problem when getting an unknown user id 4ms
+     ✓ returns 404 problem when patching an unknown user id 2ms
+     ✓ returns 404 problem when deleting an unknown user id 1ms
+     × rejects duplicate emails on create with 409 problem 6ms
+     ✓ rejects changing a user email to another users email with 409 problem 4ms
+     ✓ returns 422 problem whose detail names each invalid body field 2ms
+     ✓ returns 422 problem for invalid query and path parameters 2ms
+     ✓ returns 400 problem for malformed JSON body 2ms
+     ✓ replays POST by Idempotency-Key with same body and rejects reuse with different body 4ms
+     ✓ patches only provided fields and rejects an empty patch 3ms
+     ✓ deletes a user with 204 and the user is then gone 3ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+   Start at  09:57:46
+   Duration  344ms (import 56%, tests 29%, transform 15%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate emails on create with 409 problem
+AssertionError: expected 'https://api.sf/problems/duplicate-ema…' to be 'https://api.sf/problems/conflict' // Object.is equality
+
+Expected: "https://api.sf/problems/conflict"
+Received: "https://api.sf/problems/duplicate-email"
+
+ ❯ expectProblem test/users.test.ts:21:24
+     19|   const problem = ProblemSchema.parse(res.body);
+     20|   expect(problem.status).toBe(status);
+     21|   expect(problem.type).toBe(`https://api.sf/problems/${slug}`);
+       |                        ^
+     22|   return problem;
+     23| }
+ ❯ test/users.test.ts:131:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+observed red: test/users.test.ts (source they cover is now writable)

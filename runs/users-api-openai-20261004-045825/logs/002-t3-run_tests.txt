@@ -1,0 +1,77 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045825/generated/users-api
+
+ ❯ test/lib/pagination.test.ts (9 tests | 1 failed) 12ms
+   ✓ CursorQuerySchema (2)
+     ✓ defaults limit to 20 and coerces query strings 3ms
+     ✓ rejects limits outside 1..100 and empty cursors 0ms
+   ✓ cursors (2)
+     ✓ round-trips a key through an opaque base64url cursor 0ms
+     ✓ rejects cursors it did not issue with a 422 problem 1ms
+   ✓ paginate (4)
+     ✓ walks every item exactly once, in key order 0ms
+     ✓ returns nextCursor null on the last page 0ms
+     ✓ does not depend on input order and survives deletion of the cursor item 0ms
+     ✓ builds a page schema with data and nextCursor 1ms
+   ❯ Users API contract (1)
+     × lists, creates, gets, updates, deletes, and enforces uniqueness and idempotency 5ms
+ ✓ test/lib/problem.test.ts (7 tests) 22ms
+ ❯ test/lib/errors.test.ts (7 tests | 1 failed) 39ms
+   ✓ createApp error handling (6)
+     ✓ answers unknown routes with a 404 problem 18ms
+     ✓ answers malformed JSON with a 400 problem 8ms
+     ✓ maps a ZodError to a 422 problem listing each issue 3ms
+     ✓ passes valid bodies through 2ms
+     ✓ sends a thrown HttpProblem with its own status 1ms
+     ✓ hides unexpected errors behind a 500 problem without a stack 3ms
+   ❯ Users API contract (1)
+     × returns problem+json for invalid user requests and missing users 2ms
+ ✓ test/lib/idempotency.test.ts (6 tests) 97ms
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  2 failed | 27 passed (29)
+   Start at  09:58:31
+   Duration  364ms (import 61%, tests 23%, transform 14%, worker 2%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/lib/errors.test.ts > Users API contract > returns problem+json for invalid user requests and missing users
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ test/lib/errors.test.ts:92:18
+     90|   it('returns problem+json for invalid user requests and missing users…
+     91|     // Placeholder to be implemented in the API.
+     92|     expect(true).toBe(false);
+       |                  ^
+     93|   });
+     94| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/lib/pagination.test.ts > Users API contract > lists, creates, gets, updates, deletes, and enforces uniqueness and idempotency
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ test/lib/pagination.test.ts:84:18
+     82|   it('lists, creates, gets, updates, deletes, and enforces uniqueness …
+     83|     // Placeholder to be implemented in the API.
+     84|     expect(true).toBe(false);
+       |                  ^
+     85|   });
+     86| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+test/lib/errors.test.ts: 1 of 7 tests failed; red rejected: the failing cases only assert constants
+test/lib/pagination.test.ts: 1 of 9 tests failed; red rejected: the failing cases only assert constants

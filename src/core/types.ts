@@ -7,6 +7,7 @@
  */
 import type { z } from 'zod';
 import type ts from 'typescript';
+import type { TargetLayout } from './target.ts';
 
 // ───────────────────────────── Conversation model ─────────────────────────────
 // A provider-neutral transcript. Drivers translate to and from their wire format.
@@ -77,6 +78,12 @@ export interface Usage {
   outputTokens: number;
   /** Portion of inputTokens served from a provider cache, when reported. */
   cachedInputTokens?: number;
+  /**
+   * False when no provider reported usage for this response (an offline driver): the numbers
+   * are then 0, and the token report says "no provider usage" instead of showing an estimate
+   * as provider data. Default: true.
+   */
+  reported?: boolean;
 }
 
 export interface ModelResponse {
@@ -103,7 +110,26 @@ export interface Driver {
    * like with like.
    */
   countTokens(req: ModelRequest): Promise<number>;
+  /**
+   * Optional: the wait in ms that an error thrown by complete() asks for before a retry (a rate
+   * limit that names its wait in the provider's own format), or null when it names none. The
+   * provider's formats live here, never in the core. Without it, or on null, the loop honours a
+   * standard Retry-After header of an HTTP 429/503 error.
+   */
+  retryAfterMs?(error: unknown): number | null;
+  /**
+   * Optional: what kind of failure an error thrown by complete() is, when the provider's own
+   * wording says so (DriverErrorKind), else null. The provider's error formats live here, never in
+   * the core: on 'context_overflow' the loop shrinks the request once instead of resending it.
+   */
+  errorKind?(error: unknown): DriverErrorKind | null;
 }
+
+/**
+ * Failure kinds the loop treats specially. `context_overflow`: the request did not fit the
+ * model's context window (or the provider's request-size limit); resending it unchanged cannot work.
+ */
+export type DriverErrorKind = 'context_overflow';
 
 export interface DriverCreateOptions {
   /** --model flag, if given. Drivers fall back to their own env var / default. */
@@ -176,7 +202,11 @@ interface TaskCommon {
   title: string;
   /** Free-text behaviours / acceptance criteria. */
   behaviours: string[];
-  limits: { maxTurns: number; maxOutputTokens: number };
+  /**
+   * `maxTurns` absent: the task file named none, so the harness scales a default with the task's
+   * size and may extend it while the gates make progress (loop.ts turnLimitFor). Present: a hard cap.
+   */
+  limits: { maxTurns?: number | undefined; maxOutputTokens: number };
   /** Free-text description of the task, shown to the model verbatim. */
   brief?: string | undefined;
   /** Top-level task-file keys the harness has no slot for, carried to the model verbatim. */
@@ -226,6 +256,11 @@ export interface LoadedTask {
   strict: boolean;
   /** Everything the front end renamed, inferred, dropped or carried, one line each. */
   warnings: string[];
+  /**
+   * True when the task names its own write scope (scope.allow). Otherwise a brownfield run writes within
+   * the target API's own source and test roots (the TargetProfile), not the schema default.
+   */
+  declaresScope: boolean;
 }
 
 // ───────────────────────────── Run state & context ─────────────────────────────
@@ -316,6 +351,36 @@ export interface TestCaseObservation {
   constantOnly: boolean;
 }
 
+/** One collected test case as the runner reported it. */
+export interface TestCaseResult {
+  /** API-relative test file. */
+  file: string;
+  /** "describe > ... > title", as the runner reported it. */
+  name: string;
+  /** 'skip' also covers pending and disabled cases; 'todo' is `it.todo`. */
+  status: 'pass' | 'fail' | 'skip' | 'todo';
+}
+
+/**
+ * What the suite looked like at run start (see test-baseline.ts): the cases that did not run or failed,
+ * so a gate can tell what a repository already had from what the run introduced.
+ */
+export interface TestBaseline {
+  /** When it was measured (ISO). */
+  at: string;
+  /** Why the run-start results are unknown (no per-case report); the lists are then empty. */
+  error?: string;
+  totals: { files: number; tests: number; passed: number; failed: number };
+  /** Cases skipped or todo at run start. */
+  skipped: TestCaseResult[];
+  /** Cases failing at run start. */
+  failed: TestCaseResult[];
+  /** Test files that failed to load at run start. */
+  loadErrors: string[];
+  /** Harness-root-relative path of the runner's raw output. */
+  logPath?: string;
+}
+
 export interface RunEvent {
   turn: number;
   at: string;
@@ -335,6 +400,11 @@ export interface RunState {
   written: Set<string>;
   /** sha256 of files at run start (API-relative path -> hash); absent = did not exist. */
   initialHashes: Map<string, string>;
+  /**
+   * The target's own test results at run start, measured before the agent's first turn (brownfield
+   * runs; see test-baseline.ts). Never a test observation. Absent = not measured.
+   */
+  testBaseline?: TestBaseline;
   /** The agent's latest submitted plan, if any. */
   plan: string[];
   events: RunEvent[];
@@ -417,6 +487,8 @@ export interface TestRunReport {
   totals: { files: number; tests: number; passed: number; failed: number };
   /** One observation per test file that was part of the run. */
   observations: TestObservation[];
+  /** Every collected case with the runner's result; absent when the runner produced no per-case report. */
+  results?: TestCaseResult[];
   /** Compact pass/fail lines (failures first, capped). */
   summary: string;
   /** Harness-root-relative path of the raw runner output. */
@@ -426,6 +498,11 @@ export interface TestRunReport {
    * This is what a developer would see in a terminal: the honest raw (baseline) return.
    */
   console?: string;
+  /**
+   * One line per failing case that passes when re-run alone (it depends on test order), when the run
+   * was asked to isolate failures. Diagnostic only: those re-runs are never observations.
+   */
+  diagnosis?: string[];
 }
 
 /** Static import graph between test files and source files (API-relative paths). */
@@ -465,8 +542,12 @@ export interface CheckReport {
 
 /** Deterministic services the core provides to plugins. */
 export interface CoreServices {
-  /** Run tests with the harness's own runner and record observations in RunState. */
-  runTests(files?: string[]): Promise<TestRunReport>;
+  /**
+   * Run tests with the harness's own runner and record observations in RunState. With
+   * `isolateFailures`, up to two failing cases are then re-run alone and the ones that pass alone are
+   * named in TestRunReport.diagnosis; those re-runs are never recorded.
+   */
+  runTests(files?: string[], opts?: { isolateFailures?: boolean }): Promise<TestRunReport>;
   /**
    * Run registered checks against the workspace API root, or against `root` (an absolute directory
    * holding another copy of the API, e.g. a base-commit snapshot for a brownfield baseline).
@@ -528,10 +609,24 @@ export interface ToolPlugin<I = unknown> {
   /** Zod schema for the input. The core converts it to a neutral JSON Schema. */
   input: z.ZodType<I>;
   effect: ToolEffect;
+  /**
+   * Whether the tool fetches context (repository files, listings, standards text). Default:
+   * true for `read` tools, false otherwise. `--baseline` runs withhold every context fetcher
+   * (their content is front-loaded instead).
+   */
+  fetcher?: boolean;
   /** Task kinds this tool is offered in. Default: all. */
   availableIn?: TaskKind[];
   /** API-relative paths the call will touch (used by hooks). */
   paths?(input: I): string[];
+  /**
+   * Write tools: the exact content `path` (one of paths()) will have after the call, given its
+   * current content `before` (null = absent); null = no file there afterwards (a deletion). A call
+   * the tool will refuse leaves the file as it is (return `before`). The loop computes it once per
+   * path before the pre_tool hooks (ToolCallInfo.preview); hooks that judge content refuse a write
+   * tool without it (fail closed).
+   */
+  preview?(input: I, before: string | null, path: string): string | null;
   run(input: I, ctx: RunContext): Promise<ToolResult>;
 }
 
@@ -544,6 +639,13 @@ export interface ToolCallInfo {
   input: unknown;
   /** API-relative paths from the tool's paths() (empty when not declared). */
   paths: string[];
+  /**
+   * Post-call content of each declared path (keyed as in `paths`) from the tool's preview(),
+   * computed once by the loop before the pre_tool hooks; null = no file there afterwards.
+   * Absent when the tool declares no preview(); a path is missing when its post-call content
+   * could not be computed. Content hooks judge this, never the tool's input field names.
+   */
+  preview?: ReadonlyMap<string, string | null>;
 }
 
 export interface PreToolEvent {
@@ -604,6 +706,11 @@ export interface GateResult {
   logPath?: string;
   /** What the gate saw but neither proved nor blocked on (e.g. pre-existing violations): listed under "human must verify". */
   humanMustVerify?: string[];
+  /**
+   * How many units (tests, violations, changes, ...) a fail/unproven result found failing. Lets the
+   * loop measure progress between finish attempts; absent, the number of detail lines stands in.
+   */
+  failing?: number;
 }
 
 export interface GatePlugin {
@@ -639,10 +746,15 @@ export interface CheckFinding {
 export interface CheckContext {
   /** Absolute API root. */
   root: string;
-  /** API-relative .ts files under src/ (non-test). */
+  /** API-relative TypeScript files under the API's source roots (non-test, non-declaration). */
   sourceFiles: string[];
-  /** API-relative test files. */
+  /** API-relative test files and test support (helpers, fixtures in the dedicated test dirs). */
   testFiles: string[];
+  /**
+   * Where the API keeps source and tests (source roots, test dirs, runner globs, import resolution): the
+   * run's TargetProfile, else computed from the API's own config. Absent only in hand-built contexts.
+   */
+  layout?: TargetLayout;
   read(rel: string): Promise<string>;
   /** Parsed source file (cached). */
   sourceFile(rel: string): ts.SourceFile;

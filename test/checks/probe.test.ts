@@ -35,6 +35,19 @@ describe('probe helpers', () => {
     expect(probes.filter((p) => p.omitIdempotencyKey === true).map((p) => p.name)).toEqual(['missing Idempotency-Key']);
   });
 
+  it('problem probes on API routes accept a 401/403 problem (auth required); the injected 500 probe does not', async () => {
+    const ctx = await fixtureContext('good');
+    const probes = buildProbes(extractRoutes(ctx.program(), ctx.root, ctx.sourceFiles));
+    const invalid = probes.find((p) => p.name === 'invalid body');
+    const boom = probes.find((p) => p.name === 'internal error');
+    if (invalid === undefined || boom === undefined) throw new Error('probes missing');
+    const p401 = goodBody.replace('404', '401');
+    expect(evaluateProbe(invalid, { status: 401, contentType: 'application/problem+json', body: p401 }).ok).toBe(true);
+    expect(evaluateProbe(invalid, { status: 403, contentType: 'application/problem+json', body: goodBody.replace('404', '403') }).ok).toBe(true);
+    expect(evaluateProbe(invalid, { status: 401, contentType: 'text/plain', body: 'no' }).ok).toBe(false);
+    expect(evaluateProbe(boom, { status: 401, contentType: 'application/problem+json', body: p401 }).problems).toContain('expected status 500, got 401');
+  });
+
   it('success probes: a 2xx must be JSON and not problem+json; 401/403 must be problems', () => {
     const success: Probe = { name: 'collection success', method: 'GET', path: '/v1/users', expect: [200, 401, 403], kind: 'success' };
     const page = JSON.stringify({ data: [], nextCursor: null });

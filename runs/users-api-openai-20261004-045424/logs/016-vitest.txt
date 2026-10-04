@@ -1,0 +1,50 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 1 failed) 74ms
+   ❯ users API (4)
+     ✓ creates, gets, updates, lists, and deletes users 35ms
+     ✓ returns problem json for duplicate email and missing users 10ms
+     ✓ validates bodies, params, query, malformed json, and idempotency 8ms
+     × paginates with cursor and limit 20ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  09:55:09
+   Duration  281ms (import 46%, tests 36%, transform 17%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > paginates with cursor and limit
+AssertionError: expected [ 'user1@example.com', …(2) ] to deeply equal [ 'user0@example.com', …(2) ]
+
+- Expected
++ Received
+
+  [
+-   "user0@example.com",
+    "user1@example.com",
+    "user2@example.com",
++   "user0@example.com",
+  ]
+
+ ❯ test/users.test.ts:127:18
+    125|
+    126|     const seen = [...firstPage.body.data, ...secondPage.body.data].map…
+    127|     expect(seen).toEqual(emails);
+       |                  ^
+    128|   });
+    129| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":4,"numPassedTests":3,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791089709598,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates, lists, and deletes users","status":"passed","title":"creates, gets, updates, lists, and deletes users","duration":35.05541699999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns problem json for duplicate email and missing users","status":"passed","title":"returns problem json for duplicate email and missing users","duration":9.728916999999996,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates bodies, params, query, malformed json, and idempotency","status":"passed","title":"validates bodies, params, query, malformed json, and idempotency","duration":7.762499999999989,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates with cursor and limit","status":"failed","title":"paginates with cursor and limit","duration":20.291375000000016,"failureMessages":["AssertionError: expected [ 'user1@example.com', …(2) ] to deeply equal [ 'user0@example.com', …(2) ]\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api/test/users.test.ts:127:18\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791089709805,"endTime":1791089709877.2913,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api/test/users.test.ts"}]}

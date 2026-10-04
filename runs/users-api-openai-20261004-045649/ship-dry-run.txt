@@ -1,0 +1,17 @@
+ship  dry-run  branch harness/users-api-openai-20261004-045649
+gates (re-run fresh, phase ship): all green
+  gate  contract-lock  n/a       not applicable to greenfield tasks
+  gate  observed-red   pass      3 red observations (1 test files); 1 changed source files went red -> green on unchanged cases, red again with the original source
+  gate  orphans        pass      no new non-test files
+  gate  scope          pass      2 changed files, all in scope
+  gate  secrets        pass      no secrets in 15 scanned changes
+  gate  spec-coverage  pass      17/17 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]
+  gate  standards      pass      verdict 100% (4 rules)
+  gate  tests-green    pass      41/41 tests passed in 5 files
+  dry run: nothing was staged, committed, pushed or opened
+  the PR step depends on gh (installed and authenticated); a dry run does not invoke gh, so it is not checked here
+  plan: git -C /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649 add --all -- generated/users-api ":(exclude,glob)**/node_modules" ":(exclude,glob)**/node_modules/**"
+  plan: git -C /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649 diff --cached --no-color -U0 -- generated/users-api   # secret scan
+  plan: git -C /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649 -c core.hooksPath=/dev/null -c user.name=sf-harness -c user.email=harness@localhost commit -q -m "harness(users-api): Users API\n\nrun:… (1005 chars)
+  plan: git -C /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649 -c core.hooksPath=/dev/null push --no-force -u origin refs/heads/harness/users-api-openai-20261004-045649:refs/heads/harness/users-api-… (262 chars)
+  plan: gh pr create --base main --head harness/users-api-openai-20261004-045649 --title "harness: Users API (users-api)" --body "Opened by sf-harness for run `users-api-openai-20261004-045649`.\n\nTask: **users-api** Users API (greenfield)\n\n### … (1178 chars)

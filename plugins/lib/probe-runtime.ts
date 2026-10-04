@@ -16,7 +16,7 @@
  * listen() is guarded before any agent module loads: the first plain HTTP server to listen is bound
  * to the harness port, any other server to an OS-chosen loopback port, whatever the code asked for.
  * Runs inside the OS sandbox (probe.ts passes the policy): agent code may write only the per-call
- * temp dir and reach only loopback; the process exits on the stop file or after MAX_LIFETIME_MS.
+ * temp dir and reach only loopback; the process exits on the stop file or after the harness's budget (MAX_LIFETIME_MS by default).
  */
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -50,6 +50,8 @@ interface RuntimeIn {
   probes: ProbeIn[];
   entries: EntryIn[];
   control?: ControlIn;
+  /** How long to serve at most (the harness's budget); MAX_LIFETIME_MS when absent. */
+  lifetimeMs?: number;
 }
 
 type Handler = (req: http.IncomingMessage, res: http.ServerResponse) => void;
@@ -102,6 +104,8 @@ function readInput(raw: unknown): RuntimeIn {
   const path = isRecord(c) ? str(c['path']) : undefined;
   const body = isRecord(c) ? str(c['body']) : undefined;
   if (path !== undefined && body !== undefined) out.control = { path, body };
+  const life = raw['lifetimeMs'];
+  if (typeof life === 'number' && Number.isFinite(life) && life > 0) out.lifetimeMs = life;
   return out;
 }
 
@@ -305,11 +309,12 @@ async function main(): Promise<void> {
     throw new Error('usage: probe-runtime <apiRoot> <probes.json> <port> <stopFile>');
   }
   const started = Date.now();
+  const input = readInput(JSON.parse(await readFile(inputFile, 'utf8')));
+  const lifetime = input.lifetimeMs ?? MAX_LIFETIME_MS;
   // Exit explicitly: the app may hold open handles (timers, pools) we do not own, or never finish loading.
   setInterval(() => {
-    if (existsSync(stopFile) || Date.now() - started > MAX_LIFETIME_MS) process.exit(0);
+    if (existsSync(stopFile) || Date.now() - started > lifetime) process.exit(0);
   }, 50);
-  const input = readInput(JSON.parse(await readFile(inputFile, 'utf8')));
   const routes: Array<{ path: string; handler: Handler }> = [];
   for (const p of input.probes) {
     const marker = p.throwMarker;

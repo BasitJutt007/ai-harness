@@ -1,46 +1,63 @@
 /**
  * The harness's own test runner: the ONLY source of "observed red".
  *
- * Runs vitest with its default (console) AND JSON reporters, parses the JSON
- * report and turns it into one TestObservation per test file. Whether a red
- * counts (validRed) is decided here, deterministically, never by the model.
+ * Runs the API's runner (vitest, jest or node:test, per the TargetProfile; the harness's
+ * vitest by default) with its default (console) reporter AND a JSON report in one shape
+ * (vitest's and jest's JSON reporters; node-test-reporter.mjs for node:test), parses it and
+ * turns it into one TestObservation per test file. Whether a red counts (validRed) is decided
+ * here, deterministically, never by the model.
  *
  * Each observation also carries per-case evidence (TestObservation.cases): the cases
  * are parsed statically from the exact file content that was hashed and joined with
- * the runner's per-case results. A red only counts when a failing case uses code
- * imported from src/ and asserts on something other than constants.
+ * the runner's per-case results. A red only counts when a failing case asserts (with any
+ * assertion API) on a value from the API's source roots, judged at the statement it failed at: a constant
+ * assertion or a hand-thrown error does not count (the revert check stays the final word).
  *
  * The child runs agent-written code: it runs sandboxed (writes only to a per-run temp
  * dir, network only to localhost; the API root is read-only, so test code cannot edit
  * source or tests behind the hooked write tools' back), and its home/config/temp
  * directories point at that throw-away directory: tests cannot read the operator's
  * ~/.config/gh, ~/.aws, ~/.npmrc or ~/.ssh.
+ *
+ * On request (RunTestsOptions.isolateFailures) a run with failing cases is followed by a
+ * diagnosis: up to two failing cases are re-run alone, and one that passes alone is reported as
+ * order-dependent (TestRunReport.diagnosis). Those runs are never observations.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { glob } from 'tinyglobby';
 import { safeEnv } from './exec.ts';
-import { graphFiles, importGraph, reachesSource, resolveSpecifier, staticTestCases } from './testmap.ts';
+import { activeLayout, isSourcePath, sourceRootsLabel, versionAtLeast } from './target.ts';
+import type { TargetLayout, TestRunnerInfo } from './target.ts';
+import { graphFiles, importGraph, reachesSource, locatedRed, resolveImport, staticTestCases } from './testmap.ts';
 import type { ImportGraph, StaticTestCase } from './testmap.ts';
-import type { Exec, LogStore, TestCaseObservation, TestObservation, TestRunReport } from './types.ts';
+import type { Exec, ExecResult, LogStore, TestCaseObservation, TestCaseResult, TestObservation, TestRunReport } from './types.ts';
 
 const VITEST_TIMEOUT_MS = 300_000;
-/** Where vitest's JSON reporter writes: the exec channel (fd 3), a pipe only the vitest process itself holds. */
+/** Where the runner's JSON report is written: the exec channel (fd 3), a pipe only the runner process itself holds. */
 export const REPORT_CHANNEL = '/dev/fd/3';
 const MAX_SUMMARY_FAILURES = 10;
 const MAX_MESSAGE_CHARS = 160;
 /** Cap of TestRunReport.console (the runner's own console output). */
 export const MAX_CONSOLE_BYTES = 64 * 1024;
+/** At most this many failing cases of one run are re-run alone (the order-dependence diagnosis). */
+export const MAX_ISOLATED_CASES = 2;
 
-/** The subset of vitest's JSON report we rely on (verified against vitest 5.0.3). */
+/**
+ * The subset of the runner JSON report we rely on: vitest's (verified against vitest 5.0.3), jest's
+ * --json report and node-test-reporter.mjs all have this shape.
+ */
 export interface VitestAssertion {
   ancestorTitles: string[];
   title: string;
   status: string;
   failureMessages: string[];
+  /** Where the case is declared (jest --testLocationInResults, node:test); absent when the runner omits it. */
+  location?: { line: number; column: number };
 }
 export interface VitestFileResult {
   name: string;
@@ -49,28 +66,129 @@ export interface VitestFileResult {
   assertionResults: VitestAssertion[];
 }
 
-export async function runVitest(opts: {
+/** What every runner adapter takes. */
+export interface RunTestsOptions {
   root: string;
   files?: string[];
   exec: Exec;
   harnessRoot: string;
   logs: LogStore;
   turn: number;
-}): Promise<TestRunReport> {
+  /** The target's runner (TargetProfile.runner). Default: the harness's own vitest. */
+  runner?: TestRunnerInfo;
+  /** Source/test classification for the observations. Default: the active layout. */
+  layout?: TargetLayout;
+  /**
+   * When cases fail, re-run up to MAX_ISOLATED_CASES of them alone and report the ones that pass
+   * alone (TestRunReport.diagnosis; see orderDependence). Diagnostic only: no observation comes of it.
+   */
+  isolateFailures?: boolean;
+}
+
+/** One concrete runner command: how it is started and the name of its raw log. */
+interface Invocation {
+  cmd: string;
+  args: string[];
+  label: string;
+}
+
+const NODE_TEST_REPORTER = fileURLToPath(new URL('./node-test-reporter.mjs', import.meta.url));
+
+/**
+ * The command for `runner` (vitest, jest or node:test). Each writes the same JSON report shape
+ * (testResults/assertionResults) to the private fd-3 channel, next to its default console reporter.
+ * `filter`: runner options that select cases by name (caseNameFilter), empty for a normal run.
+ */
+function invocation(runner: TestRunnerInfo | undefined, root: string, files: string[], filter: string[], tmpDir: string, harnessRoot: string): Invocation {
+  const kind = runner?.kind ?? 'vitest';
+  if (kind === 'jest' && runner?.bin !== undefined) {
+    // --runTestsByPath: the entries are paths, not regexes; jest's cache stays in the per-run temp dir.
+    // A worker memory limit makes jest (29+) never run tests in band, i.e. never inside the process that holds fd 3.
+    const args = [runner.bin, '--ci', '--json', `--outputFile=${REPORT_CHANNEL}`, '--testLocationInResults', '--watchman=false',
+      '--maxWorkers=2', '--workerIdleMemoryLimit=4GB', `--cacheDirectory=${join(tmpDir, 'jest-cache')}`, ...filter,
+      ...(files.length > 0 ? ['--runTestsByPath', ...files] : [])];
+    return { cmd: process.execPath, args, label: 'jest' };
+  }
+  if (kind === 'node-test') {
+    const patterns = files.length > 0 ? files : runner?.patterns ?? [];
+    const args = [...(runner?.nodeArgs ?? []), '--test', '--test-reporter=spec', '--test-reporter-destination=stdout',
+      `--test-reporter=${pathToFileURL(NODE_TEST_REPORTER).href}`, `--test-reporter-destination=${REPORT_CHANNEL}`, ...filter, ...patterns];
+    return { cmd: process.execPath, args, label: 'node-test' };
+  }
+  // vitest: the target's own install when it has one (runner.bin), else the harness's. `--configLoader runner`
+  // (vitest >= 3.1) loads the config without writing a bundled copy next to it (the API root is read-only).
+  const version = runner?.version;
+  const loader = version === undefined || version === null || versionAtLeast(version, 3, 1) ? ['--configLoader', 'runner'] : [];
+  const args = ['run', '--root', root, ...loader, '--pool=forks', '--reporter=default', '--reporter=json', `--outputFile.json=${REPORT_CHANNEL}`, ...filter, ...files];
+  if (runner?.bin !== undefined) return { cmd: process.execPath, args: [runner.bin, ...args], label: 'vitest' };
+  return { cmd: join(harnessRoot, 'node_modules', '.bin', 'vitest'), args, label: 'vitest' };
+}
+
+/** The vitest adapter, kept for callers that name it: runTargetTests with the harness's vitest by default. */
+export async function runVitest(opts: RunTestsOptions): Promise<TestRunReport> {
+  return runTargetTests(opts);
+}
+
+/**
+ * Run the API's tests with its own runner (vitest, jest or node:test) and turn the report into one
+ * observation per test file. An unsupported runner runs nothing; the report says why (UNPROVEN).
+ */
+export async function runTargetTests(opts: RunTestsOptions): Promise<TestRunReport> {
   const files = checkFileArgs(opts.root, opts.files ?? []);
+  if (opts.runner !== undefined && !opts.runner.supported) {
+    const why = opts.runner.reason ?? `unsupported test runner ${opts.runner.name}`;
+    const logPath = await opts.logs.write('tests', `not run: ${why}`);
+    return { ok: false, totals: { files: 0, tests: 0, passed: 0, failed: 0 }, observations: [], summary: `tests: not run (UNPROVEN): ${why}`, logPath, console: '' };
+  }
+  const layout = opts.layout ?? activeLayout();
+  const { res, parsed, consoleText, logPath } = await execRunner(opts, files, []);
+  if (parsed === null) {
+    const why = res.timedOut ? 'timed out' : `exit ${String(res.code)}`;
+    const first = firstLine(stripAnsi(res.stderr || res.stdout)) || 'no JSON report';
+    return {
+      ok: false,
+      totals: { files: 0, tests: 0, passed: 0, failed: 0 },
+      observations: [],
+      summary: `tests: runner error (${why}): ${clip(first)}\nlog: ${logPath}`,
+      logPath,
+      console: consoleText,
+    };
+  }
+  const at = new Date().toISOString();
+  const graph = await sourceGraph(opts.root, layout);
+  const observations: TestObservation[] = [];
+  for (const fr of parsed) observations.push(await observe(opts.root, fr, opts.turn, at, graph, layout));
+  const report: TestRunReport = { ...buildReport(opts.root, parsed, observations, logPath, consoleText), console: consoleText };
+  if (opts.isolateFailures !== true || report.totals.failed === 0) return report;
+  const diagnosis = await orderDependence(opts, parsed, observations);
+  return diagnosis.length > 0 ? { ...report, diagnosis } : report;
+}
+
+/** One runner process: its result, the parsed fd-3 report (null when none or unreadable), console text and raw log. */
+interface RunnerOutput {
+  res: ExecResult;
+  parsed: VitestFileResult[] | null;
+  consoleText: string;
+  logPath: string;
+}
+
+/**
+ * Start the runner over `files` (plus the case filter `filter`), sandboxed in a fresh per-run temp dir
+ * that is removed afterwards. Every run, the diagnostic ones included, goes through here.
+ */
+async function execRunner(opts: RunTestsOptions, files: string[], filter: string[]): Promise<RunnerOutput> {
   // Under the OS temp dir, never inside the harness repo: nothing the confined child can write lives next to plugin code.
   const tmpDir = await mkdtemp(join(tmpdir(), 'harness-vitest-'));
   const home = join(tmpDir, 'home');
   await mkdir(home, { recursive: true });
-  const vitest = join(opts.harnessRoot, 'node_modules', '.bin', 'vitest');
   // Both reporters: the console one is what a developer sees (the honest raw return), JSON is what we parse.
-  // The JSON report travels over a private pipe on vitest's fd 3 (REPORT_CHANNEL), never through a file:
+  // The JSON report travels over a private pipe on the runner's fd 3 (REPORT_CHANNEL), never through a file:
   // test workers (forced to child processes) and anything they spawn do not inherit that descriptor, so
-  // agent code cannot rewrite the report between vitest writing it and the harness reading it.
-  const args = ['run', '--root', opts.root, '--configLoader', 'runner', '--pool=forks', '--reporter=default', '--reporter=json',
-    `--outputFile.json=${REPORT_CHANNEL}`, ...files];
+  // agent code cannot rewrite the report between the runner writing it and the harness reading it.
+  const run = invocation(opts.runner, opts.root, files, filter, tmpDir, opts.harnessRoot);
+  const args = run.args;
   try {
-    const res = await opts.exec(vitest, args, {
+    const res = await opts.exec(run.cmd, args, {
       cwd: opts.root,
       env: runnerEnv(home, tmpDir),
       timeoutMs: VITEST_TIMEOUT_MS,
@@ -79,32 +197,108 @@ export async function runVitest(opts: {
     });
     const json = res.channel !== undefined && res.channel.trim() !== '' ? res.channel : null;
     const consoleText = consoleOutput(res.stdout, res.stderr, REPORT_CHANNEL);
+    const label = filter.length > 0 ? `${run.label}-alone` : run.label;
     const logPath = await opts.logs.write(
-      'vitest',
-      [`$ vitest ${args.join(' ')}`, `exit: ${String(res.code)}${res.timedOut ? ' (timed out)' : ''}`,
+      label,
+      [`$ ${run.label} ${args.join(' ')}`, `exit: ${String(res.code)}${res.timedOut ? ' (timed out)' : ''}`,
         '--- stdout ---', res.stdout, '--- stderr ---', res.stderr, '--- json ---', json ?? '(no report written)'].join('\n'),
     );
-    const parsed = json === null ? null : parseReport(json);
-    if (parsed === null) {
-      const why = res.timedOut ? 'timed out' : `exit ${String(res.code)}`;
-      const first = firstLine(stripAnsi(res.stderr || res.stdout)) || 'no JSON report';
-      return {
-        ok: false,
-        totals: { files: 0, tests: 0, passed: 0, failed: 0 },
-        observations: [],
-        summary: `tests: runner error (${why}): ${clip(first)}\nlog: ${logPath}`,
-        logPath,
-        console: consoleText,
-      };
-    }
-    const at = new Date().toISOString();
-    const graph = await sourceGraph(opts.root);
-    const observations: TestObservation[] = [];
-    for (const fr of parsed) observations.push(await observe(opts.root, fr, opts.turn, at, graph));
-    return { ...buildReport(opts.root, parsed, observations, logPath, consoleText), console: consoleText };
+    return { res, parsed: json === null ? null : parseReport(json), consoleText, logPath };
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
+}
+
+// ───────────────────────────── order dependence ─────────────────────────────
+
+/** A failing case to re-run alone: its API-relative file, its titles (describe titles, then its own) and the runner's filter for it. */
+interface IsolatedCase {
+  file: string;
+  titles: string[];
+  filter: string[];
+}
+
+/** The note for a case that passes alone but failed among the other tests of its file. */
+export function orderDependenceNote(file: string, titles: string[]): string {
+  return `${file} > ${titles.join(' > ')}: passes when run alone, fails after the other tests in this file: it depends on test order `
+    + '(shared state, e.g. a module-level store, is not reset between tests). Do not assume an empty store; assert only on the records this test created.';
+}
+
+/**
+ * The options that make `runner` (the one invocation() starts) run exactly the case `titles` of a file,
+ * by name, or null when it has no safe name filter. The pattern is the case's full name, every title
+ * escaped as a literal, anchored at both ends:
+ * - vitest matches `--testNamePattern` against the titles joined with ' > ' (vitest 4+) or ' ' (older),
+ *   so either separator is accepted;
+ * - jest matches it, case-insensitively, against the titles joined with ' '.
+ * Either could still select another case whose full name reads the same: the isolated run's report must
+ * show exactly this one case run (soleResult). node:test has no safe filter: its pattern also runs every
+ * test under a suite whose own name matches and filters subtests, so a case run "alone" could skip its
+ * own failing subtest and pass.
+ */
+export function caseNameFilter(runner: TestRunnerInfo | undefined, titles: string[]): string[] | null {
+  if (titles.length === 0) return null;
+  const parts = titles.map(escapeRegExp);
+  const kind = runner?.kind ?? 'vitest';
+  if (kind === 'jest' && runner?.bin !== undefined) return [`--testNamePattern=^${parts.join(' ')}$`];
+  if (kind === 'node-test') return null;
+  return [`--testNamePattern=^ ?${parts.join('(?: > | )')}$`];
+}
+
+/**
+ * Diagnostic only, never an observation (no red, no green; nothing reaches RunState): re-run up to
+ * MAX_ISOLATED_CASES failing cases alone, each through the runner's name filter on its own file, with
+ * the same sandbox, env and fd-3 report channel as the run itself. A case that passes alone although
+ * it failed after the other tests of its file depends on test order (state shared between the cases of
+ * a file, e.g. a module-level store): one note per such case. No note for a file that failed to load or
+ * broke outside its cases, a case whose name another case of the file shares, a runner without a safe
+ * name filter, or an isolated run that errors, times out or does not run exactly that one case.
+ */
+async function orderDependence(opts: RunTestsOptions, files: VitestFileResult[], observations: TestObservation[]): Promise<string[]> {
+  const status = new Map(observations.map((o) => [o.file, o.status]));
+  const cases: IsolatedCase[] = [];
+  for (const fr of files) {
+    const file = relPath(opts.root, fr.name);
+    if (status.get(file) !== 'fail' || fr.message !== '') continue;
+    // A failing case that was the only one to run in its file already ran alone.
+    if (fr.assertionResults.filter(didRun).length < 2) continue;
+    for (const a of fr.assertionResults) {
+      if (a.status !== 'failed') continue;
+      const titles = [...a.ancestorTitles, a.title];
+      if (fr.assertionResults.filter((b) => sameTitles([...b.ancestorTitles, b.title], titles)).length > 1) continue;
+      const filter = caseNameFilter(opts.runner, titles);
+      if (filter !== null) cases.push({ file, titles, filter });
+    }
+  }
+  const notes: string[] = [];
+  for (const c of cases.slice(0, MAX_ISOLATED_CASES)) {
+    const alone = await execRunner(opts, [c.file], c.filter);
+    if (alone.res.timedOut || alone.res.code !== 0 || alone.parsed === null) continue;
+    if (soleResult(opts.root, alone.parsed, c) === 'passed') notes.push(orderDependenceNote(c.file, c.titles));
+  }
+  return notes;
+}
+
+/** A case the runner ran (not skipped, todo or filtered out by name). */
+function didRun(a: VitestAssertion): boolean {
+  return a.status === 'passed' || a.status === 'failed';
+}
+
+function sameTitles(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((t, i) => t === b[i]);
+}
+
+/**
+ * The result of `target` in an isolated run when it is the only case that ran and its file reports no
+ * error outside it; otherwise null (the filter selected nothing, or more than that case).
+ */
+function soleResult(root: string, files: VitestFileResult[], target: IsolatedCase): 'passed' | 'failed' | null {
+  const runs = files.flatMap((fr) => fr.assertionResults.filter(didRun).map((a) => ({ fr, a })));
+  const only = runs[0];
+  if (runs.length !== 1 || only === undefined) return null;
+  if (relPath(root, only.fr.name) !== target.file || only.fr.message !== '') return null;
+  if (!sameTitles([...only.a.ancestorTitles, only.a.title], target.titles)) return null;
+  return only.a.status === 'passed' ? 'passed' : 'failed';
 }
 
 /**
@@ -198,12 +392,17 @@ export function parseReport(json: string): VitestFileResult[] | null {
     if (Array.isArray(ar)) {
       for (const a of ar) {
         if (!isRecord(a)) continue;
-        assertions.push({
+        const assertion: VitestAssertion = {
           ancestorTitles: stringArray(a['ancestorTitles']),
           title: typeof a['title'] === 'string' ? a['title'] : '',
           status: typeof a['status'] === 'string' ? a['status'] : 'unknown',
           failureMessages: stringArray(a['failureMessages']),
-        });
+        };
+        const loc = a['location'];
+        if (isRecord(loc) && typeof loc['line'] === 'number') {
+          assertion.location = { line: loc['line'], column: typeof loc['column'] === 'number' ? loc['column'] : 0 };
+        }
+        assertions.push(assertion);
       }
     }
     out.push({
@@ -216,13 +415,13 @@ export function parseReport(json: string): VitestFileResult[] | null {
   return out;
 }
 
-/** Import graph of the API root's .ts files as they are on disk after the run (for "does this import reach src/?"). */
-async function sourceGraph(root: string): Promise<ImportGraph> {
-  const listed = await glob(['**/*.ts', '**/*.mts', '**/*.cts'], { cwd: root, ignore: ['**/node_modules/**', '**/.git/**'] }).catch(() => []);
-  return importGraph(graphFiles(listed), (f) => readFile(join(root, f), 'utf8').catch(() => null));
+/** Import graph of the API root's TypeScript files as they are on disk after the run (for "does this import reach source?"). */
+async function sourceGraph(root: string, layout: TargetLayout): Promise<ImportGraph> {
+  const listed = await glob(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx'], { cwd: root, ignore: ['**/node_modules/**', '**/.git/**'] }).catch(() => []);
+  return importGraph(graphFiles(listed), (f) => readFile(join(root, f), 'utf8').catch(() => null), layout);
 }
 
-async function observe(root: string, fr: VitestFileResult, turn: number, at: string, graph: ImportGraph): Promise<TestObservation> {
+async function observe(root: string, fr: VitestFileResult, turn: number, at: string, graph: ImportGraph, layout: TargetLayout): Promise<TestObservation> {
   const file = relPath(root, fr.name);
   const content = await readFile(resolve(root, file)).catch(() => null);
   const hash = createHash('sha256').update(content ?? '').digest('hex');
@@ -230,23 +429,25 @@ async function observe(root: string, fr: VitestFileResult, turn: number, at: str
   const failed = fr.assertionResults.filter((a) => a.status === 'failed').length;
   const loadError = collected === 0 && (fr.status === 'failed' || fr.message !== '');
   // Static cases come from the very bytes that were hashed above.
-  const statics = staticTestCases(file, (content ?? Buffer.alloc(0)).toString('utf8'), {
-    resolve: (spec) => resolveSpecifier(file, spec, graph.existing),
-    reachesSource: (target) => reachesSource(target, graph.edges),
+  const text = (content ?? Buffer.alloc(0)).toString('utf8');
+  const statics = staticTestCases(file, text, {
+    resolve: (spec) => resolveImport(file, spec, graph.existing, layout),
+    reachesSource: (target) => reachesSource(target, graph.edges, layout),
   });
-  const cases = joinCases(statics, fr.assertionResults, loadError);
+  const cases = joinCases(statics, fr.assertionResults, loadError, { file, content: text });
   const base = { file, hash, collected, failed, turn, at, cases };
+  const where = sourceRootsLabel(layout);
   if (failed > 0) {
     const counts = cases.some((c) => c.status === 'fail' && countsAsRed(c));
     const why = `${failed} of ${collected} tests failed`;
-    return { ...base, status: 'fail', validRed: counts, reason: counts ? why : `${why}; ${rejectedFailures(cases)}` };
+    return { ...base, status: 'fail', validRed: counts, reason: counts ? why : `${why}; ${rejectedFailures(cases, where)}` };
   }
   if (loadError || fr.status === 'failed') {
-    const missing = missingSourceModule(root, fr.message);
+    const missing = missingSourceModule(root, fr.message, layout);
     if (missing !== null) {
       const why = `imports ${missing}, which does not exist yet`;
       const counts = cases.some(countsAsRed);
-      return { ...base, status: 'error', validRed: counts, reason: counts ? why : `${why}; ${rejectedCases(cases)}` };
+      return { ...base, status: 'error', validRed: counts, reason: counts ? why : `${why}; ${rejectedCases(cases, where)}` };
     }
     const msg = shortMessage(root, fr.message) || 'suite failed to load';
     return { ...base, status: 'error', validRed: false, reason: `suite error: ${msg}` };
@@ -254,28 +455,28 @@ async function observe(root: string, fr: VitestFileResult, turn: number, at: str
   return { ...base, status: 'pass', validRed: false, reason: `${collected} tests passed` };
 }
 
-/** A case whose failure can count as red: an expect() subject uses a value from src/ and is not a constant. */
+/** A case whose failure can count as red: an assertion (any library) uses a value from the API's source and is not constant-only. */
 export function countsAsRed(c: TestCaseObservation): boolean {
   return c.exercisesSource && !c.constantOnly;
 }
 
-/** Why the failing cases of a run do not count as red. */
-function rejectedFailures(cases: TestCaseObservation[]): string {
+/** Why the failing cases of a run do not count as red (`where`: the source roots, e.g. "src/"). */
+function rejectedFailures(cases: TestCaseObservation[], where: string): string {
   const failing = cases.filter((c) => c.status === 'fail');
   if (failing.length === 0) return 'red rejected: the failing tests could not be matched to a test case in the file (use literal titles)';
   if (failing.every((c) => c.constantOnly)) return 'red rejected: the failing cases only assert constants';
   if (failing.every((c) => !c.exercisesSource)) {
-    return "red rejected: the failing cases do not assert on anything imported from src/ (an expect() subject must use its value; side-effect imports, void x and typeof x don't count)";
+    return `red rejected: the failing cases do not assert on anything imported from ${where} (an assertion, of any library, must use its value; side-effect imports, void x and typeof x don't count)`;
   }
-  return 'red rejected: no failing case both asserts on something imported from src/ and has a non-constant subject';
+  return `red rejected: no failing case both asserts on something imported from ${where} and has a non-constant subject`;
 }
 
 /** Why a missing-module red does not count: no case would exercise the missing code. */
-function rejectedCases(cases: TestCaseObservation[]): string {
+function rejectedCases(cases: TestCaseObservation[], where: string): string {
   if (cases.every((c) => !c.exercisesSource)) {
-    return "red rejected: no test case uses anything imported from src/ (side-effect imports don't count)";
+    return `red rejected: no test case uses anything imported from ${where} (side-effect imports don't count)`;
   }
-  return 'red rejected: the test cases that use src/ only assert constants';
+  return `red rejected: the test cases that use ${where} only assert constants`;
 }
 
 const RUNTIME_STATUS: Record<string, TestCaseObservation['status']> = { passed: 'pass', failed: 'fail' };
@@ -285,21 +486,35 @@ const RUNTIME_STATUS: Record<string, TestCaseObservation['status']> = { passed: 
  * pair up in order; a table/dynamic case takes the leftover results its pattern matches, and a
  * result that two patterns match is attributed to neither. A case with no result is 'skip'
  * (not observed); every case of a file that failed to load is 'error'.
+ *
+ * With `located` (the file the statics were parsed from), a failing case is judged by WHERE it
+ * failed (testmap.locatedRed): the statement its failure points at must be an assertion (of any
+ * library) on a value from src/, not a constant one; with no frame in the case the static verdict stands.
  */
-export function joinCases(statics: StaticTestCase[], results: VitestAssertion[], loadError: boolean): TestCaseObservation[] {
-  const keyed = results.map((a) => ({ key: [...a.ancestorTitles, a.title].join(' > '), status: RUNTIME_STATUS[a.status] ?? 'skip', used: false }));
+export function joinCases(
+  statics: StaticTestCase[],
+  results: VitestAssertion[],
+  loadError: boolean,
+  located?: { file: string; content: string },
+): TestCaseObservation[] {
+  const keyed = results.map((a) => ({ key: [...a.ancestorTitles, a.title].join(' > '), status: RUNTIME_STATUS[a.status] ?? 'skip', messages: a.failureMessages.map(stripAnsi), used: false }));
   const assigned = statics.map((): Array<TestCaseObservation['status']> => []);
+  const messages = statics.map((): string[] => []);
+  const assign = (i: number, k: (typeof keyed)[number]): void => {
+    assigned[i]?.push(k.status);
+    if (k.status === 'fail') messages[i]?.push(...k.messages);
+  };
   statics.forEach((s, i) => {
     if (!('exact' in s.match)) return;
     const hit = keyed.find((k) => !k.used && 'exact' in s.match && k.key === s.match.exact);
     if (hit === undefined) return;
     hit.used = true;
-    assigned[i]?.push(hit.status);
+    assign(i, hit);
   });
   for (const k of keyed.filter((x) => !x.used)) {
     const owners = statics.flatMap((s, i) => ('pattern' in s.match && s.match.pattern.test(k.key) ? [i] : []));
     const owner = owners[0];
-    if (owners.length === 1 && owner !== undefined) assigned[owner]?.push(k.status);
+    if (owners.length === 1 && owner !== undefined) assign(owner, k);
   }
   return statics.map((s, i) => {
     const seen = assigned[i] ?? [];
@@ -307,51 +522,59 @@ export function joinCases(statics: StaticTestCase[], results: VitestAssertion[],
       : seen.includes('fail') ? 'fail'
         : seen.length > 0 && seen.every((x) => x === 'pass') ? 'pass'
           : 'skip';
-    const c: TestCaseObservation = { name: s.name, status, exercisesSource: s.exercisesSource, constantOnly: s.constantOnly };
+    const judged = status === 'fail' && located !== undefined ? locatedRed(s, messages[i] ?? [], located.file, located.content) : null;
+    const c: TestCaseObservation = { name: s.name, status, exercisesSource: judged?.exercisesSource ?? s.exercisesSource, constantOnly: judged?.constantOnly ?? s.constantOnly };
     if (s.bodyHash !== undefined) c.bodyHash = s.bodyHash;
     return c;
   });
 }
 
 /**
- * If `message` is a missing-module error whose specifier resolves to a path under
- * `<root>/src/` that does not exist, return that API-relative path; otherwise null.
+ * If `message` is a missing-module error whose specifier resolves (relative, absolute, or through the
+ * layout's tsconfig paths / runner aliases) to a source path that does not exist, return that
+ * API-relative path; otherwise null. A bare package specifier is never a valid red.
  */
-export function missingSourceModule(root: string, message: string): string | null {
+export function missingSourceModule(root: string, message: string, layout: TargetLayout = activeLayout()): string | null {
   const text = stripAnsi(message);
   const patterns: RegExp[] = [
     /Cannot find module ['"]([^'"]+)['"] imported from ['"]?([^'"\s]+)/,
     /Failed to resolve import ["']([^"']+)["'] from ["']([^"']+)["']/,
     /Failed to load url (\S+) \(resolved id: \S+\) in (\S+)/,
+    // jest: Cannot find module '../src/x' from 'test/x.test.ts'
+    /Cannot find module ['"]([^'"]+)['"] from ['"]([^'"]+)['"]/,
   ];
   for (const re of patterns) {
     const m = re.exec(text);
-    const spec = m?.[1];
-    const importer = m?.[2];
+    const spec = m?.[1]?.replace(/^file:\/\//, '');
+    const importer = m?.[2]?.replace(/^file:\/\//, '');
     if (spec === undefined || importer === undefined) continue;
-    let target: string;
+    let rel: string;
     if (spec.startsWith('.')) {
       const imp = isAbsolute(importer) ? importer : resolve(root, importer);
-      target = resolve(dirname(imp), spec);
+      rel = relPath(root, resolve(dirname(imp), spec));
     } else if (isAbsolute(spec)) {
-      target = spec;
+      rel = relPath(root, spec);
     } else {
-      return null; // bare package specifier: never valid red
+      const from = relPath(root, isAbsolute(importer) ? importer : resolve(root, importer));
+      const aliased = resolveImport(from, spec, new Set<string>(), layout);
+      if (aliased === null) return null; // bare package specifier: never valid red
+      rel = aliased;
     }
-    const rel = relPath(root, target);
-    if (!rel.startsWith('src/')) return null;
+    if (rel.startsWith('../') || isAbsolute(rel)) return null;
+    const asTs = rel.replace(/\.(m|c)?js$/, '.$1ts');
+    const file = /\.[cm]?tsx?$/.test(asTs) ? asTs : `${asTs}.ts`;
+    if (!isSourcePath(file, layout)) return null;
     const abs = resolve(root, rel);
     const candidates = [abs, abs.replace(/\.(m|c)?js$/, '.$1ts'), `${abs}.ts`, join(abs, 'index.ts')];
     if (candidates.some((c) => existsSync(c))) return null;
-    const asTs = rel.replace(/\.(m|c)?js$/, '.$1ts');
-    return /\.[cm]?ts$/.test(asTs) ? asTs : `${asTs}.ts`;
+    return file;
   }
   return null;
 }
 
 /**
  * Where a suite that failed to load broke, from the runner's console output: the first
- * in-project stack frame (src/ or test/) after `file`'s failure header and `message`, plus the
+ * in-project stack frame (a project-relative path) after `file`'s failure header and `message`, plus the
  * source line the runner prints for it, e.g. `at src/routes/index.ts:10:7  app.use(usersRouter);`.
  * A load error with a location is actionable; the bare message usually is not. Null when the
  * console names no such frame, or has no failure header for `file` (a capped console may have
@@ -373,8 +596,9 @@ export function errorLocation(consoleText: string, file: string, message: string
   for (let i = 1; i < block.length; i += 1) {
     const line = block[i] ?? '';
     if (/^\s*⎯/.test(line) || /^\s*FAIL\s/.test(line)) break; // next failure block
-    // `❯ fn src/a.ts:1:2`, `❯ new UsersService src/a.ts:1:2` (a constructor frame) or a bare `❯ src/a.ts:1:2`.
-    const loc = /❯\s+(?:new\s+)?(?:\S+\s+)?((?:src|test)\/[^\s:]+:(\d+):\d+)\s*$/.exec(line);
+    // `❯ fn src/a.ts:1:2`, `❯ new UsersService lib/a.ts:1:2` (a constructor frame) or a bare `❯ app.ts:1:2`:
+    // any project-relative file (never `../…` or node_modules, which are outside the project).
+    const loc = /❯\s+(?:new\s+)?(?:\S+\s+)?((?!\.\.?\/|node_modules\/)[\w@][^\s:]*\.[cm]?[jt]sx?:(\d+):\d+)\s*$/.exec(line);
     if (loc?.[1] === undefined) continue;
     const code = block.slice(i + 1, i + 8).map((l) => /^\s*(\d+)\|\s?(.*)$/.exec(l)).find((m) => m?.[1] === loc[2])?.[2]?.trim();
     return `at ${loc[1]}${code !== undefined && code.length > 0 ? `  ${clip(code)}` : ''}`;
@@ -386,21 +610,27 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** A case's result as reported (vitest: passed, failed, skipped, pending, todo); anything that did not run is 'skip'. */
+const CASE_RESULT: Record<string, TestCaseResult['status']> = { passed: 'pass', failed: 'fail', todo: 'todo' };
+
 function buildReport(root: string, files: VitestFileResult[], observations: TestObservation[], logPath: string, consoleText = ''): TestRunReport {
   let tests = 0;
   let passed = 0;
   let failed = 0;
   const failLines: string[] = [];
   const errorLines: string[] = [];
+  const results: TestCaseResult[] = [];
   for (const fr of files) {
     const rel = relPath(root, fr.name);
     for (const a of fr.assertionResults) {
       tests++;
+      results.push({ file: rel, name: [...a.ancestorTitles, a.title].join(' > '), status: CASE_RESULT[a.status] ?? 'skip' });
       if (a.status === 'passed') passed++;
       if (a.status !== 'failed') continue;
       failed++;
       const title = [...a.ancestorTitles, a.title].join(' > ');
-      const msg = firstLine(stripAnsi(a.failureMessages[0] ?? '')).replace(/^AssertionError:\s*/, '');
+      // vitest: "AssertionError: …"; jest: "Error: expect(…)…"; node:assert: "AssertionError [ERR_ASSERTION]: …".
+      const msg = firstLine(stripAnsi(a.failureMessages[0] ?? '')).replace(/^AssertionError(?: \[[A-Z_]+\])?:\s*|^Error:\s*(?=expect\()/, '');
       failLines.push(`FAIL ${rel} > ${title}: ${clip(stripRoot(root, msg))}`);
     }
   }
@@ -425,6 +655,7 @@ function buildReport(root: string, files: VitestFileResult[], observations: Test
     ok: passed > 0 && passed === tests && errors === 0,
     totals: { files: files.length, tests, passed, failed },
     observations,
+    results,
     summary: lines.join('\n'),
     logPath,
   };

@@ -5,7 +5,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
 import { exec } from '../../src/core/exec.ts';
@@ -34,13 +34,20 @@ export interface TempRepo {
   cleanup(): void;
 }
 
-/** Create a committed temp repo; `files` maps repo-relative destination dirs to source dirs to copy. */
-export function tempRepo(label: string, files: Record<string, string> = {}): TempRepo {
+/**
+ * Create a committed temp repo; `files` maps repo-relative destination dirs to source dirs to copy,
+ * `write` repo-relative file paths to content (written after the copies, before the commit).
+ */
+export function tempRepo(label: string, files: Record<string, string> = {}, write: Record<string, string> = {}): TempRepo {
   const dir = join(ROOT, '.harness', 'tmp', `e2e-${label}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const repo = join(dir, 'repo');
   mkdirSync(repo, { recursive: true });
   for (const [dest, src] of Object.entries(files)) {
     cpSync(src, join(repo, dest), { recursive: true, filter: (p) => !p.split(/[\\/]/).some((s) => s === 'node_modules' || s === '.vite') });
+  }
+  for (const [rel, content] of Object.entries(write)) {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), content);
   }
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
   writeFileSync(join(repo, 'README.md'), '# e2e target\n');

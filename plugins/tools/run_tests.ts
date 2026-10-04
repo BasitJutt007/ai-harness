@@ -1,7 +1,8 @@
+import { posix } from 'node:path';
 import { z } from 'zod';
-import { defineTool } from '../../src/core/plugin-api.ts';
+import { activeLayout, defineTool } from '../../src/core/plugin-api.ts';
 import { toApiRel } from '../lib/path-policy.ts';
-import { isTestFile, isTestSupport } from '../lib/red.ts';
+import { isTestFile, isTestSupport, suggestedTest } from '../lib/red.ts';
 
 const Input = z.object({
   files: z.array(z.string()).optional().describe('Test files, default all'),
@@ -21,7 +22,9 @@ async function checkFiles(files: string[], ws: Parameters<typeof toApiRel>[0]): 
     if (!r.ok) return { ok: false, reason: r.reason };
     if (!isTestFile(r.rel)) {
       const what = isTestSupport(r.rel) ? 'is test support code (a helper), not a runnable test' : 'is not a runnable test file';
-      return { ok: false, reason: `${r.rel} ${what}; runnable tests are *.test.ts / *.spec.ts: write test/<name>.test.ts` };
+      // A path the API's runner collects (test/<name>.test.ts for the template; tests/…, colocated … otherwise).
+      const where = suggestedTest(posix.join(posix.dirname(r.rel), '<name>.ts'));
+      return { ok: false, reason: `${r.rel} ${what}; runnable tests are *.test.ts / *.spec.ts the runner collects (${activeLayout().testGlobs.join(', ')}): write ${where}` };
     }
     if (!(await ws.exists(r.rel))) return { ok: false, reason: `${r.rel} does not exist` };
     if (!out.includes(r.rel)) out.push(r.rel);
@@ -41,10 +44,11 @@ export default defineTool({
       if (!checked.ok) return { ok: false, summary: `run_tests: ${checked.reason}. Nothing was run.` };
       files = checked.files;
     }
-    const report = await ctx.services.runTests(files);
+    // Failing cases are re-run alone (diagnostic only, never observations): one that then passes depends on test order.
+    const report = await ctx.services.runTests(files, { isolateFailures: true });
     const red = report.observations.filter((o) => o.validRed).map((o) => o.file);
     const rejected = report.observations.filter((o) => o.status === 'fail' && !o.validRed).map((o) => `${o.file}: ${o.reason}`);
-    const lines = [report.summary, ...rejected];
+    const lines = [report.summary, ...rejected, ...(report.diagnosis ?? [])];
     if (files !== undefined && report.observations.length === 0) {
       lines.push(`no test file was collected for ${files.join(', ')}; check the runner's include pattern`);
     }

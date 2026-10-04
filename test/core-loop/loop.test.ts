@@ -91,6 +91,49 @@ describe('runAgent', () => {
     expect(s.ctx.state.written.size).toBe(0);
   });
 
+  it('computes the post-image once per path from the tool\'s preview() and hands the same one to every hook', async () => {
+    let previews = 0;
+    const seen: Array<ReadonlyMap<string, string | null> | undefined> = [];
+    const spy = (name: string): HookPlugin => ({
+      kind: 'hook', name, description: 's', events: ['pre_tool', 'post_tool'], effects: ['write'],
+      run: async (e) => { seen.push(e.call.preview); return { decision: 'pass' }; },
+    });
+    const previewed: ToolPlugin<unknown> = {
+      ...writeTool(),
+      preview: (i, before) => { previews += 1; return `${before ?? '<none>'}|${(i as { content: string }).content}`; },
+    };
+    const s = setup({
+      tools: [previewed, finishTool()],
+      hooks: [spy('a'), spy('b')],
+      gates: [passGate()],
+      script: [reply([call('w', 'write_file', { path: 'src/x.ts', content: 'NEW' })]), reply([call('f', 'finish', { summary: 'done' })])],
+    });
+    s.ctx.workspace = { ...s.ctx.workspace, read: async (rel) => (rel === 'src/x.ts' ? 'OLD' : null) };
+    await runAgent(s.agentOpts);
+    expect(previews).toBe(1);
+    expect(seen).toHaveLength(4); // two hooks, pre and post
+    for (const p of seen) expect(p).toBe(seen[0]);
+    expect([...(seen[0] ?? new Map())]).toEqual([['src/x.ts', 'OLD|NEW']]);
+  });
+
+  it('a write tool without preview() reaches the hooks without a post-image; a throwing preview leaves the path out', async () => {
+    const seen: Array<ReadonlyMap<string, string | null> | undefined> = [];
+    const spy: HookPlugin = { kind: 'hook', name: 'spy', description: 's', events: ['pre_tool'], run: async (e) => { seen.push(e.call.preview); return { decision: 'pass' }; } };
+    const throwing: ToolPlugin<unknown> = { ...writeTool(), name: 'write_throwing', preview: () => { throw new Error('no'); } };
+    const s = setup({
+      tools: [writeTool(), throwing, finishTool()],
+      hooks: [spy],
+      gates: [passGate()],
+      script: [
+        reply([call('w', 'write_file', { path: 'src/x.ts', content: 'x' }), call('t', 'write_throwing', { path: 'src/y.ts', content: 'y' })]),
+        reply([call('f', 'finish', { summary: 'done' })]),
+      ],
+    });
+    await runAgent(s.agentOpts);
+    expect(seen[0]).toBeUndefined();
+    expect(seen[1]).toEqual(new Map());
+  });
+
   it('invalid input is rejected before hooks run', async () => {
     let hookCalls = 0;
     const spy: HookPlugin = { kind: 'hook', name: 'spy', description: 's', events: ['pre_tool'], run: async () => { hookCalls += 1; return { decision: 'pass' }; } };

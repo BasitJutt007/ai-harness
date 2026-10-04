@@ -1,0 +1,90 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 4 failed) 70ms
+   ❯ users API (4)
+     × creates, gets, updates, lists, and deletes users 62ms
+     × returns problem json for duplicate email and missing users 4ms
+     × validates bodies, params, query, malformed json, and idempotency 2ms
+     × paginates with cursor and limit 2ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  09:54:40
+   Duration  316ms (import 58%, tests 31%, transform 11%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates, lists, and deletes users
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:17:8
+     15|       .post('/v1/users')
+     16|       .send(baseUser)
+     17|       .expect(201);
+       |        ^
+     18|
+     19|     expect(createResponse.headers.location).toMatch(/^\/v1\/users\/[0-…
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > returns problem json for duplicate email and missing users
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:58:104
+     56|     const app = createApp();
+     57|
+     58|     const first = await request(app).post('/v1/users').send({ ...baseU…
+       |                                                                                                        ^
+     59|     expect(first.body.email).toBe('one@example.com');
+     60|
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > validates bodies, params, query, malformed json, and idempotency
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:76:106
+     74|     const app = createApp();
+     75|
+     76|     const invalidCreate = await request(app).post('/v1/users').send({ …
+       |                                                                                                          ^
+     77|     expect(invalidCreate.body.detail).toContain('email');
+     78|     expect(invalidCreate.body.detail).toContain('name');
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > paginates with cursor and limit
+Error: expected 201 "Created", got 404 "Not Found"
+ ❯ test/users.test.ts:113:73
+    111|     const emails = Array.from({ length: 3 }, (_, index) => `user${inde…
+    112|     for (const email of emails) {
+    113|       await request(app).post('/v1/users').send({ email, name: email }…
+       |                                                                         ^
+    114|     }
+    115|
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+observed red: test/users.test.ts (source they cover is now writable)

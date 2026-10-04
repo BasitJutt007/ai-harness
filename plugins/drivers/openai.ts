@@ -4,7 +4,9 @@
  * Token counting is local (js-tiktoken o200k_base) over the exact chat payload this
  * driver would send, with the standard chat-format per-message overhead.
  *
- * Resilience: 429 / 5xx / connection errors are retried by the SDK (maxRetries 4). A 400
+ * Resilience: 429 / 5xx / connection errors are retried by the SDK (maxRetries 4); a rate limit
+ * that outlasts them tells the loop its wait through retryAfterMs (_wire.ts), and a request that
+ * does not fit the context window is reported as errorKind 'context_overflow'. A 400
  * that rejects one of our parameters is answered by changing only that parameter and
  * retrying (max_completion_tokens → max_tokens, an output-token ceiling, tool_choice dropped,
  * system → developer role, loose tool schemas); the change is kept for the session and
@@ -32,7 +34,7 @@ import type {
   Usage,
 } from '../../src/core/plugin-api.ts';
 import { MESSAGE_OVERHEAD, REPLY_PRIMING, countText } from '../lib/tokenize.ts';
-import { errorInfo, normalizeTranscript, outputTokenCeiling, toolSchema } from './_wire.ts';
+import { driverErrorKind, errorInfo, isContextOverflowError, normalizeTranscript, outputTokenCeiling, rateLimitRetryAfterMs, toolSchema } from './_wire.ts';
 
 export const DRIVER_NAME = 'openai';
 /**
@@ -301,7 +303,8 @@ export function createOpenAIDriver(opts: DriverCreateOptions, factory: OpenAICli
         try {
           return fromOpenAIResponse(await client.chat.completions.create(buildOpenAIParams(req, current(), shape), ro));
         } catch (e) {
-          if (attempt >= 8) throw e;
+          // A request that does not fit is never a parameter problem: the loop shrinks it (errorKind).
+          if (attempt >= 8 || isContextOverflowError(e)) throw e;
           if (isModelUnavailable(e) && modelIdx + 1 < candidates.length) {
             modelIdx += 1;
             continue;
@@ -315,6 +318,8 @@ export function createOpenAIDriver(opts: DriverCreateOptions, factory: OpenAICli
     async countTokens(req) {
       return countChatPayload(buildOpenAIParams(req, current(), shape));
     },
+    retryAfterMs: (e) => rateLimitRetryAfterMs(e),
+    errorKind: (e) => driverErrorKind(e),
   };
 }
 

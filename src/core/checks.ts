@@ -12,6 +12,8 @@ import { readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
+import { isSourcePath, isTestPath, isTestSupportPath, targetLayout } from './target.ts';
+import type { TargetLayout } from './target.ts';
 import { createTypecheck, registerTypecheck } from './typecheck.ts';
 import type { Typecheck } from './typecheck.ts';
 import type {
@@ -53,14 +55,17 @@ export async function createCheckContext(opts: {
   exec: Exec;
   harnessRoot: string;
   logs: LogStore;
+  /** Where source and tests live (the run's TargetProfile); computed from the API's own config when absent. */
+  layout?: TargetLayout;
 } & CheckRunInfo): Promise<CheckContext> {
   const { root } = opts;
-  const sourceFiles = (await glob(['src/**/*.ts'], { cwd: root, ignore: [...IGNORE, '**/*.test.ts', '**/*.spec.ts', '**/*.d.ts'] }))
+  const layout = opts.layout ?? await targetLayout(root);
+  // Source = TypeScript under the API's source roots; tests = runnable tests plus test support (target.ts).
+  const all = (await glob(['**/*.ts', '**/*.mts', '**/*.cts'], { cwd: root, ignore: [...IGNORE, '**/*.d.ts', '**/*.d.mts', '**/*.d.cts'] }))
     .map(posixify)
     .sort();
-  const testFiles = [...new Set(
-    (await glob(['test/**/*.ts', 'src/**/*.test.ts', 'src/**/*.spec.ts'], { cwd: root, ignore: [...IGNORE, '**/*.d.ts'] })).map(posixify),
-  )].sort();
+  const sourceFiles = all.filter((f) => isSourcePath(f, layout));
+  const testFiles = all.filter((f) => isTestPath(f, layout) || isTestSupportPath(f, layout));
   const sfCache = new Map<string, ts.SourceFile>();
   let deps: Record<string, string> | undefined;
   const dependencies = (): Record<string, string> => {
@@ -77,6 +82,7 @@ export async function createCheckContext(opts: {
     root,
     sourceFiles,
     testFiles,
+    layout,
     exec: opts.exec,
     harnessRoot: opts.harnessRoot,
     logs: opts.logs,
@@ -136,6 +142,7 @@ export async function runChecks(opts: {
   logs: LogStore;
   categories?: string[];
   rules?: string[];
+  layout?: TargetLayout;
 } & CheckRunInfo): Promise<CheckReport> {
   const selected = selectChecks(opts.checks, opts.categories, opts.rules);
   const ctx = await createCheckContext(opts);

@@ -11,12 +11,14 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { testMapSummary } from './prompt.ts';
 import { loadRegistry } from './registry.ts';
+import { TURN_EXTENSION_STEP, TURN_LIMIT_BASE, TURN_LIMIT_CAP, TURNS_PER_BEHAVIOUR, TURNS_PER_RESOURCE } from './loop.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
+import { targetLayout } from './target.ts';
 import { loadTask } from './task.ts';
 import { buildTestMap } from './testmap.ts';
-import { compareRuns, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
+import { comparisonsFor, compareRuns, formatComparison, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
 import { createWorkspace } from './workspace.ts';
 import type { CheckPlugin, HarnessConfig, RegistryView } from './types.ts';
 
@@ -39,6 +41,11 @@ commands:
       Evidence dirs: HARNESS_RUNS_DIR (default runs/) and HARNESS_TOKENS_DIR (default tokens/)
       override where runs/<id>/ and tokens/<id>.json are written (relative to the harness root).
       Ctrl-C or SIGTERM stops between steps and still writes the evidence (exit 130 / 143).
+      --baseline: the measured token baseline: no context fetchers, no compaction; the current
+      tree and the standards are front-loaded into every request.
+      --max-turns N (or the task file's maxTurns) is a hard cap. Without either, the limit is
+      ${TURN_LIMIT_BASE} + ${TURNS_PER_RESOURCE} per resource + ${TURNS_PER_BEHAVIOUR} per behaviour (at most ${TURN_LIMIT_CAP}), extended by ${TURN_EXTENSION_STEP} turns at a
+      time (at most half the default) while finish attempts show fewer failing gate units.
       exit 0 = DONE (all gates green; with --ship: shipped), 1 = not done / refused
   check --api <dir> [--rule r]... [--category c]... [--json]
       Standards checks on any API directory (absolute or relative; no run needed), one line
@@ -46,9 +53,11 @@ commands:
       resolves dependencies from the harness. An unknown --rule id, or a --category no check
       has, is a usage error (exit 2) that lists the registered rule ids. exit 0 iff 100%
   plugins                         list drivers, tools, hooks, gates, checks (+ load errors)
-  tokens <runId|path>             print a run's per-turn token report
+  tokens <runId|path>             print a run's per-turn token report (its baseline_kind: shadow
+                                  or measured; a measured comparison is shown when one exists)
   tokens compare <jitRunId> <baselineRunId>
-                                  measured comparison of a JIT run and a --baseline run
+                                  measured comparison of a JIT run and a --baseline run: per-run
+                                  totals and per-turn averages, with caveats
   agnostic <runA> <runB>          compare task sha + tool/hook/gate/check fingerprints of two
                                   runs (run ids or run directories). exit 0 iff zero diff
   ship <run> [--dry-run] [--remote <name>]
@@ -267,8 +276,8 @@ async function cmdTask(p: ParsedArgs, out: Out): Promise<number> {
     return 1;
   }
   if (p.bools.has('json')) {
-    const { file: abs, format, strict, sha256, normalizedSha256, warnings, task } = loaded;
-    out(JSON.stringify({ file: abs, format, strict, sha256, normalizedSha256, warnings, task }, null, 2));
+    const { file: abs, format, strict, sha256, normalizedSha256, warnings, declaresScope, task } = loaded;
+    out(JSON.stringify({ file: abs, format, strict, sha256, normalizedSha256, warnings, ...(task.kind === 'brownfield' ? { declaresScope } : {}), task }, null, 2));
     return 0;
   }
   const t = loaded.task;
@@ -277,6 +286,9 @@ async function cmdTask(p: ParsedArgs, out: Out): Promise<number> {
   out(`sha256    ${loaded.sha256}  normalized ${loaded.normalizedSha256}`);
   out(`notes     ${loaded.warnings.length === 0 ? '(none: the file is canonical)' : loaded.warnings.length}`);
   for (const w of loaded.warnings) out(`  - ${w}`);
+  if (t.kind === 'brownfield' && !loaded.declaresScope) {
+    out("scope     not declared: a run writes within the target API's own source and test roots (its layout, printed at preflight), not the default allow list below");
+  }
   out('canonical task:');
   for (const line of stringifyYaml(t, { lineWidth: 0 }).trimEnd().split('\n')) out(`  ${line}`);
   return 0;
@@ -451,11 +463,7 @@ async function cmdTokens(p: ParsedArgs, out: Out): Promise<number> {
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `compare-${cmp.jit.runId}-vs-${cmp.baseline.runId}.json`);
     writeFileSync(file, `${JSON.stringify(cmp, null, 2)}\n`, 'utf8');
-    out(`measured  task ${cmp.task}`);
-    out(`jit       ${cmp.jit.runId}: ${cmp.jit.input_tokens} input tokens over ${cmp.jit.turns} turns (provider ${cmp.jit.provider_reported_input_tokens})`);
-    out(`baseline  ${cmp.baseline.runId}: ${cmp.baseline.input_tokens} input tokens over ${cmp.baseline.turns} turns (provider ${cmp.baseline.provider_reported_input_tokens})`);
-    out(`reduction ${cmp.reduction_pct}% counted, ${cmp.provider_reported_reduction_pct}% provider-reported, ${cmp.per_turn_reduction_pct}% per turn`);
-    for (const c of cmp.caveats) out(`caveat    ${c}`);
+    for (const line of formatComparison(cmp)) out(line);
     out(`written   ${toPosix(relative(HARNESS_ROOT, file))}`);
     return 0;
   }
@@ -464,7 +472,16 @@ async function cmdTokens(p: ParsedArgs, out: Out): Promise<number> {
     out('tokens needs <runId|path> or "compare <jitRunId> <baselineRunId>"');
     return 2;
   }
-  out(formatTokenReport(readTokenReport(config, ref)));
+  const report = readTokenReport(config, ref);
+  out(formatTokenReport(report));
+  // A measured comparison (tokens compare) is preferred over a shadow estimate wherever one exists.
+  for (const m of comparisonsFor(evidenceDirs(config).tokensDir, report.runId)) {
+    out(
+      `measured  ${m.jitRunId} vs --baseline ${m.baselineRunId}: ${m.reduction_pct}% per-run totals` +
+        `${m.per_turn_reduction_pct !== null ? `, ${m.per_turn_reduction_pct}% per-turn average` : ''}` +
+        `${m.caveats.length > 0 ? ` (${m.caveats.length} caveat(s))` : ''}  (preferred: ${toPosix(relative(HARNESS_ROOT, m.file))})`,
+    );
+  }
   return 0;
 }
 
@@ -549,7 +566,7 @@ async function cmdShip(p: ParsedArgs, out: Out): Promise<number> {
 async function cmdTestmap(p: ParsedArgs, out: Out): Promise<number> {
   const root = apiDir(p, out);
   if (root === null) return 2;
-  const map = await buildTestMap(createWorkspace(root, '.'));
+  const map = await buildTestMap(createWorkspace(root, '.'), await targetLayout(root));
   const text = testMapSummary(map, 500);
   out(text.length > 0 ? text : '(no test files)');
   return 0;

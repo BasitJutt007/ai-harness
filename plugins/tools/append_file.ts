@@ -18,6 +18,7 @@ export default defineTool({
   input: Input,
   effect: 'write',
   paths: (input) => [input.path],
+  preview: (input, before) => appendText(before ?? '', input.append),
   async run(input, ctx) {
     const r = toApiRel(ctx.workspace, input.path);
     if (!r.ok) return { ok: false, summary: `append_file: ${r.reason}` };

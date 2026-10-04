@@ -12,14 +12,15 @@
  * an UNPROVEN change, never a silent pass.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
 import { z } from 'zod';
-import type { Exec, JsonSchema, RunContext } from '../../src/core/plugin-api.ts';
+import { createTsFence, isSourcePath, linkDependencies, targetLayout } from '../../src/core/plugin-api.ts';
+import type { Exec, JsonSchema, RunContext, TsFence } from '../../src/core/plugin-api.ts';
 import { extractRoutes, resolveSymbol } from './api-ast.ts';
 import type { RouteInfo, SchemaRef } from './api-ast.ts';
 import { notImportable } from './schema-purity.ts';
@@ -88,18 +89,29 @@ export interface ContractDiff {
 
 const IGNORE = ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/*.test.ts', '**/*.spec.ts', '**/*.d.ts'];
 
+/**
+ * The API's source files: TypeScript under its source roots (the API's own tsconfig/runner layout, not a
+ * fixed src/), the same set the checks extract routes from (checks.ts createCheckContext).
+ */
 export async function apiSourceFiles(root: string): Promise<string[]> {
-  return (await glob(['src/**/*.ts'], { cwd: root, ignore: IGNORE })).map((f) => f.split('\\').join('/')).sort();
+  const layout = await targetLayout(root);
+  return (await glob(['**/*.ts', '**/*.mts', '**/*.cts'], { cwd: root, ignore: IGNORE }))
+    .map((f) => f.split('\\').join('/'))
+    .filter((f) => isSourcePath(f, layout))
+    .sort();
 }
 
-/** Same options as the check runner: the API's tsconfig with strict/noUncheckedIndexedAccess/noEmit forced. */
-export function apiCompilerOptions(root: string): ts.CompilerOptions {
+/**
+ * Same options as the check runner: the API's tsconfig with strict/noUncheckedIndexedAccess/noEmit forced.
+ * Read through the API's read fence: an `extends` outside the API's tree is not read.
+ */
+export function apiCompilerOptions(root: string, fence: TsFence = createTsFence(root)): ts.CompilerOptions {
   const forced: ts.CompilerOptions = { strict: true, noUncheckedIndexedAccess: true, noEmit: true };
   const configPath = join(root, 'tsconfig.json');
-  if (existsSync(configPath)) {
-    const read = ts.readConfigFile(configPath, (p) => ts.sys.readFile(p));
+  if (fence.host.fileExists(configPath)) {
+    const read = ts.readConfigFile(configPath, (p) => fence.host.readFile(p));
     if (read.error === undefined) {
-      const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, root, undefined, configPath);
+      const parsed = ts.parseJsonConfigFileContent(read.config, fence.host, root, undefined, configPath);
       return { ...parsed.options, ...forced };
     }
   }
@@ -114,8 +126,10 @@ export function apiCompilerOptions(root: string): ts.CompilerOptions {
   };
 }
 
+/** The API's program over `files`, fenced: it reads the API's tree, its node_modules and the TypeScript libs only. */
 export function createApiProgram(root: string, files: string[]): ts.Program {
-  return ts.createProgram({ rootNames: files.map((f) => join(root, f)), options: apiCompilerOptions(root) });
+  const fence = createTsFence(root);
+  return fence.createProgram(files.map((f) => join(root, f)), apiCompilerOptions(root, fence));
 }
 
 // ───────────────────────────── extraction ─────────────────────────────
@@ -388,8 +402,8 @@ const snapshotRoots = new Map<string, string>();
 /**
  * Materialise the base commit's version of the API under <harnessRoot>/.harness/tmp
  * (`git archive <baseSha> <rootRel>`) and return the API directory inside it.
- * node_modules resolution: the temp dir lives under the harness root; an API-level
- * node_modules (if the worktree has one) is symlinked in.
+ * node_modules resolution: the worktree's node_modules at the API level and every ancestor are
+ * linked in (target first); the temp dir lives under the harness root, so the harness's is the fallback.
  */
 export async function snapshotBase(opts: {
   repoRoot: string;
@@ -416,13 +430,8 @@ export async function snapshotBase(opts: {
     rmSync(tar, { force: true });
     const apiDir = rel === '' ? tree : join(tree, rel);
     if (!existsSync(apiDir)) throw new Error(`${rel} does not exist at ${opts.baseSha}`);
-    for (const nm of [join(opts.repoRoot, rel, 'node_modules'), join(opts.repoRoot, 'node_modules')]) {
-      const link = join(apiDir, 'node_modules');
-      if (existsSync(nm) && !existsSync(link)) {
-        symlinkSync(nm, link, 'dir');
-        break;
-      }
-    }
+    // The archive mirrors the repository from its top: link node_modules at the API level and every ancestor.
+    linkDependencies(opts.repoRoot, rel === '' ? '.' : rel, tree);
     snapshotRoots.set(apiDir, dir);
     return apiDir;
   } catch (e) {

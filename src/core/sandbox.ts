@@ -1,7 +1,8 @@
 /**
  * Execution isolation for agent-written code (the test runner, runtime probes, contract
- * schema extraction, tsc over the agent's tsconfig). exec.ts routes every call that carries a
- * SandboxPolicy through wrap():
+ * schema extraction). TypeScript programs the harness builds in-process over the agent's tsconfig
+ * and imports are no subprocess: ts-fence.ts gives them the same read allow-list through their
+ * compiler host. exec.ts routes every call that carries a SandboxPolicy through wrap():
  *
  *   sandbox-exec (macOS)  generated Seatbelt profile on top of (allow default):
  *                         - writes only inside the policy's writable dirs;
@@ -157,8 +158,16 @@ const PRIVATE_ROOTS_DARWIN = ['/Users', '/Volumes', '/private/tmp', '/private/va
 /** Linux directories masked with a fresh tmpfs (only the allow-list is bound back). */
 const MASKED_LINUX = ['/tmp', '/var/tmp', '/run', '/home', '/root', '/mnt', '/media'];
 
-/** Files of the harness that confined runtimes execute (they import only node: builtins and zod). */
-const HARNESS_RUNTIME_FILES = ['package.json', join('plugins', 'lib', 'probe-runtime.ts'), join('plugins', 'lib', 'contract-runtime.ts')];
+/**
+ * Files of the harness that confined runtimes execute (they import only node: builtins and zod): the probe
+ * and contract runtimes, and the reporter node:test loads into a target's test run (testing.ts).
+ */
+const HARNESS_RUNTIME_FILES = [
+  'package.json',
+  join('plugins', 'lib', 'probe-runtime.ts'),
+  join('plugins', 'lib', 'contract-runtime.ts'),
+  join('src', 'core', 'node-test-reporter.mjs'),
+];
 
 let cachedWorktreeParent: string | null | undefined;
 
@@ -212,7 +221,7 @@ export function enclosingRoot(cwd: string): string {
  * Realpaths of symlinked packages in a (real) node_modules dir that point outside it: npm / yarn
  * workspaces link to sibling packages of the repo. Links within it (pnpm's .pnpm store) need nothing.
  */
-function linkedPackages(nm: string): string[] {
+export function linkedPackages(nm: string): string[] {
   const out: string[] = [];
   const visit = (dir: string, depth: number): void => {
     let names: string[];
@@ -256,7 +265,8 @@ export interface ReadFence {
  *  1. the enclosing worktree (enclosingRoot), never wider than the run's own tree;
  *  2. every node_modules found walking up from the cwd, plus the cmd's own node_modules, the
  *     harness's node_modules (the runtimes import zod from it) and packages symlinked into them;
- *  3. the harness runtime files (package.json, probe-runtime.ts, contract-runtime.ts), not the harness root;
+ *  3. the harness runtime files (package.json, probe-runtime.ts, contract-runtime.ts, node-test-reporter.mjs),
+ *     not the harness root;
  *  4. the node installation (dirname(dirname(realpath(node)))), so nvm / volta / fnm installs work;
  *  5. the writable dirs.
  * Throws if an allowed root is '/', contains the operator's home, or contains the harness root

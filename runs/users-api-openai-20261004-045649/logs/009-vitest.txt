@@ -1,0 +1,54 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649/generated/users-api
+
+ ❯ test/users.test.ts (14 tests | 1 failed) 75ms
+   ❯ users API (14)
+     ✓ creates a user with default role member and returns 201 with Location 25ms
+     ✓ gets a created user by id 6ms
+     ✓ lists users with cursor pagination that visits every user exactly once 10ms
+     ✓ returns 404 problem when getting an unknown user id 4ms
+     ✓ returns 404 problem when patching an unknown user id 2ms
+     ✓ returns 404 problem when deleting an unknown user id 1ms
+     × rejects duplicate emails on create with 409 problem 6ms
+     ✓ rejects changing a user email to another users email with 409 problem 4ms
+     ✓ returns 422 problem whose detail names each invalid body field 2ms
+     ✓ returns 422 problem for invalid query and path parameters 2ms
+     ✓ returns 400 problem for malformed JSON body 2ms
+     ✓ replays POST by Idempotency-Key with same body and rejects reuse with different body 4ms
+     ✓ patches only provided fields and rejects an empty patch 3ms
+     ✓ deletes a user with 204 and the user is then gone 3ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 passed (14)
+   Start at  09:57:46
+   Duration  344ms (import 56%, tests 29%, transform 15%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate emails on create with 409 problem
+AssertionError: expected 'https://api.sf/problems/duplicate-ema…' to be 'https://api.sf/problems/conflict' // Object.is equality
+
+Expected: "https://api.sf/problems/conflict"
+Received: "https://api.sf/problems/duplicate-email"
+
+ ❯ expectProblem test/users.test.ts:21:24
+     19|   const problem = ProblemSchema.parse(res.body);
+     20|   expect(problem.status).toBe(status);
+     21|   expect(problem.type).toBe(`https://api.sf/problems/${slug}`);
+       |                        ^
+     22|   return problem;
+     23| }
+ ❯ test/users.test.ts:131:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":14,"numPassedTests":13,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791089866326,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates a user with default role member and returns 201 with Location","status":"passed","title":"creates a user with default role member and returns 201 with Location","duration":24.74324999999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API gets a created user by id","status":"passed","title":"gets a created user by id","duration":5.888750000000016,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API lists users with cursor pagination that visits every user exactly once","status":"passed","title":"lists users with cursor pagination that visits every user exactly once","duration":10.36908299999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 404 problem when getting an unknown user id","status":"passed","title":"returns 404 problem when getting an unknown user id","duration":4.016499999999951,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 404 problem when patching an unknown user id","status":"passed","title":"returns 404 problem when patching an unknown user id","duration":2.3511250000000246,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 404 problem when deleting an unknown user id","status":"passed","title":"returns 404 problem when deleting an unknown user id","duration":1.0315420000000017,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects duplicate emails on create with 409 problem","status":"failed","title":"rejects duplicate emails on create with 409 problem","duration":6.297749999999951,"failureMessages":["AssertionError: expected 'https://api.sf/problems/duplicate-ema…' to be 'https://api.sf/problems/conflict' // Object.is equality\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649/generated/users-api/test/users.test.ts:21:24)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649/generated/users-api/test/users.test.ts:131:5\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects changing a user email to another users email with 409 problem","status":"passed","title":"rejects changing a user email to another users email with 409 problem","duration":3.791750000000036,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 422 problem whose detail names each invalid body field","status":"passed","title":"returns 422 problem whose detail names each invalid body field","duration":1.9370839999999703,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 422 problem for invalid query and path parameters","status":"passed","title":"returns 422 problem for invalid query and path parameters","duration":2.1709999999999923,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 400 problem for malformed JSON body","status":"passed","title":"returns 400 problem for malformed JSON body","duration":1.843999999999994,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays POST by Idempotency-Key with same body and rejects reuse with different body","status":"passed","title":"replays POST by Idempotency-Key with same body and rejects reuse with different body","duration":3.9591669999999795,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API patches only provided fields and rejects an empty patch","status":"passed","title":"patches only provided fields and rejects an empty patch","duration":2.871915999999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API deletes a user with 204 and the user is then gone","status":"passed","title":"deletes a user with 204 and the user is then gone","duration":2.675666999999976,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791089866595,"endTime":1791089866668.6758,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045649/generated/users-api/test/users.test.ts"}]}

@@ -2,7 +2,8 @@
  * The read side of isolation, against the real mechanism: confined code reads its own tree, every
  * node_modules on the way up (a symlinked one under both spellings), the harness runtime files and the
  * node install, and nothing else of the operator's machine: not the harness's .git, runs/ or sources,
- * not a sibling checkout. tsc, which follows the agent's tsconfig and imports, runs under the same fence.
+ * not a sibling checkout. The in-process type check (tsc-strict), which follows the agent's tsconfig and
+ * imports, reads through the same allow-list: its compiler host is the fence.
  */
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -12,11 +13,15 @@ import { createCheckContext } from '../../src/core/checks.ts';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
 import { exec } from '../../src/core/exec.ts';
 import { detectMechanism } from '../../src/core/sandbox.ts';
-import type { Exec, ExecOptions, LogStore } from '../../src/core/types.ts';
+import { typescriptLibDir } from '../../src/core/ts-fence.ts';
+import { typecheckOf } from '../../src/core/typecheck.ts';
+import type { LogStore } from '../../src/core/types.ts';
 import { layout, type Layout } from './helpers.ts';
 
 const mechanism = detectMechanism();
 const blocked = process.platform === 'darwin' ? 'EPERM' : 'ENOENT';
+/** The outside "secret": an unfenced type check quotes it in a type error. */
+const CANARY = 'sk_live_CANARY_TSC_LEAK';
 let l: Layout;
 
 function memoryLogs(): LogStore & { entries: Map<string, string> } {
@@ -54,8 +59,13 @@ beforeAll(() => {
   });
   mkdirSync(join(l.dir, 'shared-nm', '@ws'), { recursive: true });
   symlinkSync(join(l.dir, 'packages', 'lib'), join(l.dir, 'shared-nm', '@ws', 'lib'), 'dir');
-  // A "secret" next to the API: unconfined, tsc would quote it in a type error.
-  writeAll(join(l.dir, 'outside-secret'), { 'config.ts': "export const token = 'sk_live_CANARY_TSC_LEAK' as const;\n" });
+  // A "secret" next to the API: unconfined, tsc would quote it in a type error (as an import, a global
+  // declared by a `files` entry, or by the `files` of an extended config).
+  writeAll(join(l.dir, 'outside-secret'), {
+    'config.ts': `export const token = '${CANARY}' as const;\n`,
+    'ambient.d.ts': `declare const leakedToken: '${CANARY}';\n`,
+    'tsconfig.base.json': JSON.stringify({ compilerOptions: { strict: true }, files: ['./ambient.d.ts'] }),
+  });
 });
 afterAll(() => l.cleanup());
 
@@ -71,7 +81,7 @@ process.stdout.write(JSON.stringify(r));
 `;
 
 describe.runIf(mechanism !== 'none')(`read fence under ${mechanism}`, () => {
-  it('reads: own tree, symlinked node_modules and workspace links (require resolves), harness runtime; never harness .git/runs/sources or a sibling checkout', async () => {
+  it('reads: own tree, symlinked node_modules and workspace links (require resolves), harness runtime files (probe, contract, node:test reporter); never harness .git/runs/sources or a sibling checkout', async () => {
     const tmp = join(l.runTmp, 'fence-read');
     mkdirSync(tmp, { recursive: true });
     const targets = {
@@ -80,6 +90,7 @@ describe.runIf(mechanism !== 'none')(`read fence under ${mechanism}`, () => {
       linkedNmReal: join(l.dir, 'shared-nm', 'canary-pkg', 'index.js'),
       harnessNm: join(HARNESS_ROOT, 'node_modules', 'zod', 'package.json'),
       probeRuntime: join(HARNESS_ROOT, 'plugins', 'lib', 'probe-runtime.ts'),
+      nodeTestReporter: join(HARNESS_ROOT, 'src', 'core', 'node-test-reporter.mjs'),
       harnessGit: join(HARNESS_ROOT, '.git'),
       harnessRuns: join(HARNESS_ROOT, 'runs'),
       harnessSource: join(HARNESS_ROOT, 'src', 'core', 'exec.ts'),
@@ -95,6 +106,7 @@ describe.runIf(mechanism !== 'none')(`read fence under ${mechanism}`, () => {
       linkedNmReal: 'ok',
       harnessNm: 'ok',
       probeRuntime: 'ok',
+      nodeTestReporter: 'ok',
       harnessGit: blocked,
       harnessRuns: blocked,
       harnessSource: blocked,
@@ -106,42 +118,80 @@ describe.runIf(mechanism !== 'none')(`read fence under ${mechanism}`, () => {
     });
   });
 
-  // Known gap after the merge: tsc-strict now type-checks in-process (src/core/typecheck.ts), outside the
-  // sandbox, so this subprocess confinement no longer applies. Kept as a todo until the in-process program
-  // gets a fenced CompilerHost.
-  it.todo('tsc-strict reads only the API, its node_modules and the TypeScript libs (in-process fence)');
-  it.skip('tsc-strict runs tsc confined: the API, its symlinked node_modules and the TypeScript libs resolve; a file outside the API does not', async () => {
-    const api = join(l.dir, 'tsc-api');
-    writeAll(api, {
-      'package.json': JSON.stringify({ name: 'tsc-fence', type: 'module', private: true }),
+});
+
+/**
+ * tsc-strict type-checks in-process (src/core/typecheck.ts), so no OS mechanism wraps it: its compiler host
+ * is the fence (src/core/ts-fence.ts), and this holds whatever the platform. Each API below names the
+ * outside "secret" another way; an unfenced program quotes it in a type error (test/sandbox/ts-fence.test.ts
+ * proves each vector leaks without the fence).
+ */
+describe('in-process fence: tsc-strict reads only the API, its node_modules and the TypeScript libs', () => {
+  const COMPILER = { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, noEmit: true, skipLibCheck: true, types: ['node'] };
+  const outside = (): string => join(l.dir, 'outside-secret');
+
+  async function tscStrictOver(name: string, files: Record<string, string>) {
+    const api = join(l.dir, name);
+    writeAll(api, { 'package.json': JSON.stringify({ name, type: 'module', private: true }), ...files });
+    symlinkSync(join(l.dir, 'shared-nm'), join(api, 'node_modules'), 'dir');
+    const logs = memoryLogs();
+    const ctx = await createCheckContext({ root: api, exec, harnessRoot: HARNESS_ROOT, logs });
+    const findings = await tscStrict.run(ctx);
+    const tc = typecheckOf(ctx);
+    const loaded = tc.primary().getSourceFiles().map((sf) => sf.fileName);
+    // Everything that could reach the model or the run log: findings (messages, skip reasons) and logs.
+    const text = `${JSON.stringify(findings)}\n${[...logs.entries.values()].join('\n')}`;
+    return { api, findings, tc, loaded, text, project: findings.find((f) => f.file === '(project)') };
+  }
+
+  it('relative import and tsconfig `paths`: not resolved (TS2307), never read; the API, its symlinked node_modules and the libs resolve', async () => {
+    const r = await tscStrictOver('tsc-api', {
       'tsconfig.json': JSON.stringify({
-        // incremental: the build info must go to tsc's scratch dir (the API is read-only to it)
-        compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, noEmit: true, incremental: true, skipLibCheck: true, types: ['node'] },
+        // incremental: a program the harness builds must never write build info into the API
+        compilerOptions: { ...COMPILER, incremental: true, paths: { 'secret-alias': ['../outside-secret/config.ts'] } },
         include: ['src/**/*.ts'],
       }),
       'src/ok.ts': "import { value } from 'canary-pkg';\nimport { join } from 'node:path';\nexport const v: string = join(value, 'x');\n",
-      'src/leak.ts': "import { token } from '../../outside-secret/config.js';\nexport const n: number = token;\n",
+      'src/leak.ts': "import { token } from '../../outside-secret/config.js';\nexport const n: 'probe' = token;\n",
+      'src/alias.ts': "import { token } from 'secret-alias';\nexport const n: 'probe' = token;\n",
     });
-    symlinkSync(join(l.dir, 'shared-nm'), join(api, 'node_modules'), 'dir');
-    const calls: ExecOptions[] = [];
-    const spy: Exec = (cmd, args, opts) => {
-      calls.push(opts);
-      return exec(cmd, args, opts);
-    };
-    const logs = memoryLogs();
-    const ctx = await createCheckContext({ root: api, exec: spy, harnessRoot: HARNESS_ROOT, logs });
-    const findings = await tscStrict.run(ctx);
-    const tscCall = calls.find((o) => o.timeoutMs === 180_000);
-    expect(tscCall?.sandbox).toMatchObject({ network: 'none' });
-    expect(tscCall?.sandbox?.writable).toHaveLength(1);
-    const output = logs.entries.get('tsc-strict.txt') ?? '';
-    expect(output).not.toContain('CANARY_TSC_LEAK');
-    const leak = findings.find((f) => f.file === 'src/leak.ts');
-    expect(leak?.violations.map((v) => v.message.split(':')[0])).toEqual(['TS2307']);
-    // canary-pkg (symlinked node_modules), node:path (@types/node up the tree) and lib.es2022 all resolved,
-    // and the incremental build info did not fail on the read-only API root
-    expect(findings.find((f) => f.file === 'src/ok.ts')).toBeUndefined();
-    expect(findings.find((f) => f.file === '(project)')?.violations).toEqual([]);
-    expect(existsSync(join(api, 'tsconfig.tsbuildinfo'))).toBe(false);
+    expect(r.text).not.toContain(CANARY);
+    expect(r.findings.find((f) => f.file === 'src/leak.ts')?.violations.map((v) => v.message.split(':')[0])).toEqual(['TS2307']);
+    expect(r.findings.find((f) => f.file === 'src/alias.ts')?.violations.map((v) => v.message.split(':')[0])).toEqual(['TS2307']);
+    // canary-pkg (symlinked node_modules), node:path (@types/node up the tree) and lib.es2022 all resolved
+    expect(r.findings.find((f) => f.file === 'src/ok.ts')).toBeUndefined();
+    expect(r.project).toMatchObject({ status: 'fail', violations: [] });
+    expect(r.loaded.some((f) => f.endsWith('/canary-pkg/index.d.ts'))).toBe(true);
+    expect(r.loaded.some((f) => f.includes('/@types/node/'))).toBe(true);
+    expect(r.loaded.some((f) => f.startsWith(typescriptLibDir()) && f.endsWith('lib.es2022.d.ts'))).toBe(true);
+    // The fence was asked and refused: the outside tree was never read.
+    expect(r.loaded.filter((f) => f.startsWith(outside()))).toEqual([]);
+    expect(r.tc.fence.refused().some((p) => p.startsWith(outside()))).toBe(true);
+    expect(existsSync(join(r.api, 'tsconfig.tsbuildinfo'))).toBe(false);
+  }, 120_000);
+
+  it('`extends` outside the API: not read; the configuration is unusable (UNPROVEN), never a crash', async () => {
+    const r = await tscStrictOver('tsc-api-extends', {
+      'tsconfig.json': JSON.stringify({ extends: '../outside-secret/tsconfig.base.json', compilerOptions: COMPILER }),
+      'src/use.ts': "export const n: 'probe' = leakedToken;\n",
+    });
+    expect(r.text).not.toContain(CANARY);
+    expect(r.project?.status).toBe('skip');
+    expect(r.project?.skipReason).toContain('unusable TypeScript configuration: tsconfig.json');
+    expect(r.project?.skipReason).toContain("outside the API's tree");
+    expect(r.tc.fence.refused()).toContain(join(outside(), 'tsconfig.base.json'));
+    expect(r.loaded.filter((f) => f.startsWith(outside()))).toEqual([]);
+  }, 120_000);
+
+  it('a `files` entry outside the API: not read; UNPROVEN, nothing quoted', async () => {
+    const r = await tscStrictOver('tsc-api-files', {
+      'tsconfig.json': JSON.stringify({ compilerOptions: COMPILER, files: ['../outside-secret/ambient.d.ts', 'src/use.ts'] }),
+      'src/use.ts': "export const n: 'probe' = leakedToken;\n",
+    });
+    expect(r.text).not.toContain(CANARY);
+    expect(r.project?.status).toBe('skip');
+    expect(r.project?.skipReason).toMatch(/TS6053 File '.*outside-secret\/ambient\.d\.ts' not found/);
+    expect(r.tc.fence.refused()).toContain(join(outside(), 'ambient.d.ts'));
+    expect(r.loaded.filter((f) => f.startsWith(outside()))).toEqual([]);
   }, 120_000);
 });

@@ -45,7 +45,7 @@ with a `target`, or `output` together with `target`.
 
 ## Keys and their aliases
 
-Keys are matched ignoring case, `-`, `_` and spaces. The canonical name is listed first.
+Keys are matched ignoring case, `-`, `_`, `.` and spaces. The canonical name is listed first.
 
 | Canonical | Also accepted | If missing |
 |---|---|---|
@@ -61,8 +61,22 @@ Keys are matched ignoring case, `-`, `_` and spaces. The canonical name is liste
 | `basePath` | `prefix`, `apiPrefix`, `baseUrl` | `/v1` |
 | `template`, `scope`, `allowBreaking`, `limits` | `scaffold`; `allow_breaking` | defaults |
 
+**Limits** are `maxTurns` (also `turns`, `maxSteps`) and `maxOutputTokens` (also `maxTokens`,
+default 16,000); any other key under `limits` is ignored with a note. A `maxTurns` in the task (or
+`--max-turns`) is a hard cap. Without one the limit scales with the task: 40 turns, plus 20 per
+resource (a brief-only task or a change counts as one), plus 2 per behaviour, at most 150; when a run
+reaches it while the gates are making progress (the latest refused finish had fewer failing units
+than the one before), it is extended 10 turns at a time, by at most half the limit in all.
+
 Any other top-level key is **carried**: the model sees it verbatim under "Additional details from the
 task file". It is never dropped.
+
+**Scope** (brownfield) is `allow`/`deny` glob lists (`include`, `write` and `exclude`, `readonly`, ...
+also accepted), or one list of allow globs. A task that names no allow list writes within the target
+API's own source and test roots, read from its tsconfig and test-runner config at preflight (`src/`
+and `test/` for the template layout), not the `src/**/*.ts`, `test/**/*.ts` default that `harness task
+check` prints; its deny list still applies. The run records the scope it used (`run.json`
+`target.defaultScope`).
 
 **Resources** can be a list of specs, one spec, a map `name: spec`, or a list of names. A spec can
 hold `fields` (or `properties`, `attributes`, `columns`), `operations` and `endpoints`. A spec that
@@ -107,9 +121,11 @@ behaviour, so custom routes such as `POST /todos/:id/archive` are not lost.
 
 ## Always an error
 
-- **Provider keys**: `model`, `provider`, `driver`, `llm`, `temperature`, `api_key`, `*_API_KEY`.
-  These are checked at the top level and inside `limits`/`options`/`settings`/`config`. A field or
-  resource *named* `model` (a car API) is fine.
+- **Provider keys**: `model`/`models` (unless the value describes data models), `provider`,
+  `driver`, `llm` (and their plurals), `temperature`, `modelName`, `modelId`, `modelProvider`, and any
+  key ending in `api_key`/`apiKey` (`OPENAI_API_KEY`). These are checked at the top level and inside
+  `limits`, `options`, `settings`, `config`, `configuration`, `harness`, `agent`, `runtime`, `run`
+  and `execution`. A field or resource *named* `model` (a car API) is fine.
 - Malformed YAML or JSON, an empty file, or a top-level list.
 - A contradictory or unknown `kind`.
 - A greenfield task with neither resources nor a brief.

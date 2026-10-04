@@ -107,11 +107,12 @@ const common = {
     .optional(),
   limits: z
     .object({
-      maxTurns: z.number().int().min(1).default(60),
+      // No default: an absent maxTurns is scaled with the task's size at run time (loop.ts turnLimitFor).
+      maxTurns: z.number().int().min(1).optional(),
       maxOutputTokens: z.number().int().min(256).max(128000).default(16000),
     })
     .strict()
-    .default({ maxTurns: 60, maxOutputTokens: 16000 }),
+    .default({ maxOutputTokens: 16000 }),
 };
 
 const GreenfieldSchema = z
@@ -209,11 +210,14 @@ export interface TaskLoadOptions {
 /**
  * Decoded task data -> canonical Task + warnings. Throws ONE error listing every issue.
  * `source` names the file in messages; `file` (default: source) feeds id inference.
+ * `declaresScope`: the task names its own write scope (scope.allow, in any accepted spelling); when it
+ * does not, the schema default (the template's src/ + test/) stands in, which a run replaces with the
+ * target API's own roots (run.ts preflight).
  */
 export function normalizeTask(
   data: unknown,
   opts: TaskLoadOptions & { source?: string; file?: string } = {},
-): { task: Task; warnings: string[] } {
+): { task: Task; warnings: string[]; declaresScope: boolean } {
   const source = opts.source ?? 'task';
   let candidate: unknown = data;
   let warnings: string[] = [];
@@ -243,7 +247,9 @@ export function normalizeTask(
   if (all.length > 0 || v.task === undefined) {
     throw new Error(`invalid task file ${source}${opts.strict === true ? ' (--strict-task)' : ''}:\n  ${all.join('\n  ')}`);
   }
-  return { task: v.task, warnings };
+  // Before schema defaults: a scope with only a deny list (or nothing usable) still gets the default allow list.
+  const declaresScope = isObj(candidate) && isObj(candidate.scope) && candidate.scope.allow !== undefined;
+  return { task: v.task, warnings, declaresScope };
 }
 
 /** Parse + validate already-decoded task data in the canonical shape (strict). Throws with readable issues. */
@@ -321,7 +327,7 @@ export async function loadTask(file: string, opts: TaskLoadOptions = {}): Promis
   } catch (e) {
     throw new Error(`cannot parse task file ${abs}: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const { task, warnings } = normalizeTask(decoded.data, { ...opts, strict, source: abs, file: abs });
+  const { task, warnings, declaresScope } = normalizeTask(decoded.data, { ...opts, strict, source: abs, file: abs });
   return {
     task,
     file: abs,
@@ -330,5 +336,6 @@ export async function loadTask(file: string, opts: TaskLoadOptions = {}): Promis
     format: decoded.format,
     strict,
     warnings,
+    declaresScope,
   };
 }

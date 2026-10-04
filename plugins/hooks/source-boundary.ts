@@ -2,8 +2,9 @@
  * source-boundary (pre, write of governed .ts): production code may only import
  * production code. A source file must not import a test file (test/**, *.test.ts,
  * *.spec.ts) — those are writable without an observed red, so importing one would
- * smuggle unreviewed behaviour past the observed-red rule. Files under src/ may
- * only import relative modules under src/ (plus packages), and nobody may import
+ * smuggle unreviewed behaviour past the observed-red rule. Files under the API's source
+ * roots (src/ for the template; its TargetProfile layout otherwise) may only import relative
+ * modules under the source roots (plus packages), and nobody may import
  * by absolute path or through a computed `import(x)` / `require(x)`. Module-loader APIs
  * (`node:module`, e.g. createRequire, and process.getBuiltinModule) are refused too: a
  * require function they return loads any path without the hook seeing it. Production code
@@ -12,9 +13,9 @@
  */
 import path from 'node:path';
 import ts from 'typescript';
-import { defineHook } from '../../src/core/plugin-api.ts';
-import { proposedContent } from '../lib/diff.ts';
-import { stringField, toApiRel } from '../lib/path-policy.ts';
+import { activeLayout, defineHook, sourceRootsLabel, underAny } from '../../src/core/plugin-api.ts';
+import { toApiRel } from '../lib/path-policy.ts';
+import { postImage } from '../lib/post-image.ts';
 import { isGovernedSource, isTestFile, isTestSupport } from '../lib/red.ts';
 
 export interface BoundaryViolation {
@@ -57,7 +58,8 @@ function specifiers(sf: ts.SourceFile): Spec[] {
 /** Import-boundary violations of `content` as file `rel` (API-relative). */
 export function boundaryViolations(rel: string, content: string): BoundaryViolation[] {
   const sf = ts.createSourceFile(rel, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const inSrc = rel.startsWith('src/');
+  const roots = activeLayout().sourceRoots;
+  const inSrc = underAny(rel, roots);
   const out: BoundaryViolation[] = [];
   for (const s of specifiers(sf)) {
     const lc = sf.getLineAndCharacterOfPosition(s.node.getStart(sf));
@@ -85,8 +87,9 @@ export function boundaryViolations(rel: string, content: string): BoundaryViolat
       out.push({ ...at, key: `escape|${spec}`, message: `"${spec}" resolves outside the API root` });
     } else if (isTestFile(target) || isTestSupport(target)) {
       out.push({ ...at, key: `test|${target}`, message: `"${spec}" imports test code (${target}); production code must not depend on tests` });
-    } else if (inSrc && !target.startsWith('src/')) {
-      out.push({ ...at, key: `outside|${target}`, message: `"${spec}" imports ${target}, outside src/; source under src/ may only import src/ modules and packages` });
+    } else if (inSrc && !underAny(target, roots)) {
+      const where = sourceRootsLabel();
+      out.push({ ...at, key: `outside|${target}`, message: `"${spec}" imports ${target}, outside ${where}; source under ${where} may only import modules there and packages` });
     }
   }
   return out;
@@ -110,29 +113,31 @@ export function newBoundaryViolations(rel: string, before: string | null, after:
 
 export default defineHook({
   name: 'source-boundary',
-  description: 'Blocks source files that import test code, reach outside src/, or use computed/absolute imports.',
+  description: 'Blocks source files that import test code, reach outside the source roots of the API, or use computed/absolute imports.',
   events: ['pre_tool'],
   effects: ['write'],
   async run(event, ctx) {
     if (event.event !== 'pre_tool') return { decision: 'pass' };
     const { call } = event;
-    const target = call.paths[0];
-    if (target === undefined) return { decision: 'pass' };
-    const r = toApiRel(ctx.workspace, target);
-    if (!r.ok || !isGovernedSource(r.rel)) return { decision: 'pass' };
-
-    const before = await ctx.workspace.read(r.rel);
-    const after = proposedContent(call.input, before);
-    if (after === undefined) return { decision: 'pass' }; // not computable: the tool reports 0/2+ edit matches itself
-    const violations = newBoundaryViolations(r.rel, before, after);
-    if (violations.length === 0) return { decision: 'pass' };
-    return {
-      decision: 'block',
-      reason: [
-        `source-boundary: ${r.rel} would import outside the production code boundary:`,
-        ...violations.map((v) => `  ${r.rel}:${v.line}:${v.col}  ${v.message}`),
-        'Move shared code into src/ (under observed red) and import it with a relative string literal.',
-      ].join('\n'),
-    };
+    for (const target of call.paths) {
+      const r = toApiRel(ctx.workspace, target);
+      if (!r.ok || !isGovernedSource(r.rel)) continue;
+      // Judged on the post-image the loop computed from the tool's preview(); none = fail closed.
+      const img = postImage(call, target);
+      if (!img.ok) return { decision: 'block', reason: `source-boundary: ${img.reason}` };
+      if (img.after === null) continue; // no file afterwards
+      const before = await ctx.workspace.read(r.rel);
+      const violations = newBoundaryViolations(r.rel, before, img.after);
+      if (violations.length === 0) continue;
+      return {
+        decision: 'block',
+        reason: [
+          `source-boundary: ${r.rel} would import outside the production code boundary:`,
+          ...violations.map((v) => `  ${r.rel}:${v.line}:${v.col}  ${v.message}`),
+          'Move shared code into src/ (under observed red) and import it with a relative string literal.',
+        ].join('\n'),
+      };
+    }
+    return { decision: 'pass' };
   },
 });

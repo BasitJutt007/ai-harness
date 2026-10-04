@@ -1,0 +1,45 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 1 failed) 64ms
+   ❯ users API (4)
+     ✓ creates, gets, updates, lists, and deletes users 39ms
+     ✓ returns problem json for duplicate email and missing users 6ms
+     × validates bodies, params, query, malformed json, and idempotency 3ms
+     ✓ paginates with cursor and limit 15ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  09:55:56
+   Duration  270ms (import 48%, tests 33%, transform 18%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > validates bodies, params, query, malformed json, and idempotency
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:80:89
+     78|     expect(invalidCreate.body.detail).toContain('name');
+     79|
+     80|     await request(app).patch('/v1/users/00000000-0000-0000-0000-000000…
+       |                                                                                         ^
+     81|     await request(app).get('/v1/users?limit=101').expect(422);
+     82|
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":4,"numPassedTests":3,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791089756985,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates, lists, and deletes users","status":"passed","title":"creates, gets, updates, lists, and deletes users","duration":38.70958400000001,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns problem json for duplicate email and missing users","status":"passed","title":"returns problem json for duplicate email and missing users","duration":6.07258299999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates bodies, params, query, malformed json, and idempotency","status":"failed","title":"validates bodies, params, query, malformed json, and idempotency","duration":3.0692080000000033,"failureMessages":["Error: expected 422 \"Unprocessable Entity\", got 404 \"Not Found\"\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api/test/users.test.ts:80:89\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20\n----\n    at Test._assertStatus (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13\n    at Test._assertFunction (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13)\n    at Test.assert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23)\n    at localAssert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38)\n    at Server.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13)\n    at Object.onceWrapper (node:events:630:28)\n    at Server.emit (node:events:509:28)\n    at emitCloseNT (node:net:2661:8)\n    at processTicksAndRejections (node:internal/process/task_queues:89:21)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates with cursor and limit","status":"passed","title":"paginates with cursor and limit","duration":15.335708000000011,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791089757190,"endTime":1791089757253.3357,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-045424/generated/users-api/test/users.test.ts"}]}
