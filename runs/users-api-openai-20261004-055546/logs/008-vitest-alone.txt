@@ -1,0 +1,46 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-055546/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )creates, gets, updates and deletes a user$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-055546/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 1 failed | 3 skipped) 24ms
+   ❯ users API (3)
+     × creates, gets, updates and deletes a user 23ms
+     ↓ validates and reports duplicates and missing ids
+     ↓ paginates and supports idempotency
+   ↓ exports users router
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 skipped (4)
+   Start at  10:56:19
+   Duration  237ms (import 58%, transform 26%, tests 15%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes a user
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:16:28
+     14|     const app = createApp();
+     15|     const created = await request(app).post('/v1/users').send(body);
+     16|     expect(created.status).toBe(201); expect(created.headers.location)…
+       |                            ^
+     17|     expect(created.body).toMatchObject(body);
+     18|     const id = created.body.id as string;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":4,"numPassedTests":0,"numFailedTests":1,"numPendingTests":3,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791093379610,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes a user","status":"failed","title":"creates, gets, updates and deletes a user","duration":23.12133300000002,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-055546/generated/users-api/test/users.test.ts:16:28\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates and reports duplicates and missing ids","status":"skipped","title":"validates and reports duplicates and missing ids","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates and supports idempotency","status":"skipped","title":"paginates and supports idempotency","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":[],"fullName":"exports users router","status":"skipped","title":"exports users router","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791093379823,"endTime":1791093379846.1213,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-055546/generated/users-api/test/users.test.ts"}]}

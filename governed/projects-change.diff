@@ -1,0 +1,106 @@
+diff --git a/samples/existing-api/src/modules/projects/routes.ts b/samples/existing-api/src/modules/projects/routes.ts
+index 8f0344a..e83178d 100644
+--- a/samples/existing-api/src/modules/projects/routes.ts
++++ b/samples/existing-api/src/modules/projects/routes.ts
+@@ -9,7 +9,7 @@ import {
+   ProjectSchema,
+   UpdateProjectSchema,
+ } from './schema.ts';
+-import { createProject, getProject, listProjects, updateProject } from './store.ts';
++import { createProject, deleteProject, getProject, listProjects, updateProject } from './store.ts';
+ 
+ export const projectsRouter = Router();
+ 
+@@ -31,6 +31,12 @@ projectsRouter.get('/v1/projects/:projectId', (req, res) => {
+   res.json(ProjectSchema.parse(project));
+ });
+ 
++projectsRouter.delete('/v1/projects/:projectId', (req, res) => {
++  const { projectId } = ProjectParamsSchema.parse(req.params);
++  if (!deleteProject(projectId)) throw notFound(`project ${projectId} not found`);
++  res.status(204).send();
++});
++
+ projectsRouter.patch('/v1/projects/:projectId', idempotency(), (req, res) => {
+   const { projectId } = ProjectParamsSchema.parse(req.params);
+   const patch = UpdateProjectSchema.parse(req.body);
+diff --git a/samples/existing-api/src/modules/projects/schema.ts b/samples/existing-api/src/modules/projects/schema.ts
+index 3b9b326..e72fb74 100644
+--- a/samples/existing-api/src/modules/projects/schema.ts
++++ b/samples/existing-api/src/modules/projects/schema.ts
+@@ -31,7 +31,7 @@ export const UpdateProjectSchema = z
+   .refine((patch) => Object.keys(patch).length > 0, { message: 'at least one field is required' });
+ export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
+ 
+-export const ListProjectsQuerySchema = CursorQuerySchema;
++export const ListProjectsQuerySchema = CursorQuerySchema.extend({ status: ProjectStatusSchema.optional() });
+ export type ListProjectsQuery = z.infer<typeof ListProjectsQuerySchema>;
+ 
+ export const ProjectPageSchema = pageSchema(ProjectSchema);
+diff --git a/samples/existing-api/src/modules/projects/store.ts b/samples/existing-api/src/modules/projects/store.ts
+index fd976c7..15d3fe9 100644
+--- a/samples/existing-api/src/modules/projects/store.ts
++++ b/samples/existing-api/src/modules/projects/store.ts
+@@ -8,7 +8,14 @@ const projects = new Map<string, Project>();
+ const sortKey = (project: Project): string => `${project.createdAt}|${project.id}`;
+ 
+ export function listProjects(query: ListProjectsQuery): ProjectPage {
+-  return paginate([...projects.values()], query, sortKey);
++  const filtered = query.status === undefined
++    ? [...projects.values()]
++    : [...projects.values()].filter((project) => project.status === query.status);
++  return paginate(filtered, query, sortKey);
++}
++
++export function deleteProject(id: string): boolean {
++  return projects.delete(id);
+ }
+ 
+ export function getProject(id: string): Project | undefined {
+diff --git a/samples/existing-api/test/projects.test.ts b/samples/existing-api/test/projects.test.ts
+index 34d5baf..3ea5269 100644
+--- a/samples/existing-api/test/projects.test.ts
++++ b/samples/existing-api/test/projects.test.ts
+@@ -175,3 +175,42 @@ describe('PATCH /v1/projects/:projectId', () => {
+     expect(second.body).toEqual(first.body);
+   });
+ });
++
++
++describe('project deletion and status filtering', () => {
++  it('deletes a project with 204 and then returns 404', async () => {
++    const project = await createProject();
++    const deleted = await request(app).delete(`/v1/projects/${project.id}`);
++    expect(deleted.status).toBe(204);
++    expect(deleted.text).toBe('');
++    expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('returns problem 404 for missing and repeated deletes', async () => {
++    expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
++    const project = await createProject();
++    await request(app).delete(`/v1/projects/${project.id}`).expect(204);
++    expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('rejects malformed delete ids', async () => {
++    expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
++  });
++
++  it('filters by status and paginates the filtered set', async () => {
++    const active = await createProject({ status: 'active' });
++    const archived = await createProject({ status: 'archived' });
++    await createProject({ status: 'archived' });
++    const archivedIds = await listAll({ status: 'archived', limit: '1' });
++    expect(archivedIds).toContain(archived.id);
++    expect(archivedIds).not.toContain(active.id);
++    expect(new Set(archivedIds).size).toBe(archivedIds.length);
++    const activeIds = await listAll({ status: 'active', limit: '1' });
++    expect(activeIds).toContain(active.id);
++    expect(activeIds).not.toContain(archived.id);
++  });
++
++  it('rejects an unknown status filter', async () => {
++    expectProblem(await request(app).get('/v1/projects').query({ status: 'deleted' }), 422);
++  });
++});
