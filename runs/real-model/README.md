@@ -236,3 +236,4 @@ Notes:
 | `users-api-openai-20261004-084516` (`gpt-5.4`) | greenfield | 60 | max turns: GET /v1/users without `limit` answered 422 (spec-coverage 17/18), 2 agent tests failing | genuine model bug, caught by spec-coverage and the runtime probe |
 | `projects-change-openai-20261004-084257`, `…084949` | brownfield | 40 each | max turns, 1 failing agent test | shared-state trap again |
 | `users-api-openai-20261004-095754` | greenfield | 60 | max turns: path parameter read raw before parsing (zod-boundary), 1 failing agent test | genuine model errors; spec-coverage 18/18 |
+| `projects-change-openai-20261004-103217` | brownfield | 40 | max turns, 2 failing agent tests | genuine model errors; every other gate green |

@@ -1,0 +1,26 @@
+spec coverage of task users-api: 1 resource(s), 5 expected endpoint(s)
+expected  GET /v1/users  (list user)
+expected  GET /v1/users/:id  (get user)
+expected  POST /v1/users  (create user)
+expected  PATCH|PUT /v1/users/:id  (update user)
+expected  DELETE /v1/users/:id  (delete user)
+static route table: 5 route(s), 0 unresolved
+pass     user route GET /v1/users: registered: GET /v1/users (src/routes/index.ts:20:3)
+pass     user route GET /v1/users/:id: registered: GET /v1/users/:userId (src/routes/index.ts:21:3)
+pass     user route POST /v1/users: registered: POST /v1/users (src/routes/index.ts:19:3)
+pass     user route PATCH|PUT /v1/users/:id: registered: PATCH /v1/users/:userId (src/routes/index.ts:22:3)
+pass     user route DELETE /v1/users/:id: registered: DELETE /v1/users/:userId (src/routes/index.ts:23:3)
+pass     user create: POST /v1/users -> 201 with id 507bcf5a-b14f-47b2-a9cb-b9815cee49a8 and every sent field
+pass     user get: GET /v1/users/507bcf5a-b14f-47b2-a9cb-b9815cee49a8 -> 200 with the created fields
+pass     user list: GET /v1/users -> 200; the created user is listed (page 1)
+pass     user update: PATCH /v1/users/adb549c0-a61c-45d5-a6ef-935c4fed7db5 {name} only -> 200 with the change, other fields kept
+pass     user required email: POST /v1/users without email -> 422 problem
+pass     user required name: POST /v1/users without name -> 422 problem
+pass     user max name: POST /v1/users with name = 101 characters (max 100) -> 422 problem
+pass     user min name: POST /v1/users with name = 0 characters (min 1) -> 422 problem
+pass     user enum role: POST /v1/users with role = "harness-not-allowed" (not one of admin|member) -> 422 problem
+pass     user unique email: POST /v1/users with a duplicate email -> 409 problem
+pass     user idempotency: the same Idempotency-Key and body twice -> 201 with the same id (no duplicate)
+pass     user idempotency after update: POST, PATCH /v1/users/ee3a568b-576b-46c4-9cd7-21b37aaf8437 {name} only, then the same Idempotency-Key and body -> the original 201 response, unchanged
+pass     user delete: DELETE /v1/users/7382a9c1-b782-498d-acb0-8fb4e933c4bc -> 204, then GET -> 404
+probe log: runs/users-api-openai-20261004-103506/logs/035-spec-coverage-probe.txt

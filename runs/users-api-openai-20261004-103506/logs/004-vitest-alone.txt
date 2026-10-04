@@ -1,0 +1,47 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )validates body, malformed JSON, and idempotency replay/reuse$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 1 failed | 4 skipped) 51ms
+   ❯ users API (5)
+     ↓ creates with defaults and location, rejects duplicate email
+     × validates body, malformed JSON, and idempotency replay/reuse 51ms
+     ↓ lists with cursor pagination and gets users
+     ↓ patches partially, validates empty and duplicate email, and handles missing ids
+     ↓ deletes and reports missing resources and invalid parameters
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  15:35:24
+   Duration  233ms (import 52%, tests 31%, transform 16%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > validates body, malformed JSON, and idempotency replay/reuse
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:20:68
+     18|   it('validates body, malformed JSON, and idempotency replay/reuse', a…
+     19|     const app = createApp(); const key = 'same-key'; const value = bod…
+     20|     expect((await create(app, { email: 'bad', name: '' })).status).toB…
+       |                                                                    ^
+     21|     const malformed = await request(app).post('/v1/users').set('Idempo…
+     22|     expect(malformed.status).toBe(400); expect(malformed.type).toBe('a…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":0,"numFailedTests":1,"numPendingTests":4,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791110124016,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates with defaults and location, rejects duplicate email","status":"skipped","title":"creates with defaults and location, rejects duplicate email","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates body, malformed JSON, and idempotency replay/reuse","status":"failed","title":"validates body, malformed JSON, and idempotency replay/reuse","duration":50.56966700000001,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts:20:68\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API lists with cursor pagination and gets users","status":"skipped","title":"lists with cursor pagination and gets users","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API patches partially, validates empty and duplicate email, and handles missing ids","status":"skipped","title":"patches partially, validates empty and duplicate email, and handles missing ids","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API deletes and reports missing resources and invalid parameters","status":"skipped","title":"deletes and reports missing resources and invalid parameters","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791110124197,"endTime":1791110124247.5696,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts"}]}

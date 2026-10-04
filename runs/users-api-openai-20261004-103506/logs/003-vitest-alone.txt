@@ -1,0 +1,47 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )creates with defaults and location, rejects duplicate email$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 1 failed | 4 skipped) 36ms
+   ❯ users API (5)
+     × creates with defaults and location, rejects duplicate email 35ms
+     ↓ validates body, malformed JSON, and idempotency replay/reuse
+     ↓ lists with cursor pagination and gets users
+     ↓ patches partially, validates empty and duplicate email, and handles missing ids
+     ↓ deletes and reports missing resources and invalid parameters
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  15:35:23
+   Duration  212ms (import 57%, tests 25%, transform 17%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates with defaults and location, rejects duplicate email
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:13:29
+     11|     const app = createApp();
+     12|     const response = await create(app, body('a@example.com'));
+     13|     expect(response.status).toBe(201); expect(response.headers.locatio…
+       |                             ^
+     14|     expect(response.body.role).toBe('member'); expect(response.body.id…
+     15|     const duplicate = await create(app, body('a@example.com'));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":0,"numFailedTests":1,"numPendingTests":4,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791110123563,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates with defaults and location, rejects duplicate email","status":"failed","title":"creates with defaults and location, rejects duplicate email","duration":34.78675000000001,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts:13:29\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates body, malformed JSON, and idempotency replay/reuse","status":"skipped","title":"validates body, malformed JSON, and idempotency replay/reuse","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API lists with cursor pagination and gets users","status":"skipped","title":"lists with cursor pagination and gets users","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API patches partially, validates empty and duplicate email, and handles missing ids","status":"skipped","title":"patches partially, validates empty and duplicate email, and handles missing ids","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API deletes and reports missing resources and invalid parameters","status":"skipped","title":"deletes and reports missing resources and invalid parameters","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791110123740,"endTime":1791110123774.7869,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-103506/generated/users-api/test/users.test.ts"}]}

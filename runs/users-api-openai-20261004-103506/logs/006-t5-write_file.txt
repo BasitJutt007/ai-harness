@@ -1,0 +1,33 @@
+--- a/src/routes/index.ts
++++ b/src/routes/index.ts
+@@ -1,9 +1,24 @@
+-import type { Router } from 'express';
++import { randomUUID } from 'node:crypto';
++import type { Router, Request, Response, NextFunction } from 'express';
++import { z } from 'zod';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { idempotency } from '../lib/idempotency.ts';
++import { CursorQuerySchema, paginate, pageSchema } from '../lib/pagination.ts';
+ 
+-/**
+- * Mount resource routers here, e.g. `app.use(usersRouter)`.
+- * Routers register full versioned paths (`/v1/users`, `/v1/users/:userId`).
+- */
++const UserSchema = z.object({ id: z.string().uuid(), email: z.string().email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
++const CreateSchema = z.object({ email: z.string().email(), name: z.string().min(1).max(100), role: z.enum(['admin', 'member']).default('member') }).strict();
++const PatchSchema = z.object({ email: z.string().email().optional(), name: z.string().min(1).max(100).optional(), role: z.enum(['admin', 'member']).optional() }).strict().refine((v) => Object.keys(v).length > 0, { message: 'at least one field is required', path: ['body'] });
++type User = z.infer<typeof UserSchema>;
++
++function validate<T>(schema: z.ZodType<T>, value: unknown): T { const result = schema.safeParse(value); if (!result.success) throw unprocessable(result.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ')); return result.data; }
++function find(req: Request, users: User[]): User { const id = validate(z.string().uuid(), req.params.userId); const user = users.find((u) => u.id === id); if (!user) throw notFound(`User ${id} was not found.`); return user; }
++function send<T extends z.ZodType>(res: Response, schema: T, value: unknown, status: number): void { res.status(status).json(schema.parse(value)); }
++
+ export function registerRoutes(app: Router): void {
+-  // No resources yet.
++  const users: User[] = [];
++  app.post('/v1/users', idempotency(), (req, res, next) => { try { const input = validate(CreateSchema, req.body); if (users.some((u) => u.email === input.email)) throw conflict('email: already exists'); const now = new Date().toISOString(); const user: User = { ...input, id: randomUUID(), createdAt: now, updatedAt: now }; users.push(user); res.location(`/v1/users/${user.id}`); send(res, UserSchema, user, 201); } catch (e) { next(e); } });
++  app.get('/v1/users', (req, res, next) => { try { const q = validate(CursorQuerySchema, req.query); send(res, pageSchema(UserSchema), paginate(users, q, (u) => `${u.createdAt}|${u.id}`), 200); } catch (e) { next(e); } });
++  app.get('/v1/users/:userId', (req, res, next) => { try { send(res, UserSchema, find(req, users), 200); } catch (e) { next(e); } });
++  app.patch('/v1/users/:userId', idempotency(), (req, res, next) => { try { const user = find(req, users); const input = validate(PatchSchema, req.body); if (input.email !== undefined && users.some((u) => u.id !== user.id && u.email === input.email)) throw conflict('email: already exists'); Object.assign(user, input, { updatedAt: new Date().toISOString() }); send(res, UserSchema, user, 200); } catch (e) { next(e); } });
++  app.delete('/v1/users/:userId', (req, res, next) => { try { const user = find(req, users); users.splice(users.indexOf(user), 1); res.status(204).send(); } catch (e) { next(e); } });
+ }
