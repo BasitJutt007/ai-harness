@@ -164,7 +164,27 @@ placeholder and contract-lock failed the run (4 → 0 endpoints).
 
 ## Evidence in this repository
 
-### Current code: real runs on 4 Oct (official OpenAI API, openai driver)
+### The exact submitted code: two DONE runs
+
+Both ran after the last code change; every plugin fingerprint in their `run.json` matches the
+committed files (53 of 53). Official OpenAI API, openai driver, `gpt-5.6-luna` (compat mode:
+reasoning off, because Chat Completions refuses tools with reasoning on for this model).
+
+| run | task | turns | result |
+|---|---|---|---|
+| `users-api-openai-20261004-055546` | greenfield `users-api` | 20 | **DONE**: spec-coverage 17/17 on the task's fields and operations, 31/31 tests, standards 100%, observed red + revert check, orphans pass |
+| `projects-change-openai-20261004-055658` | brownfield `projects-change` | 40 | **DONE**: contract-lock pass (2 additive), 22/22 tests, standards 100%, observed red on 3 source files + revert check |
+
+In the brownfield run the model hit the shared-state trap described below (one exact-count test
+failing from turn 16). `run_tests` reported that the case passes alone and depends on test order
+(6 times); the model fixed the test on turn 38 and finished on turn 40. That the note caused the fix
+is likely but not provable. Each run directory has `check-*-api.txt` (verdict 100%) and
+`ship-dry-run.txt` (every gate re-run fresh, all green; nothing pushed).
+
+### Earlier runs on 4 Oct (official OpenAI API, openai driver)
+
+These ran before the last few plugin changes (the order-dependence diagnosis, the fenced
+type-check hook); the two shipped as PRs are among them.
 
 | run | task | model | turns | result |
 |---|---|---|---|---|
@@ -181,8 +201,7 @@ module-level `Map`, so tests in one file share state, and the model wrote exact-
 assertions that fail after earlier tests created records. The harness refused DONE each time
 (tests-green failed). `run_tests` now diagnoses this case: it re-runs a failing case alone and,
 if it passes alone, tells the model the test depends on test order. That diagnosis is covered by
-offline tests (`test/red-green/order-dependence.test.ts`); the DONE brownfield run did not hit the
-trap, so no real run has exercised it yet.
+offline tests (`test/red-green/order-dependence.test.ts`) and fired in the final brownfield run above.
 
 Each run directory holds `run.json`, `events.jsonl`, `transcript.jsonl`, `gates.json`,
 `standards.txt`, `logs/` and `cli-output.txt`; both DONE runs also have `check-generated-api.txt`

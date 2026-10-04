@@ -1,0 +1,43 @@
+target     framework express 5.2.1  runner vitest 5.0.3 (harness)
+           source src/  tests test/ [test/**/*.test.ts]  test dirs test/
+           entry src/server.ts, src/app.ts  zod 4.6.5 → toJSONSchema
+           deps express 5.2.1 (harness), zod 4.6.5 (harness), vitest 5.0.3 (harness), typescript 6.0.3 (harness)
+run        users-api-openai-20261004-055546
+status     done  turns 20  finish attempts 1  driver openai  model gpt-5.6-luna (compat)
+limit      60 turns (task file maxTurns (hard cap))
+gates      fresh final run (phase finish): all green
+gate  contract-lock  n/a       not applicable to greenfield tasks
+gate  observed-red   pass      2 red observations (1 test files); 2 changed source files went red -> green on unchanged cases, red again with the original source
+gate  orphans        pass      1 created files, all imported by a test or by existing code
+gate  scope          pass      3 changed files, all in scope
+gate  spec-coverage  pass      17/17 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]
+gate  standards      pass      verdict 100% (4 rules)
+gate  tests-green    pass      31/31 tests passed in 5 files
+standards  pass 100%  problem-json pass, rest-conventions pass, tsc-strict pass, zod-boundary pass
+tokens     actual 103824  baseline 356232  reduction 70.9%  over 20 turns  (output 2648, provider-reported input 97616)
+           baseline is a shadow estimate (never sent); measured: harness run <task> --baseline, then harness tokens compare users-api-openai-20261004-055546 <baselineRunId>
+evidence   runs/users-api-openai-20261004-055546/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/users-api-openai-20261004-055546.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-055546  branch harness/users-api-openai-20261004-055546  (base main @ aa0277355f3e; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/demo untouched)
+honesty
+  proven             gate:observed-red
+                     gate:orphans
+                     gate:scope
+                     gate:spec-coverage
+                     gate:standards
+                     gate:tests-green
+                     check:problem-json
+                     check:rest-conventions
+                     check:tsc-strict
+                     check:zod-boundary
+                     isolation:sandbox-exec (agent code: reads only its worktree, node_modules and toolchain; writes only to a per-call temp dir; env allow-list; network loopback only)
+  failed             (none)
+  UNPROVEN           (none)
+  n/a                gate:contract-lock
+  human must verify  gate:spec-coverage: what the task states beyond fields and operations (8 behaviour(s)): the generated probes cover routes and field constraints only
+                     behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+verdict    DONE (all gates green)
+exit=0

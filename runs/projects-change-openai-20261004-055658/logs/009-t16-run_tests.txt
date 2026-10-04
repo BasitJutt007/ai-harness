@@ -1,0 +1,64 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-055658/samples/existing-api
+
+ ❯ test/projects.test.ts (22 tests | 1 failed) 140ms
+   ✓ POST /v1/projects (6)
+     ✓ creates a project: 201, Location header, status defaults to active 68ms
+     ✓ rejects an invalid body with a 422 problem 5ms
+     ✓ rejects unknown properties with a 422 problem 2ms
+     ✓ rejects malformed JSON with a 400 problem 2ms
+     ✓ honours Idempotency-Key: same key and body replays the first response 6ms
+     ✓ rejects reuse of an Idempotency-Key with a different body (422) 5ms
+   ✓ GET /v1/projects (4)
+     ✓ pages through every project with an opaque cursor 6ms
+     ✓ returns at most `limit` items and a nextCursor while more remain 3ms
+     ✓ defaults to 20 items per page 15ms
+     ✓ rejects limit outside 1..100 and foreign cursors with a 422 problem 3ms
+   ✓ GET /v1/projects/:projectId (3)
+     ✓ returns the project 2ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ answers a malformed id with a 422 problem 1ms
+   ✓ PATCH /v1/projects/:projectId (4)
+     ✓ updates the given fields only 2ms
+     ✓ rejects an empty or invalid patch with a 422 problem 3ms
+     ✓ answers an unknown id with a 404 problem 1ms
+     ✓ honours Idempotency-Key on PATCH 2ms
+   ❯ project deletion and status filtering (5)
+     ✓ deletes a project with 204 and then returns 404 2ms
+     ✓ returns 404 problem for missing and repeatedly deleted projects 2ms
+     ✓ rejects malformed delete ids with 422 problem 1ms
+     × filters by status and preserves filtered cursor pagination 8ms
+     ✓ rejects unknown status with 422 problem 1ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 21 passed (22)
+   Start at  10:57:30
+   Duration  412ms (import 44%, tests 42%, transform 13%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/projects.test.ts > project deletion and status filtering > filters by status and preserves filtered cursor pagination
+AssertionError: expected [ …(4) ] to deeply equal [ …(3) ]
+
+- Expected
++ Received
+
+  [
++   "a91527c5-e268-4802-92b4-a26bfdc84ec5",
+    "a3dc6004-387f-40df-91b6-6ea44c1df614",
+    "82925bbf-83bc-4ce1-91ad-468cc0494d0a",
+    "b94d15f6-4025-49c6-b611-eaa6fac530d2",
+  ]
+
+ ❯ test/projects.test.ts:204:17
+    202|     await createProject({ status: 'active' });
+    203|     const ids = await listAll({ status: 'archived', limit: '1' });
+    204|     expect(ids).toEqual(archived.map((project) => project.id));
+       |                 ^
+    205|     const active = await request(app).get('/v1/projects').query({ stat…
+    206|     expect(PageBody.parse(active.body).data.every((project) => project…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+test/projects.test.ts > project deletion and status filtering > filters by status and preserves filtered cursor pagination: passes when run alone, fails after the other tests in this file: it depends on test order (shared state, e.g. a module-level store, is not reset between tests). Do not assume an empty store; assert only on the records this test created.
+observed red: test/projects.test.ts (source they cover is now writable)
