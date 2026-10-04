@@ -65,7 +65,9 @@ pass regardless of the source fails the revert check (F10)); `standards` (greenf
 four standards rules 100% over the whole API; any other check, e.g. a dropped-in ORM or lint
 rule, blocks only in files the run changed; brownfield: every rule is compared with a baseline
 measured on the base commit and only what the run introduced blocks); `scope`; `contract-lock` (brownfield); `secrets`
-(ship only).
+(ship only); `spec-coverage` (greenfield with structured resources: every endpoint resources ×
+operations imply exists, and probes generated from the field specs pass against the sandboxed app,
+judged by the harness; a free-text-only task is n/a and listed under "human must verify").
 
 **Isolation** (`src/core/sandbox.ts`). Agent-written code runs in three places: the Vitest
 runner, the contract extractor (imports its Zod schemas) and the runtime probe (imports
