@@ -284,10 +284,10 @@ After an audit showed the harness was fitted to its own template and sample, the
 - **tsc-strict:** forces every strict sub-flag and type-checks every TypeScript file.
 - **Contract Lock:** diffs constraint keywords.
 - **Brownfield standards:** compared to a baseline taken at run start, so pre-existing violations in untouched files no longer deadlock a run.
-- **Sandbox:** agent code gets a read fence and an environment allow-list.
+- **Sandbox:** agent code gets a read fence and an environment allow-list. The in-process TypeScript programs (tsc-strict, `ctx.program()`, Contract Lock) read through a fenced compiler host with the same allow-list (`src/core/ts-fence.ts`).
+- **Brownfield tests:** the target's suite runs once before the agent's first turn; cases already skipped or todo then are reported for a human instead of blocking `tests-green`, while skips the run adds still block and failing tests always do.
 
 **Known gaps:**
-- tsc-strict now type-checks in-process, outside the read fence.
 - Nothing yet compares the API against the resources and operations the task listed, so DONE can be reached with a resource missing.
 - Not done yet: a target profile for other layouts and test runners (vitest only), an honest real `--baseline` run, and generalised hooks.
 - The DONE evidence runs predate these changes.
