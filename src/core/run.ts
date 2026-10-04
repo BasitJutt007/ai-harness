@@ -22,6 +22,7 @@ import { createServices } from './services.ts';
 import { computeTargetProfile, defaultScopeAllow, formatProfile, profileRecord, type TargetProfile } from './target.ts';
 import { loadTask, parseTask } from './task.ts';
 import { TEMPLATE_MANIFEST, templateManifest, type TemplateManifest } from './template.ts';
+import { describeTestBaseline, measureTestBaseline } from './test-baseline.ts';
 import { TokenLedger, type TokenReport } from './tokens.ts';
 import { createWorkspace, createWorktree, gitToplevel, sha256 } from './workspace.ts';
 import type {
@@ -630,6 +631,14 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     counter: driver.tokenCounter,
     mode: opts.baseline ? 'baseline' : 'jit',
   });
+
+  // Brownfield: the target's own suite at run start, before the agent's first turn, so tests-green can
+  // tell the skipped/todo (and failing) cases the repository already had from what the run introduces.
+  // Kept in state.json, never as a test observation.
+  if (task.kind === 'brownfield') {
+    state.testBaseline = await measureTestBaseline({ root: ws.root, exec: ctx.exec, harnessRoot: HARNESS_ROOT, logs: ctx.logs });
+    ctx.emit({ kind: 'note', source: 'tests', message: describeTestBaseline(state.testBaseline) });
+  }
 
   let agent: AgentResult;
   try {

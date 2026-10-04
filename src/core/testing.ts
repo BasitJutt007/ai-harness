@@ -31,7 +31,7 @@ import { activeLayout, isSourcePath, sourceRootsLabel, versionAtLeast } from './
 import type { TargetLayout, TestRunnerInfo } from './target.ts';
 import { graphFiles, importGraph, reachesSource, locatedRed, resolveImport, staticTestCases } from './testmap.ts';
 import type { ImportGraph, StaticTestCase } from './testmap.ts';
-import type { Exec, LogStore, TestCaseObservation, TestObservation, TestRunReport } from './types.ts';
+import type { Exec, LogStore, TestCaseObservation, TestCaseResult, TestObservation, TestRunReport } from './types.ts';
 
 const VITEST_TIMEOUT_MS = 300_000;
 /** Where the runner's JSON report is written: the exec channel (fd 3), a pipe only the runner process itself holds. */
@@ -486,16 +486,21 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** A case's result as reported (vitest: passed, failed, skipped, pending, todo); anything that did not run is 'skip'. */
+const CASE_RESULT: Record<string, TestCaseResult['status']> = { passed: 'pass', failed: 'fail', todo: 'todo' };
+
 function buildReport(root: string, files: VitestFileResult[], observations: TestObservation[], logPath: string, consoleText = ''): TestRunReport {
   let tests = 0;
   let passed = 0;
   let failed = 0;
   const failLines: string[] = [];
   const errorLines: string[] = [];
+  const results: TestCaseResult[] = [];
   for (const fr of files) {
     const rel = relPath(root, fr.name);
     for (const a of fr.assertionResults) {
       tests++;
+      results.push({ file: rel, name: [...a.ancestorTitles, a.title].join(' > '), status: CASE_RESULT[a.status] ?? 'skip' });
       if (a.status === 'passed') passed++;
       if (a.status !== 'failed') continue;
       failed++;
@@ -526,6 +531,7 @@ function buildReport(root: string, files: VitestFileResult[], observations: Test
     ok: passed > 0 && passed === tests && errors === 0,
     totals: { files: files.length, tests, passed, failed },
     observations,
+    results,
     summary: lines.join('\n'),
     logPath,
   };

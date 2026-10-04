@@ -73,7 +73,11 @@ layout-independent on purpose: every TypeScript file of the API. Runner binaries
 executed from their real path, which the sandbox's read fence allows from the worktree, a revert
 copy or a snapshot alike (it allows each linked `node_modules` by its real path).
 
-**Gates** (`plugins/gates/`, run fresh at finish and again at ship): `tests-green`;
+**Gates** (`plugins/gates/`, run fresh at finish and again at ship): `tests-green` (no skipped,
+todo or failing case; brownfield: the target's suite is run once before the agent's first turn,
+and a case that was already skipped or todo then is listed for a human as pre-existing, not
+blocking, while a skip the run introduced stays UNPROVEN; a failing test always blocks, and the
+summary says which were already failing at run start);
 `observed-red` (every changed source file has a covering case that was seen red and now passes,
 and a **revert check**: in a copy of the API with every changed source file put back to its
 run-start content, kept in `runs/<id>/initial/`, that case must fail again, so a flip caused
@@ -103,7 +107,14 @@ judges every request; the extractor imports a changed module only if it is decla
 widen a schema, and otherwise falls back to the source hash (changed = UNPROVEN). With no working
 mechanism a run refuses to start; `HARNESS_SANDBOX=off` (or `"sandbox": "off"`) runs unconfined
 and is recorded as UNPROVEN. `harness doctor` self-tests it (an outside write and an outbound
-connect must both be refused); `run.json` records `isolation`.
+connect must both be refused); `run.json` records `isolation`. The TypeScript programs the
+harness builds in-process over the agent's tsconfig and imports (the strict type check behind
+`tsc-strict` and `ctx.program()`, Contract Lock's program) get the same read allow-list from a
+fenced compiler host (`src/core/ts-fence.ts`): the API's tree, its `node_modules` (link and real
+spellings) and the TypeScript libs. A file outside it does not exist for them, whether an import,
+`paths`, `extends`, `files`, `include`, `typeRoots`, a reference or a symlink names it, so its
+content can never reach a diagnostic; an outside `extends`, reference or `files` entry makes the
+configuration unusable (UNPROVEN).
 
 **Run_tests summaries** name, for a suite that failed to load, the first in-project frame of
 that file's block in the runner's console and its line of code (`ERROR test/users.test.ts: suite

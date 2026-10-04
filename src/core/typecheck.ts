@@ -19,12 +19,18 @@
  * - an unusable configuration (unparsable, a missing `extends` or reference, invalid options) and a
  *   dependency that package.json declares but the type checker cannot resolve are problems: the result
  *   is UNPROVEN, never a pass and never an error blamed on the code.
+ * - reads: every program, module resolution and tsconfig parse goes through the read fence of
+ *   ts-fence.ts (the API's tree, its node_modules, the TypeScript libs). A file outside it does not
+ *   exist for the type check: an import of it does not resolve, an `extends`, reference or `files`
+ *   entry naming it makes the configuration unusable, and its content never reaches a diagnostic.
  */
 import { existsSync, readdirSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { globSync } from 'tinyglobby';
 import ts from 'typescript';
+import { createTsFence } from './ts-fence.ts';
+import type { TsFence } from './ts-fence.ts';
 import type { CheckContext } from './types.ts';
 
 /** Strict-family flags forced on, each one explicitly: an explicit `false` in a tsconfig beats `strict: true`. */
@@ -49,6 +55,8 @@ const TS_MAJOR = Number(ts.versionMajorMinor.split('.')[0]);
 /** "No inputs were found in config file": every API file is checked anyway, so an empty `include` is not a problem. */
 const NO_INPUTS = 18003;
 const ROOT_CONFIG = 'tsconfig.json';
+/** Why a configuration naming a file outside the read fence cannot be used. */
+const OUTSIDE = "outside the API's tree, which the type check does not read (it reads the API, its node_modules and the TypeScript libs)";
 /** File names listed per log line at most. */
 const LOG_FILES = 20;
 const SIBLING_CONFIG = /^tsconfig\..+\.json$/i;
@@ -142,6 +150,8 @@ export interface TypecheckResult {
 
 export interface Typecheck {
   readonly root: string;
+  /** The read fence every program and tsconfig read of this type check goes through. */
+  readonly fence: TsFence;
   /** Projects in ownership order (root, references, sibling configs); empty without a usable tsconfig.json. */
   readonly projects: readonly TsProject[];
   /** API-relative TypeScript files found on disk (sorted). */
@@ -173,12 +183,13 @@ export function typecheckOf(ctx: Pick<CheckContext, 'root' | 'program' | 'depend
 export function fileCheckOptions(root: string): ts.CompilerOptions {
   const absRoot = resolve(root);
   const config = join(absRoot, ROOT_CONFIG);
-  const read = existsSync(config) ? readProject(config, (abs) => toPosix(relative(absRoot, abs))) : undefined;
+  const read = existsSync(config) ? readProject(config, (abs) => toPosix(relative(absRoot, abs)), createTsFence(absRoot)) : undefined;
   return read?.project !== undefined && read.problems.length === 0 ? read.project.options : forceStrict(DEFAULTS[0]?.options ?? DEFAULT_BASE);
 }
 
 export function createTypecheck(root: string, dependencies: () => Record<string, string> = () => ({})): Typecheck {
   const absRoot = resolve(root);
+  const fence = createTsFence(absRoot);
   const rel = (abs: string): string => toPosix(relative(absRoot, abs));
   const inside = (abs: string): boolean => {
     const r = relative(absRoot, abs);
@@ -194,7 +205,7 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
     const key = resolve(configAbs);
     if (seen.has(key)) return;
     seen.add(key);
-    const read = readProject(key, rel);
+    const read = readProject(key, rel, fence);
     if (!declared && read.problems.length > 0) {
       ignored.push(...read.problems); // an unreferenced side config is not the API's build: skip it, never fail on it
       return;
@@ -215,12 +226,16 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
     .filter((d): d is string => d !== undefined)
     .map((d) => rel(resolve(d)))
     .filter((d) => d !== '' && !d.startsWith('..') && !isAbsolute(d));
-  const files = existsSync(absRoot)
+  const discovered = existsSync(absRoot)
     ? globSync(DISCOVER, { cwd: absRoot, ignore: [...SKIP_DIRS.map((d) => `**/${d}/**`), ...outDirs.map((d) => `${d}/**`)] })
       .map(toPosix)
       .filter((f) => isOwnTypeScript(join(absRoot, f)))
       .sort()
     : [];
+  // A symlink under the API that leads out of its tree is not the API's file: never read, never checked.
+  const files = discovered.filter((f) => fence.allows(join(absRoot, f)));
+  const kept = new Set(files);
+  const fenceProblems = discovered.filter((f) => !kept.has(f)).map((f) => `${f} links to a file ${OUTSIDE}`);
   const fileSet = new Set(files.map((f) => join(absRoot, f)));
   const listedBy = new Map<string, number>();
   projects.forEach((p, i) => {
@@ -233,7 +248,7 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
   let missingTypes: string[] | undefined;
   const missingTypePackages = (): string[] => (missingTypes ??= Object.keys(dependencies())
     .filter((d) => d.startsWith(TYPES_SCOPE))
-    .filter((d) => ts.resolveTypeReferenceDirective(d.slice(TYPES_SCOPE.length), join(absRoot, 'index.ts'), {}, ts.sys).resolvedTypeReferenceDirective === undefined)
+    .filter((d) => ts.resolveTypeReferenceDirective(d.slice(TYPES_SCOPE.length), join(absRoot, 'index.ts'), {}, fence.host).resolvedTypeReferenceDirective === undefined)
     .sort());
   const classify = (diag: ts.Diagnostic, harnessSettings: boolean): Classified => {
     const pkg = missingDependency(diag, dependencies);
@@ -250,7 +265,7 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
     const rootNames = [...fileSet];
     for (const d of DEFAULTS) {
       const project: TsProject = { config: null, options: forceStrict(d.options), listed: [] };
-      const program = ts.createProgram({ rootNames, options: project.options });
+      const program = fence.createProgram(rootNames, project.options);
       const dependent: TypeDiagnostic[] = [];
       for (const f of rootNames) {
         const sf = program.getSourceFile(f);
@@ -274,7 +289,7 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
       primary = chooseDefault().program;
     } else {
       const roots = new Set([...fileSet, ...project.listed.map((f) => resolve(f))]);
-      primary = ts.createProgram({ rootNames: [...roots], options: project.options });
+      primary = fence.createProgram([...roots], project.options);
     }
     return primary;
   };
@@ -285,7 +300,8 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
     const log = [`TypeScript ${ts.version} (in-process), forced: ${FORCED_FLAGS}`];
     if (ignored.length > 0) log.push(`ignored side configs: ${ignored.join('; ')}`);
     if (configProblems.length > 0) {
-      cached = { files, errors: [], problems: configProblems.map((p) => `unusable TypeScript configuration: ${p}`), usable: false, sourceOf: () => undefined, log };
+      log.push(...describeRefused(fence.refused()));
+      cached = { files, errors: [], problems: [...configProblems.map((p) => `unusable TypeScript configuration: ${p}`), ...fenceProblems], usable: false, sourceOf: () => undefined, log };
       return cached;
     }
     const programs = new Map<number, ts.Program>();
@@ -293,7 +309,7 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
       let p = programs.get(i);
       if (p === undefined) {
         const project = projects[i];
-        p = i === primaryIndex || project === undefined ? primaryProgram() : ts.createProgram({ rootNames: [...project.listed], options: project.options });
+        p = i === primaryIndex || project === undefined ? primaryProgram() : fence.createProgram([...project.listed], project.options);
         programs.set(i, p);
       }
       return p;
@@ -308,7 +324,7 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
       }
     }
 
-    const problems: string[] = [];
+    const problems: string[] = [...fenceProblems];
     const errors: TypeDiagnostic[] = [];
     const dependent: TypeDiagnostic[] = [];
     const unjudgedNames: TypeDiagnostic[] = [];
@@ -383,6 +399,7 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
       ...(projects.length > 0 && unlisted.length > 0
         ? [`listed by no tsconfig, checked with the primary project's options: ${unlisted.slice(0, LOG_FILES).join(', ')}${unlisted.length > LOG_FILES ? `, +${unlisted.length - LOG_FILES} more` : ''}`]
         : []),
+      ...describeRefused(fence.refused()),
     );
     cached = {
       files: [...checked].sort(),
@@ -397,6 +414,7 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
 
   return {
     root: absRoot,
+    fence,
     projects,
     files,
     options: () => primaryProject().options,
@@ -407,20 +425,22 @@ export function createTypecheck(root: string, dependencies: () => Record<string,
 
 // ───────────────────────────── helpers ─────────────────────────────
 
-function readProject(configAbs: string, rel: (abs: string) => string): { project?: TsProject; problems: string[]; references: string[] } {
+function readProject(configAbs: string, rel: (abs: string) => string, fence: TsFence): { project?: TsProject; problems: string[]; references: string[] } {
   const where = rel(configAbs);
-  if (!existsSync(configAbs)) return { problems: [`${where}: not found`], references: [] };
+  if (!fence.allows(configAbs)) return { problems: [`${where}: ${OUTSIDE}`], references: [] };
+  if (!fence.host.fileExists(configAbs)) return { problems: [`${where}: not found`], references: [] };
   const problems: string[] = [];
-  const host: ts.ParseConfigFileHost = {
-    ...ts.sys,
-    onUnRecoverableConfigFileDiagnostic: (d) => problems.push(`${where}: TS${d.code} ${firstLine(d)}`),
-  };
+  const host = fence.parseConfigHost((d) => problems.push(`${where}: TS${d.code} ${firstLine(d)}`));
+  const refusedBefore = new Set(fence.refused());
   let parsed: ts.ParsedCommandLine | undefined;
   try {
     parsed = ts.getParsedCommandLineOfConfigFile(configAbs, undefined, host);
   } catch (e) {
     problems.push(`${where}: ${e instanceof Error ? e.message : String(e)}`);
   }
+  // An `extends` (or an `include` base) outside the fence reads as missing: say why.
+  const refused = fence.refused().filter((p) => !refusedBefore.has(p));
+  if (refused.length > 0) problems.push(`${where} refers to ${refused.map((p) => `'${p}'`).join(', ')}: ${OUTSIDE}`);
   if (parsed === undefined) return { problems: problems.length > 0 ? problems : [`${where}: could not be read`], references: [] };
   // parsed.errors misses JSON syntax errors ('{ "include": [' parses as an empty include); this has both.
   for (const d of ts.getConfigFileParsingDiagnostics(parsed)) {
@@ -431,6 +451,13 @@ function readProject(configAbs: string, rel: (abs: string) => string): { project
     problems: [...new Set(problems)],
     references: (parsed.projectReferences ?? []).map((r) => ts.resolveProjectReferencePath(r)),
   };
+}
+
+/** Run-log lines for the paths the read fence refused. */
+function describeRefused(refused: readonly string[]): string[] {
+  if (refused.length === 0) return [];
+  const shown = refused.slice(0, LOG_FILES).join(', ');
+  return [`read fence: refused ${refused.length} path(s) outside the API's tree: ${shown}${refused.length > LOG_FILES ? `, +${refused.length - LOG_FILES} more` : ''}`];
 }
 
 function siblingConfigs(root: string): string[] {
