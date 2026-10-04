@@ -31,16 +31,16 @@ projectsRouter.get('/v1/projects/:projectId', (req, res) => {
   res.json(ProjectSchema.parse(project));
 });
 
-projectsRouter.delete('/v1/projects/:projectId', (req, res) => {
-  const { projectId } = ProjectParamsSchema.parse(req.params);
-  if (!deleteProject(projectId)) throw notFound(`project ${projectId} not found`);
-  res.status(204).send();
-});
-
 projectsRouter.patch('/v1/projects/:projectId', idempotency(), (req, res) => {
   const { projectId } = ProjectParamsSchema.parse(req.params);
   const patch = UpdateProjectSchema.parse(req.body);
   const project = updateProject(projectId, patch);
   if (project === undefined) throw notFound(`project ${projectId} not found`);
   res.json(ProjectSchema.parse(project));
+});
+
+projectsRouter.delete('/v1/projects/:projectId', (req, res) => {
+  const { projectId } = ProjectParamsSchema.parse(req.params);
+  if (!deleteProject(projectId)) throw notFound(`project ${projectId} not found`);
+  res.status(204).send();
 });
