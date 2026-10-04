@@ -532,6 +532,14 @@ export interface ToolPlugin<I = unknown> {
   availableIn?: TaskKind[];
   /** API-relative paths the call will touch (used by hooks). */
   paths?(input: I): string[];
+  /**
+   * Write tools: the exact content `path` (one of paths()) will have after the call, given its
+   * current content `before` (null = absent); null = no file there afterwards (a deletion). A call
+   * the tool will refuse leaves the file as it is (return `before`). The loop computes it once per
+   * path before the pre_tool hooks (ToolCallInfo.preview); hooks that judge content refuse a write
+   * tool without it (fail closed).
+   */
+  preview?(input: I, before: string | null, path: string): string | null;
   run(input: I, ctx: RunContext): Promise<ToolResult>;
 }
 
@@ -544,6 +552,13 @@ export interface ToolCallInfo {
   input: unknown;
   /** API-relative paths from the tool's paths() (empty when not declared). */
   paths: string[];
+  /**
+   * Post-call content of each declared path (keyed as in `paths`) from the tool's preview(),
+   * computed once by the loop before the pre_tool hooks; null = no file there afterwards.
+   * Absent when the tool declares no preview(); a path is missing when its post-call content
+   * could not be computed. Content hooks judge this, never the tool's input field names.
+   */
+  preview?: ReadonlyMap<string, string | null>;
 }
 
 export interface PreToolEvent {

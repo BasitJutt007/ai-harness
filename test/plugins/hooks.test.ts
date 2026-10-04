@@ -128,9 +128,9 @@ describe('unsafe-code-guard', () => {
 
   it('checks edit_file against the edited result and ignores pre-existing violations', async () => {
     const { ctx } = await harness({ files: { 'src/a.ts': 'let legacy: any = 1;\nexport const b = 2;\n' } });
-    const fine = callInfo(editFile, { path: 'src/a.ts', find: 'b = 2', replace: 'b = 3' });
+    const fine = callInfo(editFile, { path: 'src/a.ts', find: 'b = 2', replace: 'b = 3' }, ctx.workspace);
     expect((await pre(unsafeGuard, fine, ctx)).decision).toBe('pass');
-    const bad = callInfo(editFile, { path: 'src/a.ts', find: 'b = 2', replace: 'b = (legacy as any)' });
+    const bad = callInfo(editFile, { path: 'src/a.ts', find: 'b = 2', replace: 'b = (legacy as any)' }, ctx.workspace);
     expect(reasonOf(await pre(unsafeGuard, bad, ctx))).toContain('src/a.ts:2:');
   });
 });
@@ -142,7 +142,7 @@ describe('secret-guard', () => {
     const v = await pre(secretGuard, write('src/config.ts', `export const key = "${key}";\n`), ctx);
     expect(reasonOf(v)).toContain('src/config.ts:1  AWS access key id');
     expect(reasonOf(v)).not.toContain(key);
-    const e = callInfo(editFile, { path: 'src/a.ts', find: '""', replace: `"${'ghp_' + 'z'.repeat(36)}"` });
+    const e = callInfo(editFile, { path: 'src/a.ts', find: '""', replace: `"${'ghp_' + 'z'.repeat(36)}"` }, ctx.workspace);
     expect((await pre(secretGuard, e, ctx)).decision).toBe('block');
     expect((await pre(secretGuard, write('src/ok.ts', 'export const k = process.env.KEY;\n'), ctx)).decision).toBe('pass');
   });

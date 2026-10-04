@@ -239,6 +239,26 @@ export function writtenPaths(result: ToolResult, declared: string[], ctx: Pick<R
   return [...out];
 }
 
+/**
+ * Post-call content of each declared path from the tool's preview() over the path's current
+ * content, computed once so every hook judges the same post-image. A path whose content cannot be
+ * read (e.g. it escapes the API root) or whose preview throws or returns a non-string is left out:
+ * hooks that need it refuse the call.
+ */
+export async function postImages(tool: ToolPlugin<unknown>, input: unknown, paths: string[], ctx: Pick<RunContext, 'workspace'>): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  for (const p of paths) {
+    try {
+      const before = await ctx.workspace.read(ctx.workspace.rel(p.trim().replace(/\\/g, '/')));
+      const after: unknown = tool.preview?.(input, before, p);
+      if (typeof after === 'string' || after === null) out.set(p, after);
+    } catch {
+      // left out: content hooks fail closed on a missing post-image
+    }
+  }
+  return out;
+}
+
 function errorOutcome(call: ToolCallPart, content: string): CallOutcome {
   return { part: { type: 'tool_result', callId: call.id, content, isError: true }, raw: content };
 }
@@ -265,7 +285,8 @@ async function executeCall(
   } catch (e) {
     return errorOutcome(call, `invalid input for ${tool.name}: ${errMsg(e)}`);
   }
-  const info: ToolCallInfo = { id: call.id, tool: tool.name, effect: tool.effect, input, paths };
+  const preview = tool.preview !== undefined ? await postImages(tool, input, paths, ctx) : undefined;
+  const info: ToolCallInfo = { id: call.id, tool: tool.name, effect: tool.effect, input, paths, ...(preview !== undefined ? { preview } : {}) };
 
   const pre = await runPreHooks(ctx.registry.hooks, info, ctx);
   if (pre.blocked !== null) {

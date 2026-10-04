@@ -14,6 +14,7 @@ export default defineTool({
   input: Input,
   effect: 'write',
   paths: (input) => [input.path],
+  preview: (input) => input.content,
   async run(input, ctx) {
     const r = toApiRel(ctx.workspace, input.path);
     if (!r.ok) return { ok: false, summary: `write_file: ${r.reason}` };

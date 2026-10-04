@@ -126,6 +126,7 @@ const ToolShape = z.object({
   effect,
   availableIn: z.array(taskKind).optional(),
   paths: optFn,
+  preview: optFn,
   run: fn,
 });
 const HookShape = z.object({

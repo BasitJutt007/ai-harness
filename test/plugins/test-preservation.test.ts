@@ -108,7 +108,7 @@ describe('test-preservation: existing cases cannot be neutralised while keeping 
 
   it('judges edit_file by the edited result', async () => {
     const h = await harness();
-    const edit = callInfo(editFile, { path: FILE, find: "expect(u.name).toBe('ann');", replace: 'expect(u.name).toBeTruthy();' });
+    const edit = callInfo(editFile, { path: FILE, find: "expect(u.name).toBe('ann');", replace: 'expect(u.name).toBeTruthy();' }, h.ctx.workspace);
     expect(reasonOf(await pre(edit, h.ctx))).toContain('"users > creates a user"');
   });
 

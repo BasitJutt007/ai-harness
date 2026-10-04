@@ -21,6 +21,8 @@ export default defineHook({
       const r = toApiRel(ctx.workspace, p);
       // Invalid or out-of-policy paths are path-guard's business (it blocks them with the precise reason).
       if (!r.ok || !writePolicy(ctx.task, r.rel).allowed || !isGovernedSource(r.rel)) continue;
+      // Deleting a file this run created only returns to the run-start state: no red needed.
+      if (event.call.preview?.get(p) === null && !ctx.state.initialHashes.has(r.rel)) continue;
       const lock = await lockState(ctx, r.rel);
       if (!lock.unlocked) return { decision: 'block', reason: `observed-red: ${lockedReason(lock)}` };
       unlocked.push(r.rel);
