@@ -51,6 +51,7 @@ beforeAll(() => {
   put('tools/broken.ts', `${header}throw new Error('kaboom at import');\nexport default 1;\n`);
   put('tools/badshape.ts', `export default { kind: 'tool', name: 'bad_shape', description: 'x', effect: 'read', input: {}, run: 5 };\n`);
   put('tools/nodefault.ts', `export const x = 1;\n`);
+  put('tools/badpreview.ts', `${header}export default { ...defineTool({ name: 'bad_preview', description: 'x', effect: 'write', input: z.object({}), async run() { return { ok: true, summary: '' }; } }), preview: 'post-image' };\n`);
   put('tools/disabled_one.ts', `${header}export default defineTool({ name: 'disabled_one', description: 'Off.', effect: 'read', input: z.object({}), async run() { return { ok: true, summary: '' }; } });\n`);
   put('tools/_private.ts', `throw new Error('must not be imported');\n`);
   put('tools/echo.test.ts', `throw new Error('must not be imported');\n`);
@@ -100,7 +101,8 @@ describe('registry', () => {
     expect(byFile('tools/broken.ts')).toMatch(/kaboom/);
     expect(byFile('tools/badshape.ts')).toMatch(/invalid tool plugin.*(input|run)/);
     expect(byFile('tools/nodefault.ts')).toMatch(/no default export/);
-    expect(reg.errors).toHaveLength(4);
+    expect(byFile('tools/badpreview.ts')).toMatch(/invalid tool plugin.*preview/);
+    expect(reg.errors).toHaveLength(5);
   });
 
   it('toolSpecs emit plain JSON Schema without $schema, filtered by task kind', () => {

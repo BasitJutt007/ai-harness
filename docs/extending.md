@@ -234,6 +234,10 @@ interface ToolPlugin<I> {
   effect: 'read' | 'write' | 'exec' | 'control';   // hooks select on this
   availableIn?: ('greenfield' | 'brownfield')[];    // default: both
   paths?(input: I): string[];   // API-relative paths touched (REQUIRED for write tools)
+  // Write tools: the exact content `path` will have after the call (null = no file), given its current
+  // content. The loop computes it once and hands it to every hook (event.call.preview); the hooks that
+  // judge content (secrets, `any`, imports, placeholders, test preservation) refuse a write tool without it.
+  preview?(input: I, before: string | null, path: string): string | null;
   run(input: I, ctx: RunContext): Promise<ToolResult>;  // { ok, summary, raw?, data? }
 }
 ```
@@ -390,6 +394,8 @@ The core guarantees: hooks run in discovery order, and the first `block` wins (o
 `pre_tool` the tool does not run and the model gets `reason`). A `record` note is logged
 and added to the model-visible result. A hook that throws or returns anything malformed
 blocks the call (fail closed). Every decision is written to `runs/<id>/events.jsonl`.
+A hook that judges what a write produces reads `event.call.preview` (path -> post-write
+content, computed once from the tool's `preview()`), never the tool's input field names.
 
 ## Gate
 

@@ -153,11 +153,11 @@ export function appendText(before: string, text: string): string {
 }
 
 /**
- * The file content a write-effect call would produce, from its input: `content` (whole file,
- * write_file), `find`/`replace` (single exact edit, edit_file) or `append` (append_file).
- * undefined when it cannot be computed (unknown input shape, or an edit that matches 0 or 2+
- * times, which the tool itself reports). Shared by every content-checking hook so a new write
- * tool is checked exactly like the existing ones.
+ * The post-call content of the shipped write tools from their input: `content` replaces the file
+ * (write_file), `append` is added on its own line(s) (append_file), `find`/`replace` replaces the
+ * one exact occurrence (edit_file). undefined when it cannot be computed (unknown input shape, or an
+ * edit that matches 0 or 2+ times). Internal to those tools' preview(): hooks judge
+ * ToolCallInfo.preview, never input field names.
  */
 export function proposedContent(input: unknown, before: string | null): string | undefined {
   if (typeof input !== 'object' || input === null) return undefined;

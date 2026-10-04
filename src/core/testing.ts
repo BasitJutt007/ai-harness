@@ -9,8 +9,9 @@
  *
  * Each observation also carries per-case evidence (TestObservation.cases): the cases
  * are parsed statically from the exact file content that was hashed and joined with
- * the runner's per-case results. A red only counts when a failing case uses code
- * imported from the API's source roots and asserts on something other than constants.
+ * the runner's per-case results. A red only counts when a failing case asserts (with any
+ * assertion API) on a value from the API's source roots, judged at the statement it failed at: a constant
+ * assertion or a hand-thrown error does not count (the revert check stays the final word).
  *
  * The child runs agent-written code: it runs sandboxed (writes only to a per-run temp
  * dir, network only to localhost; the API root is read-only, so test code cannot edit
@@ -28,7 +29,7 @@ import { glob } from 'tinyglobby';
 import { safeEnv } from './exec.ts';
 import { activeLayout, isSourcePath, sourceRootsLabel, versionAtLeast } from './target.ts';
 import type { TargetLayout, TestRunnerInfo } from './target.ts';
-import { graphFiles, importGraph, reachesSource, resolveImport, staticTestCases } from './testmap.ts';
+import { graphFiles, importGraph, reachesSource, locatedRed, resolveImport, staticTestCases } from './testmap.ts';
 import type { ImportGraph, StaticTestCase } from './testmap.ts';
 import type { Exec, LogStore, TestCaseObservation, TestObservation, TestRunReport } from './types.ts';
 
@@ -304,11 +305,12 @@ async function observe(root: string, fr: VitestFileResult, turn: number, at: str
   const failed = fr.assertionResults.filter((a) => a.status === 'failed').length;
   const loadError = collected === 0 && (fr.status === 'failed' || fr.message !== '');
   // Static cases come from the very bytes that were hashed above.
-  const statics = staticTestCases(file, (content ?? Buffer.alloc(0)).toString('utf8'), {
+  const text = (content ?? Buffer.alloc(0)).toString('utf8');
+  const statics = staticTestCases(file, text, {
     resolve: (spec) => resolveImport(file, spec, graph.existing, layout),
     reachesSource: (target) => reachesSource(target, graph.edges, layout),
   });
-  const cases = joinCases(statics, fr.assertionResults, loadError);
+  const cases = joinCases(statics, fr.assertionResults, loadError, { file, content: text });
   const base = { file, hash, collected, failed, turn, at, cases };
   const where = sourceRootsLabel(layout);
   if (failed > 0) {
@@ -329,7 +331,7 @@ async function observe(root: string, fr: VitestFileResult, turn: number, at: str
   return { ...base, status: 'pass', validRed: false, reason: `${collected} tests passed` };
 }
 
-/** A case whose failure can count as red: an expect() subject uses a value from the API's source and is not a constant. */
+/** A case whose failure can count as red: an assertion (any library) uses a value from the API's source and is not constant-only. */
 export function countsAsRed(c: TestCaseObservation): boolean {
   return c.exercisesSource && !c.constantOnly;
 }
@@ -340,7 +342,7 @@ function rejectedFailures(cases: TestCaseObservation[], where: string): string {
   if (failing.length === 0) return 'red rejected: the failing tests could not be matched to a test case in the file (use literal titles)';
   if (failing.every((c) => c.constantOnly)) return 'red rejected: the failing cases only assert constants';
   if (failing.every((c) => !c.exercisesSource)) {
-    return `red rejected: the failing cases do not assert on anything imported from ${where} (an expect() subject must use its value; side-effect imports, void x and typeof x don't count)`;
+    return `red rejected: the failing cases do not assert on anything imported from ${where} (an assertion, of any library, must use its value; side-effect imports, void x and typeof x don't count)`;
   }
   return `red rejected: no failing case both asserts on something imported from ${where} and has a non-constant subject`;
 }
@@ -360,21 +362,35 @@ const RUNTIME_STATUS: Record<string, TestCaseObservation['status']> = { passed: 
  * pair up in order; a table/dynamic case takes the leftover results its pattern matches, and a
  * result that two patterns match is attributed to neither. A case with no result is 'skip'
  * (not observed); every case of a file that failed to load is 'error'.
+ *
+ * With `located` (the file the statics were parsed from), a failing case is judged by WHERE it
+ * failed (testmap.locatedRed): the statement its failure points at must be an assertion (of any
+ * library) on a value from src/, not a constant one; with no frame in the case the static verdict stands.
  */
-export function joinCases(statics: StaticTestCase[], results: VitestAssertion[], loadError: boolean): TestCaseObservation[] {
-  const keyed = results.map((a) => ({ key: [...a.ancestorTitles, a.title].join(' > '), status: RUNTIME_STATUS[a.status] ?? 'skip', used: false }));
+export function joinCases(
+  statics: StaticTestCase[],
+  results: VitestAssertion[],
+  loadError: boolean,
+  located?: { file: string; content: string },
+): TestCaseObservation[] {
+  const keyed = results.map((a) => ({ key: [...a.ancestorTitles, a.title].join(' > '), status: RUNTIME_STATUS[a.status] ?? 'skip', messages: a.failureMessages.map(stripAnsi), used: false }));
   const assigned = statics.map((): Array<TestCaseObservation['status']> => []);
+  const messages = statics.map((): string[] => []);
+  const assign = (i: number, k: (typeof keyed)[number]): void => {
+    assigned[i]?.push(k.status);
+    if (k.status === 'fail') messages[i]?.push(...k.messages);
+  };
   statics.forEach((s, i) => {
     if (!('exact' in s.match)) return;
     const hit = keyed.find((k) => !k.used && 'exact' in s.match && k.key === s.match.exact);
     if (hit === undefined) return;
     hit.used = true;
-    assigned[i]?.push(hit.status);
+    assign(i, hit);
   });
   for (const k of keyed.filter((x) => !x.used)) {
     const owners = statics.flatMap((s, i) => ('pattern' in s.match && s.match.pattern.test(k.key) ? [i] : []));
     const owner = owners[0];
-    if (owners.length === 1 && owner !== undefined) assigned[owner]?.push(k.status);
+    if (owners.length === 1 && owner !== undefined) assign(owner, k);
   }
   return statics.map((s, i) => {
     const seen = assigned[i] ?? [];
@@ -382,7 +398,8 @@ export function joinCases(statics: StaticTestCase[], results: VitestAssertion[],
       : seen.includes('fail') ? 'fail'
         : seen.length > 0 && seen.every((x) => x === 'pass') ? 'pass'
           : 'skip';
-    const c: TestCaseObservation = { name: s.name, status, exercisesSource: s.exercisesSource, constantOnly: s.constantOnly };
+    const judged = status === 'fail' && located !== undefined ? locatedRed(s, messages[i] ?? [], located.file, located.content) : null;
+    const c: TestCaseObservation = { name: s.name, status, exercisesSource: judged?.exercisesSource ?? s.exercisesSource, constantOnly: judged?.constantOnly ?? s.constantOnly };
     if (s.bodyHash !== undefined) c.bodyHash = s.bodyHash;
     return c;
   });

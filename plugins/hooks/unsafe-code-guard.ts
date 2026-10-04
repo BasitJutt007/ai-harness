@@ -1,10 +1,11 @@
 /**
- * unsafe-code-guard (pre, write of .ts): parses the proposed file content and
- * blocks new `any`, non-null assertions and ts-ignore family comments, with locations.
+ * unsafe-code-guard (pre, write of .ts): parses the post-image of the write (the loop's
+ * preview, whatever tool makes it) and blocks new `any`, non-null assertions and ts-ignore
+ * family comments, with locations. A write tool without preview() is refused (fail closed).
  */
 import { defineHook } from '../../src/core/plugin-api.ts';
-import { proposedContent } from '../lib/diff.ts';
-import { stringField, toApiRel } from '../lib/path-policy.ts';
+import { toApiRel } from '../lib/path-policy.ts';
+import { postImage } from '../lib/post-image.ts';
 import { formatViolations, newUnsafeCode } from '../lib/ts-safety.ts';
 
 export default defineHook({
@@ -15,24 +16,24 @@ export default defineHook({
   async run(event, ctx) {
     if (event.event !== 'pre_tool') return { decision: 'pass' };
     const { call } = event;
-    const target = call.paths[0];
-    if (target === undefined) return { decision: 'pass' };
-    const r = toApiRel(ctx.workspace, target);
-    if (!r.ok || !r.rel.endsWith('.ts')) return { decision: 'pass' };
-
-    const before = await ctx.workspace.read(r.rel);
-    const after = proposedContent(call.input, before);
-    if (after === undefined) return { decision: 'pass' }; // not computable: the tool reports 0/2+ edit matches itself
-
-    const violations = newUnsafeCode(r.rel, before, after);
-    if (violations.length === 0) return { decision: 'pass' };
-    return {
-      decision: 'block',
-      reason: [
-        `unsafe-code-guard: ${r.rel} would introduce unsafe TypeScript:`,
-        ...formatViolations(r.rel, violations).map((l) => `  ${l}`),
-        'Rewrite without these constructs (use unknown + narrowing, explicit null checks, and fix type errors).',
-      ].join('\n'),
-    };
+    for (const target of call.paths) {
+      const r = toApiRel(ctx.workspace, target);
+      if (!r.ok || !r.rel.endsWith('.ts')) continue;
+      const img = postImage(call, target);
+      if (!img.ok) return { decision: 'block', reason: `unsafe-code-guard: ${img.reason}` };
+      if (img.after === null) continue; // no file afterwards
+      const before = await ctx.workspace.read(r.rel);
+      const violations = newUnsafeCode(r.rel, before, img.after);
+      if (violations.length === 0) continue;
+      return {
+        decision: 'block',
+        reason: [
+          `unsafe-code-guard: ${r.rel} would introduce unsafe TypeScript:`,
+          ...formatViolations(r.rel, violations).map((l) => `  ${l}`),
+          'Rewrite without these constructs (use unknown + narrowing, explicit null checks, and fix type errors).',
+        ].join('\n'),
+      };
+    }
+    return { decision: 'pass' };
   },
 });

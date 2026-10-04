@@ -23,9 +23,9 @@
 import { posix } from 'node:path';
 import ts from 'typescript';
 import { defineHook } from '../../src/core/plugin-api.ts';
-import type { RunContext, RunState } from '../../src/core/plugin-api.ts';
-import { proposedContent } from '../lib/diff.ts';
-import { stringField, toApiRel } from '../lib/path-policy.ts';
+import type { HookVerdict, RunContext, RunState, ToolCallInfo } from '../../src/core/plugin-api.ts';
+import { toApiRel } from '../lib/path-policy.ts';
+import { postImage } from '../lib/post-image.ts';
 import { isTestFile, isTestSupport, sha256 } from '../lib/red.ts';
 
 const CASE_FNS = new Set(['it', 'test']);
@@ -681,46 +681,58 @@ export default defineHook({
   effects: ['write'],
   async run(event, ctx) {
     if (event.event !== 'pre_tool') return { decision: 'pass' };
-    const { call } = event;
-    const target = call.paths[0];
-    if (target === undefined) return { decision: 'pass' };
-    const r = toApiRel(ctx.workspace, target);
-    if (!r.ok || !ctx.state.initialHashes.has(r.rel)) return { decision: 'pass' };
-    const breaking = ctx.task.kind === 'brownfield' && ctx.task.allowBreaking;
-    if (isTestSupport(r.rel) && !breaking) {
-      return {
-        decision: 'block',
-        reason:
-          `test-preservation: ${r.rel} is test support code that existed before this run; existing tests depend on it, so it is read-only. ` +
-          'Put new helpers in a new file (or in the test file that needs them).',
-      };
+    for (const target of event.call.paths) {
+      const v = await judge(event.call, target, ctx);
+      if (v.decision === 'block') return v;
     }
-    if (!isTestFile(r.rel)) return { decision: 'pass' };
-    const current = await ctx.workspace.read(r.rel);
-    const after = proposedContent(call.input, current);
-    if (after === undefined) return { decision: 'pass' }; // not computable: the tool reports 0/2+ edit matches itself
-    const before = await runStartContent(ctx, r.rel, current);
-    if (before === null) {
-      return {
-        decision: 'block',
-        reason:
-          `test-preservation: ${r.rel} existed before this run, but its run-start content cannot be recovered ` +
-          '(the file no longer matches the run-start snapshot and the base commit does not have it). ' +
-          'Writes to it are refused; add new cases in a new test file instead.',
-      };
-    }
-    const problems = weakenedCases(r.rel, before, after, { allowBodyChanges: breaking });
-    if (problems.length === 0) return { decision: 'pass' };
-    return {
-      decision: 'block',
-      reason: [
-        `test-preservation: ${r.rel} existed before this run; its test cases are append-only:`,
-        ...problems.slice(0, 20).map((p) => `  ${p}`),
-        breaking
-          ? 'This task sets allowBreaking, so bodies of existing cases may change, but no existing case may be removed, renamed or disabled.'
-          : 'Keep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block) — the simplest safe way is append_file with a new describe block, instead of rewriting the file with write_file. ' +
-            'If existing behaviour must change, the task has to set allowBreaking.',
-      ].join('\n'),
-    };
+    return { decision: 'pass' };
   },
 });
+
+/** The verdict for one declared path of a write call. */
+async function judge(call: ToolCallInfo, target: string, ctx: RunContext): Promise<HookVerdict> {
+  const r = toApiRel(ctx.workspace, target);
+  if (!r.ok || !ctx.state.initialHashes.has(r.rel)) return { decision: 'pass' };
+  const breaking = ctx.task.kind === 'brownfield' && ctx.task.allowBreaking;
+  if (isTestSupport(r.rel) && !breaking) {
+    return {
+      decision: 'block',
+      reason:
+        `test-preservation: ${r.rel} is test support code that existed before this run; existing tests depend on it, so it is read-only. ` +
+        'Put new helpers in a new file (or in the test file that needs them).',
+    };
+  }
+  if (!isTestFile(r.rel)) return { decision: 'pass' };
+  // Judged on the post-image the loop computed from the tool's preview(); none = fail closed.
+  const img = postImage(call, target);
+  if (!img.ok) return { decision: 'block', reason: `test-preservation: ${img.reason}` };
+  const current = await ctx.workspace.read(r.rel);
+  if (img.after === null) {
+    if (current === null) return { decision: 'pass' }; // already gone: nothing to delete
+    return { decision: 'block', reason: `test-preservation: ${r.rel} existed before this run; existing test files cannot be deleted.` };
+  }
+  const after = img.after;
+  const before = await runStartContent(ctx, r.rel, current);
+  if (before === null) {
+    return {
+      decision: 'block',
+      reason:
+        `test-preservation: ${r.rel} existed before this run, but its run-start content cannot be recovered ` +
+        '(the file no longer matches the run-start snapshot and the base commit does not have it). ' +
+        'Writes to it are refused; add new cases in a new test file instead.',
+    };
+  }
+  const problems = weakenedCases(r.rel, before, after, { allowBodyChanges: breaking });
+  if (problems.length === 0) return { decision: 'pass' };
+  return {
+    decision: 'block',
+    reason: [
+      `test-preservation: ${r.rel} existed before this run; its test cases are append-only:`,
+      ...problems.slice(0, 20).map((p) => `  ${p}`),
+      breaking
+        ? 'This task sets allowBreaking, so bodies of existing cases may change, but no existing case may be removed, renamed or disabled.'
+        : 'Keep every original statement of an existing case verbatim and in order: append new statements at the end of the case, or add a new test case (or a new describe block) — the simplest safe way is append_file with a new describe block, instead of rewriting the file with write_file. ' +
+          'If existing behaviour must change, the task has to set allowBreaking.',
+    ].join('\n'),
+  };
+}

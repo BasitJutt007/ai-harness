@@ -78,7 +78,7 @@ describe('what counts as red', () => {
     const h = await harness();
     await h.write('test/users.test.ts', `${VITEST}import '../src/users.ts';\nconst seen = [0];\nit('x', () => { expect(seen.length).toBe(2); });\n`);
     await h.runTests(['test/users.test.ts']);
-    expect(h.latest('test/users.test.ts')?.reason).toBe("1 of 1 tests failed; red rejected: the failing cases do not assert on anything imported from src/ (an expect() subject must use its value; side-effect imports, void x and typeof x don't count)");
+    expect(h.latest('test/users.test.ts')?.reason).toBe("1 of 1 tests failed; red rejected: the failing cases do not assert on anything imported from src/ (an assertion, of any library, must use its value; side-effect imports, void x and typeof x don't count)");
     const v = await h.write('src/users.ts', FIXED);
     expect(reason(v)).toContain('do not assert on anything imported from src/');
   });

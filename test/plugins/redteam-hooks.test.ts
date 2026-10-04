@@ -6,13 +6,18 @@
 import { existsSync, linkSync, readFileSync, symlinkSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { defineTool } from '../../src/core/plugin-api.ts';
 import type { HookPlugin, HookVerdict, RunContext, TestObservation, ToolCallInfo, Workspace } from '../../src/core/plugin-api.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
+import dependencyPolicy from '../../plugins/hooks/dependency-policy.ts';
+import elisionGuard from '../../plugins/hooks/elision-guard.ts';
 import observedRed from '../../plugins/hooks/observed-red.ts';
 import pathGuard from '../../plugins/hooks/path-guard.ts';
 import secretGuard from '../../plugins/hooks/secret-guard.ts';
 import sourceBoundary from '../../plugins/hooks/source-boundary.ts';
 import testPreservation, { weakenedCases } from '../../plugins/hooks/test-preservation.ts';
+import unsafeCodeGuard from '../../plugins/hooks/unsafe-code-guard.ts';
 import { toApiRel } from '../../plugins/lib/path-policy.ts';
 import editFile from '../../plugins/tools/edit_file.ts';
 import runTests from '../../plugins/tools/run_tests.ts';
@@ -154,9 +159,9 @@ describe('source-boundary: production code cannot depend on freely-writable test
   it('judges edit_file by the edited result, and ignores legacy violations', async () => {
     const legacy = "import { old } from '../test/fixtures.ts';\nexport const v = 1;\n";
     const { ctx } = await harness({ files: { 'src/app.ts': legacy } });
-    const fine = callInfo(editFile, { path: 'src/app.ts', find: 'v = 1', replace: 'v = 2' });
+    const fine = callInfo(editFile, { path: 'src/app.ts', find: 'v = 1', replace: 'v = 2' }, ctx.workspace);
     expect((await pre(sourceBoundary, fine, ctx)).decision).toBe('pass');
-    const bad = callInfo(editFile, { path: 'src/app.ts', find: 'export const v = 1;', replace: "export { impl } from './impl.test.ts';" });
+    const bad = callInfo(editFile, { path: 'src/app.ts', find: 'export const v = 1;', replace: "export { impl } from './impl.test.ts';" }, ctx.workspace);
     expect(reasonOf(await pre(sourceBoundary, bad, ctx))).toContain('src/app.ts:2:');
   });
 });
@@ -249,7 +254,7 @@ describe('test-preservation: the existing suite can grow, not shrink', () => {
     for (const content of attempts) {
       expect(reasonOf(await pre(testPreservation, write('test/projects.test.ts', content), h.ctx)), content).toContain('test-preservation');
     }
-    const edit = callInfo(editFile, { path: 'test/projects.test.ts', find: "it('404s'", replace: "it.skip('404s'" });
+    const edit = callInfo(editFile, { path: 'test/projects.test.ts', find: "it('404s'", replace: "it.skip('404s'" }, h.ctx.workspace);
     expect((await pre(testPreservation, edit, h.ctx)).decision).toBe('block');
   });
 
@@ -273,12 +278,40 @@ describe('secret-guard: a key split across edits is caught on the edit that comp
   it('judges the edited file, not just the replacement text', async () => {
     const half = 'export const k = "sk-ant-api03";\n';
     const { ctx } = await harness({ files: { 'src/cfg.ts': half } });
-    const completing = callInfo(editFile, { path: 'src/cfg.ts', find: 'api03"', replace: `api03${'Q'.repeat(24)}"` });
+    const completing = callInfo(editFile, { path: 'src/cfg.ts', find: 'api03"', replace: `api03${'Q'.repeat(24)}"` }, ctx.workspace);
     expect(reasonOf(await pre(secretGuard, completing, ctx))).toContain('sk- style API key');
     // A legacy secret elsewhere in the file does not block unrelated edits.
     const legacy = `export const old = "${'AKIA' + 'Z'.repeat(16)}";\nexport const v = 1;\n`;
     const h2 = await harness({ files: { 'src/legacy.ts': legacy } });
-    const unrelated = callInfo(editFile, { path: 'src/legacy.ts', find: 'v = 1', replace: 'v = 2' });
+    const unrelated = callInfo(editFile, { path: 'src/legacy.ts', find: 'v = 1', replace: 'v = 2' }, h2.ctx.workspace);
     expect((await pre(secretGuard, unrelated, h2.ctx)).decision).toBe('pass');
+  });
+});
+
+describe('a new write tool cannot smuggle content past the hooks: they judge its post-image', () => {
+  // A drop-in write tool whose content travels in a field no hook knows by name.
+  const Text = z.object({ path: z.string(), text: z.string() });
+  const bare = defineTool({ name: 'put_text', description: 'Write text.', input: Text, effect: 'write', paths: (i) => [i.path], run: async () => ({ ok: true, summary: '' }) });
+  const previewed = defineTool({ ...bare, preview: (i) => i.text });
+  const CONTENT_HOOKS = [dependencyPolicy, elisionGuard, secretGuard, sourceBoundary, unsafeCodeGuard];
+  const existingTest = "import { it } from 'vitest';\nit('a', () => {});\n";
+
+  it('without preview(), every content-judging hook refuses it (fail closed), whatever the field is called', async () => {
+    const { ctx } = await harness({ task: brownfieldTask(), files: { 'test/a.test.ts': existingTest } });
+    ctx.state.initialHashes.set('test/a.test.ts', sha(existingTest));
+    const call = callInfo(bare, { path: 'src/app.ts', text: 'export const a: any = 1;\n' });
+    for (const hook of CONTENT_HOOKS) expect(reasonOf(await pre(hook, call, ctx)), hook.name).toContain('declares no preview()');
+    expect(reasonOf(await pre(testPreservation, callInfo(bare, { path: 'test/a.test.ts', text: '' }), ctx))).toContain('declares no preview()');
+  });
+
+  it('with preview(), a forbidden `any` (or a key, a placeholder, a test import) in its post-image is blocked', async () => {
+    const { ctx } = await harness();
+    const verdict = async (hook: HookPlugin, text: string): Promise<HookVerdict> => pre(hook, callInfo(previewed, { path: 'src/app.ts', text }), ctx);
+    expect(reasonOf(await verdict(unsafeCodeGuard, 'export const a: any = 1;\n'))).toContain('unsafe-code-guard: src/app.ts would introduce unsafe TypeScript');
+    expect(reasonOf(await verdict(secretGuard, `export const k = "${'ghp_' + 'z'.repeat(36)}";\n`))).toContain('secret-guard');
+    expect(reasonOf(await verdict(elisionGuard, 'export const a = 1;\n// <omitted 900 chars>\n'))).toContain('elision-guard');
+    expect(reasonOf(await verdict(sourceBoundary, "import { h } from '../test/helpers.ts';\nexport const a = h;\n"))).toContain('source-boundary');
+    expect(reasonOf(await verdict(dependencyPolicy, "import x from 'not-a-real-package-xyz';\nexport const a = x;\n"))).toContain('dependency-policy');
+    for (const hook of CONTENT_HOOKS) expect((await verdict(hook, 'export const a: number = 1;\n')).decision, hook.name).toBe('pass');
   });
 });

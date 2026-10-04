@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineTool } from '../../src/core/plugin-api.ts';
-import { diffStats, formatStats, lineOf, occurrences, unifiedDiff } from '../lib/diff.ts';
+import { diffStats, formatStats, lineOf, occurrences, proposedContent, unifiedDiff } from '../lib/diff.ts';
 import { toApiRel } from '../lib/path-policy.ts';
 
 const Input = z.object({
@@ -15,6 +15,8 @@ export default defineTool({
   input: Input,
   effect: 'write',
   paths: (input) => [input.path],
+  // A missing file stays missing, and an edit matching 0 or 2+ times is refused: the file stays as it is.
+  preview: (input, before) => (before === null ? null : (proposedContent(input, before) ?? before)),
   async run(input, ctx) {
     const r = toApiRel(ctx.workspace, input.path);
     if (!r.ok) return { ok: false, summary: `edit_file: ${r.reason}` };

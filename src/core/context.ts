@@ -78,6 +78,34 @@ export function omitted(n: number): string {
   return `<omitted ${n} chars>`;
 }
 
+/** Digest placeholder for an input string longer than DIGEST_VALUE_CHARS (`content=<800 chars>`). */
+export function elided(n: number): string {
+  return `<${n} chars>`;
+}
+
+/** Tail line of a skeleton that left signature lines out. */
+export function moreSignatureLines(n: number): string {
+  return `… ${n} more signature lines`;
+}
+
+/**
+ * Every placeholder the context views render in place of content the model no longer sees
+ * (input elision, digest values, skeleton tails, repeat pointers), as ONE regex built from the
+ * renderers themselves, so it follows any change to their wording. None of them is ever file
+ * content: the elision guard refuses a write whose post-image gains one. No flags (stateless):
+ * add 'g' on a copy to find every occurrence.
+ */
+export const ELISION_PLACEHOLDER: RegExp = placeholderRegex();
+
+function placeholderRegex(): RegExp {
+  const N = 9_876_543_210;
+  const TOOL = 'tool_sentinel_x';
+  const forms = [omitted(N), elided(N), moreSignatureLines(N), repeatPointer(TOOL, N)].map((s) =>
+    s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').split(String(N)).join('\\d+').split(TOOL).join('[\\w-]+'),
+  );
+  return new RegExp(forms.map((f) => `(?:${f})`).join('|'));
+}
+
 /** Tool-call input with every string longer than ELIDE_INPUT_CHARS replaced by a placeholder. */
 export function compactToolInput(v: unknown): unknown {
   if (typeof v === 'string') return v.length > ELIDE_INPUT_CHARS ? omitted(v.length) : v;
@@ -93,7 +121,7 @@ export function compactToolInput(v: unknown): unknown {
 /** Digest rendering of one input value: bare when it is a single token, `<N chars>` when long. */
 function digestValue(x: unknown): string {
   if (typeof x === 'string') {
-    if (x.length > DIGEST_VALUE_CHARS) return `<${x.length} chars>`;
+    if (x.length > DIGEST_VALUE_CHARS) return elided(x.length);
     return /^[^\s"[\]{},=<>]+$/.test(x) ? x : JSON.stringify(x);
   }
   if (Array.isArray(x)) return `[${x.map(digestValue).join(',')}]`;
@@ -190,7 +218,7 @@ export function skeleton(listing: string, maxLines = SKELETON_LINES): string {
     keep.push(l.length > 160 ? `${l.slice(0, 160)}…` : l);
   }
   const shown = keep.slice(0, maxLines);
-  if (keep.length > shown.length) shown.push(`… ${keep.length - shown.length} more signature lines`);
+  if (keep.length > shown.length) shown.push(moreSignatureLines(keep.length - shown.length));
   return [lines[0] ?? '', ...shown].join('\n');
 }
 

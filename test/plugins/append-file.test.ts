@@ -4,7 +4,7 @@
  * hook must judge the RESULT of the append exactly as for write_file/edit_file.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import type { HookVerdict, RunContext, ToolCallInfo } from '../../src/core/plugin-api.ts';
+import type { HookVerdict, RunContext, ToolCallInfo, Workspace } from '../../src/core/plugin-api.ts';
 import appendFile from '../../plugins/tools/append_file.ts';
 import testPreservation from '../../plugins/hooks/test-preservation.ts';
 import unsafeCodeGuard from '../../plugins/hooks/unsafe-code-guard.ts';
@@ -36,7 +36,7 @@ async function harness() {
   h.ctx.state.initialHashes.set(FILE, sha(EXISTING));
   return h;
 }
-const append = (text: string): ToolCallInfo => callInfo(appendFile, { path: FILE, append: text });
+const append = (text: string, ws: Workspace): ToolCallInfo => callInfo(appendFile, { path: FILE, append: text }, ws);
 const pre = (hook: typeof testPreservation, call: ToolCallInfo, ctx: RunContext): Promise<HookVerdict> => hook.run({ event: 'pre_tool', call }, ctx);
 
 describe('append_file', () => {
@@ -60,26 +60,26 @@ describe('append_file', () => {
 
   it('test-preservation allows appending a new describe block to an existing test file', async () => {
     const h = await harness();
-    const v = await pre(testPreservation, append("describe('delete', () => {\n  it('removes', () => {\n    expect(createUser('b').name).toBe('b');\n  });\n});\n"), h.ctx);
+    const v = await pre(testPreservation, append("describe('delete', () => {\n  it('removes', () => {\n    expect(createUser('b').name).toBe('b');\n  });\n});\n", h.ctx.workspace), h.ctx);
     expect(v.decision).toBe('pass');
   });
 
   it('test-preservation blocks an appended top-level vi.mock of the code under test (vitest hoists it)', async () => {
     const h = await harness();
-    const v = await pre(testPreservation, append("vi.mock('../src/users.ts', () => ({ createUser: () => ({ name: 'ann' }) }));\n"), h.ctx);
+    const v = await pre(testPreservation, append("vi.mock('../src/users.ts', () => ({ createUser: () => ({ name: 'ann' }) }));\n", h.ctx.workspace), h.ctx);
     expect(v.decision).toBe('block');
   });
 
   it('unsafe-code-guard blocks an appended `any`', async () => {
     const h = await harness();
-    const v = await pre(unsafeCodeGuard, append("describe('x', () => { it('y', () => { const v: any = 1; expect(v).toBe(1); }); });\n"), h.ctx);
+    const v = await pre(unsafeCodeGuard, append("describe('x', () => { it('y', () => { const v: any = 1; expect(v).toBe(1); }); });\n", h.ctx.workspace), h.ctx);
     expect(v.decision).toBe('block');
   });
 
   it('secret-guard blocks appended key-like content', async () => {
     const h = await harness();
     const key = ['sk', 'ant', 'api03', 'A'.repeat(40)].join('-');
-    const v = await pre(secretGuard, append(`const k = '${key}';\n`), h.ctx);
+    const v = await pre(secretGuard, append(`const k = '${key}';\n`, h.ctx.workspace), h.ctx);
     expect(v.decision).toBe('block');
   });
 });

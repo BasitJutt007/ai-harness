@@ -14,8 +14,8 @@
 import path from 'node:path';
 import ts from 'typescript';
 import { activeLayout, defineHook, sourceRootsLabel, underAny } from '../../src/core/plugin-api.ts';
-import { proposedContent } from '../lib/diff.ts';
-import { stringField, toApiRel } from '../lib/path-policy.ts';
+import { toApiRel } from '../lib/path-policy.ts';
+import { postImage } from '../lib/post-image.ts';
 import { isGovernedSource, isTestFile, isTestSupport } from '../lib/red.ts';
 
 export interface BoundaryViolation {
@@ -119,23 +119,25 @@ export default defineHook({
   async run(event, ctx) {
     if (event.event !== 'pre_tool') return { decision: 'pass' };
     const { call } = event;
-    const target = call.paths[0];
-    if (target === undefined) return { decision: 'pass' };
-    const r = toApiRel(ctx.workspace, target);
-    if (!r.ok || !isGovernedSource(r.rel)) return { decision: 'pass' };
-
-    const before = await ctx.workspace.read(r.rel);
-    const after = proposedContent(call.input, before);
-    if (after === undefined) return { decision: 'pass' }; // not computable: the tool reports 0/2+ edit matches itself
-    const violations = newBoundaryViolations(r.rel, before, after);
-    if (violations.length === 0) return { decision: 'pass' };
-    return {
-      decision: 'block',
-      reason: [
-        `source-boundary: ${r.rel} would import outside the production code boundary:`,
-        ...violations.map((v) => `  ${r.rel}:${v.line}:${v.col}  ${v.message}`),
-        'Move shared code into src/ (under observed red) and import it with a relative string literal.',
-      ].join('\n'),
-    };
+    for (const target of call.paths) {
+      const r = toApiRel(ctx.workspace, target);
+      if (!r.ok || !isGovernedSource(r.rel)) continue;
+      // Judged on the post-image the loop computed from the tool's preview(); none = fail closed.
+      const img = postImage(call, target);
+      if (!img.ok) return { decision: 'block', reason: `source-boundary: ${img.reason}` };
+      if (img.after === null) continue; // no file afterwards
+      const before = await ctx.workspace.read(r.rel);
+      const violations = newBoundaryViolations(r.rel, before, img.after);
+      if (violations.length === 0) continue;
+      return {
+        decision: 'block',
+        reason: [
+          `source-boundary: ${r.rel} would import outside the production code boundary:`,
+          ...violations.map((v) => `  ${r.rel}:${v.line}:${v.col}  ${v.message}`),
+          'Move shared code into src/ (under observed red) and import it with a relative string literal.',
+        ].join('\n'),
+      };
+    }
+    return { decision: 'pass' };
   },
 });

@@ -5,9 +5,9 @@
  */
 import type { RegistryView } from '../../src/core/types.ts';
 
-/** The 14 tools in plugins/tools/. */
+/** The 15 tools in plugins/tools/. */
 export const SHIPPED_TOOLS = [
-  'append_file', 'check_standards', 'contract_diff', 'edit_file', 'fetch_standard', 'finish', 'list_files', 'outline',
+  'append_file', 'check_standards', 'contract_diff', 'delete_file', 'edit_file', 'fetch_standard', 'finish', 'list_files', 'outline',
   'plan', 'read_file', 'run_tests', 'search_code', 'test_map', 'write_file',
 ] as const;
 

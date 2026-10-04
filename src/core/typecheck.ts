@@ -166,6 +166,17 @@ export function typecheckOf(ctx: Pick<CheckContext, 'root' | 'program' | 'depend
   return registry.get(ctx.program)?.() ?? createTypecheck(ctx.root, () => ctx.dependencies());
 }
 
+/**
+ * Cheap options for checking single files of the API (no program is built): the root tsconfig.json's
+ * options with the strict set forced, or, without a usable one, the first harness default (NodeNext).
+ */
+export function fileCheckOptions(root: string): ts.CompilerOptions {
+  const absRoot = resolve(root);
+  const config = join(absRoot, ROOT_CONFIG);
+  const read = existsSync(config) ? readProject(config, (abs) => toPosix(relative(absRoot, abs))) : undefined;
+  return read?.project !== undefined && read.problems.length === 0 ? read.project.options : forceStrict(DEFAULTS[0]?.options ?? DEFAULT_BASE);
+}
+
 export function createTypecheck(root: string, dependencies: () => Record<string, string> = () => ({})): Typecheck {
   const absRoot = resolve(root);
   const rel = (abs: string): string => toPosix(relative(absRoot, abs));

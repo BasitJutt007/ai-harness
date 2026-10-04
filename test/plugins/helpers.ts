@@ -4,7 +4,7 @@
  */
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -287,7 +287,28 @@ export async function callTool<I>(tool: ToolPlugin<I>, input: unknown, ctx: RunC
   return tool.run(tool.input.parse(input), ctx);
 }
 
-export function callInfo<I>(tool: ToolPlugin<I>, input: unknown): ToolCallInfo {
+/**
+ * The ToolCallInfo the loop hands the hooks, including the post-image of each declared path from
+ * the tool's preview() (as loop.ts postImages computes it). `ws` supplies each path's current
+ * content: pass it for tools whose preview depends on it (edit_file, append_file); without it every
+ * path counts as absent, which is exact for write_file. A path the workspace refuses (it escapes
+ * the API root) is left out, as in the loop.
+ */
+export function callInfo<I>(tool: ToolPlugin<I>, input: unknown, ws?: Workspace): ToolCallInfo {
   const parsed = tool.input.parse(input);
-  return { id: 'c1', tool: tool.name, effect: tool.effect, input: parsed, paths: tool.paths ? tool.paths(parsed) : [] };
+  const paths = tool.paths ? tool.paths(parsed) : [];
+  const info: ToolCallInfo = { id: 'c1', tool: tool.name, effect: tool.effect, input: parsed, paths };
+  const preview = tool.preview;
+  if (preview === undefined) return info;
+  const images = new Map<string, string | null>();
+  for (const p of paths) {
+    try {
+      const abs = ws?.resolve(ws.rel(p.trim().replace(/\\/g, '/')));
+      const before = abs !== undefined && existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+      images.set(p, preview(parsed, before, p));
+    } catch {
+      // left out: content hooks fail closed on a missing post-image
+    }
+  }
+  return { ...info, preview: images };
 }
