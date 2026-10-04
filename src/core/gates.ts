@@ -39,6 +39,7 @@ function normalise(name: string, v: unknown): GateResult {
   if ('humanMustVerify' in v && Array.isArray(v.humanMustVerify)) {
     r.humanMustVerify = v.humanMustVerify.filter((d): d is string => typeof d === 'string');
   }
+  if ('failing' in v && typeof v.failing === 'number' && Number.isInteger(v.failing) && v.failing >= 0) r.failing = v.failing;
   return r;
 }
 
@@ -57,6 +58,19 @@ export function formatGates(results: NamedGateResult[], withDetails: boolean): s
     if (r.logPath !== undefined) lines.push(`    log: ${r.logPath}`);
   }
   return lines.join('\n');
+}
+
+/**
+ * Failing units of a gate run: per fail/unproven gate, the units it reports failing (`failing`),
+ * else its detail lines, at least 1. The loop compares it between finish attempts (progress).
+ */
+export function failingUnits(results: GateResult[]): number {
+  let n = 0;
+  for (const r of results) {
+    if (r.status !== 'fail' && r.status !== 'unproven') continue;
+    n += Math.max(1, r.failing ?? r.details?.length ?? 0);
+  }
+  return n;
 }
 
 export function gatesOk(results: GateResult[]): boolean {

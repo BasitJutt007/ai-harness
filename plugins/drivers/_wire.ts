@@ -10,8 +10,10 @@
  *  - rateLimitRetryAfterMs: Driver.retryAfterMs over the rate-limit formats the SDK drivers
  *    meet (their own endpoints and the compatible gateways in front of them). The core reads
  *    none of these formats, only a standard Retry-After header.
+ *  - driverErrorKind: Driver.errorKind; `context_overflow` when the provider says the request
+ *    does not fit the context window (the loop then shrinks the request once).
  */
-import type { JsonSchema, Message, Part, ToolCallPart, ToolResultPart } from '../../src/core/plugin-api.ts';
+import type { DriverErrorKind, JsonSchema, Message, Part, ToolCallPart, ToolResultPart } from '../../src/core/plugin-api.ts';
 
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -287,6 +289,34 @@ export function rateLimitRetryAfterMs(e: unknown, now: number = Date.now()): num
   const ms = /^retry-after-ms:\s*(\d+(?:\.\d+)?)\s*$/im.exec(headers)?.[1];
   if (ms !== undefined) return Math.ceil(Number(ms));
   return retryDelayFromText(`${errorInfo(e).text}\n${headers}`, now);
+}
+
+// ───────────────────────────── context overflow ─────────────────────────────
+
+/**
+ * Wording of a request that does not fit the model's context window, as the providers and the
+ * gateways in front of them phrase it (`maximum context length is N tokens`, `context_length_exceeded`,
+ * `prompt is too long: N tokens > M maximum`, `input token count (N) exceeds the maximum number of
+ * tokens allowed`, `exceeds the context window`, `input is too long`, ...).
+ */
+const CONTEXT_OVERFLOW =
+  /maximum context length|context[_ ]length[_ ]exceeded|context[_ ](?:window|length|limit)[^.\n]{0,60}(?:exceed|too (?:long|large|many))|exceed\w*[^.\n]{0,40}context[_ ](?:window|length|limit)|prompt is too long|(?:input|prompt) (?:is )?too long|(?:input|prompt) token count[^.\n]{0,60}exceeds|too many (?:input |prompt )tokens|reduce the length of the (?:messages|prompt|input)|request[_ ]too[_ ]large/i;
+
+/**
+ * A thrown SDK error saying the request did not fit: HTTP 413 (payload too large), or the context
+ * wording above on an error that is neither a rate limit nor an output-token rejection (those are
+ * answered by waiting or by clamping max tokens, not by a smaller request).
+ */
+export function isContextOverflowError(e: unknown): boolean {
+  const info = errorInfo(e);
+  if (info.status === 413) return true;
+  if (isRateLimitError(e) || outputTokenCeiling(info.text) !== undefined) return false;
+  return CONTEXT_OVERFLOW.test(info.text) || (info.code !== undefined && CONTEXT_OVERFLOW.test(info.code));
+}
+
+/** Driver.errorKind for the SDK drivers. */
+export function driverErrorKind(e: unknown): DriverErrorKind | null {
+  return isContextOverflowError(e) ? 'context_overflow' : null;
 }
 
 /** Largest output-token value a "too many output tokens" rejection names, if any. */

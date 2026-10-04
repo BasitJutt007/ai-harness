@@ -4,17 +4,23 @@
  * Per turn: build the actual request (JIT view) and the baseline request (front-load of the
  * current tree, raw returns, no context fetchers; in --baseline mode it IS the actual request) →
  * count both with the same counter → driver.complete (retried on thrown errors; a rate limit's
- * wait comes from the driver, else a standard Retry-After) → ledger.record → run each tool call
+ * wait comes from the driver, else a standard Retry-After; a request the driver reports as a
+ * context overflow is shrunk once, never resent unchanged) → ledger.record → run each tool call
  * in order (validate → pre hooks → run → post hooks) → persist.
  * `finish` runs the finish gates; only an all-green gate run ends the loop as `done`.
+ *
+ * Turn limit (turnLimitFor): an explicit limit (--max-turns, the task file's maxTurns) is a hard
+ * cap. Without one the limit scales with the task's size, and when the run reaches it while the
+ * gates are making measurable progress it is extended (see extensionAt).
  */
 import { serializeState } from './run-store.ts';
 import { baselineView, fetcherNames, jitView, messageChars, repeatPointer, type RepeatRef, type TranscriptTurn } from './context.ts';
-import { runGates, type GateOutcome } from './gates.ts';
+import { failingUnits, runGates, type GateOutcome } from './gates.ts';
 import { runPostHooks, runPreHooks } from './hooks.ts';
 import type { TokenLedger, TurnTokens } from './tokens.ts';
 import type {
   Driver,
+  DriverErrorKind,
   LogStore,
   Message,
   ModelRequest,
@@ -27,6 +33,7 @@ import type {
   ToolResult,
   ToolResultPart,
   ToolSpec,
+  Task,
 } from './types.ts';
 
 /** The subset of RunStore the loop writes to (RunStore satisfies it structurally). */
@@ -44,6 +51,8 @@ export interface AgentResult {
   turns: number;
   finish?: GateOutcome;
   error?: string;
+  /** Set when the turn limit was extended (see extensionAt). */
+  turnLimit?: TurnLimitRecord;
 }
 
 export interface RunAgentOptions {
@@ -63,6 +72,8 @@ export interface RunAgentOptions {
   /** Tools of the actual (JIT) request; the baseline request offers these minus the context fetchers. */
   tools: ToolSpec[];
   maxTurns: number;
+  /** How the loop may extend `maxTurns` while the gates make progress (turnLimitFor); absent: a hard cap. */
+  turnExtension?: TurnExtension;
   maxOutputTokens: number;
   /** Backoff before each retry of driver.complete (default 1s, 4s, 10s). */
   retryDelaysMs?: number[];
@@ -70,6 +81,87 @@ export interface RunAgentOptions {
   signal?: AbortSignal;
   /** How the loop waits between attempts (default: a timer that an abort cuts short); a test seam. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+// ───────────────────────────── turn limit ─────────────────────────────
+
+/** Default turn limit of a task that names none: TURN_LIMIT_BASE + per resource + per behaviour, at most TURN_LIMIT_CAP. */
+export const TURN_LIMIT_BASE = 40;
+export const TURNS_PER_RESOURCE = 20;
+export const TURNS_PER_BEHAVIOUR = 2;
+export const TURN_LIMIT_CAP = 150;
+/** Turns one extension grants. */
+export const TURN_EXTENSION_STEP = 10;
+/** Extra turns over the whole run: at most this fraction of the default limit. */
+export const TURN_EXTENSION_MAX_FRACTION = 0.5;
+
+export interface TurnExtension {
+  /** Turns one extension grants. */
+  step: number;
+  /** Cap on the extra turns over the whole run. */
+  maxExtra: number;
+}
+
+export interface TurnLimit {
+  max: number;
+  /** cli: --max-turns; task: the task file's limits.maxTurns; default: scaled with the task's size. */
+  source: 'cli' | 'task' | 'default';
+  /** Only a default limit is extended; an explicit one is a hard cap. */
+  extension?: TurnExtension;
+}
+
+/** One extension: at the turn limit, the latest finish attempt had fewer failing units than the one before it. */
+export interface TurnLimitExtension {
+  atTurn: number;
+  by: number;
+  /** Failing units (gates.ts failingUnits) at the previous and at the latest finish attempt. */
+  failingBefore: number;
+  failingAfter: number;
+}
+
+export interface TurnLimitRecord {
+  initial: number;
+  final: number;
+  extensions: TurnLimitExtension[];
+}
+
+/**
+ * The default limit: TURN_LIMIT_BASE + TURNS_PER_RESOURCE per resource (at least one: a brief-only
+ * task, or a change, is sized as one) + TURNS_PER_BEHAVIOUR per behaviour, capped at TURN_LIMIT_CAP.
+ * One resource and no behaviours gives 60 turns.
+ */
+export function defaultTurnLimit(size: { resources: number; behaviours: number }): number {
+  const n = TURN_LIMIT_BASE + TURNS_PER_RESOURCE * Math.max(1, size.resources) + TURNS_PER_BEHAVIOUR * Math.max(0, size.behaviours);
+  return Math.min(TURN_LIMIT_CAP, n);
+}
+
+/** The run's turn limit: --max-turns, else the task file's maxTurns (both hard caps), else the scaled default (extensible). */
+export function turnLimitFor(task: Pick<Task, 'limits' | 'behaviours' | 'resources'>, cliMaxTurns?: number): TurnLimit {
+  if (cliMaxTurns !== undefined) return { max: cliMaxTurns, source: 'cli' };
+  if (task.limits.maxTurns !== undefined) return { max: task.limits.maxTurns, source: 'task' };
+  const max = defaultTurnLimit({ resources: task.resources?.length ?? 0, behaviours: task.behaviours.length });
+  return { max, source: 'default', extension: { step: TURN_EXTENSION_STEP, maxExtra: Math.round(max * TURN_EXTENSION_MAX_FRACTION) } };
+}
+
+/**
+ * The extension granted when the run reaches `limit` (null: none). Rule: the latest finish attempt
+ * happened within the last `step` turns before the limit and found fewer failing units than the
+ * finish attempt before it (measurable progress); it grants `step` turns, never more than
+ * `maxExtra - extraSoFar`. Each further extension therefore needs a new, better finish attempt
+ * inside the turns the previous one granted.
+ */
+export function extensionAt(
+  limit: number,
+  attempts: ReadonlyArray<{ turn: number; failing: number }>,
+  ext: TurnExtension,
+  extraSoFar: number,
+): TurnLimitExtension | null {
+  const last = attempts[attempts.length - 1];
+  const prev = attempts[attempts.length - 2];
+  if (last === undefined || prev === undefined) return null;
+  if (last.failing >= prev.failing || last.turn <= limit - ext.step) return null;
+  const by = Math.min(ext.step, ext.maxExtra - extraSoFar);
+  return by > 0 ? { atTurn: limit, by, failingBefore: prev.failing, failingAfter: last.failing } : null;
 }
 
 export const RAW_LOG_THRESHOLD = 2048;
@@ -106,6 +198,9 @@ class AbortedError extends Error {}
 
 /** The provider asked for a wait longer than RATE_LIMIT_MAX_WAIT_MS (a daily quota): stop instead of waiting. */
 class RateLimitStop extends Error {}
+
+/** The driver said the request does not fit the context window: resending it unchanged cannot work. */
+class ContextOverflow extends Error {}
 
 /** Longest provider-requested wait the loop honours (per-minute limits); a longer one is a quota: stop. */
 export const RATE_LIMIT_MAX_WAIT_MS = 120_000;
@@ -164,6 +259,15 @@ export function retryAfterMs(driver: Pick<Driver, 'retryAfterMs'>, e: unknown): 
   return genericRetryAfterMs(e);
 }
 
+/** The driver's classification of a failed complete() (Driver.errorKind); null when it has none or its parser throws. */
+export function errorKindOf(driver: Pick<Driver, 'errorKind'>, e: unknown): DriverErrorKind | null {
+  try {
+    return driver.errorKind?.(e) ?? null;
+  } catch {
+    return null; // a driver's parser never turns a failure into a crash
+  }
+}
+
 /** A function (not an inline property read) so TypeScript does not narrow `aborted` across awaits. */
 function isAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
@@ -184,6 +288,8 @@ async function completeWithRetry(
       return await driver.complete(req, signal);
     } catch (e) {
       if (isAborted(signal)) throw new AbortedError('aborted during driver.complete');
+      // Too large for the context window: the identical request would fail again; the caller shrinks it.
+      if (errorKindOf(driver, e) === 'context_overflow') throw new ContextOverflow(errMsg(e));
       // A rate limit that names its wait: honour a short one (per-minute limits) outside the
       // normal retry budget; a long one (a daily quota) will not clear in this run: stop.
       const asked = retryAfterMs(driver, e);
@@ -205,6 +311,10 @@ async function completeWithRetry(
       if (isAborted(signal)) throw new AbortedError('aborted while waiting to retry');
     }
   }
+}
+
+function failureText(e: unknown, delays: number[]): string {
+  return e instanceof RateLimitStop ? `driver.complete stopped: ${e.message}` : `driver.complete failed after ${delays.length + 1} attempts: ${errMsg(e)}`;
 }
 
 /** chars/4 of a request (system, messages, tool schemas): the fallback when the driver's counter fails. */
@@ -476,6 +586,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const turns: TranscriptTurn[] = [];
   let idle = 0;
   let lastFinish: GateOutcome | undefined;
+  // Turn limit: extended (bounded) while refused finish attempts show fewer failing units (extensionAt).
+  let limit = opts.maxTurns;
+  const attempts: Array<{ turn: number; failing: number }> = [];
+  const extensions: TurnLimitExtension[] = [];
+  const send = (req: ModelRequest): Promise<ModelResponse> => completeWithRetry(driver, req, delays, ctx, opts.signal, opts.sleep ?? sleep);
 
   const persist = (t: TranscriptTurn, extra: Record<string, unknown>, logs: Record<string, string>): void => {
     store.appendTranscript({
@@ -488,7 +603,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     });
     store.writeJson('state.json', serializeState(ctx.state));
   };
-  const withFinish = (r: AgentResult): AgentResult => (lastFinish !== undefined ? { ...r, finish: lastFinish } : r);
+  const withFinish = (r: AgentResult): AgentResult => {
+    const out: AgentResult = lastFinish !== undefined && r.finish === undefined ? { ...r, finish: lastFinish } : r;
+    return extensions.length > 0 ? { ...out, turnLimit: { initial: opts.maxTurns, final: limit, extensions } } : out;
+  };
   const aborted = (turnsDone: number): AgentResult => {
     ctx.emit({ kind: 'note', source: 'loop', message: `aborted by the operator after ${turnsDone} turns` });
     store.writeJson('state.json', serializeState(ctx.state));
@@ -496,7 +614,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   };
 
   try {
-    for (let turn = 1; turn <= opts.maxTurns; turn += 1) {
+    for (let turn = 1; turn <= limit; turn += 1) {
       if (isAborted(opts.signal)) return aborted(turn - 1);
       ctx.state.turn = turn;
       // Baseline request: front-load re-rendered from the current tree, raw returns, no fetchers. In a
@@ -512,6 +630,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       let actual: number;
       let baseline: number;
       let estimated: boolean;
+      let fullChars = 0;
       let attribution: TurnTokens['attribution'] = { frontLoadChars: 0, rawReturnChars: 0, historyChars: 0, fetchChars: 0 };
       if (baselineMode) {
         actualReq = baselineReq;
@@ -528,6 +647,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         baseline = c.counts[1] ?? 0;
         estimated = c.estimated;
         const rawMsgs = fetchers.size > 0 ? baselineView(first, turns) : baselineReq.messages;
+        fullChars = messageChars(fullMsgs);
         attribution = {
           frontLoadChars: baselineReq.system.length - opts.system.length,
           rawReturnChars: messageChars(rawMsgs) - messageChars(fullMsgs),
@@ -536,12 +656,50 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         };
       }
 
-      let response: ModelResponse;
+      let response: ModelResponse | undefined;
+      let failure: string | undefined;
+      let shrunk = false;
       try {
-        response = await completeWithRetry(driver, actualReq, delays, ctx, opts.signal, opts.sleep ?? sleep);
+        response = await send(actualReq);
       } catch (e) {
         if (e instanceof AbortedError) return aborted(turn - 1);
-        const error = e instanceof RateLimitStop ? `driver.complete stopped: ${e.message}` : `driver.complete failed after ${delays.length + 1} attempts: ${errMsg(e)}`;
+        if (!(e instanceof ContextOverflow)) failure = failureText(e, delays);
+        else if (baselineMode) {
+          failure = `context overflow: the --baseline request (the repository front-loaded, every raw return, no compaction by definition) does not fit the model's context window: ${e.message}`;
+        } else {
+          // Shrink once: keep 1 recent turn, fold the rest into the digest, working set as skeletons only.
+          const smaller = jitView(first, turns, 1, true, { writeTools, workingSetFullChars: 0 });
+          if (messageChars(smaller) >= messageChars(actualReq.messages)) {
+            failure = `context overflow with nothing left to drop (1 recent turn, no working-set file text): ${e.message}`;
+          } else {
+            shrunk = true;
+            actualReq = { ...actualReq, messages: smaller };
+            if (estimated) {
+              actual = estimateTokens(actualReq);
+              ledger.noteEstimated();
+            } else {
+              const c = await countTurn(driver, [{ label: 'actual (shrunk)', req: actualReq }, { label: 'baseline', req: baselineReq }], ctx, ledger);
+              actual = c.counts[0] ?? 0;
+              baseline = c.counts[1] ?? 0;
+              estimated = c.estimated;
+            }
+            attribution = { ...attribution, historyChars: fullChars - messageChars(smaller) };
+            ctx.emit({
+              kind: 'note',
+              source: 'loop',
+              message: `context overflow: request shrunk once and resent (1 recent turn kept, working-set file text dropped; ${actual} input tokens): ${firstLine(e.message)}`,
+            });
+            try {
+              response = await send(actualReq);
+            } catch (e2) {
+              if (e2 instanceof AbortedError) return aborted(turn - 1);
+              failure = e2 instanceof ContextOverflow ? `context overflow: the request does not fit the model's context window even after shrinking it once: ${e2.message}` : failureText(e2, delays);
+            }
+          }
+        }
+      }
+      if (response === undefined) {
+        const error = failure ?? 'driver.complete returned nothing';
         ctx.emit({ kind: 'error', source: 'driver', message: error });
         store.writeJson('state.json', serializeState(ctx.state));
         return withFinish({ status: 'error', turns: turn - 1, error });
@@ -561,7 +719,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       });
 
       const assistant: Message = { role: 'assistant', parts: response.parts };
-      const meta = { stop: response.stop, model: response.model, usage: response.usage, tokens: { actual, baseline } };
+      const meta = { stop: response.stop, model: response.model, usage: response.usage, tokens: { actual, baseline }, ...(shrunk ? { contextShrunk: true } : {}) };
       const calls = response.parts.filter((p): p is ToolCallPart => p.type === 'tool_call');
 
       if (response.stop === 'refusal' && calls.length === 0) {
@@ -629,6 +787,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         if (out.finish !== undefined) {
           lastFinish = out.finish;
           if (out.finish.ok) accepted = out.finish;
+          else attempts.push({ turn, failing: failingUnits(out.finish.results) });
         }
       }
       const hasRepeats = Object.keys(repeats).length > 0;
@@ -642,10 +801,23 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       };
       turns.push(t);
       persist(t, hasRepeats ? { ...meta, repeats } : meta, logs);
-      if (accepted !== undefined) return { status: 'done', turns: turn, finish: accepted };
+      if (accepted !== undefined) return withFinish({ status: 'done', turns: turn, finish: accepted });
       if (isAborted(opts.signal)) return aborted(turn);
+      if (turn === limit && opts.turnExtension !== undefined) {
+        const extra = limit - opts.maxTurns;
+        const grant = extensionAt(limit, attempts, opts.turnExtension, extra);
+        if (grant !== null) {
+          extensions.push(grant);
+          limit += grant.by;
+          ctx.emit({
+            kind: 'note',
+            source: 'loop',
+            message: `turn limit extended to ${limit} (+${grant.by}): the gates went from ${grant.failingBefore} to ${grant.failingAfter} failing units between the last two finish attempts (at most +${opts.turnExtension.maxExtra} in all)`,
+          });
+        }
+      }
     }
-    return withFinish({ status: 'max_turns', turns: opts.maxTurns });
+    return withFinish({ status: 'max_turns', turns: limit });
   } catch (e) {
     const error = `loop error: ${errMsg(e)}`;
     try {

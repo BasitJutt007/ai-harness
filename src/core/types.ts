@@ -116,7 +116,19 @@ export interface Driver {
    * standard Retry-After header of an HTTP 429/503 error.
    */
   retryAfterMs?(error: unknown): number | null;
+  /**
+   * Optional: what kind of failure an error thrown by complete() is, when the provider's own
+   * wording says so (DriverErrorKind), else null. The provider's error formats live here, never in
+   * the core: on 'context_overflow' the loop shrinks the request once instead of resending it.
+   */
+  errorKind?(error: unknown): DriverErrorKind | null;
 }
+
+/**
+ * Failure kinds the loop treats specially. `context_overflow`: the request did not fit the
+ * model's context window (or the provider's request-size limit); resending it unchanged cannot work.
+ */
+export type DriverErrorKind = 'context_overflow';
 
 export interface DriverCreateOptions {
   /** --model flag, if given. Drivers fall back to their own env var / default. */
@@ -189,7 +201,11 @@ interface TaskCommon {
   title: string;
   /** Free-text behaviours / acceptance criteria. */
   behaviours: string[];
-  limits: { maxTurns: number; maxOutputTokens: number };
+  /**
+   * `maxTurns` absent: the task file named none, so the harness scales a default with the task's
+   * size and may extend it while the gates make progress (loop.ts turnLimitFor). Present: a hard cap.
+   */
+  limits: { maxTurns?: number | undefined; maxOutputTokens: number };
   /** Free-text description of the task, shown to the model verbatim. */
   brief?: string | undefined;
   /** Top-level task-file keys the harness has no slot for, carried to the model verbatim. */
@@ -623,6 +639,11 @@ export interface GateResult {
   logPath?: string;
   /** What the gate saw but neither proved nor blocked on (e.g. pre-existing violations): listed under "human must verify". */
   humanMustVerify?: string[];
+  /**
+   * How many units (tests, violations, changes, ...) a fail/unproven result found failing. Lets the
+   * loop measure progress between finish attempts; absent, the number of detail lines stands in.
+   */
+  failing?: number;
 }
 
 export interface GatePlugin {

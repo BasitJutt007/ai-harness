@@ -194,7 +194,12 @@ describe('tokens compare (measured)', () => {
     const c = compareRuns(a, b);
     expect(c.provider_reported_reduction_pct).toBeNull();
     expect(c.caveats.join('\n')).toMatch(/run a has no provider-reported usage/);
+    // Two offline replays: the trajectory is fixed, so only context size per request is measured.
+    expect(c.caveats.join('\n')).toMatch(/both runs are offline replays .* measures context size per request only/);
     expect(formatComparison(c).join('\n')).toMatch(/provider-reported n\/a/);
+    // One side served by a provider: not a pair of replays, no such caveat.
+    const live = compareRuns(turns(ledger('jit', 'a'), 2, 10, 10).report(), b);
+    expect(live.caveats.join('\n')).not.toMatch(/both runs are offline replays/);
     const empty = compareRuns(ledger('jit', 'a').report(), turns(ledger('baseline', 'b'), 1, 1, 1).report());
     expect(empty.caveats.join('\n')).toMatch(/run a recorded no turns/);
   });

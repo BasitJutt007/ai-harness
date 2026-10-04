@@ -122,6 +122,8 @@ describe('normal run: shadow baseline', () => {
     const run = readRunJson(summary.runDir) as Record<string, unknown>;
     expect(run['toolsOffered']).toEqual(expect.arrayContaining(await fetcherToolNames()));
     expect(run).not.toHaveProperty('contextFetchersWithheld');
+    expect(run['turnLimit']).toEqual({ max: 2, source: 'cli' }); // --max-turns: a hard cap, never extended
+    expect(text).toMatch(/^limit {6}2 turns \(--max-turns \(hard cap\)\)$/m);
     expect(run['tokens']).toMatchObject({ baseline_kind: 'shadow', provider_usage: 'none' });
     const t = tokens('jit');
     expect(t).toMatchObject({ baseline_kind: 'shadow', method: 'shadow-baseline', mode: 'jit', provider_usage: 'none' });

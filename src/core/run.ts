@@ -12,7 +12,7 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { formatGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
-import { runAgent, type AgentResult, type AgentStatus } from './loop.ts';
+import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
 import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
 import { loadRegistry, pluginFingerprint, toolSpecs } from './registry.ts';
 import { deserializeState, newRunId, newRunState, RunStore, serializeState } from './run-store.ts';
@@ -353,6 +353,15 @@ export function standardsLine(report: CheckReport | null, aborted: boolean, kind
   return `UNPROVEN (a rule was skipped or had nothing to check; ${v.percent}% of checked units passed)  ${rules}${brownfield}`;
 }
 
+/** The summary line of the turn limit: where it came from, and any extension the run earned. */
+export function turnLimitLine(limit: TurnLimit, record: TurnLimitRecord | undefined): string {
+  const from =
+    limit.source === 'cli' ? '--max-turns (hard cap)' : limit.source === 'task' ? 'task file maxTurns (hard cap)' : 'default scaled with the task size';
+  const ext = limit.extension === undefined ? '' : `; up to +${limit.extension.maxExtra} while the gates make progress`;
+  const got = record === undefined || record.extensions.length === 0 ? '' : `; extended to ${record.final} (${record.extensions.map((x) => `+${x.by} at turn ${x.atTurn}: ${x.failingBefore}→${x.failingAfter} failing`).join(', ')})`;
+  return `${limit.max} turns (${from}${ext})${got}`;
+}
+
 // ───────────────────────────── baseline request ─────────────────────────────
 
 /**
@@ -476,6 +485,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const state = newRunState();
   state.initialHashes = await snapshotHashes(ws, store.runDir);
   const mode = opts.baseline ? BASELINE_MODE : JIT_MODE;
+  // An explicit limit (--max-turns, the task file's maxTurns) is a hard cap; else scaled with the task, extensible.
+  const turnLimit = turnLimitFor(task, opts.maxTurns);
   const ctx = buildContext({
     run: {
       id: runId,
@@ -538,6 +549,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     baseSha: wt.baseSha,
     pluginFingerprint: pluginFingerprint(registry, { config, harnessRoot: HARNESS_ROOT }),
     toolsOffered: (sentTools ?? []).map((t) => t.name),
+    turnLimit,
     ...(opts.baseline ? { contextFetchersWithheld: withheld } : {}),
     checksRegistered: registry.checks.map((r) => r.plugin.id),
     isolation,
@@ -606,7 +618,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       system,
       baselineSystem,
       tools,
-      maxTurns: opts.maxTurns ?? task.limits.maxTurns,
+      maxTurns: turnLimit.max,
+      ...(turnLimit.extension !== undefined ? { turnExtension: turnLimit.extension } : {}),
       maxOutputTokens: task.limits.maxOutputTokens,
       ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
     });
@@ -696,6 +709,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     ...(status !== agent.status ? { loopStatus: agent.status } : {}),
     ok,
     turns: agent.turns,
+    ...(agent.turnLimit !== undefined ? { turnLimitExtended: agent.turnLimit } : {}),
     ...(error !== undefined ? { error } : {}),
     finishedAt: new Date().toISOString(),
     finishAttempts: state.finishAttempts,
@@ -718,6 +732,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const lines = [
     `run        ${runId}`,
     `status     ${status}  turns ${agent.turns}  finish attempts ${state.finishAttempts}  driver ${driver.name}  model ${finalModel}${opts.baseline ? '  (baseline mode)' : ''}`,
+    `limit      ${turnLimitLine(turnLimit, agent.turnLimit)}`,
     ...(error !== undefined ? [`error      ${error}`] : []),
     `gates      fresh final run (phase finish): ${final.results.length === 0 && abortedRun ? 'not run' : final.ok ? 'all green' : 'NOT green'}`,
     ...(final.results.length > 0 ? formatGates(final.results, true).split('\n') : [final.text]),

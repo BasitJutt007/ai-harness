@@ -11,6 +11,7 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { testMapSummary } from './prompt.ts';
 import { loadRegistry } from './registry.ts';
+import { TURN_EXTENSION_STEP, TURN_LIMIT_BASE, TURN_LIMIT_CAP, TURNS_PER_BEHAVIOUR, TURNS_PER_RESOURCE } from './loop.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
@@ -41,6 +42,9 @@ commands:
       Ctrl-C or SIGTERM stops between steps and still writes the evidence (exit 130 / 143).
       --baseline: the measured token baseline: no context fetchers, no compaction; the current
       tree and the standards are front-loaded into every request.
+      --max-turns N (or the task file's maxTurns) is a hard cap. Without either, the limit is
+      ${TURN_LIMIT_BASE} + ${TURNS_PER_RESOURCE} per resource + ${TURNS_PER_BEHAVIOUR} per behaviour (at most ${TURN_LIMIT_CAP}), extended by ${TURN_EXTENSION_STEP} turns at a
+      time (at most half the default) while finish attempts show fewer failing gate units.
       exit 0 = DONE (all gates green; with --ship: shipped), 1 = not done / refused
   check --api <dir> [--rule r]... [--category c]... [--json]
       Standards checks on any API directory (absolute or relative; no run needed), one line

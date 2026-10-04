@@ -216,7 +216,12 @@ function resolvedContent(turns: TranscriptTurn[], t: TranscriptTurn, p: ToolResu
  * (e.g. by code run during run_tests) keeps its entry. The skeleton is a hint with line numbers, not the file: the model can re-read.
  * Pure function of the transcript, deterministic.
  */
-export function workingSet(turns: TranscriptTurn[], cutoff: number, writeTools: Iterable<string> = DEFAULT_WRITE_TOOLS): string | null {
+export function workingSet(
+  turns: TranscriptTurn[],
+  cutoff: number,
+  writeTools: Iterable<string> = DEFAULT_WRITE_TOOLS,
+  fullChars: number = WORKING_SET_FULL_CHARS,
+): string | null {
   const writes = new Set(writeTools);
   const lastWrite = new Map<string, number>();
   const recentReads = new Set<string>();
@@ -260,7 +265,7 @@ export function workingSet(turns: TranscriptTurn[], cutoff: number, writeTools: 
   let used = 0;
   let fullUsed = 0;
   for (const e of picked.values()) {
-    const useFull = e.full !== null && fullUsed + e.full.length <= WORKING_SET_FULL_CHARS && used + e.full.length <= WORKING_SET_CHARS;
+    const useFull = e.full !== null && fullUsed + e.full.length <= fullChars && used + e.full.length <= WORKING_SET_CHARS;
     const b = useFull && e.full !== null ? e.full : e.skel;
     if (used + b.length > WORKING_SET_CHARS) continue;
     blocks.push(b);
@@ -286,6 +291,8 @@ function readPath(call: ToolCallPart, result: ToolResultPart | undefined): strin
 export interface JitViewOptions {
   /** Tools whose calls make earlier reads of the same path stale (default DEFAULT_WRITE_TOOLS). */
   writeTools?: Iterable<string>;
+  /** Budget of FULL read results in the working set (default WORKING_SET_FULL_CHARS; 0 = skeletons only). */
+  workingSetFullChars?: number;
 }
 
 export function jitView(
@@ -308,7 +315,7 @@ export function jitView(
   const extra: Part[] = [];
   // The digest comes first and only grows at its end; the working set follows it.
   if (digest.length > 0) extra.push({ type: 'text', text: [DIGEST_HEADER, ...digest].join('\n') });
-  const ws = workingSet(turns, cutoff, opts.writeTools);
+  const ws = workingSet(turns, cutoff, opts.writeTools, opts.workingSetFullChars);
   if (ws !== null) extra.push({ type: 'text', text: ws });
   const head: Message = extra.length === 0 ? first : { role: first.role, parts: [...first.parts, ...extra] };
   const out: Message[] = [head];

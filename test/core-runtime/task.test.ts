@@ -47,7 +47,8 @@ describe('task loading', () => {
     if (t.kind !== 'greenfield') throw new Error('expected greenfield');
     expect(t.template).toBe('express-zod');
     expect(t.basePath).toBe('/v1');
-    expect(t.limits).toEqual({ maxTurns: 60, maxOutputTokens: 16000 });
+    // No maxTurns in the file: none is invented here; the run scales one with the task (loop.ts turnLimitFor).
+    expect(t.limits).toEqual({ maxOutputTokens: 16000 });
     const r = t.resources[0];
     expect(r?.plural).toBe('users');
     expect(r?.operations).toEqual(['list', 'get', 'create', 'update', 'delete']);

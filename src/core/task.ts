@@ -107,11 +107,12 @@ const common = {
     .optional(),
   limits: z
     .object({
-      maxTurns: z.number().int().min(1).default(60),
+      // No default: an absent maxTurns is scaled with the task's size at run time (loop.ts turnLimitFor).
+      maxTurns: z.number().int().min(1).optional(),
       maxOutputTokens: z.number().int().min(256).max(128000).default(16000),
     })
     .strict()
-    .default({ maxTurns: 60, maxOutputTokens: 16000 }),
+    .default({ maxOutputTokens: 16000 }),
 };
 
 const GreenfieldSchema = z

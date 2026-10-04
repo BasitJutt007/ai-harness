@@ -288,6 +288,11 @@ export function compareRuns(actual: TokenReport, baseline: TokenReport): TokenCo
     if (s.provider_usage === 'none') caveats.push(`run ${s.runId} has no provider-reported usage (an offline driver): provider_reported_reduction_pct is null`);
     else if (s.provider_usage !== 'reported') caveats.push(`run ${s.runId} provider usage is ${s.provider_usage}: the provider-reported ratio may undercount`);
   }
+  if (a.provider_usage === 'none' && b.provider_usage === 'none') {
+    caveats.push(
+      'both runs are offline replays (no provider served them): a replayed trajectory cannot react to what its requests contain, so this measures context size per request only, not how a model behaves with less context',
+    );
+  }
   if (a.turns !== b.turns) {
     caveats.push(
       `turn counts differ (${a.turns} vs ${b.turns}): the runs took different paths; reduction_pct (per-run totals) reflects that, per_turn_reduction_pct (per-turn averages) does not`,

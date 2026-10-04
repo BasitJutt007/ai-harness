@@ -244,7 +244,7 @@ async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSum
     const unprovenRules = [...unprovenNow].map(([rule, why]) => `${rule} ${why}`);
     const head = `verdict ${percent}% over the whole API; no baseline (${baseline})`;
     if (blocking.length > 0) {
-      return { status: 'fail', summary: `${head}: ${blocking.length} violation(s) in files this run changed`, details: capped([...blocking.map((b) => `changed file: ${b}`), ...unknown.map((u) => `unproven (no baseline): ${u}`)], MAX_DETAILS, 'see the standards report') };
+      return { status: 'fail', summary: `${head}: ${blocking.length} violation(s) in files this run changed`, failing: blocking.length, details: capped([...blocking.map((b) => `changed file: ${b}`), ...unknown.map((u) => `unproven (no baseline): ${u}`)], MAX_DETAILS, 'see the standards report') };
     }
     return {
       status: 'unproven',
@@ -306,7 +306,7 @@ async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSum
   const human = capped(preLines, MAX_HUMAN, `see ${logPath}`);
   const verify = human.length > 0 ? { humanMustVerify: human } : {};
   if (blocking.length > 0) {
-    return { status: 'fail', summary: `${head}: ${blocking.length} introduced by this run`, details: capped([...blocking, ...preLines], MAX_DETAILS, `see ${logPath}`), logPath, ...verify };
+    return { status: 'fail', summary: `${head}: ${blocking.length} introduced by this run`, failing: blocking.length, details: capped([...blocking, ...preLines], MAX_DETAILS, `see ${logPath}`), logPath, ...verify };
   }
   if (unproven.length > 0) {
     return { status: 'unproven', summary: `${head}: ${unproven.length} rule(s) unproven`, details: capped([...unproven, ...preLines], MAX_DETAILS, `see ${logPath}`), logPath, ...verify };
@@ -354,7 +354,9 @@ export default defineGate({
     }
 
     const standardsFailing = counted.filter((r) => r.category === STANDARDS && r.status === 'fail');
-    if (standardsFailing.length > 0) return { status: 'fail', summary: `verdict ${percent}%`, details: compact };
+    if (standardsFailing.length > 0) {
+      return { status: 'fail', summary: `verdict ${percent}%`, failing: standardsFailing.reduce((n, r) => n + Math.max(1, r.total - r.passed), 0), details: compact };
+    }
 
     const otherFailing = counted.filter((r) => r.category !== STANDARDS && r.status === 'fail');
     if (status === 'pass' && otherFailing.length > 0) {
@@ -373,6 +375,7 @@ export default defineGate({
       return {
         status: 'fail',
         summary: `verdict ${percent}%: ${blocking.length} violation(s) in files this run changed${pre}`,
+        failing: blocking.length,
         details: [...blocking.map((b) => `changed file: ${b}`), ...notes].slice(0, MAX_DETAILS),
       };
     }
