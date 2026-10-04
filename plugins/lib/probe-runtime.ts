@@ -185,6 +185,46 @@ function injectFront(app: unknown, routes: Array<{ path: string; handler: Handle
   }
 }
 
+/**
+ * Every route layer of an Express app, nested routers included: its method(s) (`_all` for `.all()`) and its path
+ * as registered on its own router (mount prefixes are not recoverable from Express 5 layers). Harness routes excluded.
+ */
+function listRoutes(app: unknown): Array<{ method: string; path: string }> {
+  const out: Array<{ method: string; path: string }> = [];
+  const seen = new Set<unknown>();
+  const walkStack = (stack: unknown): void => {
+    if (!Array.isArray(stack) || seen.has(stack)) return;
+    seen.add(stack);
+    for (const layer of stack) {
+      if (!isRecord(layer)) continue;
+      const route = layer['route'];
+      if (isRecord(route)) {
+        const own = isRecord(route['methods']) ? Object.keys(route['methods']).filter((m) => (route['methods'] as Record<string, unknown>)[m] === true) : [];
+        // `.all()`: Express 4 marks `_all`; Express 5 registers every method.
+        const methods = own.includes('_all') || own.length > 20 ? ['_all'] : own;
+        const paths = Array.isArray(route['path']) ? route['path'] : [route['path']];
+        for (const p of paths) {
+          const path = typeof p === 'string' ? p : String(p);
+          if (path.includes('__harness_probe__')) continue;
+          for (const m of methods) out.push({ method: m, path });
+        }
+        continue;
+      }
+      const handle = layer['handle'];
+      if (isRecord(handle) || typeof handle === 'function') {
+        const inner = (handle as Record<string, unknown>)['stack'];
+        if (Array.isArray(inner)) walkStack(inner);
+      }
+    }
+  };
+  if (isRecord(app) || typeof app === 'function') {
+    const a = app as Record<string, unknown>;
+    const router = a['_router'] ?? a['router'];
+    walkStack(isRecord(router) || typeof router === 'function' ? (router as Record<string, unknown>)['stack'] : undefined);
+  }
+  return out;
+}
+
 /** An Express/connect Router: a request handler with a layer stack but no listen(): not an app. */
 function isRouter(v: unknown): boolean {
   return typeof v === 'function' && isRecord(v) && Array.isArray(v['stack']) && typeof v['handle'] === 'function' && typeof v['listen'] !== 'function';
@@ -328,6 +368,7 @@ async function main(): Promise<void> {
     }
   }
   const control = input.control;
+  let servedHandler: unknown;
   if (control !== undefined) {
     routes.push({
       path: control.path,
@@ -337,10 +378,21 @@ async function main(): Promise<void> {
         res.end(control.body);
       },
     });
+    // The routes the served app registers, so the harness can find any the static analysis missed. Only ever
+    // used to withhold a pass (a route listed here and absent from the analysis is UNPROVEN), never to grant one.
+    routes.push({
+      path: `${control.path}/routes`,
+      handler: (_req, res) => {
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ routes: listRoutes(servedHandler) }));
+      },
+    });
   }
   let injected = false;
   const guard = guardListen(Number(portArg), (server) => {
     const inject = (): void => {
+      servedHandler ??= server.listeners('request')[0];
       if (!injected) injected = injectFront(server.listeners('request')[0], routes);
     };
     inject();

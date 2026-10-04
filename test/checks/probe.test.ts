@@ -42,8 +42,9 @@ describe('probe helpers', () => {
     const boom = probes.find((p) => p.name === 'internal error');
     if (invalid === undefined || boom === undefined) throw new Error('probes missing');
     const p401 = goodBody.replace('404', '401');
-    expect(evaluateProbe(invalid, { status: 401, contentType: 'application/problem+json', body: p401 }).ok).toBe(true);
-    expect(evaluateProbe(invalid, { status: 403, contentType: 'application/problem+json', body: goodBody.replace('404', '403') }).ok).toBe(true);
+    // A well-formed auth problem passes the shape check but never reached the route: UNPROVEN, not ok.
+    expect(evaluateProbe(invalid, { status: 401, contentType: 'application/problem+json', body: p401 })).toMatchObject({ ok: false, problems: [], unproven: expect.stringContaining('before reaching the route') });
+    expect(evaluateProbe(invalid, { status: 403, contentType: 'application/problem+json', body: goodBody.replace('404', '403') })).toMatchObject({ ok: false, problems: [], unproven: expect.stringContaining('before reaching the route') });
     expect(evaluateProbe(invalid, { status: 401, contentType: 'text/plain', body: 'no' }).ok).toBe(false);
     expect(evaluateProbe(boom, { status: 401, contentType: 'application/problem+json', body: p401 }).problems).toContain('expected status 500, got 401');
   });
@@ -59,7 +60,8 @@ describe('probe helpers', () => {
       'Content-Type is "text/html", expected application/json',
       'body is not JSON',
     ]);
-    expect(evaluateProbe(success, { status: 401, contentType: 'application/problem+json', body: goodBody.replace('404', '401') }).ok).toBe(true);
+    expect(evaluateProbe(success, { status: 401, contentType: 'application/problem+json', body: goodBody.replace('404', '401') })).toMatchObject({ ok: false, problems: [], unproven: expect.stringContaining('before reaching the route') });
+    expect(evaluateProbe(success, { status: 401, contentType: 'text/plain', body: 'no' }).problems.length).toBeGreaterThan(0);
     expect(evaluateProbe(success, { status: 404, contentType: 'application/problem+json', body: goodBody }).problems).toEqual([
       'expected status 200 or 401 or 403, got 404',
     ]);

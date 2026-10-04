@@ -78,12 +78,56 @@ export type ProbeRun =
       /** How the runtime says it found the app, e.g. "src/app.ts: export createApp()" (informational). */
       entry?: string;
       logPath?: string;
+      /** Routes the running app serves that the static table does not account for (unanalysedRoutes). */
+      unanalysed?: string[];
+      /** Routes of the static table the running app does not serve (unservedRoutes). */
+      unserved?: string[];
     }
   | { ok: false; reason: string; logPath?: string };
+
+const RouteListingSchema = z.object({ routes: z.array(z.object({ method: z.string(), path: z.string() })) });
+
+/**
+ * The routes the running app serves that no route of the static table accounts for (fail-closed: a route the
+ * analysis did not find was judged by no rule). A listed route is accounted for by a static route of the same
+ * method (`_all` by any) whose full path ends with the listed path (params compared by position).
+ */
+export function unanalysedRoutes(listed: ReadonlyArray<{ method: string; path: string }>, table: Pick<RouteInfo, 'method' | 'path'>[]): string[] {
+  const norm = (p: string): string => p.replace(/:[^/]+/g, ':').replace(/\/+$/, '') || '/';
+  const out: string[] = [];
+  for (const l of listed) {
+    const lp = norm(l.path);
+    const method = l.method.toLowerCase();
+    const hit = table.some((r) => (method === '_all' || r.method === method) && (lp === '/' || norm(r.path).endsWith(lp)));
+    if (!hit) out.push(`${method === '_all' ? 'ALL' : method.toUpperCase()} ${l.path}`);
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * Routes of the static table the running app does not serve (no listed route of the same method, `_all` aside,
+ * whose path its full path ends with): the analysis judged code that is not the app being served.
+ */
+export function unservedRoutes(listed: ReadonlyArray<{ method: string; path: string }>, table: Pick<RouteInfo, 'method' | 'path'>[]): string[] {
+  const norm = (p: string): string => p.replace(/:[^/]+/g, ':').replace(/\/+$/, '') || '/';
+  const out: string[] = [];
+  for (const r of table) {
+    const full = norm(r.path);
+    const hit = listed.some((l) => {
+      const m = l.method.toLowerCase();
+      const lp = norm(l.path);
+      return (m === '_all' || m === r.method) && (lp === '/' || full.endsWith(lp));
+    });
+    if (!hit) out.push(`${r.method.toUpperCase()} ${r.path}`);
+  }
+  return [...new Set(out)];
+}
 
 export interface ProbeOptions {
   /** Explicit app entry (e.g. from the task); tried before every discovered candidate. */
   entry?: AppEntry;
+  /** Every route of the static table (unresolved ones included), to find routes the app serves that it lacks. */
+  known?: Array<Pick<RouteInfo, 'method' | 'path'>>;
 }
 
 /** Replace `:param` segments (Express syntax, optional `?` suffix) with the probe uuid. */
@@ -191,6 +235,12 @@ export function evaluateProbe(probe: Probe, res: ProbeResponse): ProbeOutcome {
       else if (st !== res.status) problems.push(`body.status ${st} differs from HTTP status ${res.status}`);
     }
   }
+  // Answered by authentication before the route: a well-formed problem is still judged, but what the probe was
+  // for (the route's own error path) was never reached, so it proves nothing about it.
+  const authOnly = res.status === 401 || res.status === 403 ? (auth && !probe.expect.includes(res.status)) || probe.kind === 'success' : false;
+  if (authOnly && problems.length === 0) {
+    return { probe, ok: false, status: res.status, problems, unproven: `answered ${res.status} before reaching the route (authentication), so its ${probe.name} path is unproven` };
+  }
   return { probe, ok: problems.length === 0, status: res.status, problems };
 }
 
@@ -287,6 +337,11 @@ export interface ServedApp {
   control: string;
   /** Epoch ms after which the runtime may stop serving: send nothing after it. */
   deadline: number;
+  /**
+   * The routes the served app registers (method, path on its own router), as its injected listing route answered;
+   * undefined when it could not be listed. Printed by agent code: only ever used to withhold a pass.
+   */
+  routes?: Array<{ method: string; path: string }>;
 }
 
 export type ServeRun<T> =
@@ -339,10 +394,23 @@ export async function serveApp<T>(ctx: ProbeHost, opts: ServeOptions, use: (app:
     // A transport error is retried once: only an answer decides whether the routes were injected.
     for (let attempt = 0; up && attempt < 2 && 'error' in reached; attempt++) reached = await send(base, controlProbe);
     const injected = !('error' in reached) && reached.status === 200 && reached.body === control.body;
+    let listed: ServedApp['routes'];
+    if (injected) {
+      const r = await send(base, { name: 'routes', method: 'GET', path: `${control.path}/routes`, expect: [200] });
+      try {
+        const parsed = 'error' in r ? undefined : RouteListingSchema.safeParse(JSON.parse(r.body));
+        if (parsed?.success === true) listed = parsed.data.routes;
+      } catch {
+        // not listed: nothing is withheld on its account
+      }
+    }
     const transcript: string[] = [];
     let value: { v: T } | { thrown: unknown } | undefined;
     if (up) {
-      const served: ServedApp = { base, injected, control: 'error' in reached ? `failed: ${reached.error}` : `answered ${reached.status}`, deadline: started + budget - 7_000 };
+      const served: ServedApp = {
+        base, injected, control: 'error' in reached ? `failed: ${reached.error}` : `answered ${reached.status}`, deadline: started + budget - 7_000,
+        ...(listed !== undefined ? { routes: listed } : {}),
+      };
       try {
         value = { v: await use(served, transcript) };
       } catch (e) {
@@ -387,10 +455,13 @@ export async function runProbe(ctx: ProbeHost, routes: RouteInfo[], opts: ProbeO
     const responses: Array<HttpResponse | { error: string }> = [];
     for (const p of probes) responses.push(await send(app.base, p));
     log.push('--- responses (sent and recorded by the harness)', ...responses.map((r, i) => `${probes[i]?.method ?? ''} ${probes[i]?.path ?? ''} -> ${JSON.stringify(r)}`));
-    return { app, responses };
+    const unanalysed = app.routes !== undefined ? unanalysedRoutes(app.routes, opts.known ?? routes) : undefined;
+    const unserved = app.routes !== undefined ? unservedRoutes(app.routes, routes) : undefined;
+    if (unanalysed !== undefined) log.push(`--- routes listed by the app: ${app.routes?.length ?? 0}; not in the static table: ${unanalysed.length > 0 ? unanalysed.join(', ') : '(none)'}; analysed but not served: ${unserved !== undefined && unserved.length > 0 ? unserved.join(', ') : '(none)'}`);
+    return { app, responses, unanalysed, unserved };
   });
   if (!served.ok) return served;
-  const { app, responses } = served.value;
+  const { app, responses, unanalysed, unserved } = served.value;
   const outcomes: ProbeOutcome[] = [];
   probes.forEach((probe, i) => {
     const r = responses[i];
@@ -409,5 +480,7 @@ export async function runProbe(ctx: ProbeHost, routes: RouteInfo[], opts: ProbeO
     ...(served.logPath !== undefined ? { logPath: served.logPath } : {}),
     ...(served.entry !== undefined ? { entry: served.entry } : {}),
     ...(served.entryModule !== undefined ? { entryModule: served.entryModule } : {}),
+    ...(unanalysed !== undefined && unanalysed.length > 0 ? { unanalysed } : {}),
+    ...(unserved !== undefined && unserved.length > 0 ? { unserved } : {}),
   };
 }
