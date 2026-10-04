@@ -57,6 +57,57 @@ name one. Each run works in a fresh git worktree on its own branch, so your chec
 tool calls through the real loop, hooks and gates (`fixtures/scripted/*.json`; harness demos, never
 model evidence).
 
+### Your own change on any repository
+
+The harness is not a chat: you describe the change in a file, one command runs it to a verdict, and
+one more opens the PR. Ctrl-C stops a run between steps and still writes its evidence.
+
+1. **Describe the change** in a Markdown file, kept outside the target repository (format:
+   [docs/task-format.md](docs/task-format.md)). `target` is the API folder inside that repository;
+   concrete behaviours (statuses, edge cases) give the model a precise goal.
+
+   ```markdown
+   ---
+   target: samples/existing-api
+   ---
+   # Add search to projects
+
+   GET /v1/projects accepts an optional `q` query parameter and returns only projects whose
+   name contains it (case-insensitive). Pagination keeps working on the filtered list.
+
+   - GET /v1/projects?q=alp returns only projects whose name contains "alp".
+   - GET /v1/projects?q= with an empty value returns 422 application/problem+json.
+   ```
+
+2. **Check how the harness reads it** (no model call):
+
+   ```bash
+   node bin/harness.mjs task check add-search.md
+   ```
+
+3. **Run it** against a clone of the repository (here the demo repository; any model id the driver
+   accepts works):
+
+   ```bash
+   node bin/harness.mjs run add-search.md --driver openai --model gpt-5.6-luna --repo ../harness-demo
+   ```
+
+   The run works on its own branch in a worktree under `.harness/worktrees/`, so the clone is never
+   touched. It ends with one line per gate and `verdict DONE` or `NOT DONE` (the gate lines say why),
+   and prints the run id. A change that would break existing clients is refused by Contract Lock
+   unless the file sets `allowBreaking: true`.
+
+4. **Open the PR** when it is DONE: every gate re-runs fresh, then the harness commits, pushes the run
+   branch and opens the PR with `gh` (or pass `--ship` to step 3).
+
+   ```bash
+   node bin/harness.mjs ship <run-id>
+   ```
+
+`HARNESS_RUNS_DIR` and `HARNESS_TOKENS_DIR` move the evidence of your own runs out of the committed
+`runs/` and `tokens/` (e.g. `.harness/my-runs`); `git worktree remove --force .harness/worktrees/<run-id>`
+removes a finished run's worktree.
+
 Every run ends with a summary. The shipped greenfield run (`runs/users-api-openai-20261004-145143`):
 
 ```
