@@ -1,0 +1,25 @@
+spec coverage of task users-api: 1 resource(s), 5 expected endpoint(s)
+expected  GET /v1/users  (list user)
+expected  GET /v1/users/:id  (get user)
+expected  POST /v1/users  (create user)
+expected  PATCH|PUT /v1/users/:id  (update user)
+expected  DELETE /v1/users/:id  (delete user)
+static route table: 5 route(s), 0 unresolved
+pass     user route GET /v1/users: registered: GET /v1/users (src/routes/users.ts:18:3)
+pass     user route GET /v1/users/:id: registered: GET /v1/users/:userId (src/routes/users.ts:20:3)
+pass     user route POST /v1/users: registered: POST /v1/users (src/routes/users.ts:19:3)
+pass     user route PATCH|PUT /v1/users/:id: registered: PATCH /v1/users/:userId (src/routes/users.ts:21:3)
+pass     user route DELETE /v1/users/:id: registered: DELETE /v1/users/:userId (src/routes/users.ts:22:3)
+pass     user create: POST /v1/users -> 201 with id 84ee25df-5bc3-4d92-b017-67a539c8ca1c and every sent field
+pass     user get: GET /v1/users/84ee25df-5bc3-4d92-b017-67a539c8ca1c -> 200 with the created fields
+pass     user list: GET /v1/users -> 200; the created user is listed (page 1)
+pass     user update: PATCH /v1/users/cb642b3b-b649-4bc9-af00-c39c023b9b7d {name} only -> 200 with the change, other fields kept
+pass     user required email: POST /v1/users without email -> 422 problem
+pass     user required name: POST /v1/users without name -> 422 problem
+pass     user max name: POST /v1/users with name = 101 characters (max 100) -> 422 problem
+pass     user min name: POST /v1/users with name = 0 characters (min 1) -> 422 problem
+pass     user enum role: POST /v1/users with role = "harness-not-allowed" (not one of admin|member) -> 422 problem
+pass     user unique email: POST /v1/users with a duplicate email -> 409 problem
+pass     user idempotency: the same Idempotency-Key and body twice -> 201 with the same id (no duplicate)
+pass     user delete: DELETE /v1/users/4c66f950-c85d-47ba-8d8c-2182b39475f6 -> 204, then GET -> 404
+probe log: runs/users-api-openai-20261004-055546/logs/040-spec-coverage-probe.txt

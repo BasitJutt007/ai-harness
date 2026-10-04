@@ -213,11 +213,17 @@ the shipped commits; `node bin/harness.mjs check --api governed/users-api` reads
 
 **Pull requests opened by the harness** (`harness ship`, every gate re-run fresh first, pushed to a
 feature branch, opened with `gh`), on the demo repository whose `main` holds the sample API:
-- [BasitJutt007/harness-demo#1](https://github.com/BasitJutt007/harness-demo/pull/1): greenfield, run `users-api-openai-20261004-045649`
-- [BasitJutt007/harness-demo#2](https://github.com/BasitJutt007/harness-demo/pull/2): brownfield, run `projects-change-openai-20261004-052623`
+- [BasitJutt007/harness-demo#1](https://github.com/BasitJutt007/harness-demo/pull/1) (merged): greenfield, run `users-api-openai-20261004-045649`
+- [BasitJutt007/harness-demo#2](https://github.com/BasitJutt007/harness-demo/pull/2) (merged): brownfield, run `projects-change-openai-20261004-052623`
+- [BasitJutt007/harness-demo#3](https://github.com/BasitJutt007/harness-demo/pull/3): greenfield, run `users-api-openai-20261004-055546` (the exact submitted code)
+- [BasitJutt007/harness-demo#4](https://github.com/BasitJutt007/harness-demo/pull/4): brownfield, run `projects-change-openai-20261004-055658` (the exact submitted code)
 
-Their PR bodies quote the run's token totals against the shadow baseline; `harness ship` now labels
-that baseline as a shadow estimate in new PRs.
+#3 and #4 were opened after #1 and #2 had been merged and were built on the same base, so GitHub
+reports conflicts with `main`: they are a second implementation of the same tasks, kept as evidence
+that the submitted code ships PRs, not for merging.
+
+The PR bodies quote the run's token totals against the shadow baseline; #3 and #4 label it as a
+shadow estimate (#1 and #2 predate that wording).
 
 **Tokens, measured: the >90% target is not met.** `tokens/compare-users-api-openai-20261004-045424-vs-users-api-openai-20261004-045825.json`
 compares a normal run with a real `--baseline` run on the same model (`gpt-5.4-mini`):
