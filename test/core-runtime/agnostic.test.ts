@@ -110,3 +110,13 @@ describe('harness agnostic: governance', () => {
     expect(r.text).toMatch(/run A is not DONE \(not recorded/);
   });
 });
+
+describe('runVerdict', () => {
+  it('a gate-decided DONE counts as done; NOT DONE never does', async () => {
+    const { runVerdict } = await import('../../src/core/governance.ts');
+    expect(runVerdict({ task: { sha256: 'x' }, verdict: 'DONE' }).done).toBe(true);
+    expect(runVerdict({ task: { sha256: 'x' }, verdict: 'DONE (the loop ended max_turns without finish; the fresh final gate run is green)' }).done).toBe(true);
+    expect(runVerdict({ task: { sha256: 'x' }, verdict: 'NOT DONE (loop ended max_turns)' }).done).toBe(false);
+    expect(runVerdict({ task: { sha256: 'x' }, verdict: 'DONEX' }).done).toBe(false);
+  });
+});

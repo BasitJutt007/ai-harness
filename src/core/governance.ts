@@ -134,7 +134,8 @@ export const DONE = 'DONE';
 
 /** A run's verdict line: "DONE", "NOT DONE (...)", or "not recorded" (an older or unfinished run.json). */
 export function runVerdict(r: AgnosticRun): { done: boolean; text: string } {
-  if (r.verdict !== undefined) return { done: r.verdict === DONE, text: r.verdict };
+  // "DONE", or "DONE (…)" when the gates decided at the turn limit; never "NOT DONE (…)".
+  if (r.verdict !== undefined) return { done: r.verdict === DONE || r.verdict.startsWith(`${DONE} (`), text: r.verdict };
   if (r.ok === true) return { done: true, text: `${DONE} (from ok: true; verdict not recorded)` };
   if (r.ok === false) return { done: false, text: `NOT DONE (ok: false, status ${r.status ?? '?'})` };
   return { done: false, text: `not recorded (status ${r.status ?? '?'}): UNPROVEN` };
