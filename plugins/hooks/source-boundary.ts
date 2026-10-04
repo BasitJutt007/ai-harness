@@ -113,7 +113,7 @@ export function newBoundaryViolations(rel: string, before: string | null, after:
 
 export default defineHook({
   name: 'source-boundary',
-  description: 'Blocks source files that import test code, reach outside src/, or use computed/absolute imports.',
+  description: 'Blocks source files that import test code, reach outside the source roots of the API, or use computed/absolute imports.',
   events: ['pre_tool'],
   effects: ['write'],
   async run(event, ctx) {
