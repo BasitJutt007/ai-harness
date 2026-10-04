@@ -1,0 +1,133 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api
+
+ ✓ test/lib/pagination.test.ts (8 tests) 8ms
+ ❯ test/users.test.ts (5 tests | 5 failed) 6ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes a user 4ms
+     × rejects duplicate email on create and patch 0ms
+     × validates body, query, path and malformed JSON as problem details 0ms
+     × cursor paginates all users exactly once 0ms
+     × replays idempotent creates and rejects changed reuse 0ms
+ ✓ test/lib/problem.test.ts (7 tests) 25ms
+ ❯ test/lib/errors.test.ts (6 tests | 2 failed) 36ms
+   ❯ createApp error handling (6)
+     × answers unknown routes with a 404 problem 4ms
+     × answers malformed JSON with a 400 problem 0ms
+     ✓ maps a ZodError to a 422 problem listing each issue 20ms
+     ✓ passes valid bodies through 4ms
+     ✓ sends a thrown HttpProblem with its own status 2ms
+     ✓ hides unexpected errors behind a 500 problem without a stack 4ms
+ ✓ test/lib/idempotency.test.ts (7 tests) 105ms
+
+ Test Files  2 failed | 3 passed (5)
+      Tests  7 failed | 26 passed (33)
+   Start at  13:41:58
+   Duration  382ms (import 63%, tests 18%, transform 17%, worker 2%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes a user
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:10:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate email on create and patch
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:26:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  test/users.test.ts > users API > validates body, query, path and malformed JSON as problem details
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:33:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  test/users.test.ts > users API > cursor paginates all users exactly once
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:41:55
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects changed reuse
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:54:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  test/lib/errors.test.ts > createApp error handling > answers unknown routes with a 404 problem
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/lib/errors.test.ts:46:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  test/lib/errors.test.ts > createApp error handling > answers malformed JSON with a 400 problem
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/lib/errors.test.ts:53:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+observed red: test/users.test.ts, test/lib/errors.test.ts (source they cover is now writable)

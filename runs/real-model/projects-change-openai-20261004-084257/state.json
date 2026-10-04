@@ -1,0 +1,3633 @@
+{
+  "turn": 40,
+  "tests": [
+    {
+      "file": "test/projects.test.ts",
+      "hash": "b5582830cc85f3607869b0d65ef06fad002c749fd3b9a802a3686b1a75ae80fd",
+      "collected": 21,
+      "failed": 4,
+      "turn": 4,
+      "at": "2026-10-04T08:43:10.359Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bc3433fda0fb6aa112cb96c143e6602967d2949515bde2b8d398ab5118e5ca4d"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "4 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "b5582830cc85f3607869b0d65ef06fad002c749fd3b9a802a3686b1a75ae80fd",
+      "collected": 21,
+      "failed": 1,
+      "turn": 12,
+      "at": "2026-10-04T08:43:24.965Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bc3433fda0fb6aa112cb96c143e6602967d2949515bde2b8d398ab5118e5ca4d"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "b5582830cc85f3607869b0d65ef06fad002c749fd3b9a802a3686b1a75ae80fd",
+      "collected": 21,
+      "failed": 1,
+      "turn": 15,
+      "at": "2026-10-04T08:43:29.699Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bc3433fda0fb6aa112cb96c143e6602967d2949515bde2b8d398ab5118e5ca4d"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "b5582830cc85f3607869b0d65ef06fad002c749fd3b9a802a3686b1a75ae80fd",
+      "collected": 21,
+      "failed": 1,
+      "turn": 18,
+      "at": "2026-10-04T08:43:34.535Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bc3433fda0fb6aa112cb96c143e6602967d2949515bde2b8d398ab5118e5ca4d"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "b5582830cc85f3607869b0d65ef06fad002c749fd3b9a802a3686b1a75ae80fd",
+      "collected": 21,
+      "failed": 1,
+      "turn": 24,
+      "at": "2026-10-04T08:43:44.650Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bc3433fda0fb6aa112cb96c143e6602967d2949515bde2b8d398ab5118e5ca4d"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "b5582830cc85f3607869b0d65ef06fad002c749fd3b9a802a3686b1a75ae80fd",
+      "collected": 21,
+      "failed": 1,
+      "turn": 27,
+      "at": "2026-10-04T08:43:49.354Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bc3433fda0fb6aa112cb96c143e6602967d2949515bde2b8d398ab5118e5ca4d"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "b5582830cc85f3607869b0d65ef06fad002c749fd3b9a802a3686b1a75ae80fd",
+      "collected": 21,
+      "failed": 1,
+      "turn": 31,
+      "at": "2026-10-04T08:43:55.297Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bc3433fda0fb6aa112cb96c143e6602967d2949515bde2b8d398ab5118e5ca4d"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "b5582830cc85f3607869b0d65ef06fad002c749fd3b9a802a3686b1a75ae80fd",
+      "collected": 21,
+      "failed": 1,
+      "turn": 34,
+      "at": "2026-10-04T08:44:00.153Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bc3433fda0fb6aa112cb96c143e6602967d2949515bde2b8d398ab5118e5ca4d"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "2773ebd8ca8d67235a65621f65368f5620b2566ebcd767a1e6fd7e564a81ac8d",
+      "collected": 21,
+      "failed": 1,
+      "turn": 37,
+      "at": "2026-10-04T08:44:06.137Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8144cb2cec96377e7e2221fa3a57bb7239b9cac5a280cd4645cbb843b3a144fc"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "2773ebd8ca8d67235a65621f65368f5620b2566ebcd767a1e6fd7e564a81ac8d",
+      "collected": 21,
+      "failed": 1,
+      "turn": 40,
+      "at": "2026-10-04T08:44:12.648Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8144cb2cec96377e7e2221fa3a57bb7239b9cac5a280cd4645cbb843b3a144fc"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "2773ebd8ca8d67235a65621f65368f5620b2566ebcd767a1e6fd7e564a81ac8d",
+      "collected": 21,
+      "failed": 1,
+      "turn": 40,
+      "at": "2026-10-04T08:44:15.680Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "project deletion and status filtering > deletes a project with 204, then its retrieval and repeated deletion are 404 problems",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8be000c2668c00c009cae9ea93ea5b0b654e7197f91adf79868a323b9da8b1cc"
+        },
+        {
+          "name": "project deletion and status filtering > returns 404 for an unknown id and 422 for a malformed id on delete",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "b92f7ab08accaeb39c2721e7e0cba2870638026d9c74a4dc5fe72ca233b9c2b1"
+        },
+        {
+          "name": "project deletion and status filtering > filters by status and paginates the filtered set",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8144cb2cec96377e7e2221fa3a57bb7239b9cac5a280cd4645cbb843b3a144fc"
+        },
+        {
+          "name": "project deletion and status filtering > rejects an unknown status with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8550f2f5f543bff0897280df74d689c80d0e643ce72f0872889a48a66e0e8bdd"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 21 tests failed"
+    }
+  ],
+  "written": [
+    "src/modules/projects/routes.ts",
+    "src/modules/projects/schema.ts",
+    "src/modules/projects/store.ts",
+    "test/projects.test.ts"
+  ],
+  "initialHashes": [
+    [
+      "package.json",
+      "3dee9d365c84a8f182206d79599678da95325c5fc0ade4c6c6984f27ded4ceb9"
+    ],
+    [
+      "src/app.ts",
+      "835bf5ae43c1665f84b7c59242e4987b8007ce3c303272356a74b1d78e651f34"
+    ],
+    [
+      "src/lib/errors.ts",
+      "bce991cc5bd1bc681160921a1659305140ed410b64385a68c90bdbc3a79f212b"
+    ],
+    [
+      "src/lib/idempotency.ts",
+      "40002911e5c28904b0dcd7e597b9105710a257037026c89483c932700454d0c1"
+    ],
+    [
+      "src/lib/pagination.ts",
+      "f1c2475d67fac9c192856971a7ff739ab4aae17ceccadce4b2b29f658cfd0f7b"
+    ],
+    [
+      "src/lib/problem.ts",
+      "b78071a0ec3d77f4694630176ccdade5a31c14e6873089d4b58793ed3fc333b9"
+    ],
+    [
+      "src/modules/projects/routes.ts",
+      "02dd6cf354a47d8d64c73b4fb97ed22d2dfcf2cd9214418a1af38d8e44950f13"
+    ],
+    [
+      "src/modules/projects/schema.ts",
+      "2125f39e0f2425b001ce52a6a23e9c47f800e11cdc37e726f84bfbf39f8aaa7e"
+    ],
+    [
+      "src/modules/projects/store.ts",
+      "0ecaa716009bf91391c36d7f681c0f801b6c195516d9037f100675499a6433c7"
+    ],
+    [
+      "src/server.ts",
+      "3322918a60dedb7b17737ac0a22e9352d1558c55d4cd1a64ffd8d70160200b5e"
+    ],
+    [
+      "test/projects.test.ts",
+      "988512f4691f9ed602362500b5bb7e4f92ccdda2363f47312384d167824c7b5e"
+    ],
+    [
+      "tsconfig.json",
+      "a86c3e105465e1256eb624e94222f2031f7faf83bad0680101b5207acd8dd882"
+    ],
+    [
+      "vitest.config.ts",
+      "0651404096ec7c71a24635adb6bf78321e361d023e97b4b8ee2b775404bc6ad5"
+    ]
+  ],
+  "testBaseline": {
+    "at": "2026-10-04T08:42:57.847Z",
+    "totals": {
+      "files": 1,
+      "tests": 17,
+      "passed": 17,
+      "failed": 0
+    },
+    "logPath": "runs/projects-change-openai-20261004-084257/logs/001-vitest.txt",
+    "skipped": [],
+    "failed": [],
+    "loadErrors": []
+  },
+  "plan": [
+    "Inspect existing project API, schemas, store, and tests plus relevant standards.",
+    "Add tests covering deletion and status filtering; run them to observe red.",
+    "Implement additive routes, validation, filtering, and deletion within allowed files.",
+    "Run full tests, standards, contract diff, then finish."
+  ],
+  "events": [
+    {
+      "kind": "note",
+      "source": "tests",
+      "message": "test baseline at run start: 17/17 tests passed in 1 files",
+      "turn": 0,
+      "at": "2026-10-04T08:42:58.483Z"
+    },
+    {
+      "kind": "tool",
+      "source": "plan",
+      "decision": "pass",
+      "message": "plan recorded (4 steps)",
+      "data": {
+        "callId": "call_k838WBjfHAraBfY5xKlydXAk",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 1,
+      "at": "2026-10-04T08:43:00.930Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-40 of 40)",
+      "data": {
+        "callId": "call_C7qTP9nxDj5wC0QR1nj74ntB",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-04T08:43:03.148Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/schema.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_g4vETYYKes5FBBhbr1MQ2Lud",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-04T08:43:03.149Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-31 of 31)",
+      "data": {
+        "callId": "call_isd6ZKQ1eurUXpKxM0pmRvGZ",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-04T08:43:03.150Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-160 of 177)",
+      "data": {
+        "callId": "call_Xp6yQBrsVJ8tuC2rKOvwUByp",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-04T08:43:03.151Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/app.ts (lines 1-14 of 14)",
+      "data": {
+        "callId": "call_GE8NR9Zzo4H212ZSrL1xFp7H",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-04T08:43:03.151Z"
+    },
+    {
+      "kind": "tool",
+      "source": "fetch_standard",
+      "decision": "pass",
+      "message": "problem-json (standards, unit: error paths)",
+      "data": {
+        "callId": "call_k16NjkFpK5TAFtPxxnNB0CV7",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-04T08:43:03.152Z"
+    },
+    {
+      "kind": "tool",
+      "source": "fetch_standard",
+      "decision": "pass",
+      "message": "rest-conventions (standards, unit: routes)",
+      "data": {
+        "callId": "call_UP6jozkLpwjeo4sOEgCBnfzQ",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-04T08:43:03.152Z"
+    },
+    {
+      "kind": "tool",
+      "source": "fetch_standard",
+      "decision": "pass",
+      "message": "zod-boundary (standards, unit: handlers)",
+      "data": {
+        "callId": "call_vJiJbLMjF9xlbBrRmQNkQFQ5",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-10-04T08:43:03.152Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:07.846Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:07.848Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:07.850Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:07.851Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:07.853Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:07.853Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:07.873Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:07.880Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool append_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "append_file",
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:08.414Z"
+    },
+    {
+      "kind": "tool",
+      "source": "append_file",
+      "decision": "pass",
+      "message": "appended to test/projects.test.ts (+36 −0 lines)",
+      "data": {
+        "callId": "call_fJCKIye8UsIMalCCyWvjravW",
+        "ok": true,
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 3,
+      "at": "2026-10-04T08:43:08.414Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 4 failed, 17 passed (21) in 1 files",
+      "data": {
+        "callId": "call_qiqJDU3WKec2mgtT2teC0HEa",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/005-t4-run_tests.txt"
+      },
+      "turn": 4,
+      "at": "2026-10-04T08:43:11.305Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/lib/pagination.ts (lines 1-49 of 49)",
+      "data": {
+        "callId": "call_g1zrFqb0d2y6V5vxmVmSU2Ms",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 5,
+      "at": "2026-10-04T08:43:12.845Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/lib/errors.ts (lines 1-53 of 53)",
+      "data": {
+        "callId": "call_dqPjU0U6Ai4NXr8QMEUztiDW",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 5,
+      "at": "2026-10-04T08:43:12.846Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/lib/problem.ts (lines 1-72 of 72)",
+      "data": {
+        "callId": "call_Crkr8rGbOZu2sjKGCcNCHi3x",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 5,
+      "at": "2026-10-04T08:43:12.847Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.465Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.471Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.484Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.485Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.485Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.488Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.488Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.490Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.557Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/modules/projects/schema.ts (+1 −1)",
+      "data": {
+        "callId": "call_KeJP0A4pitZgnyNJtLSfG16Y",
+        "ok": true,
+        "paths": [
+          "src/modules/projects/schema.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T08:43:14.557Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.480Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.482Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.491Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.492Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.492Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.494Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.494Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.495Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.552Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/modules/projects/store.ts (+8 −1)",
+      "data": {
+        "callId": "call_rkHMwmLGKTO0AG5RotO1366J",
+        "ok": true,
+        "paths": [
+          "src/modules/projects/store.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-10-04T08:43:16.552Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.287Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.291Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.305Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.306Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.307Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.309Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.309Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.311Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.381Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/modules/projects/routes.ts (+1 −1)",
+      "data": {
+        "callId": "call_kvVtxlznYKtrnF43ZDm7Wuux",
+        "ok": true,
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T08:43:18.381Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-40 of 40)",
+      "data": {
+        "callId": "call_Osq4jVPleYGwctYilTI9hkIk",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 9,
+      "at": "2026-10-04T08:43:19.433Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.483Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.486Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.494Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.495Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.495Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.497Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.497Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.498Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.549Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/modules/projects/routes.ts (+6 −0)",
+      "data": {
+        "callId": "call_C41sFJT9zKtoiEBIL49E8vvA",
+        "ok": true,
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 10,
+      "at": "2026-10-04T08:43:21.549Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 30-46 of 46)",
+      "data": {
+        "callId": "call_jbZt0U5BS8YO6xbrmbm0CmeJ",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 11,
+      "at": "2026-10-04T08:43:23.146Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 20 passed (21) in 1 files",
+      "data": {
+        "callId": "call_IdxBeXRiUWMNfrNUh7VTgeTM",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/008-t12-run_tests.txt"
+      },
+      "turn": 12,
+      "at": "2026-10-04T08:43:25.458Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/schema.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_ZY0qz6JMj0wrMqc6qXccaLlI",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 13,
+      "at": "2026-10-04T08:43:26.789Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_pao1VIXYDuxeYg7WR6D4DBZ8",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 14,
+      "at": "2026-10-04T08:43:27.977Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 20 passed (21) in 1 files",
+      "data": {
+        "callId": "call_WIna2ggmJHtSPTybvmlqfMSe",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/011-t15-run_tests.txt"
+      },
+      "turn": 15,
+      "at": "2026-10-04T08:43:30.165Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 150-213 of 213)",
+      "data": {
+        "callId": "call_VRUK8gpMNVeSQ9nCbp1Q16Q9",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 16,
+      "at": "2026-10-04T08:43:31.383Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-80 of 213)",
+      "data": {
+        "callId": "call_ha0oaQCgh6qZNwnZjpvymkAQ",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 17,
+      "at": "2026-10-04T08:43:32.681Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 20 passed (21) in 1 files",
+      "data": {
+        "callId": "call_qp6aESdrz0nH6R0Fa41HRxSv",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/014-t18-run_tests.txt"
+      },
+      "turn": 18,
+      "at": "2026-10-04T08:43:35.013Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 130-213 of 213)",
+      "data": {
+        "callId": "call_8MZeqxKhh2PQ0lCakNnKXJyd",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 19,
+      "at": "2026-10-04T08:43:36.317Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-130 of 213)",
+      "data": {
+        "callId": "call_7YSuEblJ7bP4xcgiSMCY4V8O",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 20,
+      "at": "2026-10-04T08:43:37.955Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.282Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.286Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.297Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.298Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.298Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.300Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.300Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.302Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.303Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "block",
+      "message": "edit_file: find text not found in src/modules/projects/routes.ts; read_file it and copy the exact text (whitespace matters)",
+      "data": {
+        "callId": "call_oesllW4JGFMntMhK4VtjCu4R",
+        "ok": false,
+        "paths": [
+          "src/modules/projects/routes.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-10-04T08:43:40.303Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-46 of 46)",
+      "data": {
+        "callId": "call_A3Rxa7q9lBTHWFSPPmeMV5yB",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 22,
+      "at": "2026-10-04T08:43:41.615Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_uIcTCRlhqqWgP0ymWGHnOY2K",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 23,
+      "at": "2026-10-04T08:43:42.884Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 20 passed (21) in 1 files",
+      "data": {
+        "callId": "call_1qLb7kN3Y8xWXCboU9lMoNcO",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/017-t24-run_tests.txt"
+      },
+      "turn": 24,
+      "at": "2026-10-04T08:43:45.178Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 130-213 of 213)",
+      "data": {
+        "callId": "call_E6tuPni2vWY95ukT5ZKUQ1Ep",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 25,
+      "at": "2026-10-04T08:43:46.450Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-130 of 213)",
+      "data": {
+        "callId": "call_E4WcGK1y0JNVwHTN10p3fpbS",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 26,
+      "at": "2026-10-04T08:43:47.513Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 20 passed (21) in 1 files",
+      "data": {
+        "callId": "call_dBHZ0srfvIomDJZvCjqlwQY2",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/020-t27-run_tests.txt"
+      },
+      "turn": 27,
+      "at": "2026-10-04T08:43:49.867Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 130-213 of 213)",
+      "data": {
+        "callId": "call_Hh566OzfsxujuFZ3bSjzLxEV",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 28,
+      "at": "2026-10-04T08:43:51.153Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-46 of 46)",
+      "data": {
+        "callId": "call_TlpDuy0uljtIfkLKbOAzRTaX",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 29,
+      "at": "2026-10-04T08:43:52.475Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_vCq13yj7nzCYlORhmNcmRFg1",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 30,
+      "at": "2026-10-04T08:43:53.629Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 20 passed (21) in 1 files",
+      "data": {
+        "callId": "call_jnLkOtojG4v0frlsYIWlqqLD",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/023-t31-run_tests.txt"
+      },
+      "turn": 31,
+      "at": "2026-10-04T08:43:55.856Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 180-213 of 213)",
+      "data": {
+        "callId": "call_qB65o4RCsBEWEth8Aoo1W6yo",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 32,
+      "at": "2026-10-04T08:43:57.113Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-160 of 213)",
+      "data": {
+        "callId": "call_ggXifElj5LBIKS6V2IFfrkN4",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 33,
+      "at": "2026-10-04T08:43:58.409Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 20 passed (21) in 1 files",
+      "data": {
+        "callId": "call_rb6McXguvtZkfAv5SW4sGJ61",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/026-t34-run_tests.txt"
+      },
+      "turn": 34,
+      "at": "2026-10-04T08:44:00.643Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 160-213 of 213)",
+      "data": {
+        "callId": "call_TCeiZSiY5ZifIbchOPAu0Eut",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 35,
+      "at": "2026-10-04T08:44:02.000Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.272Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.273Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.275Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.275Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.276Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.277Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.291Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.297Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.457Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited test/projects.test.ts (+4 −2)",
+      "data": {
+        "callId": "call_15WeYR1YZseUWnZO74QulVOg",
+        "ok": true,
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 36,
+      "at": "2026-10-04T08:44:04.457Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 20 passed (21) in 1 files",
+      "data": {
+        "callId": "call_rjSoeVl3qH5CDRzG74vfukT4",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/029-t37-run_tests.txt"
+      },
+      "turn": 37,
+      "at": "2026-10-04T08:44:06.674Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 150-215 of 215)",
+      "data": {
+        "callId": "call_abHY2nb6auPPNpN2hkMkbg7r",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 38,
+      "at": "2026-10-04T08:44:07.922Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/routes.ts (lines 1-46 of 46)",
+      "data": {
+        "callId": "call_ZELg34mcIMVGVnwU2YJTLIIT",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 39,
+      "at": "2026-10-04T08:44:09.489Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/projects/store.ts (lines 1-38 of 38)",
+      "data": {
+        "callId": "call_4aFrYjO9MFkTQCoS57uBwNel",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 40,
+      "at": "2026-10-04T08:44:10.860Z"
+    },
+    {
+      "kind": "gate",
+      "source": "contract-lock",
+      "decision": "pass",
+      "message": "finish: pass contract preserved (4 → 5 endpoints, via runtime): 2 additive (GET /v1/projects query.status: new optional property; DELETE /v1/projects/:projectId: new route)",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/032-contract-diff.txt"
+      },
+      "turn": 40,
+      "at": "2026-10-04T08:44:12.064Z"
+    },
+    {
+      "kind": "gate",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "finish: pass 9 red observations (1 test files); 3 changed source files went red -> green (3 on unchanged cases, 0 on edited cases by differential proof), red again with the original source",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 40,
+      "at": "2026-10-04T08:44:13.849Z"
+    },
+    {
+      "kind": "gate",
+      "source": "orphans",
+      "decision": "pass",
+      "message": "finish: pass no new non-test files",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 40,
+      "at": "2026-10-04T08:44:13.858Z"
+    },
+    {
+      "kind": "gate",
+      "source": "scope",
+      "decision": "pass",
+      "message": "finish: pass 4 changed files, all in scope",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 40,
+      "at": "2026-10-04T08:44:13.898Z"
+    },
+    {
+      "kind": "gate",
+      "source": "spec-coverage",
+      "decision": "pass",
+      "message": "finish: n/a not applicable to brownfield tasks",
+      "data": {
+        "phase": "finish",
+        "status": "n/a"
+      },
+      "turn": 40,
+      "at": "2026-10-04T08:44:13.898Z"
+    },
+    {
+      "kind": "gate",
+      "source": "standards",
+      "decision": "pass",
+      "message": "finish: pass verdict 100% (4 rules)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 40,
+      "at": "2026-10-04T08:44:15.125Z"
+    },
+    {
+      "kind": "gate",
+      "source": "tests-green",
+      "decision": "block",
+      "message": "finish: fail 1 of 21 tests failed in 1 files",
+      "data": {
+        "phase": "finish",
+        "status": "fail",
+        "details": [
+          "tests: 1 failed, 20 passed (21) in 1 files",
+          "FAIL test/projects.test.ts > project deletion and status filtering > filters by status and paginates the filtered set: expected [ …(4) ] to have a length of 3 but got 4"
+        ],
+        "logPath": "runs/projects-change-openai-20261004-084257/logs/038-vitest.txt"
+      },
+      "turn": 40,
+      "at": "2026-10-04T08:44:15.690Z"
+    }
+  ],
+  "scratch": [
+    [
+      "test-preservation.base",
+      {
+        "$map": [
+          [
+            "test/projects.test.ts",
+            "import { randomUUID } from 'node:crypto';\nimport request from 'supertest';\nimport type { Response } from 'supertest';\nimport { describe, expect, it } from 'vitest';\nimport { z } from 'zod';\nimport { createApp } from '../src/app.ts';\nimport { ProblemSchema } from '../src/lib/problem.ts';\n\nconst app = createApp();\n\n/** The public contract, restated independently of the implementation. */\nconst ProjectBody = z.strictObject({\n  id: z.uuid(),\n  name: z.string(),\n  description: z.string().optional(),\n  status: z.enum(['active', 'archived']),\n  createdAt: z.iso.datetime(),\n  updatedAt: z.iso.datetime(),\n});\nconst PageBody = z.strictObject({ data: z.array(ProjectBody), nextCursor: z.string().nullable() });\n\nconst UNKNOWN_ID = '00000000-0000-4000-8000-000000000000';\n\nfunction expectProblem(res: Response, status: number) {\n  expect(res.status).toBe(status);\n  expect(res.headers['content-type']).toMatch(/^application\\/problem\\+json/);\n  const problem = ProblemSchema.parse(res.body);\n  expect(problem.status).toBe(status);\n  return problem;\n}\n\nasync function createProject(body: Record<string, unknown> = {}) {\n  const res = await request(app)\n    .post('/v1/projects')\n    .send({ name: `project ${randomUUID()}`, ...body });\n  expect(res.status).toBe(201);\n  return ProjectBody.parse(res.body);\n}\n\nasync function listAll(query: Record<string, string>) {\n  const ids: string[] = [];\n  let cursor: string | null = null;\n  do {\n    const res = await request(app)\n      .get('/v1/projects')\n      .query(cursor === null ? query : { ...query, cursor });\n    expect(res.status).toBe(200);\n    const page = PageBody.parse(res.body);\n    ids.push(...page.data.map((p) => p.id));\n    cursor = page.nextCursor;\n  } while (cursor !== null);\n  return ids;\n}\n\ndescribe('POST /v1/projects', () => {\n  it('creates a project: 201, Location header, status defaults to active', async () => {\n    const res = await request(app).post('/v1/projects').send({ name: 'Apollo', description: 'moon' });\n    expect(res.status).toBe(201);\n    const project = ProjectBody.parse(res.body);\n    expect(res.headers['location']).toBe(`/v1/projects/${project.id}`);\n    expect(project).toMatchObject({ name: 'Apollo', description: 'moon', status: 'active' });\n    expect(project.createdAt).toBe(project.updatedAt);\n  });\n\n  it('rejects an invalid body with a 422 problem', async () => {\n    const problem = expectProblem(await request(app).post('/v1/projects').send({ name: '', status: 'deleted' }), 422);\n    expect(problem.detail).toContain('name');\n    expect(problem.detail).toContain('status');\n  });\n\n  it('rejects unknown properties with a 422 problem', async () => {\n    expectProblem(await request(app).post('/v1/projects').send({ name: 'x', owner: 'me' }), 422);\n  });\n\n  it('rejects malformed JSON with a 400 problem', async () => {\n    expectProblem(await request(app).post('/v1/projects').set('Content-Type', 'application/json').send('{\"name\"'), 400);\n  });\n\n  it('honours Idempotency-Key: same key and body replays the first response', async () => {\n    const key = randomUUID();\n    const body = { name: `idem ${key}` };\n    const first = await request(app).post('/v1/projects').set('Idempotency-Key', key).send(body);\n    const second = await request(app).post('/v1/projects').set('Idempotency-Key', key).send(body);\n    expect(first.status).toBe(201);\n    expect(second.status).toBe(201);\n    expect(second.headers['idempotent-replayed']).toBe('true');\n    expect(ProjectBody.parse(second.body).id).toBe(ProjectBody.parse(first.body).id);\n    const all = await listAll({ limit: '100' });\n    expect(all.filter((id) => id === ProjectBody.parse(first.body).id)).toHaveLength(1);\n  });\n\n  it('rejects reuse of an Idempotency-Key with a different body (422)', async () => {\n    const key = randomUUID();\n    await request(app).post('/v1/projects').set('Idempotency-Key', key).send({ name: 'one' }).expect(201);\n    expectProblem(await request(app).post('/v1/projects').set('Idempotency-Key', key).send({ name: 'two' }), 422);\n  });\n});\n\ndescribe('GET /v1/projects', () => {\n  it('pages through every project with an opaque cursor', async () => {\n    const created = [await createProject(), await createProject(), await createProject()];\n    const ids = await listAll({ limit: '2' });\n    expect(new Set(ids).size).toBe(ids.length);\n    for (const project of created) expect(ids).toContain(project.id);\n  });\n\n  it('returns at most `limit` items and a nextCursor while more remain', async () => {\n    await createProject();\n    await createProject();\n    const res = await request(app).get('/v1/projects').query({ limit: '1' });\n    const page = PageBody.parse(res.body);\n    expect(page.data).toHaveLength(1);\n    expect(page.nextCursor).not.toBeNull();\n  });\n\n  it('defaults to 20 items per page', async () => {\n    for (let i = 0; i < 21; i += 1) await createProject();\n    const page = PageBody.parse((await request(app).get('/v1/projects')).body);\n    expect(page.data).toHaveLength(20);\n    expect(page.nextCursor).not.toBeNull();\n  });\n\n  it('rejects limit outside 1..100 and foreign cursors with a 422 problem', async () => {\n    expectProblem(await request(app).get('/v1/projects').query({ limit: '0' }), 422);\n    expectProblem(await request(app).get('/v1/projects').query({ limit: '101' }), 422);\n    expectProblem(await request(app).get('/v1/projects').query({ cursor: 'nope' }), 422);\n  });\n});\n\ndescribe('GET /v1/projects/:projectId', () => {\n  it('returns the project', async () => {\n    const project = await createProject({ description: 'details' });\n    const res = await request(app).get(`/v1/projects/${project.id}`);\n    expect(res.status).toBe(200);\n    expect(ProjectBody.parse(res.body)).toEqual(project);\n  });\n\n  it('answers an unknown id with a 404 problem', async () => {\n    const problem = expectProblem(await request(app).get(`/v1/projects/${UNKNOWN_ID}`), 404);\n    expect(problem.instance).toBe(`/v1/projects/${UNKNOWN_ID}`);\n  });\n\n  it('answers a malformed id with a 422 problem', async () => {\n    expectProblem(await request(app).get('/v1/projects/not-a-uuid'), 422);\n  });\n});\n\ndescribe('PATCH /v1/projects/:projectId', () => {\n  it('updates the given fields only', async () => {\n    const project = await createProject({ description: 'keep me' });\n    const res = await request(app).patch(`/v1/projects/${project.id}`).send({ status: 'archived' });\n    expect(res.status).toBe(200);\n    const updated = ProjectBody.parse(res.body);\n    expect(updated).toMatchObject({ id: project.id, name: project.name, description: 'keep me', status: 'archived' });\n    expect(updated.createdAt).toBe(project.createdAt);\n  });\n\n  it('rejects an empty or invalid patch with a 422 problem', async () => {\n    const project = await createProject();\n    expectProblem(await request(app).patch(`/v1/projects/${project.id}`).send({}), 422);\n    expectProblem(await request(app).patch(`/v1/projects/${project.id}`).send({ status: 'gone' }), 422);\n  });\n\n  it('answers an unknown id with a 404 problem', async () => {\n    expectProblem(await request(app).patch(`/v1/projects/${UNKNOWN_ID}`).send({ name: 'x' }), 404);\n  });\n\n  it('honours Idempotency-Key on PATCH', async () => {\n    const project = await createProject();\n    const key = randomUUID();\n    const first = await request(app).patch(`/v1/projects/${project.id}`).set('Idempotency-Key', key).send({ name: 'renamed' });\n    const second = await request(app).patch(`/v1/projects/${project.id}`).set('Idempotency-Key', key).send({ name: 'renamed' });\n    expect(first.status).toBe(200);\n    expect(second.headers['idempotent-replayed']).toBe('true');\n    expect(second.body).toEqual(first.body);\n  });\n});\n"
+          ]
+        ]
+      }
+    ],
+    [
+      "observed-red.unlocked",
+      [
+        "src/modules/projects/routes.ts",
+        "src/modules/projects/schema.ts",
+        "src/modules/projects/store.ts"
+      ]
+    ]
+  ],
+  "finishAttempts": 0
+}

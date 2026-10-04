@@ -1,0 +1,56 @@
+target     framework express 5.2.1  runner vitest 5.0.3 (harness)
+           source src/  tests test/ [test/**/*.test.ts]  test dirs test/
+           entry src/server.ts, src/app.ts  zod 4.6.5 → toJSONSchema
+           deps express 5.2.1 (harness), zod 4.6.5 (harness), vitest 5.0.3 (harness), typescript 6.0.3 (harness)
+run        users-api-openai-20261004-084006
+status     max_turns  turns 60  finish attempts 0  driver openai  model gpt-5.6-luna (compat)
+limit      60 turns (task file maxTurns (hard cap))
+gates      fresh final run (phase finish): NOT green
+gate  contract-lock  n/a       not applicable to greenfield tasks
+gate  observed-red   pass      11 red observations (2 test files); 2 changed source files went red -> green (2 on unchanged cases, 0 on edited cases by differential proof), red again with the original source
+gate  orphans        pass      1 created files, all imported by a test or by existing code
+gate  scope          pass      3 changed files, all in scope
+gate  spec-coverage  pass      18/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]
+gate  standards      fail      verdict 97%
+    rest-conventions  FAIL  src/routes/users.ts              4/5 routes
+        src/routes/users.ts:24:144  GET /v1/users: collection response must be a page schema with data (array) and nextCursor, e.g. pageSchema(ItemSchema).parse(...)
+    ────────────────────────────────────────────────────────────
+    problem-json      pass    31/31 error paths
+    rest-conventions  FAIL     4/5 routes
+    tsc-strict        pass     0 errors
+    zod-boundary      pass     5/5 handlers
+    verdict           97%     → failing: rest-conventions
+gate  tests-green    fail      4 of 33 tests failed in 5 files
+    tests: 4 failed, 29 passed (33) in 5 files
+    FAIL test/users.test.ts > users API > creates, gets, updates and deletes a user: expected { …(5) } to deeply equal { …(6) }
+    FAIL test/users.test.ts > users API > rejects duplicate email on create and patch: expected 201 to be 409 // Object.is equality
+    FAIL test/users.test.ts > users API > cursor paginates all users exactly once: expected +0 to be 3 // Object.is equality
+    FAIL test/users.test.ts > users API > replays idempotent creates and rejects changed reuse: expected undefined to be 'true' // Object.is equality
+    log: runs/users-api-openai-20261004-084006/logs/054-vitest.txt
+standards  FAIL 97%  problem-json pass, rest-conventions fail, tsc-strict pass, zod-boundary pass
+tokens     actual 368584  baseline 1802247  reduction 79.5%  over 60 turns  (output 7277, provider-reported input 349986)
+           baseline is a shadow estimate (never sent); measured: harness run <task> --baseline, then harness tokens compare users-api-openai-20261004-084006 <baselineRunId>
+evidence   runs/users-api-openai-20261004-084006/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}
+           tokens/users-api-openai-20261004-084006.json
+worktree   /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006  branch harness/users-api-openai-20261004-084006  (base main @ eb7e572bbb1f; /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/demo untouched)
+honesty
+  proven             gate:observed-red
+                     gate:orphans
+                     gate:scope
+                     gate:spec-coverage
+                     check:problem-json
+                     check:tsc-strict
+                     check:zod-boundary
+                     isolation:sandbox-exec (agent code: reads only its worktree, node_modules and toolchain; writes only to a per-call temp dir; env allow-list; network loopback only)
+  failed             gate:standards (verdict 97%)
+                     gate:tests-green (4 of 33 tests failed in 5 files)
+                     check:rest-conventions (4/5 routes)
+  UNPROVEN           (none)
+  n/a                gate:contract-lock
+  human must verify  gate:spec-coverage: what the task states beyond fields and operations (8 behaviour(s)): the generated probes cover routes and field constraints only
+                     behaviour semantics beyond the tests the agent wrote
+                     that the agent-written tests cover every listed behaviour
+                     that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)
+                     persistence, performance, security and concurrency beyond what the tests exercise
+verdict    NOT DONE (loop ended max_turns)
+exit=1

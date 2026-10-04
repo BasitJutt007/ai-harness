@@ -1,0 +1,106 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 4 failed) 62ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes a user 33ms
+     × rejects duplicate email on create and patch 5ms
+     ✓ validates body, query, path and malformed JSON as problem details 14ms
+     × cursor paginates all users exactly once 6ms
+     × replays idempotent creates and rejects changed reuse 3ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 1 passed (5)
+   Start at  13:41:03
+   Duration  312ms (import 57%, tests 26%, transform 15%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes a user
+AssertionError: expected { …(5) } to deeply equal { …(6) }
+
+- Expected
++ Received
+
+  {
+-   "createdAt": "2026-10-04T08:41:03.409Z",
+-   "email": "a@example.com",
+-   "id": "ad59102e-69d6-40cd-90c9-6ca3bcf645e3",
+-   "name": "Alice",
+-   "role": "member",
+-   "updatedAt": "2026-10-04T08:41:03.409Z",
++   "detail": "User ad59102e-69d6-40cd-90c9-6ca3bcf645e3 was not found.",
++   "instance": "/v1/users/ad59102e-69d6-40cd-90c9-6ca3bcf645e3",
++   "status": 404,
++   "title": "Not Found",
++   "type": "https://api.sf/problems/not-found",
+  }
+
+ ❯ test/users.test.ts:17:55
+     15|     expect(created.body.createdAt).toEqual(expect.any(String));
+     16|     const id = created.body.id as string;
+     17|     expect((await app().get(`/v1/users/${id}`)).body).toEqual(created.…
+       |                                                       ^
+     18|     const patched = await app().patch(`/v1/users/${id}`).send({ name: …
+     19|     expect(patched.status).toBe(200);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate email on create and patch
+AssertionError: expected 201 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 201
+
+ ❯ test/users.test.ts:28:96
+     26|     await app().post('/v1/users').send(valid);
+     27|     const second = await app().post('/v1/users').send({ email: 'b@exam…
+     28|     expect((await app().post('/v1/users').send({ email: valid.email, n…
+       |                                                                                                ^
+     29|     expect((await app().patch(`/v1/users/${second.body.id}`).send({ em…
+     30|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > cursor paginates all users exactly once
+AssertionError: expected +0 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 0
+
+ ❯ test/users.test.ts:50:31
+     48|       cursor = response.body.nextCursor ?? undefined;
+     49|     } while (cursor !== undefined);
+     50|     expect(new Set(ids).size).toBe(3);
+       |                               ^
+     51|   });
+     52|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects changed reuse
+AssertionError: expected undefined to be 'true' // Object.is equality
+
+- Expected:
+"true"
+
++ Received:
+undefined
+
+ ❯ test/users.test.ts:57:51
+     55|     const replay = await app().post('/v1/users').set('Idempotency-Key'…
+     56|     expect(replay.status).toBe(201);
+     57|     expect(replay.headers['idempotent-replayed']).toBe('true');
+       |                                                   ^
+     58|     expect(replay.body).toEqual(first.body);
+     59|     expect((await app().post('/v1/users').set('Idempotency-Key', 'key'…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+observed red: test/users.test.ts (source they cover is now writable)

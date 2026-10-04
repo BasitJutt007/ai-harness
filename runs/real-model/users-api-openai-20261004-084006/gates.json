@@ -1,0 +1,64 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "n/a",
+      "summary": "not applicable to greenfield tasks"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "11 red observations (2 test files); 2 changed source files went red -> green (2 on unchanged cases, 0 on edited cases by differential proof), red again with the original source"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "1 created files, all imported by a test or by existing code"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "3 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "pass",
+      "summary": "18/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]",
+      "logPath": "runs/users-api-openai-20261004-084006/logs/051-spec-coverage.txt",
+      "humanMustVerify": [
+        "what the task states beyond fields and operations (8 behaviour(s)): the generated probes cover routes and field constraints only"
+      ]
+    },
+    {
+      "gate": "standards",
+      "status": "fail",
+      "summary": "verdict 97%",
+      "details": [
+        "rest-conventions  FAIL  src/routes/users.ts              4/5 routes",
+        "    src/routes/users.ts:24:144  GET /v1/users: collection response must be a page schema with data (array) and nextCursor, e.g. pageSchema(ItemSchema).parse(...)",
+        "────────────────────────────────────────────────────────────",
+        "problem-json      pass    31/31 error paths",
+        "rest-conventions  FAIL     4/5 routes",
+        "tsc-strict        pass     0 errors",
+        "zod-boundary      pass     5/5 handlers",
+        "verdict           97%     → failing: rest-conventions"
+      ],
+      "failing": 1
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "4 of 33 tests failed in 5 files",
+      "details": [
+        "tests: 4 failed, 29 passed (33) in 5 files",
+        "FAIL test/users.test.ts > users API > creates, gets, updates and deletes a user: expected { …(5) } to deeply equal { …(6) }",
+        "FAIL test/users.test.ts > users API > rejects duplicate email on create and patch: expected 201 to be 409 // Object.is equality",
+        "FAIL test/users.test.ts > users API > cursor paginates all users exactly once: expected +0 to be 3 // Object.is equality",
+        "FAIL test/users.test.ts > users API > replays idempotent creates and rejects changed reuse: expected undefined to be 'true' // Object.is equality"
+      ],
+      "logPath": "runs/users-api-openai-20261004-084006/logs/054-vitest.txt"
+    }
+  ]
+}

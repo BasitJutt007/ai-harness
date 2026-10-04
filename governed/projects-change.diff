@@ -1,5 +1,25 @@
+commit 89f0d04c79708ac26a90525292e6906c88471689
+Author: sf-harness <harness@localhost>
+Date:   Sun Oct 4 13:52:52 2026 +0500
+
+    harness(projects-change): Delete projects and filter the project list by status
+    
+    run: projects-change-openai-20261004-085129
+    task: projects-change (brownfield)
+    driver: openai / gpt-5.6-luna (compat)
+    
+    gates (re-run at ship):
+    gate  contract-lock  pass      contract preserved (4 → 5 endpoints, via runtime): 2 additive (GET /v1/projects query.status: new optional property; DELETE /v1/projects/:projectId: new route)
+    gate  observed-red   pass      1 red observations (1 test files); 3 changed source files went red -> green (3 on unchanged cases, 0 on edited cases by differential proof), red again with the original source
+    gate  orphans        pass      no new non-test files
+    gate  scope          pass      4 changed files, all in scope
+    gate  secrets        pass      no secrets in 55 scanned changes
+    gate  spec-coverage  n/a       not applicable to brownfield tasks
+    gate  standards      pass      verdict 100% (4 rules)
+    gate  tests-green    pass      22/22 tests passed in 1 files
+
 diff --git a/samples/existing-api/src/modules/projects/routes.ts b/samples/existing-api/src/modules/projects/routes.ts
-index 8f0344a..628aa53 100644
+index 8f0344a..e83178d 100644
 --- a/samples/existing-api/src/modules/projects/routes.ts
 +++ b/samples/existing-api/src/modules/projects/routes.ts
 @@ -9,7 +9,7 @@ import {
@@ -11,16 +31,19 @@ index 8f0344a..628aa53 100644
  
  export const projectsRouter = Router();
  
-@@ -38,3 +38,9 @@ projectsRouter.patch('/v1/projects/:projectId', idempotency(), (req, res) => {
-   if (project === undefined) throw notFound(`project ${projectId} not found`);
+@@ -31,6 +31,12 @@ projectsRouter.get('/v1/projects/:projectId', (req, res) => {
    res.json(ProjectSchema.parse(project));
  });
-+
+ 
 +projectsRouter.delete('/v1/projects/:projectId', (req, res) => {
 +  const { projectId } = ProjectParamsSchema.parse(req.params);
 +  if (!deleteProject(projectId)) throw notFound(`project ${projectId} not found`);
 +  res.status(204).send();
 +});
++
+ projectsRouter.patch('/v1/projects/:projectId', idempotency(), (req, res) => {
+   const { projectId } = ProjectParamsSchema.parse(req.params);
+   const patch = UpdateProjectSchema.parse(req.body);
 diff --git a/samples/existing-api/src/modules/projects/schema.ts b/samples/existing-api/src/modules/projects/schema.ts
 index 3b9b326..e72fb74 100644
 --- a/samples/existing-api/src/modules/projects/schema.ts
@@ -55,17 +78,17 @@ index fd976c7..15d3fe9 100644
  
  export function getProject(id: string): Project | undefined {
 diff --git a/samples/existing-api/test/projects.test.ts b/samples/existing-api/test/projects.test.ts
-index 34d5baf..535cc22 100644
+index 34d5baf..566822c 100644
 --- a/samples/existing-api/test/projects.test.ts
 +++ b/samples/existing-api/test/projects.test.ts
-@@ -175,3 +175,45 @@ describe('PATCH /v1/projects/:projectId', () => {
+@@ -175,3 +175,42 @@ describe('PATCH /v1/projects/:projectId', () => {
      expect(second.body).toEqual(first.body);
    });
  });
 +
 +
 +describe('project deletion and status filtering', () => {
-+  it('deletes a project with 204 and then returns 404', async () => {
++  it('deletes a project and returns 204 with no body', async () => {
 +    const project = await createProject();
 +    const deleted = await request(app).delete(`/v1/projects/${project.id}`);
 +    expect(deleted.status).toBe(204);
@@ -73,34 +96,31 @@ index 34d5baf..535cc22 100644
 +    expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
 +  });
 +
-+  it('returns 404 problem for unknown and repeated deletes', async () => {
++  it('returns 404 problem for missing and repeated deletes', async () => {
 +    expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
 +    const project = await createProject();
 +    await request(app).delete(`/v1/projects/${project.id}`).expect(204);
 +    expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
 +  });
 +
-+  it('rejects malformed delete ids with 422 problem', async () => {
++  it('rejects malformed delete ids', async () => {
 +    expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
 +  });
 +
-+  it('filters by status and paginates the filtered set', async () => {
-+    const archived = [await createProject({ status: 'archived' }), await createProject({ status: 'archived' }), await createProject({ status: 'archived' })];
-+    await createProject({ status: 'active' });
-+    const ids = await listAll({ status: 'archived', limit: '2' });
-+    expect(ids).toEqual(expect.arrayContaining(archived.map((project) => project.id)));
-+    expect(ids.filter((id) => archived.some((project) => project.id === id))).toHaveLength(archived.length);
-+    expect(ids.filter((id) => archived.some((project) => project.id === id))).toHaveLength(archived.length);
-+    const active = await request(app).get('/v1/projects').query({ status: 'active', limit: '100' });
-+    expect(PageBody.parse(active.body).data.every((project) => project.status === 'active')).toBe(true);
-+  });
-+
-+  it('rejects unknown status and unfiltered lists include both statuses', async () => {
-+    expectProblem(await request(app).get('/v1/projects').query({ status: 'unknown' }), 422);
++  it('filters projects by status and rejects unknown status', async () => {
 +    const active = await createProject({ status: 'active' });
 +    const archived = await createProject({ status: 'archived' });
-+    const ids = await listAll({ limit: '100' });
-+    expect(ids).toContain(active.id);
-+    expect(ids).toContain(archived.id);
++    expect(await listAll({ status: 'active', limit: '100' })).toContain(active.id);
++    expect(await listAll({ status: 'active', limit: '100' })).not.toContain(archived.id);
++    expect(await listAll({ status: 'archived', limit: '100' })).toContain(archived.id);
++    expect(await listAll({ status: 'archived', limit: '100' })).not.toContain(active.id);
++    expectProblem(await request(app).get('/v1/projects').query({ status: 'unknown' }), 422);
++  });
++
++  it('paginates the filtered set without duplicates', async () => {
++    const projects = await Promise.all(Array.from({ length: 3 }, () => createProject({ status: 'archived' })));
++    const ids = await listAll({ status: 'archived', limit: '1' });
++    for (const project of projects) expect(ids).toContain(project.id);
++    expect(new Set(ids).size).toBe(ids.length);
 +  });
 +});

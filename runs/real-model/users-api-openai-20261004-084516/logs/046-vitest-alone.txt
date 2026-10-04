@@ -1,0 +1,51 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084516/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )returns 422 problems for invalid body query and path parameters naming each failing field$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084516/generated/users-api
+
+ ❯ test/users.test.ts (12 tests | 1 failed | 11 skipped) 37ms
+   ❯ users API (12)
+     ↓ creates a user, defaults role to member, and returns Location
+     ↓ lists users with cursor pagination and visits each user exactly once
+     ↓ gets a user by id
+     ↓ returns 404 problems for missing user ids on get patch and delete
+     ↓ rejects duplicate email on create with 409 problem
+     ↓ patches only provided fields and returns the updated user
+     ↓ rejects changing a user email to another users email with 409 problem
+     ↓ rejects an empty patch with a 422 problem
+     ↓ deletes a user with 204 and it is gone afterwards
+     × returns 422 problems for invalid body query and path parameters naming each failing field 36ms
+     ↓ replays POST with the same Idempotency-Key and body without creating a second user
+     ↓ rejects reuse of an Idempotency-Key with a different body as 422
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 skipped (12)
+   Start at  13:47:38
+   Duration  288ms (import 52%, transform 28%, tests 18%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > returns 422 problems for invalid body query and path parameters naming each failing field
+AssertionError: expected 'limit: Too big: expected number to be…' to contain 'cursor'
+
+Expected: "cursor"
+Received: "limit: Too big: expected number to be <=100"
+
+ ❯ test/users.test.ts:167:25
+    165|     const queryDetail = expectProblemDetail(badQuery, 422);
+    166|     expect(queryDetail).toContain('limit');
+    167|     expect(queryDetail).toContain('cursor');
+       |                         ^
+    168|
+    169|     const badPath = await request(app).get('/v1/users/not-a-uuid');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":12,"numPassedTests":0,"numFailedTests":1,"numPendingTests":11,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791103658775,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates a user, defaults role to member, and returns Location","status":"skipped","title":"creates a user, defaults role to member, and returns Location","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API lists users with cursor pagination and visits each user exactly once","status":"skipped","title":"lists users with cursor pagination and visits each user exactly once","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API gets a user by id","status":"skipped","title":"gets a user by id","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 404 problems for missing user ids on get patch and delete","status":"skipped","title":"returns 404 problems for missing user ids on get patch and delete","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects duplicate email on create with 409 problem","status":"skipped","title":"rejects duplicate email on create with 409 problem","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API patches only provided fields and returns the updated user","status":"skipped","title":"patches only provided fields and returns the updated user","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects changing a user email to another users email with 409 problem","status":"skipped","title":"rejects changing a user email to another users email with 409 problem","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects an empty patch with a 422 problem","status":"skipped","title":"rejects an empty patch with a 422 problem","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API deletes a user with 204 and it is gone afterwards","status":"skipped","title":"deletes a user with 204 and it is gone afterwards","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API returns 422 problems for invalid body query and path parameters naming each failing field","status":"failed","title":"returns 422 problems for invalid body query and path parameters naming each failing field","duration":35.947709,"failureMessages":["AssertionError: expected 'limit: Too big: expected number to be…' to contain 'cursor'\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084516/generated/users-api/test/users.test.ts:167:25\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays POST with the same Idempotency-Key and body without creating a second user","status":"skipped","title":"replays POST with the same Idempotency-Key and body without creating a second user","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects reuse of an Idempotency-Key with a different body as 422","status":"skipped","title":"rejects reuse of an Idempotency-Key with a different body as 422","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103659025,"endTime":1791103659060.9478,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084516/generated/users-api/test/users.test.ts"}]}

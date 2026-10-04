@@ -1,0 +1,116 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-18675-be5242b8/938203ad2555/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/lib/errors.test.ts test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-18675-be5242b8/938203ad2555/generated/users-api
+
+ ✓ test/lib/errors.test.ts (6 tests) 34ms
+ ❯ test/users.test.ts (5 tests | 4 failed) 56ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes a user 30ms
+     × rejects duplicate email on create and patch 5ms
+     ✓ validates body, query, path and malformed JSON as problem details 9ms
+     × cursor paginates all users exactly once 7ms
+     × replays idempotent creates and rejects changed reuse 4ms
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  4 failed | 7 passed (11)
+   Start at  13:42:38
+   Duration  270ms (import 55%, tests 24%, transform 20%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes a user
+AssertionError: expected { …(5) } to deeply equal { …(6) }
+
+- Expected
++ Received
+
+  {
+-   "createdAt": "2026-10-04T08:42:38.422Z",
+-   "email": "a@example.com",
+-   "id": "285f4f3c-5121-468d-acc7-9d6bfe50b33a",
+-   "name": "Alice",
+-   "role": "member",
+-   "updatedAt": "2026-10-04T08:42:38.422Z",
++   "detail": "User 285f4f3c-5121-468d-acc7-9d6bfe50b33a was not found.",
++   "instance": "/v1/users/285f4f3c-5121-468d-acc7-9d6bfe50b33a",
++   "status": 404,
++   "title": "Not Found",
++   "type": "https://api.sf/problems/not-found",
+  }
+
+ ❯ test/users.test.ts:17:55
+     15|     expect(created.body.createdAt).toEqual(expect.any(String));
+     16|     const id = created.body.id as string;
+     17|     expect((await app().get(`/v1/users/${id}`)).body).toEqual(created.…
+       |                                                       ^
+     18|     const patched = await app().patch(`/v1/users/${id}`).send({ name: …
+     19|     expect(patched.status).toBe(200);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate email on create and patch
+AssertionError: expected 201 to be 409 // Object.is equality
+
+- Expected
++ Received
+
+- 409
++ 201
+
+ ❯ test/users.test.ts:28:96
+     26|     await app().post('/v1/users').send(valid);
+     27|     const second = await app().post('/v1/users').send({ email: 'b@exam…
+     28|     expect((await app().post('/v1/users').send({ email: valid.email, n…
+       |                                                                                                ^
+     29|     expect((await app().patch(`/v1/users/${second.body.id}`).send({ em…
+     30|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > cursor paginates all users exactly once
+AssertionError: expected +0 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 0
+
+ ❯ test/users.test.ts:50:31
+     48|       cursor = response.body.nextCursor ?? undefined;
+     49|     } while (cursor !== undefined);
+     50|     expect(new Set(ids).size).toBe(3);
+       |                               ^
+     51|   });
+     52|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects changed reuse
+AssertionError: expected undefined to be 'true' // Object.is equality
+
+- Expected:
+"true"
+
++ Received:
+undefined
+
+ ❯ test/users.test.ts:57:51
+     55|     const replay = await app().post('/v1/users').set('Idempotency-Key'…
+     56|     expect(replay.status).toBe(201);
+     57|     expect(replay.headers['idempotent-replayed']).toBe('true');
+       |                                                   ^
+     58|     expect(replay.body).toEqual(first.body);
+     59|     expect((await app().post('/v1/users').set('Idempotency-Key', 'key'…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+--- json ---
+{"numTotalTestSuites":4,"numPassedTestSuites":2,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":11,"numPassedTests":7,"numFailedTests":4,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791103358192,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes a user","status":"failed","title":"creates, gets, updates and deletes a user","duration":29.97475,"failureMessages":["AssertionError: expected { …(5) } to deeply equal { …(6) }\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-18675-be5242b8/938203ad2555/generated/users-api/test/users.test.ts:17:55\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects duplicate email on create and patch","status":"failed","title":"rejects duplicate email on create and patch","duration":4.534208999999976,"failureMessages":["AssertionError: expected 201 to be 409 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-18675-be5242b8/938203ad2555/generated/users-api/test/users.test.ts:28:96\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates body, query, path and malformed JSON as problem details","status":"passed","title":"validates body, query, path and malformed JSON as problem details","duration":8.984959000000003,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API cursor paginates all users exactly once","status":"failed","title":"cursor paginates all users exactly once","duration":7.378458999999992,"failureMessages":["AssertionError: expected +0 to be 3 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-18675-be5242b8/938203ad2555/generated/users-api/test/users.test.ts:50:31\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed reuse","status":"failed","title":"replays idempotent creates and rejects changed reuse","duration":4.036875000000009,"failureMessages":["AssertionError: expected undefined to be 'true' // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-18675-be5242b8/938203ad2555/generated/users-api/test/users.test.ts:57:51\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103358405,"endTime":1791103358460.0369,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-18675-be5242b8/938203ad2555/generated/users-api/test/users.test.ts"},{"assertionResults":[{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers unknown routes with a 404 problem","status":"passed","title":"answers unknown routes with a 404 problem","duration":16.219291999999996,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers malformed JSON with a 400 problem","status":"passed","title":"answers malformed JSON with a 400 problem","duration":8.234000000000009,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling maps a ZodError to a 422 problem listing each issue","status":"passed","title":"maps a ZodError to a 422 problem listing each issue","duration":2.8642919999999776,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling passes valid bodies through","status":"passed","title":"passes valid bodies through","duration":1.8154580000000067,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling sends a thrown HttpProblem with its own status","status":"passed","title":"sends a thrown HttpProblem with its own status","duration":1.3334590000000048,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling hides unexpected errors behind a 500 problem without a stack","status":"passed","title":"hides unexpected errors behind a 500 problem without a stack","duration":2.5688749999999914,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103358405,"endTime":1791103358438.5688,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-18675-be5242b8/938203ad2555/generated/users-api/test/lib/errors.test.ts"}]}

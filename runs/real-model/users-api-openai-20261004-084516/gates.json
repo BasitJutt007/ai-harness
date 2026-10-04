@@ -1,0 +1,68 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "n/a",
+      "summary": "not applicable to greenfield tasks"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "17 red observations (1 test files); 1 changed source files went red -> green (1 on unchanged cases, 0 on edited cases by differential proof), red again with the original source"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "no new non-test files"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "2 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "fail",
+      "summary": "1 failed: 17/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]",
+      "details": [
+        "FAIL     user list: GET /v1/users: expected 200, got 422: {\"type\":\"https://api.sf/problems/validation\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"limit: Invalid input: expected number, received NaN\",\"instan…"
+      ],
+      "logPath": "runs/users-api-openai-20261004-084516/logs/053-spec-coverage.txt",
+      "humanMustVerify": [
+        "what the task states beyond fields and operations (8 behaviour(s)): the generated probes cover routes and field constraints only"
+      ]
+    },
+    {
+      "gate": "standards",
+      "status": "fail",
+      "summary": "verdict 95%",
+      "details": [
+        "problem-json      FAIL  (runtime)                        10/11 error paths",
+        "    src/routes/index.ts:48:3  GET /v1/users (collection success): expected status 200 or 401 or 403, got 422",
+        "zod-boundary      FAIL  src/routes/index.ts              4/5 handlers",
+        "    src/routes/index.ts:53:58  GET /v1/users: req.query is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.query)",
+        "    src/routes/index.ts:59:11  GET /v1/users: req.query is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.query)",
+        "────────────────────────────────────────────────────────────",
+        "problem-json      FAIL    33/34 error paths",
+        "rest-conventions  pass     5/5 routes",
+        "tsc-strict        pass     0 errors",
+        "zod-boundary      FAIL     4/5 handlers",
+        "verdict           95%     → failing: problem-json, zod-boundary"
+      ],
+      "failing": 2
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "2 of 40 tests failed in 5 files",
+      "details": [
+        "tests: 2 failed, 38 passed (40) in 5 files",
+        "FAIL test/users.test.ts > users API > returns 422 problems for invalid body query and path parameters naming each failing field: expected 'limit: Too big: expected number to be…' to contain 'cursor'",
+        "FAIL test/users.test.ts > users API > replays POST with the same Idempotency-Key and body without creating a second user: ZodError: ["
+      ],
+      "logPath": "runs/users-api-openai-20261004-084516/logs/056-vitest.txt"
+    }
+  ]
+}

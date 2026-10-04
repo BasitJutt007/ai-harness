@@ -1,0 +1,64 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,61 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++
++const app = () => request(createApp());
++const valid = { email: 'a@example.com', name: 'Alice' };
++
++describe('users API', () => {
++  it('creates, gets, updates and deletes a user', async () => {
++    const created = await app().post('/v1/users').send(valid);
++    expect(created.status).toBe(201);
++    expect(created.headers.location).toMatch(/^\/v1\/users\//);
++    expect(created.body).toMatchObject({ ...valid, role: 'member' });
++    expect(created.body.id).toEqual(expect.any(String));
++    expect(created.body.createdAt).toEqual(expect.any(String));
++    const id = created.body.id as string;
++    expect((await app().get(`/v1/users/${id}`)).body).toEqual(created.body);
++    const patched = await app().patch(`/v1/users/${id}`).send({ name: 'Alicia', role: 'admin' });
++    expect(patched.status).toBe(200);
++    expect(patched.body).toMatchObject({ id, email: valid.email, name: 'Alicia', role: 'admin' });
++    expect((await app().delete(`/v1/users/${id}`)).status).toBe(204);
++    expect((await app().get(`/v1/users/${id}`)).status).toBe(404);
++  });
++
++  it('rejects duplicate email on create and patch', async () => {
++    await app().post('/v1/users').send(valid);
++    const second = await app().post('/v1/users').send({ email: 'b@example.com', name: 'Bob' });
++    expect((await app().post('/v1/users').send({ email: valid.email, name: 'Other' })).status).toBe(409);
++    expect((await app().patch(`/v1/users/${second.body.id}`).send({ email: valid.email })).status).toBe(409);
++  });
++
++  it('validates body, query, path and malformed JSON as problem details', async () => {
++    expect((await app().post('/v1/users').send({ email: 'bad', name: '' })).status).toBe(422);
++    expect((await app().get('/v1/users?limit=101')).status).toBe(422);
++    expect((await app().get('/v1/users/not-a-uuid')).status).toBe(422);
++    expect((await app().patch('/v1/users/not-a-uuid').send({})).status).toBe(422);
++    expect((await app().post('/v1/users').set('Content-Type', 'application/json').send('{')).status).toBe(400);
++  });
++
++  it('cursor paginates all users exactly once', async () => {
++    for (const name of ['One', 'Two', 'Three']) await app().post('/v1/users').send({ email: `${name}@example.com`, name });
++    const ids: string[] = [];
++    let cursor: string | undefined;
++    do {
++      const response = await app().get('/v1/users').query({ limit: 2, cursor });
++      expect(response.status).toBe(200);
++      ids.push(...(response.body.data as Array<{ id: string }>).map((u) => u.id));
++      cursor = response.body.nextCursor ?? undefined;
++    } while (cursor !== undefined);
++    expect(new Set(ids).size).toBe(3);
++  });
++
++  it('replays idempotent creates and rejects changed reuse', async () => {
++    const first = await app().post('/v1/users').set('Idempotency-Key', 'key').send(valid);
++    const replay = await app().post('/v1/users').set('Idempotency-Key', 'key').send(valid);
++    expect(replay.status).toBe(201);
++    expect(replay.headers['idempotent-replayed']).toBe('true');
++    expect(replay.body).toEqual(first.body);
++    expect((await app().post('/v1/users').set('Idempotency-Key', 'key').send({ email: 'new@example.com', name: 'New' })).status).toBe(422);
++  });
++});

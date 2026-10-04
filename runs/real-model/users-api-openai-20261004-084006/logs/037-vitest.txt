@@ -1,0 +1,142 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api
+
+ ✓ test/lib/pagination.test.ts (8 tests) 8ms
+ ❯ test/users.test.ts (5 tests | 5 failed) 6ms
+   ❯ users API (5)
+     × creates, gets, updates and deletes a user 4ms
+     × rejects duplicate email on create and patch 0ms
+     × validates body, query, path and malformed JSON as problem details 0ms
+     × cursor paginates all users exactly once 0ms
+     × replays idempotent creates and rejects changed reuse 0ms
+ ✓ test/lib/problem.test.ts (7 tests) 25ms
+ ❯ test/lib/errors.test.ts (6 tests | 2 failed) 36ms
+   ❯ createApp error handling (6)
+     × answers unknown routes with a 404 problem 4ms
+     × answers malformed JSON with a 400 problem 0ms
+     ✓ maps a ZodError to a 422 problem listing each issue 20ms
+     ✓ passes valid bodies through 4ms
+     ✓ sends a thrown HttpProblem with its own status 2ms
+     ✓ hides unexpected errors behind a 500 problem without a stack 4ms
+ ✓ test/lib/idempotency.test.ts (7 tests) 105ms
+
+ Test Files  2 failed | 3 passed (5)
+      Tests  7 failed | 26 passed (33)
+   Start at  13:41:58
+   Duration  382ms (import 63%, tests 18%, transform 17%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates and deletes a user
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:10:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  test/users.test.ts > users API > rejects duplicate email on create and patch
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:26:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  test/users.test.ts > users API > validates body, query, path and malformed JSON as problem details
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:33:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  test/users.test.ts > users API > cursor paginates all users exactly once
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:41:55
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  test/users.test.ts > users API > replays idempotent creates and rejects changed reuse
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ app test/users.test.ts:5:27
+ ❯ test/users.test.ts:54:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  test/lib/errors.test.ts > createApp error handling > answers unknown routes with a 404 problem
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/lib/errors.test.ts:46:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  test/lib/errors.test.ts > createApp error handling > answers malformed JSON with a 400 problem
+TypeError: makeUsersRouter is not a function
+ ❯ registerRoutes src/routes/index.ts:5:11
+      3|
+      4| export function registerRoutes(app: Router): void {
+      5|   app.use(makeUsersRouter());
+       |           ^
+      6| }
+      7|
+ ❯ createApp src/app.ts:10:3
+ ❯ test/lib/errors.test.ts:53:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+--- json ---
+{"numTotalTestSuites":12,"numPassedTestSuites":8,"numFailedTestSuites":4,"numPendingTestSuites":0,"numTotalTests":33,"numPassedTests":26,"numFailedTests":7,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791103318100,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes a user","status":"failed","title":"creates, gets, updates and deletes a user","duration":3.7666249999999764,"failureMessages":["TypeError: (0 , __vite_ssr_import_0__.makeUsersRouter) is not a function\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/routes/index.ts:5:11)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/app.ts:10:3)\n    at app (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:5:27)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:10:27\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects duplicate email on create and patch","status":"failed","title":"rejects duplicate email on create and patch","duration":0.43824999999998226,"failureMessages":["TypeError: (0 , __vite_ssr_import_0__.makeUsersRouter) is not a function\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/routes/index.ts:5:11)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/app.ts:10:3)\n    at app (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:5:27)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:26:11\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates body, query, path and malformed JSON as problem details","status":"failed","title":"validates body, query, path and malformed JSON as problem details","duration":0.30170799999996234,"failureMessages":["TypeError: (0 , __vite_ssr_import_0__.makeUsersRouter) is not a function\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/routes/index.ts:5:11)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/app.ts:10:3)\n    at app (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:5:27)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:33:19\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API cursor paginates all users exactly once","status":"failed","title":"cursor paginates all users exactly once","duration":0.2683340000000385,"failureMessages":["TypeError: (0 , __vite_ssr_import_0__.makeUsersRouter) is not a function\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/routes/index.ts:5:11)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/app.ts:10:3)\n    at app (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:5:27)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:41:55\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed reuse","status":"failed","title":"replays idempotent creates and rejects changed reuse","duration":0.2355840000000171,"failureMessages":["TypeError: (0 , __vite_ssr_import_0__.makeUsersRouter) is not a function\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/routes/index.ts:5:11)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/app.ts:10:3)\n    at app (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:5:27)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts:54:25\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103318400,"endTime":1791103318405.2683,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/users.test.ts"},{"assertionResults":[{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers unknown routes with a 404 problem","status":"failed","title":"answers unknown routes with a 404 problem","duration":3.7447500000000105,"failureMessages":["TypeError: (0 , __vite_ssr_import_0__.makeUsersRouter) is not a function\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/routes/index.ts:5:11)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/app.ts:10:3)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/lib/errors.test.ts:46:31\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling answers malformed JSON with a 400 problem","status":"failed","title":"answers malformed JSON with a 400 problem","duration":0.39954199999999673,"failureMessages":["TypeError: (0 , __vite_ssr_import_0__.makeUsersRouter) is not a function\n    at registerRoutes (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/routes/index.ts:5:11)\n    at createApp (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/src/app.ts:10:3)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/lib/errors.test.ts:53:31\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling maps a ZodError to a 422 problem listing each issue","status":"passed","title":"maps a ZodError to a 422 problem listing each issue","duration":20.470833000000027,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling passes valid bodies through","status":"passed","title":"passes valid bodies through","duration":3.9311670000000163,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling sends a thrown HttpProblem with its own status","status":"passed","title":"sends a thrown HttpProblem with its own status","duration":2.146874999999966,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["createApp error handling"],"fullName":"createApp error handling hides unexpected errors behind a 500 problem without a stack","status":"passed","title":"hides unexpected errors behind a 500 problem without a stack","duration":3.8990830000000187,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103318393,"endTime":1791103318426.8992,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/lib/errors.test.ts"},{"assertionResults":[{"ancestorTitles":["idempotency()"],"fullName":"idempotency() runs every request when no Idempotency-Key is sent","status":"passed","title":"runs every request when no Idempotency-Key is sent","duration":33.40266700000001,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() replays the stored response for the same key and body","status":"passed","title":"replays the stored response for the same key and body","duration":4.267499999999984,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() replays the original response byte for byte after the resource was updated in place","status":"passed","title":"replays the original response byte for byte after the resource was updated in place","duration":4.2542080000000055,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() rejects reuse of a key with a different body as a 422 problem","status":"passed","title":"rejects reuse of a key with a different body as a 422 problem","duration":4.086583000000019,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() answers a duplicate that arrives while the first is in flight with a 409 problem","status":"passed","title":"answers a duplicate that arrives while the first is in flight with a 409 problem","duration":53.50712500000003,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() does not remember failed requests, so a corrected retry may reuse the key","status":"passed","title":"does not remember failed requests, so a corrected retry may reuse the key","duration":3.5688749999999914,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["idempotency()"],"fullName":"idempotency() validates the header: keys longer than 255 characters are a 422 problem","status":"passed","title":"validates the header: keys longer than 255 characters are a 422 problem","duration":1.2529160000000275,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103318378,"endTime":1791103318482.253,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/lib/idempotency.test.ts"},{"assertionResults":[{"ancestorTitles":["CursorQuerySchema"],"fullName":"CursorQuerySchema defaults limit to 20 and coerces query strings","status":"passed","title":"defaults limit to 20 and coerces query strings","duration":2.1655409999999904,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["CursorQuerySchema"],"fullName":"CursorQuerySchema rejects limits outside 1..100 and empty cursors","status":"passed","title":"rejects limits outside 1..100 and empty cursors","duration":0.29612500000001774,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["cursors"],"fullName":"cursors round-trips a key through an opaque base64url cursor","status":"passed","title":"round-trips a key through an opaque base64url cursor","duration":0.44341599999998493,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["cursors"],"fullName":"cursors rejects cursors it did not issue with a 422 problem","status":"passed","title":"rejects cursors it did not issue with a 422 problem","duration":0.5980409999999949,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate walks every item exactly once, in key order","status":"passed","title":"walks every item exactly once, in key order","duration":1.9139999999999873,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate returns nextCursor null on the last page","status":"passed","title":"returns nextCursor null on the last page","duration":0.5286250000000052,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate does not depend on input order and survives deletion of the cursor item","status":"passed","title":"does not depend on input order and survives deletion of the cursor item","duration":0.21483299999999872,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["paginate"],"fullName":"paginate builds a page schema with data and nextCursor","status":"passed","title":"builds a page schema with data and nextCursor","duration":0.8444159999999954,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103318321,"endTime":1791103318327.8445,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/lib/pagination.test.ts"},{"assertionResults":[{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":1.4513330000000337,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.13358399999998483,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.11529200000001083,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers builds an HttpProblem with status and type","status":"passed","title":"builds an HttpProblem with status and type","duration":0.09337499999998045,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers accepts a custom problem type slug","status":"passed","title":"accepts a custom problem type slug","duration":0.10149999999998727,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers turns an HttpProblem into a Problem with an instance","status":"passed","title":"turns an HttpProblem into a Problem with an instance","duration":1.6242500000000177,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["problem helpers"],"fullName":"problem helpers sends a problem as application/problem+json","status":"passed","title":"sends a problem as application/problem+json","duration":20.893957999999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791103318382,"endTime":1791103318406.894,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-084006/generated/users-api/test/lib/problem.test.ts"}]}

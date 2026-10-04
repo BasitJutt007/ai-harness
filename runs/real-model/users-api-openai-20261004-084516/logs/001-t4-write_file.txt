@@ -1,0 +1,214 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,211 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { z } from 'zod';
++import { createApp } from '../src/app.ts';
++import { ProblemSchema } from '../src/lib/problem.ts';
++
++const UserSchema = z.object({
++  id: z.uuid(),
++  email: z.email(),
++  name: z.string().min(1).max(100),
++  role: z.enum(['admin', 'member']),
++  createdAt: z.iso.datetime(),
++  updatedAt: z.iso.datetime(),
++});
++
++const UsersPageSchema = z.object({
++  data: z.array(UserSchema),
++  nextCursor: z.string().nullable(),
++});
++
++function expectProblemDetail(res: request.Response, status: number) {
++  expect(res.status).toBe(status);
++  expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
++  return ProblemSchema.parse(res.body).detail;
++}
++
++describe('users API', () => {
++  it('creates a user, defaults role to member, and returns Location', async () => {
++    const app = createApp();
++
++    const res = await request(app).post('/v1/users').send({ email: 'a@example.com', name: 'Alice' });
++
++    expect(res.status).toBe(201);
++    const user = UserSchema.parse(res.body);
++    expect(user.role).toBe('member');
++    expect(res.headers['location']).toBe(`/v1/users/${user.id}`);
++  });
++
++  it('lists users with cursor pagination and visits each user exactly once', async () => {
++    const app = createApp();
++    for (const name of ['Alpha', 'Bravo', 'Charlie']) {
++      await request(app)
++        .post('/v1/users')
++        .send({ email: `${name.toLowerCase()}@example.com`, name });
++    }
++
++    const seen = new Set<string>();
++    let cursor: string | null = null;
++
++    do {
++      const query = cursor === null ? '?limit=2' : `?limit=2&cursor=${encodeURIComponent(cursor)}`;
++      const res = await request(app).get(`/v1/users${query}`);
++      expect(res.status).toBe(200);
++      const page = UsersPageSchema.parse(res.body);
++      for (const user of page.data) {
++        expect(seen.has(user.id)).toBe(false);
++        seen.add(user.id);
++      }
++      cursor = page.nextCursor;
++    } while (cursor !== null);
++
++    expect(seen.size).toBe(3);
++  });
++
++  it('gets a user by id', async () => {
++    const app = createApp();
++    const created = await request(app).post('/v1/users').send({ email: 'get@example.com', name: 'Getter' });
++    const { id } = UserSchema.parse(created.body);
++
++    const res = await request(app).get(`/v1/users/${id}`);
++
++    expect(res.status).toBe(200);
++    expect(UserSchema.parse(res.body)).toMatchObject({ id, email: 'get@example.com', name: 'Getter', role: 'member' });
++  });
++
++  it('returns 404 problems for missing user ids on get patch and delete', async () => {
++    const app = createApp();
++    const missingId = '2b977f89-35c4-4cbf-ae43-c9a0ce2873ab';
++
++    for (const [method, path, body] of [
++      ['get', `/v1/users/${missingId}`, undefined],
++      ['patch', `/v1/users/${missingId}`, { name: 'Nope' }],
++      ['delete', `/v1/users/${missingId}`, undefined],
++    ] as const) {
++      const req = request(app)[method](path);
++      const res = body === undefined ? await req : await req.send(body);
++      expect(res.status).toBe(404);
++      expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
++    }
++  });
++
++  it('rejects duplicate email on create with 409 problem', async () => {
++    const app = createApp();
++    await request(app).post('/v1/users').send({ email: 'dup@example.com', name: 'One' }).expect(201);
++
++    const res = await request(app).post('/v1/users').send({ email: 'dup@example.com', name: 'Two' });
++
++    expect(res.status).toBe(409);
++    expect(ProblemSchema.parse(res.body).detail).toContain('email');
++  });
++
++  it('patches only provided fields and returns the updated user', async () => {
++    const app = createApp();
++    const created = await request(app)
++      .post('/v1/users')
++      .send({ email: 'patch@example.com', name: 'Before', role: 'admin' });
++    const original = UserSchema.parse(created.body);
++
++    const res = await request(app).patch(`/v1/users/${original.id}`).send({ name: 'After' });
++
++    expect(res.status).toBe(200);
++    const updated = UserSchema.parse(res.body);
++    expect(updated.id).toBe(original.id);
++    expect(updated.email).toBe(original.email);
++    expect(updated.role).toBe(original.role);
++    expect(updated.name).toBe('After');
++    expect(updated.updatedAt >= original.updatedAt).toBe(true);
++  });
++
++  it('rejects changing a user email to another users email with 409 problem', async () => {
++    const app = createApp();
++    const first = await request(app).post('/v1/users').send({ email: 'first@example.com', name: 'First' });
++    const second = await request(app).post('/v1/users').send({ email: 'second@example.com', name: 'Second' });
++    const secondId = UserSchema.parse(second.body).id;
++    UserSchema.parse(first.body);
++
++    const res = await request(app).patch(`/v1/users/${secondId}`).send({ email: 'first@example.com' });
++
++    expect(res.status).toBe(409);
++    expect(ProblemSchema.parse(res.body).detail).toContain('email');
++  });
++
++  it('rejects an empty patch with a 422 problem', async () => {
++    const app = createApp();
++    const created = await request(app).post('/v1/users').send({ email: 'empty@example.com', name: 'Empty' });
++    const { id } = UserSchema.parse(created.body);
++
++    const res = await request(app).patch(`/v1/users/${id}`).send({});
++
++    expectProblemDetail(res, 422);
++  });
++
++  it('deletes a user with 204 and it is gone afterwards', async () => {
++    const app = createApp();
++    const created = await request(app).post('/v1/users').send({ email: 'gone@example.com', name: 'Gone' });
++    const { id } = UserSchema.parse(created.body);
++
++    const del = await request(app).delete(`/v1/users/${id}`);
++    expect(del.status).toBe(204);
++    expect(del.text).toBe('');
++
++    const get = await request(app).get(`/v1/users/${id}`);
++    expect(get.status).toBe(404);
++  });
++
++  it('returns 422 problems for invalid body query and path parameters naming each failing field', async () => {
++    const app = createApp();
++
++    const badBody = await request(app).post('/v1/users').send({ email: 'not-an-email', name: '' });
++    const bodyDetail = expectProblemDetail(badBody, 422);
++    expect(bodyDetail).toContain('email');
++    expect(bodyDetail).toContain('name');
++
++    const badQuery = await request(app).get('/v1/users?limit=101&cursor=***');
++    const queryDetail = expectProblemDetail(badQuery, 422);
++    expect(queryDetail).toContain('limit');
++    expect(queryDetail).toContain('cursor');
++
++    const badPath = await request(app).get('/v1/users/not-a-uuid');
++    const pathDetail = expectProblemDetail(badPath, 422);
++    expect(pathDetail).toContain('userId');
++  });
++
++  it('replays POST with the same Idempotency-Key and body without creating a second user', async () => {
++    const app = createApp();
++
++    const first = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'user-create-1')
++      .send({ email: 'idem@example.com', name: 'Idem' });
++    const second = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'user-create-1')
++      .send({ email: 'idem@example.com', name: 'Idem' });
++
++    expect(first.status).toBe(201);
++    expect(second.status).toBe(201);
++    expect(second.headers['idempotent-replayed']).toBe('true');
++    expect(second.headers['location']).toBe(first.headers['location']);
++    expect(second.text).toBe(first.text);
++
++    const list = await request(app).get('/v1/users');
++    expect(UsersPageSchema.parse(list.body).data).toHaveLength(1);
++  });
++
++  it('rejects reuse of an Idempotency-Key with a different body as 422', async () => {
++    const app = createApp();
++    await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'user-create-2')
++      .send({ email: 'same@example.com', name: 'Same' })
++      .expect(201);
++
++    const res = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'user-create-2')
++      .send({ email: 'different@example.com', name: 'Different' });
++
++    expectProblemDetail(res, 422);
++  });
++});
