@@ -82,7 +82,8 @@ describe('negative: a red that does not exercise source never counts', () => {
     const report = await runTargetTests({ root, files: ['tests/helper-red.test.ts', 'tests/const-red.test.ts'], exec, harnessRoot: HARNESS_ROOT, logs, turn: 1, runner: p.runner, layout: p });
     const helper = obs(report, 'tests/helper-red.test.ts');
     expect(helper).toMatchObject({ status: 'fail', validRed: false });
-    expect(helper.reason).toContain('red rejected: the failing cases do not assert on anything imported from src/');
+    // The located-red judge may call a helper-only assertion 'constant' or 'not from source'; either way it is rejected.
+    expect(helper.reason).toMatch(/red rejected: the failing cases (do not assert on anything imported from|only assert constants)/);
     expect(obs(report, 'tests/const-red.test.ts')).toMatchObject({ status: 'fail', validRed: false });
   });
 
