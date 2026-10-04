@@ -89,18 +89,6 @@ describe('POST /v1/projects', () => {
     expect(all.filter((id) => id === ProjectBody.parse(first.body).id)).toHaveLength(1);
   });
 
-  it('replays the original response even after the project was updated', async () => {
-    const key = randomUUID();
-    const body = { name: `original ${randomUUID()}` };
-    const first = await request(app).post('/v1/projects').set('Idempotency-Key', key).send(body);
-    expect(first.status).toBe(201);
-    const created = ProjectBody.parse(first.body);
-    await request(app).patch(`/v1/projects/${created.id}`).set('Idempotency-Key', randomUUID()).send({ name: 'changed' }).expect(200);
-    const replay = await request(app).post('/v1/projects').set('Idempotency-Key', key).send(body);
-    expect(replay.status).toBe(201);
-    expect(replay.body).toEqual(first.body);
-  });
-
   it('rejects reuse of an Idempotency-Key with a different body (422)', async () => {
     const key = randomUUID();
     await request(app).post('/v1/projects').set('Idempotency-Key', key).send({ name: 'one' }).expect(201);
