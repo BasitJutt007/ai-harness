@@ -2127,10 +2127,32 @@ const MAX_KEY_FLOW_DEPTH = 3;
 type StoreLifetime = 'persistent' | 'fresh' | 'unknown';
 
 /**
- * `paramLives`: when keyFlow follows a call into a program function, the lifetime (at the call site) of each
- * argument, by the callee's parameter: a store the caller created per request stays per request inside it.
+ * Where a store's lifetime is judged from: the request function and every function followed from it.
+ *  - stack: the bodies of the request function (first) and of each followed callee, outermost first; code
+ *    in any of them (or nested inside them) runs during the request;
+ *  - paramLives: each followed callee's parameters, with the lifetime of the argument at its call site;
+ *  - thisLife: the lifetime of `this` inside the innermost followed method (the receiver at the call site);
+ *    undefined in the request function itself.
  */
-function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds: ts.Symbol[], depth: number, active: Set<ts.Node>, paramLives: ReadonlyMap<ts.Symbol, StoreLifetime> = new Map()): KeyFlow {
+interface LifetimeEnv {
+  readonly stack: readonly ts.Node[];
+  readonly paramLives: ReadonlyMap<ts.Symbol, StoreLifetime>;
+  readonly thisLife?: StoreLifetime;
+}
+
+/** The nearest function-like node enclosing `node` (not `node` itself), or undefined at module scope. */
+function enclosingFunction(node: ts.Node): ts.FunctionLikeDeclaration | undefined {
+  for (let p = node.parent; p !== undefined; p = p.parent) if (isFunctionLike(p)) return p;
+  return undefined;
+}
+
+/** `inner` lies inside `outer` (same file, by position). */
+function within(inner: ts.Node, outer: ts.Node): boolean {
+  return inner.getSourceFile() === outer.getSourceFile() && inner.pos >= outer.pos && inner.end <= outer.end;
+}
+
+function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds: ts.Symbol[], depth: number, active: Set<ts.Node>, envIn?: LifetimeEnv): KeyFlow {
+  const env: LifetimeEnv = envIn ?? { stack: [body], paramLives: new Map() };
   const readSet = new Set<ts.Node>(reads);
   const keySyms = new Set<ts.Symbol>(seeds);
   const lookupSyms = new Set<ts.Symbol>();
@@ -2161,7 +2183,14 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
       });
       if (params.length > 0) {
         active.add(fn);
-        out = keyFlow(checker, fn.body, [], params, depth + 1, active, lives);
+        const callee = unwrap(call.expression);
+        const thisLife = ts.isPropertyAccessExpression(callee) ? lifetime(callee.expression) : env.thisLife;
+        const next: LifetimeEnv = {
+          stack: [...env.stack, fn.body],
+          paramLives: new Map([...env.paramLives, ...lives]),
+          ...(thisLife !== undefined ? { thisLife } : {}),
+        };
+        out = keyFlow(checker, fn.body, [], params, depth + 1, active, next);
         active.delete(fn);
       }
     }
@@ -2239,30 +2268,45 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     return true;
   };
   /**
-   * How long the store an expression names lives, relative to one call of this function:
-   *  - 'persistent': it outlives the call (module or factory scope, a closure, `this`, a parameter the
-   *    caller passes in, or an alias / property of one of those), so a later request can find what this one
-   *    stored;
-   *  - 'fresh': it is created by this call (`new Map()`, `{ … }`, `[ … ]` bound inside the body, or a
-   *    property of such a value: `holder.store` with `const holder = { store: new Map() }`), so nothing
-   *    written to it can be replayed;
-   *  - 'unknown': anything this analysis cannot follow (a call's result, a `let` without initializer): never
-   *    counted as proof of storage.
+   * How long the store an expression names lives, relative to one request. The request is the request
+   * function (env.stack[0]) plus every function followed from it (env.stack), so a closure or helper does
+   * not get a fresh boundary of its own.
+   *  - 'persistent': created where code runs once, not per request: module scope, or a function that
+   *    lexically encloses the request function (a middleware factory such as `idempotency()`); a parameter
+   *    of such a factory; `this` in the request function; or a followed parameter / receiver whose argument
+   *    was persistent at its call site;
+   *  - 'fresh': created during the request: `new …`, `{ … }`, `[ … ]` bound in the request function, in a
+   *    followed callee, or in code nested inside them (a closure that captures it does not change that), or
+   *    a property of such a value; also a persistent path that the request itself reassigns to such a value;
+   *  - 'unknown': anything else: a call's result, a parameter whose argument was not followed (the request
+   *    function's own `req`/`res`), a value created in some other function (e.g. a closure returned by a
+   *    helper), or a path the request reassigns to an unknown value. Never counted as proof of storage.
    */
   function lifetime(e0: ts.Expression, seen: Set<ts.Node> = new Set()): StoreLifetime {
     let e: ts.Expression = e0;
     while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) e = e.expression;
-    if (e.kind === ts.SyntaxKind.ThisKeyword) return 'persistent';
+    const reassigned = reassignedLifetime(e, seen);
+    if (reassigned !== undefined) return reassigned;
+    if (e.kind === ts.SyntaxKind.ThisKeyword) return env.thisLife ?? 'persistent';
     if (ts.isPropertyAccessExpression(e) || ts.isElementAccessExpression(e)) return lifetime(e.expression, seen);
     if (!ts.isIdentifier(e)) return 'unknown';
     const sym = checker.getSymbolAtLocation(e);
     const decl = sym?.valueDeclaration ?? sym?.declarations?.[0];
     if (decl === undefined) return 'unknown';
-    const inside = decl.getSourceFile() === body.getSourceFile() && decl.pos >= body.pos && decl.end <= body.end;
-    // A parameter of the analysed function (or of a function inside it) lives as long as what its caller
-    // passed: known only when this analysis followed that call; the handler's own `req`/`res` live one request.
-    if (ts.isParameter(decl) && (inside || decl.parent === body.parent)) return (sym !== undefined ? paramLives.get(sym) : undefined) ?? 'unknown';
-    if (!inside) return 'persistent';
+    const request = env.stack[0] ?? body;
+    const onStack = (fn: ts.FunctionLikeDeclaration): boolean => env.stack.some((b) => fn.body === b || within(fn, b));
+    const enclosesRequest = (fn: ts.FunctionLikeDeclaration): boolean => fn.body !== request && within(request, fn);
+    if (ts.isParameter(decl)) {
+      const fn = decl.parent;
+      if (!isFunctionLike(fn)) return 'unknown';
+      if (onStack(fn)) return (sym !== undefined ? env.paramLives.get(sym) : undefined) ?? 'unknown';
+      return enclosesRequest(fn) ? 'persistent' : 'unknown';
+    }
+    const owner = enclosingFunction(decl);
+    if (owner === undefined) return 'persistent';
+    if (enclosesRequest(owner) && !onStack(owner)) return 'persistent';
+    if (!onStack(owner)) return 'unknown';
+    // Declared during the request: fresh when allocated there, else whatever it aliases.
     if (!ts.isVariableDeclaration(decl) || decl.initializer === undefined || seen.has(decl)) return 'unknown';
     seen.add(decl);
     let init: ts.Expression = decl.initializer;
@@ -2270,6 +2314,50 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     if (ts.isNewExpression(init) || ts.isObjectLiteralExpression(init) || ts.isArrayLiteralExpression(init)) return 'fresh';
     if (ts.isIdentifier(init) || ts.isPropertyAccessExpression(init) || ts.isElementAccessExpression(init) || init.kind === ts.SyntaxKind.ThisKeyword) return lifetime(init, seen);
     return 'unknown';
+  }
+  /** `x.a.b` / `this.a` / `x['a']` as a root (symbol or `this`) and property names; undefined for anything else. */
+  function storePath(e0: ts.Expression): { root: ts.Symbol | 'this'; props: string[] } | undefined {
+    let e: ts.Expression = e0;
+    while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)) e = e.expression;
+    if (e.kind === ts.SyntaxKind.ThisKeyword) return { root: 'this', props: [] };
+    if (ts.isIdentifier(e)) {
+      const sym = checker.getSymbolAtLocation(e);
+      return sym === undefined ? undefined : { root: sym, props: [] };
+    }
+    if (ts.isPropertyAccessExpression(e)) {
+      const inner = storePath(e.expression);
+      return inner === undefined ? undefined : { root: inner.root, props: [...inner.props, e.name.text] };
+    }
+    if (ts.isElementAccessExpression(e) && ts.isStringLiteralLike(e.argumentExpression)) {
+      const inner = storePath(e.expression);
+      return inner === undefined ? undefined : { root: inner.root, props: [...inner.props, e.argumentExpression.text] };
+    }
+    return undefined;
+  }
+  /**
+   * When the request (any body on env.stack) assigns to the store's path or a prefix of it (`cache = new
+   * Map()` on a module-level `let`, `holder.store = new Map()`), the store is whatever was assigned: the
+   * worst lifetime of those values. Undefined when nothing on the path is reassigned during the request,
+   * or every reassignment is itself persistent.
+   */
+  function reassignedLifetime(e: ts.Expression, seen: Set<ts.Node>): StoreLifetime | undefined {
+    const path = storePath(e);
+    if (path === undefined) return undefined;
+    let worst: StoreLifetime | undefined;
+    for (const b of env.stack) {
+      walk(b, (n) => {
+        if (!ts.isBinaryExpression(n) || seen.has(n)) return;
+        const op = n.operatorToken.kind;
+        if (op !== ts.SyntaxKind.EqualsToken && op !== ts.SyntaxKind.QuestionQuestionEqualsToken && op !== ts.SyntaxKind.BarBarEqualsToken) return;
+        const target = storePath(n.left);
+        if (target === undefined || target.root !== path.root || target.props.length > path.props.length) return;
+        if (target.props.some((p, i) => p !== path.props[i])) return;
+        seen.add(n);
+        const life = lifetime(n.right, seen);
+        if (life === 'unknown' || (life === 'fresh' && worst !== 'unknown')) worst = life;
+      });
+    }
+    return worst;
   }
   /** A keyed write into `obj`: counts as storage only when `obj` outlives the call; an unknown lifetime is unproven. */
   const keyedWrite = (obj: ts.Expression): void => {
