@@ -44,10 +44,11 @@ export default defineTool({
       if (!checked.ok) return { ok: false, summary: `run_tests: ${checked.reason}. Nothing was run.` };
       files = checked.files;
     }
-    const report = await ctx.services.runTests(files);
+    // Failing cases are re-run alone (diagnostic only, never observations): one that then passes depends on test order.
+    const report = await ctx.services.runTests(files, { isolateFailures: true });
     const red = report.observations.filter((o) => o.validRed).map((o) => o.file);
     const rejected = report.observations.filter((o) => o.status === 'fail' && !o.validRed).map((o) => `${o.file}: ${o.reason}`);
-    const lines = [report.summary, ...rejected];
+    const lines = [report.summary, ...rejected, ...(report.diagnosis ?? [])];
     if (files !== undefined && report.observations.length === 0) {
       lines.push(`no test file was collected for ${files.join(', ')}; check the runner's include pattern`);
     }

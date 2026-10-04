@@ -18,6 +18,10 @@
  * source or tests behind the hooked write tools' back), and its home/config/temp
  * directories point at that throw-away directory: tests cannot read the operator's
  * ~/.config/gh, ~/.aws, ~/.npmrc or ~/.ssh.
+ *
+ * On request (RunTestsOptions.isolateFailures) a run with failing cases is followed by a
+ * diagnosis: up to two failing cases are re-run alone, and one that passes alone is reported as
+ * order-dependent (TestRunReport.diagnosis). Those runs are never observations.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
@@ -31,7 +35,7 @@ import { activeLayout, isSourcePath, sourceRootsLabel, versionAtLeast } from './
 import type { TargetLayout, TestRunnerInfo } from './target.ts';
 import { graphFiles, importGraph, reachesSource, locatedRed, resolveImport, staticTestCases } from './testmap.ts';
 import type { ImportGraph, StaticTestCase } from './testmap.ts';
-import type { Exec, LogStore, TestCaseObservation, TestCaseResult, TestObservation, TestRunReport } from './types.ts';
+import type { Exec, ExecResult, LogStore, TestCaseObservation, TestCaseResult, TestObservation, TestRunReport } from './types.ts';
 
 const VITEST_TIMEOUT_MS = 300_000;
 /** Where the runner's JSON report is written: the exec channel (fd 3), a pipe only the runner process itself holds. */
@@ -40,6 +44,8 @@ const MAX_SUMMARY_FAILURES = 10;
 const MAX_MESSAGE_CHARS = 160;
 /** Cap of TestRunReport.console (the runner's own console output). */
 export const MAX_CONSOLE_BYTES = 64 * 1024;
+/** At most this many failing cases of one run are re-run alone (the order-dependence diagnosis). */
+export const MAX_ISOLATED_CASES = 2;
 
 /**
  * The subset of the runner JSON report we rely on: vitest's (verified against vitest 5.0.3), jest's
@@ -72,6 +78,11 @@ export interface RunTestsOptions {
   runner?: TestRunnerInfo;
   /** Source/test classification for the observations. Default: the active layout. */
   layout?: TargetLayout;
+  /**
+   * When cases fail, re-run up to MAX_ISOLATED_CASES of them alone and report the ones that pass
+   * alone (TestRunReport.diagnosis; see orderDependence). Diagnostic only: no observation comes of it.
+   */
+  isolateFailures?: boolean;
 }
 
 /** One concrete runner command: how it is started and the name of its raw log. */
@@ -86,28 +97,29 @@ const NODE_TEST_REPORTER = fileURLToPath(new URL('./node-test-reporter.mjs', imp
 /**
  * The command for `runner` (vitest, jest or node:test). Each writes the same JSON report shape
  * (testResults/assertionResults) to the private fd-3 channel, next to its default console reporter.
+ * `filter`: runner options that select cases by name (caseNameFilter), empty for a normal run.
  */
-function invocation(runner: TestRunnerInfo | undefined, root: string, files: string[], tmpDir: string, harnessRoot: string): Invocation {
+function invocation(runner: TestRunnerInfo | undefined, root: string, files: string[], filter: string[], tmpDir: string, harnessRoot: string): Invocation {
   const kind = runner?.kind ?? 'vitest';
   if (kind === 'jest' && runner?.bin !== undefined) {
     // --runTestsByPath: the entries are paths, not regexes; jest's cache stays in the per-run temp dir.
     // A worker memory limit makes jest (29+) never run tests in band, i.e. never inside the process that holds fd 3.
     const args = [runner.bin, '--ci', '--json', `--outputFile=${REPORT_CHANNEL}`, '--testLocationInResults', '--watchman=false',
-      '--maxWorkers=2', '--workerIdleMemoryLimit=4GB', `--cacheDirectory=${join(tmpDir, 'jest-cache')}`,
+      '--maxWorkers=2', '--workerIdleMemoryLimit=4GB', `--cacheDirectory=${join(tmpDir, 'jest-cache')}`, ...filter,
       ...(files.length > 0 ? ['--runTestsByPath', ...files] : [])];
     return { cmd: process.execPath, args, label: 'jest' };
   }
   if (kind === 'node-test') {
     const patterns = files.length > 0 ? files : runner?.patterns ?? [];
     const args = [...(runner?.nodeArgs ?? []), '--test', '--test-reporter=spec', '--test-reporter-destination=stdout',
-      `--test-reporter=${pathToFileURL(NODE_TEST_REPORTER).href}`, `--test-reporter-destination=${REPORT_CHANNEL}`, ...patterns];
+      `--test-reporter=${pathToFileURL(NODE_TEST_REPORTER).href}`, `--test-reporter-destination=${REPORT_CHANNEL}`, ...filter, ...patterns];
     return { cmd: process.execPath, args, label: 'node-test' };
   }
   // vitest: the target's own install when it has one (runner.bin), else the harness's. `--configLoader runner`
   // (vitest >= 3.1) loads the config without writing a bundled copy next to it (the API root is read-only).
   const version = runner?.version;
   const loader = version === undefined || version === null || versionAtLeast(version, 3, 1) ? ['--configLoader', 'runner'] : [];
-  const args = ['run', '--root', root, ...loader, '--pool=forks', '--reporter=default', '--reporter=json', `--outputFile.json=${REPORT_CHANNEL}`, ...files];
+  const args = ['run', '--root', root, ...loader, '--pool=forks', '--reporter=default', '--reporter=json', `--outputFile.json=${REPORT_CHANNEL}`, ...filter, ...files];
   if (runner?.bin !== undefined) return { cmd: process.execPath, args: [runner.bin, ...args], label: 'vitest' };
   return { cmd: join(harnessRoot, 'node_modules', '.bin', 'vitest'), args, label: 'vitest' };
 }
@@ -129,6 +141,42 @@ export async function runTargetTests(opts: RunTestsOptions): Promise<TestRunRepo
     return { ok: false, totals: { files: 0, tests: 0, passed: 0, failed: 0 }, observations: [], summary: `tests: not run (UNPROVEN): ${why}`, logPath, console: '' };
   }
   const layout = opts.layout ?? activeLayout();
+  const { res, parsed, consoleText, logPath } = await execRunner(opts, files, []);
+  if (parsed === null) {
+    const why = res.timedOut ? 'timed out' : `exit ${String(res.code)}`;
+    const first = firstLine(stripAnsi(res.stderr || res.stdout)) || 'no JSON report';
+    return {
+      ok: false,
+      totals: { files: 0, tests: 0, passed: 0, failed: 0 },
+      observations: [],
+      summary: `tests: runner error (${why}): ${clip(first)}\nlog: ${logPath}`,
+      logPath,
+      console: consoleText,
+    };
+  }
+  const at = new Date().toISOString();
+  const graph = await sourceGraph(opts.root, layout);
+  const observations: TestObservation[] = [];
+  for (const fr of parsed) observations.push(await observe(opts.root, fr, opts.turn, at, graph, layout));
+  const report: TestRunReport = { ...buildReport(opts.root, parsed, observations, logPath, consoleText), console: consoleText };
+  if (opts.isolateFailures !== true || report.totals.failed === 0) return report;
+  const diagnosis = await orderDependence(opts, parsed, observations);
+  return diagnosis.length > 0 ? { ...report, diagnosis } : report;
+}
+
+/** One runner process: its result, the parsed fd-3 report (null when none or unreadable), console text and raw log. */
+interface RunnerOutput {
+  res: ExecResult;
+  parsed: VitestFileResult[] | null;
+  consoleText: string;
+  logPath: string;
+}
+
+/**
+ * Start the runner over `files` (plus the case filter `filter`), sandboxed in a fresh per-run temp dir
+ * that is removed afterwards. Every run, the diagnostic ones included, goes through here.
+ */
+async function execRunner(opts: RunTestsOptions, files: string[], filter: string[]): Promise<RunnerOutput> {
   // Under the OS temp dir, never inside the harness repo: nothing the confined child can write lives next to plugin code.
   const tmpDir = await mkdtemp(join(tmpdir(), 'harness-vitest-'));
   const home = join(tmpDir, 'home');
@@ -137,7 +185,7 @@ export async function runTargetTests(opts: RunTestsOptions): Promise<TestRunRepo
   // The JSON report travels over a private pipe on the runner's fd 3 (REPORT_CHANNEL), never through a file:
   // test workers (forced to child processes) and anything they spawn do not inherit that descriptor, so
   // agent code cannot rewrite the report between the runner writing it and the harness reading it.
-  const run = invocation(opts.runner, opts.root, files, tmpDir, opts.harnessRoot);
+  const run = invocation(opts.runner, opts.root, files, filter, tmpDir, opts.harnessRoot);
   const args = run.args;
   try {
     const res = await opts.exec(run.cmd, args, {
@@ -149,32 +197,108 @@ export async function runTargetTests(opts: RunTestsOptions): Promise<TestRunRepo
     });
     const json = res.channel !== undefined && res.channel.trim() !== '' ? res.channel : null;
     const consoleText = consoleOutput(res.stdout, res.stderr, REPORT_CHANNEL);
+    const label = filter.length > 0 ? `${run.label}-alone` : run.label;
     const logPath = await opts.logs.write(
-      run.label,
+      label,
       [`$ ${run.label} ${args.join(' ')}`, `exit: ${String(res.code)}${res.timedOut ? ' (timed out)' : ''}`,
         '--- stdout ---', res.stdout, '--- stderr ---', res.stderr, '--- json ---', json ?? '(no report written)'].join('\n'),
     );
-    const parsed = json === null ? null : parseReport(json);
-    if (parsed === null) {
-      const why = res.timedOut ? 'timed out' : `exit ${String(res.code)}`;
-      const first = firstLine(stripAnsi(res.stderr || res.stdout)) || 'no JSON report';
-      return {
-        ok: false,
-        totals: { files: 0, tests: 0, passed: 0, failed: 0 },
-        observations: [],
-        summary: `tests: runner error (${why}): ${clip(first)}\nlog: ${logPath}`,
-        logPath,
-        console: consoleText,
-      };
-    }
-    const at = new Date().toISOString();
-    const graph = await sourceGraph(opts.root, layout);
-    const observations: TestObservation[] = [];
-    for (const fr of parsed) observations.push(await observe(opts.root, fr, opts.turn, at, graph, layout));
-    return { ...buildReport(opts.root, parsed, observations, logPath, consoleText), console: consoleText };
+    return { res, parsed: json === null ? null : parseReport(json), consoleText, logPath };
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
+}
+
+// ───────────────────────────── order dependence ─────────────────────────────
+
+/** A failing case to re-run alone: its API-relative file, its titles (describe titles, then its own) and the runner's filter for it. */
+interface IsolatedCase {
+  file: string;
+  titles: string[];
+  filter: string[];
+}
+
+/** The note for a case that passes alone but failed among the other tests of its file. */
+export function orderDependenceNote(file: string, titles: string[]): string {
+  return `${file} > ${titles.join(' > ')}: passes when run alone, fails after the other tests in this file: it depends on test order `
+    + '(shared state, e.g. a module-level store, is not reset between tests). Do not assume an empty store; assert only on the records this test created.';
+}
+
+/**
+ * The options that make `runner` (the one invocation() starts) run exactly the case `titles` of a file,
+ * by name, or null when it has no safe name filter. The pattern is the case's full name, every title
+ * escaped as a literal, anchored at both ends:
+ * - vitest matches `--testNamePattern` against the titles joined with ' > ' (vitest 4+) or ' ' (older),
+ *   so either separator is accepted;
+ * - jest matches it, case-insensitively, against the titles joined with ' '.
+ * Either could still select another case whose full name reads the same: the isolated run's report must
+ * show exactly this one case run (soleResult). node:test has no safe filter: its pattern also runs every
+ * test under a suite whose own name matches and filters subtests, so a case run "alone" could skip its
+ * own failing subtest and pass.
+ */
+export function caseNameFilter(runner: TestRunnerInfo | undefined, titles: string[]): string[] | null {
+  if (titles.length === 0) return null;
+  const parts = titles.map(escapeRegExp);
+  const kind = runner?.kind ?? 'vitest';
+  if (kind === 'jest' && runner?.bin !== undefined) return [`--testNamePattern=^${parts.join(' ')}$`];
+  if (kind === 'node-test') return null;
+  return [`--testNamePattern=^ ?${parts.join('(?: > | )')}$`];
+}
+
+/**
+ * Diagnostic only, never an observation (no red, no green; nothing reaches RunState): re-run up to
+ * MAX_ISOLATED_CASES failing cases alone, each through the runner's name filter on its own file, with
+ * the same sandbox, env and fd-3 report channel as the run itself. A case that passes alone although
+ * it failed after the other tests of its file depends on test order (state shared between the cases of
+ * a file, e.g. a module-level store): one note per such case. No note for a file that failed to load or
+ * broke outside its cases, a case whose name another case of the file shares, a runner without a safe
+ * name filter, or an isolated run that errors, times out or does not run exactly that one case.
+ */
+async function orderDependence(opts: RunTestsOptions, files: VitestFileResult[], observations: TestObservation[]): Promise<string[]> {
+  const status = new Map(observations.map((o) => [o.file, o.status]));
+  const cases: IsolatedCase[] = [];
+  for (const fr of files) {
+    const file = relPath(opts.root, fr.name);
+    if (status.get(file) !== 'fail' || fr.message !== '') continue;
+    // A failing case that was the only one to run in its file already ran alone.
+    if (fr.assertionResults.filter(didRun).length < 2) continue;
+    for (const a of fr.assertionResults) {
+      if (a.status !== 'failed') continue;
+      const titles = [...a.ancestorTitles, a.title];
+      if (fr.assertionResults.filter((b) => sameTitles([...b.ancestorTitles, b.title], titles)).length > 1) continue;
+      const filter = caseNameFilter(opts.runner, titles);
+      if (filter !== null) cases.push({ file, titles, filter });
+    }
+  }
+  const notes: string[] = [];
+  for (const c of cases.slice(0, MAX_ISOLATED_CASES)) {
+    const alone = await execRunner(opts, [c.file], c.filter);
+    if (alone.res.timedOut || alone.res.code !== 0 || alone.parsed === null) continue;
+    if (soleResult(opts.root, alone.parsed, c) === 'passed') notes.push(orderDependenceNote(c.file, c.titles));
+  }
+  return notes;
+}
+
+/** A case the runner ran (not skipped, todo or filtered out by name). */
+function didRun(a: VitestAssertion): boolean {
+  return a.status === 'passed' || a.status === 'failed';
+}
+
+function sameTitles(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((t, i) => t === b[i]);
+}
+
+/**
+ * The result of `target` in an isolated run when it is the only case that ran and its file reports no
+ * error outside it; otherwise null (the filter selected nothing, or more than that case).
+ */
+function soleResult(root: string, files: VitestFileResult[], target: IsolatedCase): 'passed' | 'failed' | null {
+  const runs = files.flatMap((fr) => fr.assertionResults.filter(didRun).map((a) => ({ fr, a })));
+  const only = runs[0];
+  if (runs.length !== 1 || only === undefined) return null;
+  if (relPath(root, only.fr.name) !== target.file || only.fr.message !== '') return null;
+  if (!sameTitles([...only.a.ancestorTitles, only.a.title], target.titles)) return null;
+  return only.a.status === 'passed' ? 'passed' : 'failed';
 }
 
 /**

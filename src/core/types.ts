@@ -498,6 +498,11 @@ export interface TestRunReport {
    * This is what a developer would see in a terminal: the honest raw (baseline) return.
    */
   console?: string;
+  /**
+   * One line per failing case that passes when re-run alone (it depends on test order), when the run
+   * was asked to isolate failures. Diagnostic only: those re-runs are never observations.
+   */
+  diagnosis?: string[];
 }
 
 /** Static import graph between test files and source files (API-relative paths). */
@@ -537,8 +542,12 @@ export interface CheckReport {
 
 /** Deterministic services the core provides to plugins. */
 export interface CoreServices {
-  /** Run tests with the harness's own runner and record observations in RunState. */
-  runTests(files?: string[]): Promise<TestRunReport>;
+  /**
+   * Run tests with the harness's own runner and record observations in RunState. With
+   * `isolateFailures`, up to two failing cases are then re-run alone and the ones that pass alone are
+   * named in TestRunReport.diagnosis; those re-runs are never recorded.
+   */
+  runTests(files?: string[], opts?: { isolateFailures?: boolean }): Promise<TestRunReport>;
   /**
    * Run registered checks against the workspace API root, or against `root` (an absolute directory
    * holding another copy of the API, e.g. a base-commit snapshot for a brownfield baseline).
