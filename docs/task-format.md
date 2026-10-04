@@ -45,7 +45,7 @@ with a `target`, or `output` together with `target`.
 
 ## Keys and their aliases
 
-Keys are matched ignoring case, `-`, `_` and spaces. The canonical name is listed first.
+Keys are matched ignoring case, `-`, `_`, `.` and spaces. The canonical name is listed first.
 
 | Canonical | Also accepted | If missing |
 |---|---|---|
@@ -60,6 +60,13 @@ Keys are matched ignoring case, `-`, `_` and spaces. The canonical name is liste
 | `resources` | `resource`, `entities`, `entity`, `models` (a map or a list of specs), `tables` | none |
 | `basePath` | `prefix`, `apiPrefix`, `baseUrl` | `/v1` |
 | `template`, `scope`, `allowBreaking`, `limits` | `scaffold`; `allow_breaking` | defaults |
+
+**Limits** are `maxTurns` (also `turns`, `maxSteps`) and `maxOutputTokens` (also `maxTokens`,
+default 16,000); any other key under `limits` is ignored with a note. A `maxTurns` in the task (or
+`--max-turns`) is a hard cap. Without one the limit scales with the task: 40 turns, plus 20 per
+resource (a brief-only task or a change counts as one), plus 2 per behaviour, at most 150; when a run
+reaches it while the gates are making progress (the latest refused finish had fewer failing units
+than the one before), it is extended 10 turns at a time, by at most half the limit in all.
 
 Any other top-level key is **carried**: the model sees it verbatim under "Additional details from the
 task file". It is never dropped.
@@ -114,9 +121,11 @@ behaviour, so custom routes such as `POST /todos/:id/archive` are not lost.
 
 ## Always an error
 
-- **Provider keys**: `model`, `provider`, `driver`, `llm`, `temperature`, `api_key`, `*_API_KEY`.
-  These are checked at the top level and inside `limits`/`options`/`settings`/`config`. A field or
-  resource *named* `model` (a car API) is fine.
+- **Provider keys**: `model`/`models` (unless the value describes data models), `provider`,
+  `driver`, `llm` (and their plurals), `temperature`, `modelName`, `modelId`, `modelProvider`, and any
+  key ending in `api_key`/`apiKey` (`OPENAI_API_KEY`). These are checked at the top level and inside
+  `limits`, `options`, `settings`, `config`, `configuration`, `harness`, `agent`, `runtime`, `run`
+  and `execution`. A field or resource *named* `model` (a car API) is fine.
 - Malformed YAML or JSON, an empty file, or a top-level list.
 - A contradictory or unknown `kind`.
 - A greenfield task with neither resources nor a brief.

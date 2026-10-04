@@ -1,371 +1,221 @@
 # Design note: sf-ai-harness
 
-## 1. Architecture: the loop, where the hooks sit, who decides what
+Architecture, driver abstraction, token budget, extension points and honesty boundary. The runs
+behind each claim are listed in the README's evidence section and in `runs/real-model/README.md`.
+
+## 1. Architecture
 
 ```
-task file ──► harness run ──► git worktree on harness/<task>-<driver>-<stamp>   (your checkout untouched)
-                 │               greenfield: scaffold templates/express-zod
-                 ▼
-   ┌──────────────── agent loop (src/core/loop.ts) ─────────────────┐
-   │ request = system + tools + brief + digest + last 2 turns        │
-   │ driver.complete(request) ─► tool calls                          │
-   │   for each call:  zod-validate input                            │
-   │                   PRE hooks  ── block ─► error result + reason  │
-   │                   run tool (compact summary; raw → runs/<id>/logs)
-   │                   POST hooks ── record ─► note appended         │
-   │   finish ─► GATES (fresh) ── any fail/unproven ─► FINISH REFUSED│
-   └──────────────────────── all gates green ───────────────────────┘
-                 │
-                 ▼
+task file ─► lenient front end (src/core/task-normalize.ts); a model/provider key is an error
+          ─► preflight: target profile (src/core/target.ts); brownfield: standards + test baselines
+          ─► git worktree on harness/<task>-<driver>-<stamp>   (your checkout untouched)
+   ┌─────────────────── agent loop (src/core/loop.ts) ───────────────────┐
+   │ request = system + tools + brief + digest + working set + 2 turns    │
+   │ driver.complete ─► per tool call: zod-validate, compute write preview│
+   │   PRE hooks ── block ─► error result with the reason                 │
+   │   run tool (compact summary; raw output → runs/<id>/logs)            │
+   │   POST hooks ── record ─► note on the result                         │
+   │ finish ─► gates (fresh) ── any fail/unproven ─► FINISH REFUSED       │
+   └──────────────── accepted finish: every gate green ───────────────────┘
    final gates (fresh) ─► run.json, gates.json, standards.txt, tokens/<id>.json
-                 │  --ship
-                 ▼
-   ship (src/core/ship.ts): gates again, stage API root only, secret scan, commit,
-                 push feature branch (never protected, never --force), gh pr create
+   --ship ─► gates again, stage the API root only, secret scan, commit, push the feature
+             branch (never protected, never --force), gh pr create   (src/core/ship.ts)
 ```
 
-**Deterministic (code):** scaffolding, worktrees, git, the test runner (Vitest via the
-harness's own `runVitest`, the only source of "observed red"), the import-graph test map,
-tsc, the four standards checks (TypeScript AST + type checker + runtime probes), contract
-extraction, every gate, token accounting and shipping. **The model decides:** task
-breakdown (`plan`), which context to fetch, test design, and code.
+**Code decides** scaffolding, git, the test runner (the target's vitest, jest 29+ or node:test, run
+by `src/core/testing.ts`, the only source of "observed red"), the import-graph test map, the type
+check, the standards checks, contract extraction, every gate, token accounting and shipping. **The
+model decides** the plan, which context to fetch, test design and code. It has no shell.
 
-**Hooks** (`plugins/hooks/`, all fail closed: a crashing hook blocks):
-- `observed-red`: a `src/` file is writable only after a test whose import closure reaches it
-  was run by the harness and a case failed for a valid reason: an `expect()` subject uses a value
-  imported from `src/` (or derived from one) and is not a constant. A variable declared in a
-  `describe` and assigned in `beforeEach` (`let app; beforeEach(() => { app = createApp(); })`)
-  counts as derived, and a supertest `.expect(201)` chain asserts on its receiver (F9). A
-  side-effect import, `void x`, `typeof x` or `expect(true).toBe(false)` does not count.
-- `test-preservation`: tests that existed at run start are append-only. Existing cases keep
-  their title, stay enabled and keep every original statement verbatim and in order (new
-  statements only after the last one, no hoisted `function`/`var`); their setup hooks, imports,
-  top-level statements and test helpers stay as they were; new code in such a file may not add
-  side-effect or helper imports, shadow names, or call `expect.extend`, `vi.mock` and similar,
-  `Object.defineProperty` or `Reflect`. A brownfield task with `allowBreaking: true` may change
-  bodies, hooks, mocks and helpers, but still may not remove, rename or skip a case. The
-  `append_file` tool (same hooks) is the safe way to add a `describe` block, and the block
-  message names it (F11).
-- `path-guard` (API root, task scope, harness-owned files, `.ts` only, case-insensitive),
-  `source-boundary` (no importing test code, leaving `src/`, `createRequire`-style loaders or
-  `vitest` from source), `unsafe-code-guard` (`any`, `x!`, `@ts-ignore`), `secret-guard`, `elision-guard`
-  (refuses the history placeholder `<omitted N chars>` as file content).
+**Plugins** (`node bin/harness.mjs plugins`): 3 drivers (`claude`, `openai`, offline `scripted`),
+15 tools, 9 hooks, 8 gates, 4 checks. Write tools (`write_file`, `edit_file`, `append_file`,
+`delete_file`, the last only for files the run created) declare `preview()`, the exact post-write
+content; content hooks judge that post-image and refuse a write tool without one.
+- *Pre-tool hooks* (a crashing hook blocks): `path-guard` (API root, scope, `.ts` only),
+  `observed-red` (a source file is writable only after a covering test, at its current content,
+  ran in the harness with a case failing on an assertion, in any assertion API, on source values),
+  `test-preservation` (existing cases append-only), `source-boundary` (source may not import tests,
+  leave the source roots, or use absolute, computed or loader imports), `unsafe-code-guard` (`any`,
+  `x!`, `@ts-ignore`), `secret-guard`, `elision-guard` (no `<omitted N chars>`-style placeholders; no
+  write that breaks the parse of an existing source file or drops over half its exports and routes),
+  `dependency-policy` (an added import must be a builtin or a declared, installed package). *Post-tool:*
+  `typecheck-feedback` records up to 3 type errors of the written files and never blocks.
+- *Gates* (fresh at finish and at ship; finish needs no `fail`/`unproven` and one `pass`):
+  `tests-green`, `observed-red` (red → green on the same case, plus a **revert check**: with the
+  run-start sources put back the case fails again), `standards`, `scope`, `orphans` (every created
+  file is reachable from a test or from pre-existing code), `spec-coverage` (structured greenfield:
+  the endpoints resources × operations imply exist and field-spec probes pass against the sandboxed
+  app), `contract-lock` (brownfield), `secrets` (ship only).
 
-A test file is one thing everywhere (`src/core/testmap.ts`): `*.test.ts` / `*.spec.ts` is a
-runnable test; any other file in a dedicated test dir (`test/` for the template) is test support,
-never runnable, never governed.
+**Brownfield.** The target profile (`src/core/target.ts`, kept in `run.json`) reads source and test
+roots, import resolution, the runner and the installed express/zod/vitest/typescript from the
+target's own config; what it cannot support (a framework other than Express, jest < 29, an unknown
+runner) is UNPROVEN at preflight, and a task without `scope` writes within the profile's roots.
+`standards` compares every rule with the base commit and blocks only what the run introduced;
+`tests-green` compares with the suite's results at run start (`src/core/test-baseline.ts`): an
+already-skipped case is listed for a human, a newly skipped one is UNPROVEN, a failing test always
+blocks. **Contract Lock** (`plugins/lib/contract.ts`) diffs routes and the JSON Schemas of each
+request part and 2xx response, generated from the real Zod schemas at the base commit and in the
+worktree; a breaking change fails unless the task sets `allowBreaking: true`.
 
-**Target profile** (`src/core/target.ts`, computed at preflight, printed and kept in `run.json`):
-the harness reads the target's own layout and toolchain instead of assuming the template: source
-roots from tsconfig (`rootDir`/`include`/references), test globs and dedicated test dirs from the
-runner's config (vitest `include`, jest `testMatch`/`roots`, `node --test` arguments), import
-resolution (tsconfig `paths`/`baseUrl`, package `imports`, vite/jest aliases, `require()`), the
-runner (vitest, jest 29+ or node:test; the target's own binary first), where express, zod, vitest
-and typescript resolve from (every `node_modules` from the API up to the repository top is linked
-into the worktree; the harness's is the fallback) and the zod major (Zod 3 schemas need
-`zod-to-json-schema`). What it cannot support (another framework or runner) is UNPROVEN.
-The rest of the harness reads the same layout: the check context's source and test lists (and
-`ctx.layout`), the contract extractor's source set, app-entry discovery (the source roots are
-searched after `src/` and tsconfig `rootDir`), the source-boundary hook, and a brownfield task
-that declares no `scope` (the task front end decides, whatever the file's format), whose write
-scope becomes the profile's roots (`run.json` `target.defaultScope`). The type check stays
-layout-independent on purpose: every TypeScript file of the API. Runner binaries and loaders are
-executed from their real path, which the sandbox's read fence allows from the worktree, a revert
-copy or a snapshot alike (it allows each linked `node_modules` by its real path).
+**Loop rules** (`src/core/loop.ts`). *Turn limit:* `--max-turns` or the task's `limits.maxTurns` is a
+hard cap; otherwise 40 + 20 per resource (at least one) + 2 per behaviour, at most 150, extended by
+10 turns (at most +50% in all) when the latest refused finish, within the last 10 turns, had fewer
+failing units than the one before. *Context overflow:* when the driver reports `context_overflow`
+(`Driver.errorKind`), the request is shrunk once (1 recent turn, no working-set file text) and
+resent, never resent unchanged; if that fails the run ends with `error`, and a `--baseline` request
+is never shrunk.
+*Rate limits:* a wait the driver reads from the error (`Driver.retryAfterMs`, else a standard
+`Retry-After`) of at most 120 s is waited out; a longer one stops the run. Three turns without a
+tool call end the run as `stalled`; SIGINT/SIGTERM stop it as `aborted` (exit 130/143) with the
+evidence written and the final gates reported as not run.
 
-**Gates** (`plugins/gates/`, run fresh at finish and again at ship): `tests-green` (no skipped,
-todo or failing case; brownfield: the target's suite is run once before the agent's first turn,
-and a case that was already skipped or todo then is listed for a human as pre-existing, not
-blocking, while a skip the run introduced stays UNPROVEN; a failing test always blocks, and the
-summary says which were already failing at run start);
-`observed-red` (every changed source file has a covering case that was seen red and now passes,
-and a **revert check**: in a copy of the API with every changed source file put back to its
-run-start content, kept in `runs/<id>/initial/`, that case must fail again, so a flip caused
-by a new mock, a changed constant, the clock or randomness does not count. The case is hashed
-over its whole call: title, callback, options, timeout, `.each` table. A case edited after its
-red counts only through this differential proof, on its current body: an edit that makes it
-pass regardless of the source fails the revert check (F10)); `standards` (greenfield: the
-four standards rules 100% over the whole API; any other check, e.g. a dropped-in ORM or lint
-rule, blocks only in files the run changed; brownfield: every rule is compared with a baseline
-measured on the base commit and only what the run introduced blocks); `scope`; `contract-lock` (brownfield); `secrets`
-(ship only); `spec-coverage` (greenfield with structured resources: every endpoint resources ×
-operations imply exists, and probes generated from the field specs pass against the sandboxed app,
-judged by the harness; a free-text-only task is n/a and listed under "human must verify").
-
-**Isolation** (`src/core/sandbox.ts`). Agent-written code runs in three places: the Vitest
-runner, the contract extractor (imports its Zod schemas) and the runtime probe (imports
-`createApp`). Each runs under the OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux): API
-root read-only, writes only to a per-call OS temp dir, network loopback only (none for contract
-extraction), credential stores unreadable, credential env vars stripped. So executed agent code
-cannot write to your checkout (a `git commit` there fails), reach the internet, or edit
-source/tests behind the hooked write tools. The git worktree protects your checkout from the
-agent's tool writes; the sandbox protects it from the code the agent wrote. Agent code also does
-not control a result: Vitest (`--pool=forks`) writes its JSON report to `/dev/fd/3`, a pipe test
-workers do not inherit; the probe child only serves `createApp` while the harness sends and
-judges every request; the extractor imports a changed module only if it is declarative Zod
-(`plugins/lib/schema-purity.ts`), converts with an empty metadata registry so `.meta()` cannot
-widen a schema, and otherwise falls back to the source hash (changed = UNPROVEN). With no working
-mechanism a run refuses to start; `HARNESS_SANDBOX=off` (or `"sandbox": "off"`) runs unconfined
-and is recorded as UNPROVEN. `harness doctor` self-tests it (an outside write and an outbound
-connect must both be refused); `run.json` records `isolation`. The TypeScript programs the
-harness builds in-process over the agent's tsconfig and imports (the strict type check behind
-`tsc-strict` and `ctx.program()`, Contract Lock's program) get the same read allow-list from a
-fenced compiler host (`src/core/ts-fence.ts`): the API's tree, its `node_modules` (link and real
-spellings) and the TypeScript libs. A file outside it does not exist for them, whether an import,
-`paths`, `extends`, `files`, `include`, `typeRoots`, a reference or a symlink names it, so its
-content can never reach a diagnostic; an outside `extends`, reference or `files` entry makes the
-configuration unusable (UNPROVEN).
-
-**Run_tests summaries** name, for a suite that failed to load, the first in-project frame of
-that file's block in the runner's console and its line of code (`ERROR test/users.test.ts: suite
-error: app.use() requires a middleware function (at src/routes/index.ts:10:7  app.use(usersRouter);)`).
-**Stopping:** Ctrl-C or SIGTERM (a CI timeout, `kill`) stops the loop after the current step and
-still writes every piece of evidence (`run.json` status `aborted`; exit 130 / 143); a second
-signal exits at once. A signal that lands after the loop ended (e.g. while the gates of an
-accepted `finish` run) still stops the run: the fresh final gates, the checks and `--ship` are
-skipped, `run.json` is `aborted` (the loop's own outcome kept as `loopStatus`) and the exit code
-is 130 / 143.
+**Isolation.** Agent-written code runs in the test runner, the contract extractor and the runtime
+probes, each under the OS sandbox (`src/core/sandbox.ts`; `sandbox-exec` on macOS, `bwrap` on Linux):
+writes only to a per-call temp dir; reads fenced to the enclosing worktree, the `node_modules`
+chain, the node install and four harness files (`package.json`, `probe-runtime.ts`,
+`contract-runtime.ts`, `node-test-reporter.mjs`), with the operator's home, the harness root and
+credential stores refused; an env allow-list (`LANG`, `LC_*`, `TZ`, `CI` inherited; `PATH`, `HOME`,
+`XDG_*`, `TMPDIR` set by the harness; provider keys and everything else dropped); loopback-only
+network (none for contract extraction). In-process TypeScript programs over the agent's tsconfig
+and imports (the strict type check behind `tsc-strict`, Contract Lock's program) read through a
+fenced compiler host with the same allow-list (`src/core/ts-fence.ts`); `typecheck-feedback` does not
+(§5). The runner's JSON report travels over a pipe on its fd 3 that test workers do not inherit; the
+probe child only serves the app while the harness sends and judges every request. Without a working
+sandbox a run refuses to start; `HARNESS_SANDBOX=off` runs unconfined and records `isolation` as
+UNPROVEN. `harness doctor` self-tests the write, read, network and env boundaries.
 
 ## 2. Driver abstraction
 
-The core speaks one neutral model (`src/core/types.ts`): `Message{role, parts}`, where a
-part is `text`, `tool_call`, `tool_result` or `opaque`. `ToolSpec` is `{name,
-description, inputSchema}`, a plain JSON Schema generated from each tool's Zod input. Every
-provider implements:
+The core speaks one neutral model (`src/core/types.ts`): `Message{role, parts}` with `text`,
+`tool_call`, `tool_result` and `opaque` parts, and tools as plain JSON Schema from their Zod input.
 
 ```ts
 interface Driver {
   name: string; model: string; tokenCounter: string;
-  complete(req: ModelRequest): Promise<ModelResponse>;   // parts, stop, usage
-  countTokens(req: ModelRequest): Promise<number>;        // same counter for actual and baseline
+  complete(req: ModelRequest, signal?: AbortSignal): Promise<ModelResponse>;
+  countTokens(req: ModelRequest): Promise<number>;        // one counter for actual and baseline
+  retryAfterMs?(error: unknown): number | null;            // the provider's rate-limit formats
+  errorKind?(error: unknown): 'context_overflow' | null;   // the provider's overflow wording
 }
 ```
 
-`plugins/drivers/claude.ts` maps this to the Messages API (adaptive thinking, automatic
-prompt caching, server-side fallback, `drop_block` for thinking blocks the compactor
-retires). `openai.ts` maps it to Chat Completions function tools. Both leave 429/5xx retries
-to the SDK, and on a 400 that rejects an optional parameter they switch the session to a
-compatible request (the model id then reads `<id> (compat)`). One real case: `gpt-6-luna`
-rejects function tools on Chat Completions while reasoning is on, so the openai driver retries
-once with `reasoning_effort: 'none'` (F7).
-Fields a provider adds to a tool call beyond id/type/function (an OpenAI-compatible gateway's
-`extra_content` carrying a thought signature, which it requires back on later turns) are kept
-by the openai driver as its own `opaque` part next to the call and merged back on replay; they
-are digested together with their call, so none outlives it. When a rate-limit error names its
-wait ("retry in 37.6s", `"retryDelay": "37s"`, `Retry-After`, or an echoed `X-RateLimit-Reset`
-epoch timestamp, read as the time left until it), the loop waits it out if it is
-at most 120 s (up to 30 times per request, outside the normal retry budget; an abort cuts the
-wait short) and stops the run at once on a longer one (a daily quota).
+`plugins/drivers/claude.ts` maps it to the Anthropic Messages API, `openai.ts` to Chat Completions
+function tools (local o200k counting). On a 400 that rejects an optional parameter a driver switches
+the session to a compatible request and reports `<id> (compat)`. Vendor shapes never cross the
+interface: reasoning blocks and per-call extras (a thought signature) travel as `opaque` parts only
+their own driver replays. Task files cannot name a model or provider, and `harness doctor` scans
+`src/core/`, `tasks/` and every non-driver plugin file for provider vocabulary. `run.json`
+fingerprints the task and every non-driver plugin file (`plugins/lib/**` included), so
+`harness agnostic <runA> <runB>` shows whether two drivers' runs used identical tools, hooks, gates
+and checks.
 
-**Refused to leak through the interface:** provider names, model ids, vendor tool-schema
-formats, vendor message shapes, vendor stop reasons and reasoning blocks. Reasoning blocks
-travel as `opaque` parts that only their own driver replays. Task files are read leniently
-(docs/task-format.md), but a `model:` or `provider:` key is always a load error. `harness doctor`
-scans `src/core/`, `tasks/` and every file under every plugin directory except driver plugins
-and `drivers/` for provider vocabulary.
-`run.json` fingerprints the task file, every tool/hook/gate/check file and every shared helper
-under the plugin directories (`plugins/lib/**`; driver code excluded), and lists the tools offered
-and checks registered, so `harness agnostic <runA> <runB>` proves "zero diff" between the two
-drivers' runs, shared check and gate logic included.
+**Proven for real:** the openai driver on the official OpenAI API (DONE on both tasks on 3 Oct code;
+on the current code only greenfield: three brownfield runs failed one agent-written test each on
+the sample's shared module-level state, and a fourth was stopped by the operator after an accepted
+finish), Google AI Studio's OpenAI-compatible endpoint and OpenRouter. **Not proven:** the claude driver ran only through
+OpenRouter's Anthropic-compatible endpoint (a smoke call and two partial runs, both killed) and
+**never against `api.anthropic.com`**. There is no Claude DONE run and no real
+`harness agnostic <claudeRun> <openaiRun>`; that command is proven on scripted runs only
+(`test/e2e/cheat-agnostic.test.ts`).
 
 ## 3. Token budget: baseline vs actual, per turn
 
-Every run writes `tokens/<runId>.json` with, per turn, `actual_input_tokens` (the request
-sent) and `baseline_input_tokens`, a **shadow baseline**: the same turn's request rebuilt with
-JIT fetchers and compaction disabled (the whole API root and every standards doc front-loaded
-into the system prompt, raw tool returns, no elision or history compaction), counted with the
-driver's own counter (`messages.countTokens` for Claude, o200k for OpenAI). When an endpoint has
-no count API, both requests fall back to chars/4, `events.jsonl` says so every turn, and the
-report's `counter` names the fallback (`chars/4 estimate for N count(s): … was unavailable`), so
-it never names a counter that did not produce the numbers. A shadow baseline
-follows the JIT run's trajectory, so it is cheap but hypothetical. To measure instead,
-`--baseline` runs that configuration for real and `harness tokens compare <jit> <baseline>`
-compares the two runs. On the scripted greenfield script both give the same number: shadow
-19,305 vs 178,301 (89.2%), real `--baseline` run 178,301, turn for turn (`tokens/compare-…json`,
-89.2%). Those evidence runs predate the working set and the scaffold API; on the current code the
-same script measures 27,035 vs 185,015 (85.4%) both ways. With a real model the two runs can
-diverge, so real-driver numbers come only from real runs' `tokens/` files.
+Each turn the loop counts two requests with the driver's counter (both fall back to chars/4, and the
+report's `counter` says so, if a count fails). **Actual (JIT):** a short system prompt with a
+one-line-per-rule index, the brief with a file tree, context fetched on demand, compact tool returns,
+tool inputs over 300 characters replayed as `<omitted N chars>`, turns older than the last 2 folded
+into a digest, and a working set of folded reads (12,000 characters). **Baseline:** the same turn with
+every text file of the API re-read from the current tree (200 KB cap), every standards doc, raw
+returns, full history and no context fetchers.
 
-**The >90% target is not met on real runs.** Measured, per-turn shadow baseline, local o200k:
+A **shadow** baseline (`baseline_kind: shadow` in every `tokens/<runId>.json`) is rebuilt from the
+JIT run's own trajectory and never sent, so it assumes the same turns with a bigger context. A
+**measured** baseline is a real `--baseline` run (fetchers withheld, repository re-front-loaded every
+turn, no compaction), compared by `harness tokens compare <jitRun> <baselineRun>`.
 
-| runs | turns | reduction | file |
+**The >90% target is not met.** The only measured baseline is
+`tokens/compare-users-api-openai-20261004-045424-vs-users-api-openai-20261004-045825.json`
+(greenfield `users-api`, `gpt-5.4-mini`, official OpenAI API):
+
+| | normal run (JIT + compaction) | `--baseline` run | reduction |
 |---|---|---|---|
-| the two real DONE runs (official OpenAI) | 19, 12 | 77.3%, 81.2% | `tokens/users-api-openai-…185149.json`, `tokens/projects-change-openai-…190927.json` |
-| real runs that did not finish, 40–60 turns (8 runs) | 40–60 | 84.8–88.1% | `runs/real-model/<id>/tokens.json` |
-| scripted demo runs | 9 | 89.2%, 85.4% | `tokens/*-scripted-*.json` |
-| 40-turn simulation, shipped policy | 40 | 86.3% | `test/token-efficiency/long-run.test.ts` |
-| 40-turn simulation, compaction only | 40 | **90.7%** | same test |
+| input tokens per turn | 6,450 | 17,362 | **62.8%** |
+| input tokens per run | 387,022 (60 turns, NOT DONE) | 277,791 (16 turns, DONE) | **−39.3%** |
 
-There are two reasons:
-- **A fixed per-turn floor.** System prompt, tool schemas and task brief are sent every turn. On
-  turn 1 of the greenfield DONE run they already come to 2,465 tokens, against an 11,075-token
-  baseline. The ratio rises with run length, because the baseline grows by every raw return
-  while the actual stays nearly flat (4,747 per turn on average in that run). A model that
-  finishes in 12–19 turns never reaches the steep part of the curve.
-- **Deliberate anti-thrashing context.** The working set, the scaffold API and two kept turns
-  cost tokens on every request. Real models proved them necessary (F1, F6, F12 in §6).
+Per request JIT context cut input by 62.8%; per run it cost 39.3% more, because the JIT run looped
+for 60 turns and the baseline run finished in 16. It is one pair on one model.
 
-| mechanism (40-turn simulation printed by `test/token-efficiency/long-run.test.ts --reporter=verbose`, o200k) | actual input tokens | reduction |
-|---|---|---|
-| baseline: front-load + raw returns + full history (brief with the scaffold API) | 1,337,976 | — |
-| + JIT context (rules index and file tree only; `read_file` ranges, `outline`, `search_code`, `test_map`, `fetch_standard`) | 993,536 | 25.7% |
-| + compact tool returns (pass/fail lines and diff stats; raw output to `runs/<id>/logs`) | 529,076 | 60.5% |
-| + input elision (tool-call input strings over 300 characters, e.g. file contents, replayed as `<omitted N chars>`) | 404,303 | 69.8% |
-| + digest of turns older than 2 (one line per call, append-only so the prefix stays cacheable) = **shipped** | **183,854** | **86.3%** |
-| of which working set: +35,861 tokens over 36 requests (largest 6,948 characters, budget 12,000) | | |
-| of which scaffold API in the greenfield brief: +25,720 (643 per request, added to the baseline too) | | |
-| shipped without both (compaction only; baseline 1,312,256) | 122,273 | 90.7% |
-
-The working set sits after the digest, so the digest prefix stays append-only. Per file read in
-a folded turn and not written since, it holds that file's latest read, most recent first, in a
-12,000-character budget. Reads that folded at most 3 turns ago stay **in full**, within 6,000
-characters (F12). Older reads keep only their signature lines with line numbers (40 per file). A
-write drops the file's entry, matched by the canonical path the write tool reported (so
-`src//a.ts`, an absolute path or another letter case count as `src/a.ts`). Only a successful
-re-read in the kept turns replaces it. A read whose fresh result is byte-identical to that of the
-same call (canonical input) still shown in the kept turns is answered with a pointer (`unchanged
-since t<N>: …`). The read always runs, so a change made earlier in the same turn or by code during
-a test run is never hidden, and the baseline keeps the full content.
-
-The simulation's scripted model never re-reads, so it pays these costs without being credited
-for the re-reads they prevent. The test asserts that compaction alone stays above 90% and the
-shipped total above 85%. History keeps the last `keepRecentTurns` turns verbatim (default 2 in
-`harness.config.json`). The same test prints the trade-off: 1 → 87.0%, 2 → 86.3%, 3 → 85.5%.
-Keeping 1 turn would save 0.7 points but leave a model only the working set of what it read two
-turns ago.
+Everything else is an estimate: *shadow* reductions of 69.9–75.6% on the 4 Oct real runs (75.3% for
+the normal run above, an overstatement by its measured pair) and 77.3–88.1% on the 3 Oct
+official-API runs; and a *simulation*, not a model run (`test/token-efficiency/long-run.test.ts`,
+scripted 40 turns, shadow baseline): JIT context 14.8%, + compact returns 54.1%, + input elision
+64.6%, + digest (shipped) 84.0%, and 89.0% without the working set and scaffold API. No
+configuration reaches 90%. The causes:
+a fixed per-turn floor (system prompt, tool schemas, brief), anti-thrashing context that real models
+needed (findings F1, F6, F12 in `runs/real-model/README.md`), and run length, which no per-request
+mechanism controls.
 
 ## 4. Extension points
 
-A plugin is any file under `plugins/` (`.ts`/`.mts`/`.js`/`.mjs`; `lib/`, `_*`, `*.test.*`,
-`*.spec.*` and `*.d.ts` are skipped) whose default export comes from a `define*` helper in
-`src/core/plugin-api.ts`: `defineTool`, `defineCheck` (category `standards`, `orm`, `lint`
-or any label), `defineHook`, `defineGate`, `defineDriver`. Dropping the file in is the
-whole registration: the registry discovers it, validates it with Zod, and fingerprints it.
-Tool names match `/^[A-Za-z][A-Za-z0-9_-]{0,63}$/` (so `openapi-diff` is valid);
-descriptions, a check's `unit` and its `doc` are optional. A new check automatically gets
-its own report lines, appears in the system prompt's rules index, and joins the `standards`
-gate: strict over the whole API for category `standards`, diff-aware (blocking only in files
-the run changed) for any other category, so a new rule can never deadlock a run on read-only
-scaffold files. A non-standards check that returns no findings has status `n/a`: not counted,
-never proven. A new tool appears in the next run's tool list. Checks also receive the task kind, the run's base commit and the API's
-`package.json` dependencies. Disable a plugin with `"disabled"` in `harness.config.json`.
-**Trust boundary:** plugins are trusted code, executed when imported (like eslint or Vitest
-plugins); Zod validation runs after the import, so it checks shape, not intent. Agent output
-persists only in the worktree dir (sandboxed agent code writes only per-call OS temp dirs, which
-are deleted), and the registry refuses any plugin directory inside it without importing it.
-**Core = `src/core/`. It never changes to extend.** `docs/extending.md` has a minimal,
-type-checked `openapi-diff` tool, ORM validator and lint rule; `examples/plugins/` holds
-fuller versions (`openapi_diff`, `orm-explicit-columns`, `no-console`), and
-`scripts/simulate-extensions.mjs` adds them one at a time to a throwaway copy of the repo
-and asserts that `git diff --stat` touches only `plugins/**`.
+A plugin is a file under `plugins/` (`lib/`, `_*`, tests and `.d.ts` skipped) whose default export
+comes from `defineTool`, `defineHook`, `defineGate`, `defineCheck` or `defineDriver`
+(`src/core/plugin-api.ts`). Dropping it in is the whole registration: the registry discovers,
+Zod-validates and fingerprints it. A new tool is offered on the next run; a new check gets report
+lines, a rules-index line and a place in the `standards` gate (category `standards`: strict over the
+whole API; other categories: only files the run changed, or in brownfield only what it introduced;
+no findings = `n/a`). `"disabled"` in `harness.config.json` turns a plugin off. Plugins are trusted
+code; the registry refuses plugin directories inside the worktree dir. **`src/core/` never changes
+to extend:** `docs/extending.md` has type-checked examples, and `scripts/simulate-extensions.mjs`
+adds the `examples/plugins/` versions to a throwaway copy and asserts that only `plugins/**` changed.
 
 ## 5. Honesty boundary
 
-**Proven by the harness:** the agent's tests pass when run fresh by the harness; every changed
-source file has a covering test case that the harness saw fail (asserting on values from `src/`,
-with a non-constant subject), then pass, and fail again with the run-start source put back (an
-edited case counts only through that differential proof); pre-existing test cases were only appended to; agent code ran under the OS sandbox
-(`isolation:<mechanism>`); `tsc --strict --noUncheckedIndexedAccess` is clean with no
-`any`/`x!`/`@ts-ignore` (and, in `src/`, no value whose type is `any`); every handler parses
-params/query/body/headers and its 2xx body with Zod; every non-2xx path seen statically and by
-runtime probes (404, 400 malformed JSON, 422, unknown id, an injected 500) is
-`application/problem+json` with all five fields; the routes follow the REST rules; no breaking
-contract change; nothing outside scope; no secrets.
+**Proven when the gates pass:** the tests pass when the harness runs them fresh; each changed source
+file has a case seen red that now passes and fails again with the run-start source; pre-existing
+cases were only appended to; strict `tsc` is clean with no `any`/`x!`/`@ts-ignore`; handlers parse
+their inputs and 2xx bodies with Zod; every probed or statically seen error is
+`application/problem+json`; routes follow the REST rules; created files are used; writes stayed in
+scope; no breaking contract change (brownfield); the task's endpoints pass the field-spec probes
+(structured greenfield); no secrets ship; agent code ran sandboxed.
 
-**Reported as UNPROVEN, never green:** a check that crashed or was skipped, a rule with zero
-units (e.g. an empty scaffold), runtime probes when the app cannot start, a changed schema whose
-runtime shape could not be extracted (or whose module is not declarative Zod), a revert check
-that could not run, and `isolation: off` (agent code ran unconfined because the operator set
-`HARNESS_SANDBOX=off`). A PR step without `gh` or a remote ends as `committed`, never `shipped`.
+**UNPROVEN, never green:** a crashed or skipped check, a standards rule with zero units, probes when
+the app cannot start, a changed schema whose shape could not be extracted, a revert check that could
+not run, an unsupported framework or runner, a skip the run introduced, an aborted run's gates,
+`isolation: off`. `n/a` is never counted; a PR step without `gh` or a remote ends as `committed`.
 
-**A human still has to verify:** that the agent's tests cover the intended behaviour (green
-only means its own tests pass), semantics beyond those tests, any change admitted with
-`allowBreaking`, and persistence, performance, security and concurrency.
-Residual risks, documented rather than hidden:
-- **Code under test shares a process with what reports on it.** A test file runs in the Vitest
-  worker that reports its own cases, and `src/` code runs next to the tests: code written to
-  tamper with the runner in memory (rather than the report, which it can no longer reach) could
-  forge its own results. The revert check limits this (a forged pass must also fail with the
-  original source) and `vitest` imports are refused in `src/`, but a separate trusted reporter
-  process would be needed to rule it out.
-- **Measurement can be detected.** The probe proves what the app served to the harness on the
-  wire; an app that detects the probe could serve something else in production.
-- **The revert check reverts all changed files together.** It proves the source changes as a
-  whole cause every flip; an unneeded edit that rides along with a needed one, covered by the
-  same case, is not caught per file (a human reviews the diff).
-- **A weak test can still satisfy observed red.** Any failing non-constant assertion whose
-  subject uses `src/` values, and that flips with the source change, counts, whatever it checks.
-  The harness proves the test is change-sensitive, not that it tests the right behaviour.
-- **Leftover processes on macOS.** A test can start a detached process that outlives the run
-  (no pid namespace; `bwrap` uses `--unshare-pid --die-with-parent`). It stays confined (writes
-  only its deleted temp dir, loopback only) and cannot reach the report pipe, but it is not
-  killed and could interfere with later loopback calls (e.g. race to bind a probe's port).
-- **Refinements are opaque to the contract.** Constraints that only live in refinements
-  (`.refine`, `.transform`) are invisible to JSON Schema: a changed schema source with an identical
-  JSON Schema is UNPROVEN, but what changed is not classified. Error statuses are diffed as a set
-  per endpoint; which condition produces which status is not visible.
-- **`any` without the keyword** is found by the type checker in `src/` only (tests may read
-  untyped library values such as supertest's `res.body`), and the write-time
-  `unsafe-code-guard` stays syntactic; the finish gate (`tsc-strict`) is the authority.
-- The `bwrap` path is unit-tested but was not exercised on Linux here.
-`run.json` lists what a human must verify for every run.
+**What the checks cannot see:**
+- *Routes whose path the harness cannot resolve to a constant:* `rest-conventions` and
+  `zod-boundary` report them UNPROVEN; Contract Lock leaves them out of the contract.
+- *Frameworks other than Express:* every route-based check and Contract Lock understand Express
+  only; preflight reports anything else as UNPROVEN.
+- *Idempotency behaviour:* `rest-conventions` proves only that each POST and PATCH chain reads the
+  `Idempotency-Key` header. Replays are probed only by `spec-coverage`, only for create (POST), only
+  on structured greenfield tasks.
+- *Other error paths:* the runtime probes cover an unknown path, malformed JSON, an invalid body, a
+  missing `Idempotency-Key`, an unknown id and an injected 500; the rest is judged statically.
+- *Schema intent:* `zod-boundary` proves parsing with constraining schemas, not that the schemas
+  match the task; only `spec-coverage` compares behaviour with the field specs.
+- *Behaviour behind an unchanged schema:* Contract Lock misses filtering, sorting and cursor
+  meaning, which condition yields which status (non-2xx statuses are a set per endpoint), response
+  headers, and constraints that live only in `.refine`/`.transform` (UNPROVEN, not classified).
+- *Free-text behaviours* are checked only by the agent's own tests (`spec-coverage` is `n/a`).
 
-## 6. Evidence: real-model runs
+**A human still verifies** that the agent's tests test the intended behaviour (any failing
+non-constant assertion on source values counts as red), changes admitted with `allowBreaking`,
+pre-existing violations and skips the baselines list, and persistence, performance, security and
+concurrency.
 
-**Two real runs reached DONE**, both on the official OpenAI API with the openai driver (Chat
-Completions). Their evidence is at the top level of `runs/` and `tokens/`:
-
-| run | task | model | turns | gates | tokens (reduction) | approx. cost |
-|---|---|---|---|---|---|---|
-| `users-api-openai-20261003-185149` | greenfield | `gpt-5.4-mini` | 19 | all green: observed red (1 source file red → green, red again on revert), 28/28 tests, standards 100% | 90,195 / 397,317 (77.3%) | ~USD 0.08 |
-| `projects-change-openai-20261003-190927` | brownfield | `gpt-5.4` | 12 | all green: contract-lock (2 additive), observed red (3 files + revert check), 21/21 tests, standards 100% | 50,550 / 268,600 (81.2%) | ~USD 0.15 |
-
-The brownfield run used the final code. The greenfield run predates F11 and F12, which changed
-only `append_file`, the hooks and `plugins/lib/diff.ts` that govern it, and the working set. Each run directory also holds:
-- `cli-output.txt`;
-- `ship-dry-run.txt`: `harness ship <id> --dry-run` re-ran every gate fresh on the final code,
-  `secrets` included, and all were green. Nothing was staged, committed or pushed, and the target
-  repositories have no remote;
-- the output of `harness check --api` on the API root (`check-generated-api.txt` /
-  `check-existing-api.txt`): verdict 100%.
-
-The costs are the operator's approximate figures. The harness records tokens, not prices.
-
-`runs/real-model/` (its README has the per-run table and the file behind each claim) holds
-the **fifteen real runs that did not reach DONE**: seven on the official OpenAI API (six
-`gpt-5.4-mini`, one `gpt-6-luna`) and eight on free tiers (OpenRouter, Google AI Studio).
-Each exposed a defect, and every defect is now fixed and tested offline (F13 was also caught by
-the gates when it happened).
-
-| finding (run) | fix | test |
-|---|---|---|
-| F1: once a read folded into the digest, models re-read it in a loop (121 `read_file` calls on an already-read path) | working set (§3) and repeated-read pointer | `test/core-loop/working-set.test.ts`, `repeat-read.test.ts` |
-| F2: Gemini 3 answers 400 unless each tool call's `extra_content` (thought signature) comes back | the openai driver keeps per-call extras as an opaque part and replays them (§2) | `test/drivers/openai-extras.test.ts`, `test/live-shape/tool-call-extras.test.ts` |
-| F3: a per-minute 429 ("retry in 37.7s") ended a run once the normal retries ran out | wait out a stated wait of 120 s or less, stop on a longer one (§2) | `test/core-loop/rate-limit.test.ts` |
-| F4: "app.use() requires a middleware function" without a location; the model looped to `max_turns` | in-project frame and code line in the summary (§1) | `test/core-quality/error-location.test.ts` |
-| F5: SIGTERM-killed runs left `status: running` and no evidence | SIGTERM = graceful stop, exit 143 (§1) | `test/e2e/sigterm.test.ts` |
-| F6: models read every scaffold file up front | scaffold API in the greenfield brief (§3) | `test/core-loop/scaffold-api.test.ts` |
-| F7: `gpt-6-luna` rejects function tools with reasoning on Chat Completions (400) | retry once with `reasoning_effort: 'none'` (compat, §2) | `test/drivers/openai-reasoning.test.ts` |
-| F8: a module-level store leaked state across `createApp()` calls (pagination off by one) | the brief says every `createApp()` starts with empty state | `test/core-loop/scaffold-api.test.ts` |
-| F9: a real red was rejected for the supertest idiom (`let app` in `describe` + `beforeEach`, `.expect(201)` chains) | the test map follows describe-scoped variables and supertest chains (§1) | `test/core-quality/testmap.test.ts` |
-| F10: finish refused 7 times because the red case was edited before it went green | an edited case counts through the revert check (differential proof, §1) | `test/red-green/red-green.test.ts` |
-| F11: 7 whole-file rewrites of a pre-existing test file, all blocked by test-preservation; the run changed nothing | `append_file` tool, named in the block message (§1) | `test/plugins/append-file.test.ts` |
-| F12: a read loop over 3 related files whose folded reads survived only as skeletons | the working set keeps the latest folded reads in full for 3 turns within 6,000 characters (§3) | `test/core-loop/working-set.test.ts` |
-| F13: the model overwrote 3 source files with the history placeholder `<omitted N chars>` (4 → 0 endpoints) | **contract-lock failed it** (and tsc-strict and tests); the `elision-guard` hook now refuses such a write at write time | `test/plugins/elision-guard.test.ts`, `test/contract-ship/diff.test.ts` |
-
-**Model agnosticism: what is proven for real.**
-- *openai driver:* official OpenAI (DONE on both tasks; `gpt-6-luna` in compat mode), Google AI
-  Studio's OpenAI-compatible endpoint (Gemini 3 Flash, 3.5 Flash-Lite, Gemma 4; F2 thought
-  signatures replayed on every turn), and OpenRouter.
-- *claude driver:* only OpenRouter's Anthropic-compatible endpoint, with a smoke call
-  (`claude-haiku-4.5`) and two partial free-model runs (15 and 7 turns, killed). In the smoke call
-  the proxy rejected optional parameters with a 400 and the driver switched to compat mode; its
-  missing `count_tokens` made every count in the runs a chars/4 estimate.
-- *Not proven:* the claude driver against `api.anthropic.com` needs an Anthropic key. That
-  covers prompt caching, adaptive thinking, server-side `countTokens`, a DONE run, and a real
-  `harness agnostic <claudeRun> <openaiRun>` on the same task. The offline tests cover the claude
-  driver's wire shape (`test/drivers/claude.test.ts`, `test/drivers/sdk-wire.test.ts`), and
-  `harness agnostic` is proven on scripted runs.
-
-The repeated-read pointer, the SIGTERM stop and the rate-limit waits never triggered in a real run,
-so they are proven only offline.
+**Residual risks:**
+- `typecheck-feedback` reads through `ts.sys`, not the fence, and `source-boundary` governs source
+  files only: a test file that imports a `.ts` file outside the API by absolute path makes the
+  harness read it, and a type error can quote that file's types (string literals included) to the
+  model.
+- Test code shares a process with the runner that reports on it and could tamper with it in memory;
+  the revert check limits this, a separate reporter process would rule it out.
+- An app that detects the probes could serve something else in production.
+- The revert check reverts all changed files together, so an unneeded edit riding along with a
+  needed one is not caught per file.
+- On macOS a detached process started by a test outlives the run (still confined, not killed).
+- The Linux `bwrap` path is tested on its argument list only, the jest adapter on recorded reports
+  only.
