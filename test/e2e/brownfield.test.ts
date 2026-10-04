@@ -47,7 +47,8 @@ describe('(b) additive change: projects-change.json', () => {
     const lock = s.gates.find((g) => g.gate === 'contract-lock');
     expect(lock?.status, lock?.summary).toBe('pass');
     expect(lock?.summary).toMatch(/additive/);
-    for (const g of s.gates) expect(g.status, `${g.gate}: ${g.summary}`).toBe('pass');
+    // spec-coverage is greenfield-only (contract-lock covers a brownfield contract)
+    for (const g of s.gates) expect(g.status, `${g.gate}: ${g.summary}`).toBe(g.gate === 'spec-coverage' ? 'n/a' : 'pass');
     expect(s.standards).toEqual({ status: 'pass', percent: 100 });
   });
 
