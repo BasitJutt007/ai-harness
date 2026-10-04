@@ -503,7 +503,11 @@ describe('error responses are judged by status value and body type', () => {
     ["res.setHeader('Content-Type', 'application/problem+json');\n  res.status(404).json({ type: 'about:blank', title: 'Not Found', status: 404, detail: 'x', instance: '/x' });", ''],
     ["res.status(404).json({ type: 'about:blank', title: 'Not Found', status: 404, detail: 'x', instance: '/x' });", "missing .type('application/problem+json')"],
     ["res.status(404).type('application/problem+json').json({ type: 'about:blank', title: 'Not Found', status: 404 });", 'missing detail, instance'],
-    ["res.status(code).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: code, detail: 'x', instance: '/x' }));", ''],
+    // A typed problem body still needs the problem media type, however it is built.
+    ["res.status(code).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: code, detail: 'x', instance: '/x' }));", "missing .type('application/problem+json')"],
+    ["res.status(409).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: 409, detail: 'x', instance: '/x' }));", "status 409 is sent with a non-problem body (missing .type('application/problem+json'))"],
+    ["res.status(code).type('application/problem+json').json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: code, detail: 'x', instance: '/x' }));", ''],
+    ["useProblemType(res);\n  res.status(409).json(ProblemSchema.parse({ type: 'about:blank', title: 'x', status: 409, detail: 'x', instance: '/x' }));", ''],
     ["res.status(code).json(Loose.parse({ reason: 'x' }));", 'status code is not a constant'],
     ['res.status(rec.status).json(rec.body);', null],
     ['res.sendStatus(code);', 'status code is not a constant'],
@@ -523,6 +527,7 @@ enum Codes { Conflict = 409 }
 declare const code: number;
 declare const flag: boolean;
 declare const rec: { status: number; body: unknown };
+function useProblemType(r: Response): void { r.set('Content-Type', 'application/problem+json'); }
 ${fns.join('\n')}
 `,
     });
@@ -541,7 +546,7 @@ ${fns.join('\n')}
 
   /** Whether line `line` of src/sends.ts belongs to send<i> (each function is 3 lines, the first one is 2 lines longer). */
   function lineInSends(i: number, line: number): boolean {
-    const header = 9; // lines before the first function
+    const header = 10; // lines before the first function
     let start = header + 1;
     for (let k = 0; k < i; k++) start += 3 + ((SENDS[k]?.[0] ?? '').split('\n').length - 1);
     const len = 3 + ((SENDS[i]?.[0] ?? '').split('\n').length - 1);
@@ -636,6 +641,96 @@ r.post('/v1/things', (req, res) => { res.status(201).json(Item.parse({ id: req.b
       // { id: req.body.id } builds a value from raw input: not a parse of the body
       'post /v1/things': ['', 'body'],
     });
+  });
+});
+
+describe('a parsed response body must not change between the parse and the send', () => {
+  // [handler body after `const u = Item.parse(src);`, expected: ok | mutated | unproven]
+  const BODIES: Array<[string, 'ok' | 'mutated' | 'unproven']> = [
+    ['res.json(u);', 'ok'],
+    ['process.stdout.write(JSON.stringify(u));\n  res.json(u);', 'ok'],
+    ['u.tags.map((t) => t.toUpperCase());\n  res.json(u);', 'ok'],
+    ['stored.push(u);\n  res.json(u);', 'ok'], // kept in a collection, unchanged before the send
+    ['const copy = { ...u, name: "x" };\n  res.json(Item.parse(copy));', 'ok'],
+    ['u.name = "x";\n  res.json(Item.parse(u));', 'ok'], // re-parsed at the send
+    ['res.json(u);\n  u.name = "late";', 'ok'],
+    ['u.name = "x";\n  res.json(u);', 'mutated'],
+    ['u["name"] += "!";\n  res.json(u);', 'mutated'],
+    ['delete u.note;\n  res.json(u);', 'mutated'],
+    ['Object.assign(u, { extra: 1 });\n  res.json(u);', 'mutated'],
+    ['u.tags.push("x");\n  res.json(u);', 'mutated'],
+    ['const tags = u.tags;\n  tags.splice(0, 1);\n  res.json(u);', 'mutated'],
+    ['const { tags } = u;\n  tags.sort();\n  res.json(u);', 'mutated'],
+    ['for (const t of u.items) t.qty++;\n  res.json(u);', 'mutated'],
+    ['u.items.forEach((it) => { it.qty = 0; });\n  res.json(u);', 'mutated'],
+    ['stored.push(u);\n  stored[0]!.name = "x";\n  res.json(u);', 'mutated'],
+    ['const holder = { u };\n  holder.u.name = "x";\n  res.json(u);', 'mutated'],
+    ['rename(u);\n  res.json(u);', 'mutated'], // a program helper writes to its parameter
+    ['describeIt(u);\n  res.json(u);', 'ok'], // a program helper that only reads it
+    ['opaque(u);\n  res.json(u);', 'unproven'], // unknown code may change it
+    ['registry.current = u;\n  res.json(u);', 'ok'], // stored, unchanged before the send
+    ['registry.current = u;\n  opaque(registry);\n  res.json(u);', 'unproven'], // its holder handed to unknown code
+  ];
+  let findings: CheckFinding[];
+  beforeAll(async () => {
+    const lines = BODIES.map(([b], i) => `r.get('/v1/m-${i}', (_req, res) => {\n  const u = Item.parse(src);\n  ${b}\n});`);
+    const ctx = await api({
+      'src/routes.ts': `import { Router } from 'express';
+import { z } from 'zod';
+export const r = Router();
+const Item = z.object({ name: z.string(), note: z.string().optional(), tags: z.array(z.string()), items: z.array(z.object({ qty: z.number() })) });
+type ItemT = z.infer<typeof Item>;
+declare const src: unknown;
+declare function opaque(x: object): void;
+declare const registry: { current: object | undefined };
+const stored: ItemT[] = [];
+function rename(x: ItemT): void { x.name = 'renamed'; }
+function describeIt(x: ItemT): string { return \`\${x.name} (\${x.tags.length})\`; }
+${lines.join('\n')}
+`,
+    });
+    findings = await zodBoundary.run(ctx);
+  });
+  it.each(BODIES.map(([b, want], i) => [i, b, want] as const))('m-%i: %s → %s', (i, _b, want) => {
+    const label = `GET /v1/m-${i}`;
+    const msgs = forRoute(findings, label);
+    const unproven = findings.filter((f) => f.status === 'skip' && (f.skipReason ?? '').includes(`${label}:`));
+    if (want === 'ok') expect([...msgs, ...unproven.map((f) => f.skipReason)]).toEqual([]);
+    if (want === 'mutated') expect(msgs.some((m) => m.includes('is changed after its Zod parse')), JSON.stringify(msgs)).toBe(true);
+    if (want === 'unproven') {
+      expect(msgs).toEqual([]);
+      expect(unproven.length).toBe(1);
+    }
+  });
+});
+
+describe('every function of the route chain that answers is judged', () => {
+  it('middleware (factories followed) and helpers given res send parsed 2xx bodies', async () => {
+    const ctx = await api({
+      'src/routes.ts': `import { Router } from 'express';
+import type { RequestHandler, Response } from 'express';
+import { z } from 'zod';
+export const r = Router();
+const Item = z.object({ id: z.string() });
+declare const cache: Map<string, { id: string }>;
+const early: RequestHandler = (_req, res, next) => { const hit = cache.get('a'); if (hit) { res.json(hit); return; } next(); };
+function guard(): RequestHandler { return (_req, res, next) => { if (cache.size > 9) { res.status(200).send({ id: 'full' }); return; } next(); }; }
+const parsedEarly: RequestHandler = (_req, res, next) => { const hit = cache.get('b'); if (hit) { res.json(Item.parse(hit)); return; } next(); };
+function reply(res: Response, body: { id: string }): void { res.json(body); }
+r.get('/v1/a', early, (_req, res) => { res.json(Item.parse({ id: 'a' })); });
+r.get('/v1/b', guard(), (_req, res) => { res.json(Item.parse({ id: 'b' })); });
+r.get('/v1/c', parsedEarly, (_req, res) => { res.json(Item.parse({ id: 'c' })); });
+r.get('/v1/d', (_req, res) => { reply(res, { id: 'd' }); });
+`,
+    });
+    const findings = await zodBoundary.run(ctx);
+    expect(forRoute(findings, 'GET /v1/a').some((m) => m.includes('not parsed') && m.includes('middleware/helper'))).toBe(true);
+    expect(forRoute(findings, 'GET /v1/b').some((m) => m.includes('not parsed') && m.includes('middleware/helper'))).toBe(true);
+    expect(forRoute(findings, 'GET /v1/c')).toEqual([]);
+    // `res` passed along (an existing rule) and the helper's own unparsed send
+    const d = forRoute(findings, 'GET /v1/d');
+    expect(d.some((m) => m.includes('`res` is passed along'))).toBe(true);
+    expect(d.some((m) => m.includes('not parsed') && m.includes('middleware/helper'))).toBe(true);
   });
 });
 

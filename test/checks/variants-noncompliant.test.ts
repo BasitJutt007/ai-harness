@@ -140,6 +140,30 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
     fails: ['zod-boundary'],
     expect: [{ rule: 'zod-boundary', at: [ROUTES, 'res.json(toDto(user))'], message: 'GET /v1/users/:userId: response body is not parsed with a Zod schema' }],
   },
+  'bad-middleware-unparsed-success': {
+    // a middleware of the route chain answers 200 before the handler with an unparsed body
+    fails: ['zod-boundary'],
+    expect: [{ rule: 'zod-boundary', at: [ROUTES, 'res.json(hit)'], message: 'GET /v1/users/:userId: response body is not parsed with a Zod schema; send ResponseSchema.parse(value) (sent by a middleware/helper in the route chain)' }],
+    exactViolations: { 'zod-boundary': 1 },
+  },
+  'bad-parsed-then-mutated': {
+    // parsed, then changed before the send: through Object.assign, an alias, and a for-of element
+    // (the changed page is no longer a parsed page schema either: rest-conventions)
+    fails: ['zod-boundary', 'rest-conventions'],
+    expect: [
+      { rule: 'rest-conventions', at: [ROUTES, 'res.json(page)'], message: 'GET /v1/users: collection response must be a page schema' },
+      { rule: 'zod-boundary', at: [ROUTES, 'res.json(body)'], message: 'GET /v1/users/:userId: response body body is changed after its Zod parse (at src/routes/users.ts:26:' },
+      { rule: 'zod-boundary', at: [ROUTES, 'res.json(shown)'], message: 'PATCH /v1/users/:userId: response body shown is changed after its Zod parse (at src/routes/users.ts:36:' },
+      { rule: 'zod-boundary', at: [ROUTES, 'res.json(page)'], message: 'GET /v1/users: response body page is changed after its Zod parse (at src/routes/users.ts:12:' },
+    ],
+    exactViolations: { 'zod-boundary': 3 },
+  },
+  'bad-problem-no-content-type': {
+    // a typed problem body (ProblemSchema.parse) sent without Content-Type application/problem+json
+    fails: ['problem-json'],
+    expect: [{ rule: 'problem-json', at: [ROUTES, 'res.status(409).json(ProblemSchema.parse('], message: "status 409 is sent with a non-problem body (missing .type('application/problem+json'))" }],
+    exactViolations: { 'problem-json': 1 },
+  },
   'bad-zod-any-schema': {
     fails: ['zod-boundary', 'tsc-strict', 'problem-json'],
     expect: [
