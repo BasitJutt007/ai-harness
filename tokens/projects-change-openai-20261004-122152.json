@@ -1,0 +1,307 @@
+{
+  "runId": "projects-change-openai-20261004-122152",
+  "task": "projects-change",
+  "driver": "openai",
+  "model": "gpt-5.6-luna (compat)",
+  "mode": "jit",
+  "counter": "js-tiktoken o200k_base (local, OpenAI chat format)",
+  "baseline_kind": "shadow",
+  "method": "shadow-baseline",
+  "baselineDefinition": "the same task on the same driver and model with the context fetchers and compaction disabled. Request per turn: system = the baseline system prompt (it says the repository is included) + every text file under the API root, re-read from the current tree before that turn (node_modules/.git/dist and binary files excluded, 200 KB cap) + every standards doc in full; tools = the same tools minus the context fetchers (read tools and tools that declare fetcher: true), tool schemas counted once in the tools array, not repeated in the system prompt; the same task brief; history = the same assistant turns verbatim with each tool result replaced by its raw (naive, uncapped) return: whole files with line numbers, the test runner console output, the full standards report, the full contract diff; no input elision, no history compaction; counted with the same token counter as the actual request",
+  "baseline_note": "baseline_kind \"shadow\": an estimate that was never sent. Every turn the baseline request (baselineDefinition) is rebuilt from THIS run's own trajectory: the same assistant turns with raw returns, the current tree front-loaded, and this run's context-fetch calls left out (a baseline harness has that content front-loaded). A real baseline run may take a different path. For the measured baseline, run the same task on the same driver and model with `harness run <task> --baseline`, then `harness tokens compare <thisRunId> <baselineRunId>`; prefer that measured comparison wherever it exists.",
+  "provider_usage": "reported",
+  "turns": [
+    {
+      "turn": 1,
+      "actual_input_tokens": 1989,
+      "baseline_input_tokens": 10557,
+      "reduction_pct": 81.2,
+      "provider_reported_input_tokens": 1747,
+      "provider_cached_input_tokens": 0,
+      "output_tokens": 72
+    },
+    {
+      "turn": 2,
+      "actual_input_tokens": 2129,
+      "baseline_input_tokens": 10697,
+      "reduction_pct": 80.1,
+      "provider_reported_input_tokens": 1835,
+      "provider_cached_input_tokens": 1744,
+      "output_tokens": 138
+    },
+    {
+      "turn": 3,
+      "actual_input_tokens": 8261,
+      "baseline_input_tokens": 10697,
+      "reduction_pct": 22.8,
+      "provider_reported_input_tokens": 8115,
+      "provider_cached_input_tokens": 1832,
+      "output_tokens": 21
+    },
+    {
+      "turn": 4,
+      "actual_input_tokens": 8996,
+      "baseline_input_tokens": 10697,
+      "reduction_pct": 15.9,
+      "provider_reported_input_tokens": 8854,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 573
+    },
+    {
+      "turn": 5,
+      "actual_input_tokens": 4430,
+      "baseline_input_tokens": 12404,
+      "reduction_pct": 64.3,
+      "provider_reported_input_tokens": 4098,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 21
+    },
+    {
+      "turn": 6,
+      "actual_input_tokens": 4378,
+      "baseline_input_tokens": 14336,
+      "reduction_pct": 69.5,
+      "provider_reported_input_tokens": 4051,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 31
+    },
+    {
+      "turn": 7,
+      "actual_input_tokens": 4678,
+      "baseline_input_tokens": 14336,
+      "reduction_pct": 67.4,
+      "provider_reported_input_tokens": 4352,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 31
+    },
+    {
+      "turn": 8,
+      "actual_input_tokens": 4001,
+      "baseline_input_tokens": 14336,
+      "reduction_pct": 72.1,
+      "provider_reported_input_tokens": 3675,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 31
+    },
+    {
+      "turn": 9,
+      "actual_input_tokens": 3733,
+      "baseline_input_tokens": 14336,
+      "reduction_pct": 74,
+      "provider_reported_input_tokens": 3413,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 31
+    },
+    {
+      "turn": 10,
+      "actual_input_tokens": 4071,
+      "baseline_input_tokens": 14336,
+      "reduction_pct": 71.6,
+      "provider_reported_input_tokens": 3755,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 387
+    },
+    {
+      "turn": 11,
+      "actual_input_tokens": 4135,
+      "baseline_input_tokens": 15331,
+      "reduction_pct": 73,
+      "provider_reported_input_tokens": 3804,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 308
+    },
+    {
+      "turn": 12,
+      "actual_input_tokens": 3109,
+      "baseline_input_tokens": 16218,
+      "reduction_pct": 80.8,
+      "provider_reported_input_tokens": 2773,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 32
+    },
+    {
+      "turn": 13,
+      "actual_input_tokens": 3015,
+      "baseline_input_tokens": 16374,
+      "reduction_pct": 81.6,
+      "provider_reported_input_tokens": 2687,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 31
+    },
+    {
+      "turn": 14,
+      "actual_input_tokens": 3343,
+      "baseline_input_tokens": 16374,
+      "reduction_pct": 79.6,
+      "provider_reported_input_tokens": 3016,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 31
+    },
+    {
+      "turn": 15,
+      "actual_input_tokens": 3799,
+      "baseline_input_tokens": 16374,
+      "reduction_pct": 76.8,
+      "provider_reported_input_tokens": 3473,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 68
+    },
+    {
+      "turn": 16,
+      "actual_input_tokens": 3879,
+      "baseline_input_tokens": 16589,
+      "reduction_pct": 76.6,
+      "provider_reported_input_tokens": 3556,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 95
+    },
+    {
+      "turn": 17,
+      "actual_input_tokens": 3536,
+      "baseline_input_tokens": 16923,
+      "reduction_pct": 79.1,
+      "provider_reported_input_tokens": 3209,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 21
+    },
+    {
+      "turn": 18,
+      "actual_input_tokens": 3662,
+      "baseline_input_tokens": 17909,
+      "reduction_pct": 79.6,
+      "provider_reported_input_tokens": 3332,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 35
+    },
+    {
+      "turn": 19,
+      "actual_input_tokens": 3616,
+      "baseline_input_tokens": 18235,
+      "reduction_pct": 80.2,
+      "provider_reported_input_tokens": 3291,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 13
+    },
+    {
+      "turn": 20,
+      "actual_input_tokens": 3544,
+      "baseline_input_tokens": 18357,
+      "reduction_pct": 80.7,
+      "provider_reported_input_tokens": 3220,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 13
+    },
+    {
+      "turn": 21,
+      "actual_input_tokens": 3641,
+      "baseline_input_tokens": 19335,
+      "reduction_pct": 81.2,
+      "provider_reported_input_tokens": 3314,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 30
+    },
+    {
+      "turn": 22,
+      "actual_input_tokens": 4505,
+      "baseline_input_tokens": 19335,
+      "reduction_pct": 76.7,
+      "provider_reported_input_tokens": 4171,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 30
+    },
+    {
+      "turn": 23,
+      "actual_input_tokens": 5107,
+      "baseline_input_tokens": 19335,
+      "reduction_pct": 73.6,
+      "provider_reported_input_tokens": 4777,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 31
+    },
+    {
+      "turn": 24,
+      "actual_input_tokens": 4803,
+      "baseline_input_tokens": 19335,
+      "reduction_pct": 75.2,
+      "provider_reported_input_tokens": 4483,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 31
+    },
+    {
+      "turn": 25,
+      "actual_input_tokens": 5232,
+      "baseline_input_tokens": 19335,
+      "reduction_pct": 72.9,
+      "provider_reported_input_tokens": 4908,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 21
+    },
+    {
+      "turn": 26,
+      "actual_input_tokens": 5413,
+      "baseline_input_tokens": 20325,
+      "reduction_pct": 73.4,
+      "provider_reported_input_tokens": 5081,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 30
+    },
+    {
+      "turn": 27,
+      "actual_input_tokens": 5857,
+      "baseline_input_tokens": 20325,
+      "reduction_pct": 71.2,
+      "provider_reported_input_tokens": 5525,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 104
+    },
+    {
+      "turn": 28,
+      "actual_input_tokens": 5828,
+      "baseline_input_tokens": 20716,
+      "reduction_pct": 71.9,
+      "provider_reported_input_tokens": 5499,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 21
+    },
+    {
+      "turn": 29,
+      "actual_input_tokens": 4411,
+      "baseline_input_tokens": 20909,
+      "reduction_pct": 78.9,
+      "provider_reported_input_tokens": 4073,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 35
+    },
+    {
+      "turn": 30,
+      "actual_input_tokens": 4325,
+      "baseline_input_tokens": 21239,
+      "reduction_pct": 79.6,
+      "provider_reported_input_tokens": 3987,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 13
+    },
+    {
+      "turn": 31,
+      "actual_input_tokens": 4382,
+      "baseline_input_tokens": 21367,
+      "reduction_pct": 79.5,
+      "provider_reported_input_tokens": 4048,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 107
+    }
+  ],
+  "totals": {
+    "actual_input_tokens": 135808,
+    "baseline_input_tokens": 516972,
+    "reduction_pct": 73.7,
+    "provider_reported_input_tokens": 126122,
+    "output_tokens": 2436
+  },
+  "attribution_chars": {
+    "front_load_avoided": 1173490,
+    "raw_returns_avoided": 594418,
+    "history_compacted": 911264,
+    "fetch_traffic_left_out": 1209640
+  }
+}

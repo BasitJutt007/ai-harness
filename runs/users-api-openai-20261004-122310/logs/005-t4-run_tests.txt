@@ -1,0 +1,89 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-122310/generated/users-api
+
+ ❯ test/users.test.ts (4 tests | 4 failed) 46ms
+   ❯ users API (4)
+     × creates, gets, updates, deletes and rejects missing users 30ms
+     × validates body, path, duplicate email, empty patch and malformed JSON 5ms
+     × supports idempotency and duplicate email on patch 3ms
+     × cursor paginates every user and validates query 8ms
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  17:23:25
+   Duration  334ms (import 68%, tests 19%, transform 12%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > creates, gets, updates, deletes and rejects missing users
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:12:28
+     10|     const app = createApp();
+     11|     const created = await request(app).post('/v1/users').send(valid());
+     12|     expect(created.status).toBe(201);
+       |                            ^
+     13|     expect(created.headers.location).toMatch(/^\/v1\/users\//);
+     14|     expect(created.body.role).toBe('member');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  test/users.test.ts > users API > validates body, path, duplicate email, empty patch and malformed JSON
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/users.test.ts:29:24
+     27|     const app = createApp();
+     28|     const bad = await request(app).post('/v1/users').send({ email: 'ba…
+     29|     expect(bad.status).toBe(422); expect(bad.body.detail).toContain('e…
+       |                        ^
+     30|     await request(app).post('/v1/users').send(valid());
+     31|     const dup = await request(app).post('/v1/users').send(valid()); ex…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  test/users.test.ts > users API > supports idempotency and duplicate email on patch
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/users.test.ts:39:27
+     37|     const first = await request(app).post('/v1/users').set('Idempotenc…
+     38|     const replay = await request(app).post('/v1/users').set('Idempoten…
+     39|     expect(replay.status).toBe(201); expect(replay.headers['idempotent…
+       |                           ^
+     40|     expect((await request(app).post('/v1/users').set('Idempotency-Key'…
+     41|     const second = await request(app).post('/v1/users').send(valid(1));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  test/users.test.ts > users API > cursor paginates every user and validates query
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/users.test.ts:47:106
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+observed red: test/users.test.ts (source they cover is now writable)
