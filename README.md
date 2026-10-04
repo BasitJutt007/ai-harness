@@ -57,6 +57,82 @@ name one. Each run works in a fresh git worktree on its own branch, so your chec
 tool calls through the real loop, hooks and gates (`fixtures/scripted/*.json`; harness demos, never
 model evidence).
 
+### Step by step: your own change on any repository
+
+The harness is not a chat: you describe the change in a file, one command runs it to a verdict, and
+one more opens the PR. Ctrl-C stops a run between steps and still writes its evidence. All commands
+run from the `ai-harness` folder.
+
+1. **Set up once:** `npm run setup` (above), and `gh auth login` if you want the PR step.
+
+2. **Clone the repository you want to change** next to `ai-harness` (here the demo repository):
+
+   ```bash
+   git clone https://github.com/BasitJutt007/harness-demo.git ../harness-demo
+   ```
+
+3. **In each new terminal, set the provider key and the model.** Keys are read only from the
+   environment and never written anywhere. For OpenAI:
+
+   ```bash
+   export OPENAI_API_KEY=sk-...
+   export HARNESS_OPENAI_MODEL=gpt-5.6-luna
+   ```
+
+   For Claude: `export ANTHROPIC_API_KEY=...` and `HARNESS_CLAUDE_MODEL=<model id>`, then use
+   `--driver claude` below. `--model <id>` on the command line overrides either variable. Optional:
+   `export HARNESS_RUNS_DIR=.harness/my-runs HARNESS_TOKENS_DIR=.harness/my-tokens` keeps your runs out
+   of the committed `runs/` and `tokens/`.
+
+4. **Describe the change** in a Markdown file outside the target repository (format:
+   [docs/task-format.md](docs/task-format.md)). `target` is the API folder inside the repository:
+   `samples/existing-api` (Projects API) or `generated/users-api` (Users API) in the demo repository.
+   Concrete behaviours (statuses, edge cases) give the model a precise goal.
+
+   ```markdown
+   ---
+   target: samples/existing-api
+   ---
+   # Add search to projects
+
+   GET /v1/projects accepts an optional `q` query parameter and returns only projects whose
+   name contains it (case-insensitive). Pagination keeps working on the filtered list.
+
+   - GET /v1/projects?q=alp returns only projects whose name contains "alp".
+   - GET /v1/projects?q= with an empty value returns 422 application/problem+json.
+   ```
+
+5. **Check how the harness reads it** (no model call, no cost):
+
+   ```bash
+   node bin/harness.mjs task check ../my-tasks/add-search.md
+   ```
+
+6. **Run it:**
+
+   ```bash
+   node bin/harness.mjs run ../my-tasks/add-search.md --driver openai --repo ../harness-demo
+   ```
+
+   The run works on its own branch in a worktree under `.harness/worktrees/`, so your clone is never
+   touched. It prints progress, then one line per gate, `verdict DONE` or `NOT DONE`, and the run id
+   (e.g. `add-search-openai-20261004-160000`). On NOT DONE the gate lines say why; run it again or
+   make the description more precise. A change that would break existing clients is refused by
+   Contract Lock unless the file sets `allowBreaking: true`. The full evidence is in `runs/<run-id>/`.
+
+7. **Open the PR** when it is DONE: every gate re-runs fresh, then the harness commits, pushes the run
+   branch to the clone's `origin` and opens the PR with `gh` (or add `--ship` to step 6).
+
+   ```bash
+   node bin/harness.mjs ship <run-id>
+   ```
+
+8. **Clean up** a finished run's worktree when you no longer need it:
+
+   ```bash
+   git worktree remove --force .harness/worktrees/<run-id>
+   ```
+
 Every run ends with a summary. The shipped greenfield run (`runs/users-api-openai-20261004-145143`):
 
 ```
