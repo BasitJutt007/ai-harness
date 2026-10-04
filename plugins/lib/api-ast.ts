@@ -2229,6 +2229,18 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
     }
     return true;
   };
+  /**
+   * A store declared inside this function body (`const cache = new Map()` in the per-request handler, or in
+   * a function it calls) is created anew on every call, so nothing written to it can be replayed later.
+   */
+  const freshPerCall = (obj: ts.Expression): boolean => {
+    let e: ts.Expression = obj;
+    while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isAsExpression(e)) e = e.expression;
+    if (!ts.isIdentifier(e)) return false;
+    const decl = checker.getSymbolAtLocation(e)?.valueDeclaration;
+    return decl !== undefined && ts.isVariableDeclaration(decl) && decl.getSourceFile() === body.getSourceFile()
+      && decl.pos >= body.pos && decl.end <= body.end;
+  };
   const flow: KeyFlow = { stores: false, replays: false, escapes: false, returnsKey: false, returnsLookup: false };
   walk(body, (n) => {
     if (ts.isCallExpression(n) && n.arguments.some((a) => carriesKeyShallow(a))) {
@@ -2238,8 +2250,8 @@ function keyFlow(checker: ts.TypeChecker, body: ts.Node, reads: ts.Node[], seeds
         flow.replays ||= followed.replays;
       }
     }
-    if (methodCall(n) && n.arguments.length >= 2 && !carriesKey(n.expression.expression) && n.arguments[0] !== undefined && carriesKey(n.arguments[0])) flow.stores = true;
-    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left) && carriesKey(n.left.argumentExpression)) flow.stores = true;
+    if (methodCall(n) && n.arguments.length >= 2 && !carriesKey(n.expression.expression) && n.arguments[0] !== undefined && carriesKey(n.arguments[0]) && !freshPerCall(n.expression.expression)) flow.stores = true;
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(n.left) && carriesKey(n.left.argumentExpression) && !freshPerCall(n.left.expression)) flow.stores = true;
     if (methodCall(n) && REPLAY_METHODS.has(n.expression.name.text) && carriesLookup(n)) flow.replays = true;
     if (!flow.escapes && (readSet.has(n) || inSet(n, keySyms)) && !(ts.isIdentifier(n) && isDeclarationName(n))) flow.escapes = escapesAt(n);
   });
