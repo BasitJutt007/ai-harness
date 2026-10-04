@@ -1,0 +1,49 @@
+--- a/test/projects.test.ts
++++ b/test/projects.test.ts
+@@ -175,3 +175,46 @@
+     expect(second.body).toEqual(first.body);
+   });
+ });
++
++
++describe('project deletion and status filtering', () => {
++  it('deletes a project with 204 and then returns 404', async () => {
++    const project = await createProject();
++    const deleted = await request(app).delete(`/v1/projects/${project.id}`);
++    expect(deleted.status).toBe(204);
++    expect(deleted.text).toBe('');
++    expectProblem(await request(app).get(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('returns a problem for deleting an unknown or malformed id', async () => {
++    expectProblem(await request(app).delete(`/v1/projects/${UNKNOWN_ID}`), 404);
++    expectProblem(await request(app).delete('/v1/projects/not-a-uuid'), 422);
++  });
++
++  it('rejects a second delete', async () => {
++    const project = await createProject();
++    await request(app).delete(`/v1/projects/${project.id}`).expect(204);
++    expectProblem(await request(app).delete(`/v1/projects/${project.id}`), 404);
++  });
++
++  it('filters projects by active and archived status', async () => {
++    const active = await createProject({ status: 'active' });
++    const archived = await createProject({ status: 'archived' });
++    expect(await listAll({ status: 'active', limit: '1' })).toContain(active.id);
++    expect(await listAll({ status: 'active', limit: '1' })).not.toContain(archived.id);
++    expect(await listAll({ status: 'archived', limit: '1' })).toContain(archived.id);
++    expect(await listAll({ status: 'archived', limit: '1' })).not.toContain(active.id);
++  });
++
++  it('paginates the filtered set and rejects unknown status', async () => {
++    const projects = await Promise.all([
++      createProject({ status: 'archived' }),
++      createProject({ status: 'archived' }),
++      createProject({ status: 'archived' }),
++    ]);
++    const ids = await listAll({ status: 'archived', limit: '1' });
++    expect(ids).toEqual(expect.arrayContaining(projects.map((project) => project.id)));
++    expect(new Set(ids).size).toBe(ids.length);
++    expectProblem(await request(app).get('/v1/projects').query({ status: 'deleted' }), 422);
++  });
++});

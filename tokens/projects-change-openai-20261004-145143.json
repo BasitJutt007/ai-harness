@@ -1,0 +1,100 @@
+{
+  "runId": "projects-change-openai-20261004-145143",
+  "task": "projects-change",
+  "driver": "openai",
+  "model": "gpt-5.6-luna (compat)",
+  "mode": "jit",
+  "counter": "js-tiktoken o200k_base (local, OpenAI chat format)",
+  "baseline_kind": "shadow",
+  "method": "shadow-baseline",
+  "baselineDefinition": "the same task on the same driver and model with the context fetchers and compaction disabled. Request per turn: system = the baseline system prompt (it says the repository is included) + every text file under the API root, re-read from the current tree before that turn (node_modules/.git/dist and binary files excluded, 200 KB cap) + every standards doc in full; tools = the same tools minus the context fetchers (read tools and tools that declare fetcher: true), tool schemas counted once in the tools array, not repeated in the system prompt; the same task brief; history = the same assistant turns verbatim with each tool result replaced by its raw (naive, uncapped) return: whole files with line numbers, the test runner console output, the full standards report, the full contract diff; no input elision, no history compaction; counted with the same token counter as the actual request",
+  "baseline_note": "baseline_kind \"shadow\": an estimate that was never sent. Every turn the baseline request (baselineDefinition) is rebuilt from THIS run's own trajectory: the same assistant turns with raw returns, the current tree front-loaded, and this run's context-fetch calls left out (a baseline harness has that content front-loaded). A real baseline run may take a different path. For the measured baseline, run the same task on the same driver and model with `harness run <task> --baseline`, then `harness tokens compare <thisRunId> <baselineRunId>`; prefer that measured comparison wherever it exists.",
+  "provider_usage": "reported",
+  "turns": [
+    {
+      "turn": 1,
+      "actual_input_tokens": 1989,
+      "baseline_input_tokens": 10557,
+      "reduction_pct": 81.2,
+      "provider_reported_input_tokens": 1747,
+      "provider_cached_input_tokens": 1744,
+      "output_tokens": 72
+    },
+    {
+      "turn": 2,
+      "actual_input_tokens": 2123,
+      "baseline_input_tokens": 10691,
+      "reduction_pct": 80.1,
+      "provider_reported_input_tokens": 1835,
+      "provider_cached_input_tokens": 1744,
+      "output_tokens": 154
+    },
+    {
+      "turn": 3,
+      "actual_input_tokens": 8474,
+      "baseline_input_tokens": 10691,
+      "reduction_pct": 20.7,
+      "provider_reported_input_tokens": 8319,
+      "provider_cached_input_tokens": 1832,
+      "output_tokens": 589
+    },
+    {
+      "turn": 4,
+      "actual_input_tokens": 8531,
+      "baseline_input_tokens": 12447,
+      "reduction_pct": 31.5,
+      "provider_reported_input_tokens": 8374,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 21
+    },
+    {
+      "turn": 5,
+      "actual_input_tokens": 4140,
+      "baseline_input_tokens": 14399,
+      "reduction_pct": 71.2,
+      "provider_reported_input_tokens": 3807,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 71
+    },
+    {
+      "turn": 6,
+      "actual_input_tokens": 6448,
+      "baseline_input_tokens": 14399,
+      "reduction_pct": 55.2,
+      "provider_reported_input_tokens": 6292,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 433
+    },
+    {
+      "turn": 7,
+      "actual_input_tokens": 5831,
+      "baseline_input_tokens": 15036,
+      "reduction_pct": 61.2,
+      "provider_reported_input_tokens": 5674,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 338
+    },
+    {
+      "turn": 8,
+      "actual_input_tokens": 4585,
+      "baseline_input_tokens": 15900,
+      "reduction_pct": 71.2,
+      "provider_reported_input_tokens": 4255,
+      "provider_cached_input_tokens": 1141,
+      "output_tokens": 32
+    }
+  ],
+  "totals": {
+    "actual_input_tokens": 42121,
+    "baseline_input_tokens": 104120,
+    "reduction_pct": 59.5,
+    "provider_reported_input_tokens": 40303,
+    "output_tokens": 1710
+  },
+  "attribution_chars": {
+    "front_load_avoided": 297894,
+    "raw_returns_avoided": 36926,
+    "history_compacted": 86352,
+    "fetch_traffic_left_out": 160068
+  }
+}

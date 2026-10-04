@@ -1,0 +1,33 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-145700/samples/existing-api (port 50597)
+exit=0 timedOut=false served=true
+candidates: src/app.ts (conventional entry file), src/server.ts (conventional entry file)
+app (as reported by the runtime): src/app.ts: export createApp()
+control /__harness_probe__/control -> {"status":200,"contentType":"text/plain; charset=utf-8","body":"harness-probe-control-4f22cbfb5241"} injected=true
+--- responses (sent and recorded by the harness)
+GET /v1/__harness_probe__/does-not-exist -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"No route matches GET /v1/__harness_probe__/does-not-exist.\",\"instance\":\"/v1/__harness_probe__/does-not-exist\"}"}
+GET /v1/projects -> {"status":200,"contentType":"application/json; charset=utf-8","body":"{\"data\":[],\"nextCursor\":null}"}
+POST /v1/projects -> {"status":400,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/malformed-json\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"The request body is not valid JSON.\",\"instance\":\"/v1/projects\"}"}
+POST /v1/projects -> {"status":422,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/validation\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"(root): Invalid input: expected object, received array\",\"instance\":\"/v1/projects\"}"}
+POST /v1/projects -> {"status":422,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/validation\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"(root): Invalid input: expected object, received array\",\"instance\":\"/v1/projects\"}"}
+GET /v1/projects/00000000-0000-4000-8000-000000000000 -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"project 00000000-0000-4000-8000-000000000000 not found\",\"instance\":\"/v1/projects/00000000-0000-4000-8000-000000000000\"}"}
+DELETE /v1/projects/00000000-0000-4000-8000-000000000000 -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"project 00000000-0000-4000-8000-000000000000 not found\",\"instance\":\"/v1/projects/00000000-0000-4000-8000-000000000000\"}"}
+PATCH /v1/projects/00000000-0000-4000-8000-000000000000 -> {"status":400,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/malformed-json\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"The request body is not valid JSON.\",\"instance\":\"/v1/projects/00000000-0000-4000-8000-000000000000\"}"}
+PATCH /v1/projects/00000000-0000-4000-8000-000000000000 -> {"status":422,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/validation\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"(root): Invalid input: expected object, received array\",\"instance\":\"/v1/projects/00000000-0000-4000-8000-000000000000\"}"}
+PATCH /v1/projects/00000000-0000-4000-8000-000000000000 -> {"status":422,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/validation\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"(root): at least one field is required\",\"instance\":\"/v1/projects/00000000-0000-4000-8000-000000000000\"}"}
+GET /__harness_probe__/internal-error -> {"status":500,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/internal\",\"title\":\"Internal Server Error\",\"status\":500,\"detail\":\"An unexpected error occurred.\",\"instance\":\"/__harness_probe__/internal-error\"}"}
+--- routes listed by the app: 5; not in the static table: (none); analysed but not served: (none)
+--- stdout
+
+--- stderr
+probe runtime: serving src/app.ts: export createApp(); probe routes injected
+Error: harness-probe-secret-9e74524782d4
+    at handler (/Users/abdulbasit/Documents/GitHub/ai-harness/plugins/lib/probe-runtime.ts:365:17)
+    at Layer.handleRequest (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/lib/layer.js:152:17)
+    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:295:15
+    at processParams (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:582:12)
+    at next (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:291:5)
+    at router.handle (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/router/index.js:186:3)

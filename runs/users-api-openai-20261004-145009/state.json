@@ -1,0 +1,2595 @@
+{
+  "turn": 10,
+  "tests": [
+    {
+      "file": "test/users.test.ts",
+      "hash": "2d2cbdb8a82f2851ef90a12ea582749c28997f07d269a6d97a75ac72e58234b4",
+      "collected": 3,
+      "failed": 3,
+      "turn": 3,
+      "at": "2026-10-04T14:50:23.835Z",
+      "cases": [
+        {
+          "name": "users API > creates, gets, updates, lists with cursors, and deletes users",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f9497ee27155d3e86b8670ef03b5442a723228c17482f21e0418437180432c56"
+        },
+        {
+          "name": "users API > validates inputs, uniqueness, missing users, and malformed JSON",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9fff0c9687112edff7321afbb09dd671ceb961859aab50c691a2668e63fa979f"
+        },
+        {
+          "name": "users API > replays POST idempotently and rejects changed reuse",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3e4d75a63673b379d6c0799d07ab848707b9d22daebb83275838014dfd9ea83f"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "3 of 3 tests failed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "2d2cbdb8a82f2851ef90a12ea582749c28997f07d269a6d97a75ac72e58234b4",
+      "collected": 3,
+      "failed": 1,
+      "turn": 7,
+      "at": "2026-10-04T14:50:38.764Z",
+      "cases": [
+        {
+          "name": "users API > creates, gets, updates, lists with cursors, and deletes users",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f9497ee27155d3e86b8670ef03b5442a723228c17482f21e0418437180432c56"
+        },
+        {
+          "name": "users API > validates inputs, uniqueness, missing users, and malformed JSON",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9fff0c9687112edff7321afbb09dd671ceb961859aab50c691a2668e63fa979f"
+        },
+        {
+          "name": "users API > replays POST idempotently and rejects changed reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3e4d75a63673b379d6c0799d07ab848707b9d22daebb83275838014dfd9ea83f"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 3 tests failed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "cffae17f76572e2a58ad6b1da16f5febf8b2eeceee2c4138fd832237e48e3677",
+      "collected": 3,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-04T14:51:33.966Z",
+      "cases": [
+        {
+          "name": "users API > creates, gets, updates, lists with cursors, and deletes users",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f9497ee27155d3e86b8670ef03b5442a723228c17482f21e0418437180432c56"
+        },
+        {
+          "name": "users API > validates inputs, uniqueness, missing users, and malformed JSON",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ccc7d1e8e2a3a7abb2173107d225d4cfd0d33ed027ae42bb850ca9b8b441529"
+        },
+        {
+          "name": "users API > replays POST idempotently and rejects changed reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3e4d75a63673b379d6c0799d07ab848707b9d22daebb83275838014dfd9ea83f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "3 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-04T14:51:33.966Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "9591d3755fbedecbb40cf0da669c2884351e95143d1e8a9768389a96587bfa57",
+      "collected": 7,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-04T14:51:33.966Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > replays the original response byte for byte after the resource was updated in place",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1b6dc1c920f589bee4c5c666b50c9e4bc8ea6d231d332066026bd44e8dba8649"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-04T14:51:33.966Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-04T14:51:33.966Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "cffae17f76572e2a58ad6b1da16f5febf8b2eeceee2c4138fd832237e48e3677",
+      "collected": 3,
+      "failed": 0,
+      "turn": 9,
+      "at": "2026-10-04T14:51:36.318Z",
+      "cases": [
+        {
+          "name": "users API > creates, gets, updates, lists with cursors, and deletes users",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f9497ee27155d3e86b8670ef03b5442a723228c17482f21e0418437180432c56"
+        },
+        {
+          "name": "users API > validates inputs, uniqueness, missing users, and malformed JSON",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ccc7d1e8e2a3a7abb2173107d225d4cfd0d33ed027ae42bb850ca9b8b441529"
+        },
+        {
+          "name": "users API > replays POST idempotently and rejects changed reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3e4d75a63673b379d6c0799d07ab848707b9d22daebb83275838014dfd9ea83f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "3 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "cffae17f76572e2a58ad6b1da16f5febf8b2eeceee2c4138fd832237e48e3677",
+      "collected": 3,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:47.398Z",
+      "cases": [
+        {
+          "name": "users API > creates, gets, updates, lists with cursors, and deletes users",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f9497ee27155d3e86b8670ef03b5442a723228c17482f21e0418437180432c56"
+        },
+        {
+          "name": "users API > validates inputs, uniqueness, missing users, and malformed JSON",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ccc7d1e8e2a3a7abb2173107d225d4cfd0d33ed027ae42bb850ca9b8b441529"
+        },
+        {
+          "name": "users API > replays POST idempotently and rejects changed reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3e4d75a63673b379d6c0799d07ab848707b9d22daebb83275838014dfd9ea83f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "3 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:47.398Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "9591d3755fbedecbb40cf0da669c2884351e95143d1e8a9768389a96587bfa57",
+      "collected": 7,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:47.398Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > replays the original response byte for byte after the resource was updated in place",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1b6dc1c920f589bee4c5c666b50c9e4bc8ea6d231d332066026bd44e8dba8649"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:47.398Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:47.398Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "cffae17f76572e2a58ad6b1da16f5febf8b2eeceee2c4138fd832237e48e3677",
+      "collected": 3,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.955Z",
+      "cases": [
+        {
+          "name": "users API > creates, gets, updates, lists with cursors, and deletes users",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f9497ee27155d3e86b8670ef03b5442a723228c17482f21e0418437180432c56"
+        },
+        {
+          "name": "users API > validates inputs, uniqueness, missing users, and malformed JSON",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ccc7d1e8e2a3a7abb2173107d225d4cfd0d33ed027ae42bb850ca9b8b441529"
+        },
+        {
+          "name": "users API > replays POST idempotently and rejects changed reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3e4d75a63673b379d6c0799d07ab848707b9d22daebb83275838014dfd9ea83f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "3 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.955Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "9591d3755fbedecbb40cf0da669c2884351e95143d1e8a9768389a96587bfa57",
+      "collected": 7,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.955Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > replays the original response byte for byte after the resource was updated in place",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1b6dc1c920f589bee4c5c666b50c9e4bc8ea6d231d332066026bd44e8dba8649"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.955Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.955Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "cffae17f76572e2a58ad6b1da16f5febf8b2eeceee2c4138fd832237e48e3677",
+      "collected": 3,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:53.560Z",
+      "cases": [
+        {
+          "name": "users API > creates, gets, updates, lists with cursors, and deletes users",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f9497ee27155d3e86b8670ef03b5442a723228c17482f21e0418437180432c56"
+        },
+        {
+          "name": "users API > validates inputs, uniqueness, missing users, and malformed JSON",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ccc7d1e8e2a3a7abb2173107d225d4cfd0d33ed027ae42bb850ca9b8b441529"
+        },
+        {
+          "name": "users API > replays POST idempotently and rejects changed reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3e4d75a63673b379d6c0799d07ab848707b9d22daebb83275838014dfd9ea83f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "3 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:53.560Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "9591d3755fbedecbb40cf0da669c2884351e95143d1e8a9768389a96587bfa57",
+      "collected": 7,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:53.560Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > replays the original response byte for byte after the resource was updated in place",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1b6dc1c920f589bee4c5c666b50c9e4bc8ea6d231d332066026bd44e8dba8649"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:53.560Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:53.560Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/users.test.ts",
+      "hash": "cffae17f76572e2a58ad6b1da16f5febf8b2eeceee2c4138fd832237e48e3677",
+      "collected": 3,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:58.364Z",
+      "cases": [
+        {
+          "name": "users API > creates, gets, updates, lists with cursors, and deletes users",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f9497ee27155d3e86b8670ef03b5442a723228c17482f21e0418437180432c56"
+        },
+        {
+          "name": "users API > validates inputs, uniqueness, missing users, and malformed JSON",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1ccc7d1e8e2a3a7abb2173107d225d4cfd0d33ed027ae42bb850ca9b8b441529"
+        },
+        {
+          "name": "users API > replays POST idempotently and rejects changed reuse",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "3e4d75a63673b379d6c0799d07ab848707b9d22daebb83275838014dfd9ea83f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "3 tests passed"
+    },
+    {
+      "file": "test/lib/errors.test.ts",
+      "hash": "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f",
+      "collected": 6,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:58.364Z",
+      "cases": [
+        {
+          "name": "createApp error handling > answers unknown routes with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bddfb3b13f5209083ca0539fc072b1fde9d5dd8bcbe1141527368677395b7855"
+        },
+        {
+          "name": "createApp error handling > answers malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "aad3570058d8e0b1216db613f1f73f85116fe1326fcd3f50af3a94f37b3f1d47"
+        },
+        {
+          "name": "createApp error handling > maps a ZodError to a 422 problem listing each issue",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "085c9ed815d84d3d4e049b209fbb32da110fdbe3edf46d846b2221b4240702db"
+        },
+        {
+          "name": "createApp error handling > passes valid bodies through",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d285366f4c643047bd7bf277908d3ae53910f0b60a5682bd6b32726dea315402"
+        },
+        {
+          "name": "createApp error handling > sends a thrown HttpProblem with its own status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ab35a235cb45345f5a0c1a1b1040357f65e875628bba99972bc24c5cd84c4d7"
+        },
+        {
+          "name": "createApp error handling > hides unexpected errors behind a 500 problem without a stack",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7ea70ec31db69a4aec9a883aaa25165e8d201eae7e8646b9dd3a983f6f6d8b9a"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "6 tests passed"
+    },
+    {
+      "file": "test/lib/idempotency.test.ts",
+      "hash": "9591d3755fbedecbb40cf0da669c2884351e95143d1e8a9768389a96587bfa57",
+      "collected": 7,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:58.364Z",
+      "cases": [
+        {
+          "name": "idempotency() > runs every request when no Idempotency-Key is sent",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0e8cce5d7a59ac4378a067879fecee5c87b71cc4c8fd2ebb94bdd8f6c5c4c879"
+        },
+        {
+          "name": "idempotency() > replays the stored response for the same key and body",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "e12c8bfd202487976a6753bd9af8355d2e0878f00085d0ae08f59d44fae75f74"
+        },
+        {
+          "name": "idempotency() > replays the original response byte for byte after the resource was updated in place",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1b6dc1c920f589bee4c5c666b50c9e4bc8ea6d231d332066026bd44e8dba8649"
+        },
+        {
+          "name": "idempotency() > rejects reuse of a key with a different body as a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "1d136edc83486ec994b77a729f6e3fef563655c446bb1ec5260c68c450c36608"
+        },
+        {
+          "name": "idempotency() > answers a duplicate that arrives while the first is in flight with a 409 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f82adb04cb69e16dfbf528390bd1d37edeb4af39be541b61faca3dee489d6179"
+        },
+        {
+          "name": "idempotency() > does not remember failed requests, so a corrected retry may reuse the key",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bfc4647f7910f64c272d6ed5bb47d8295067aa5cab3f5a5ac6c5668fc6c07ab9"
+        },
+        {
+          "name": "idempotency() > validates the header: keys longer than 255 characters are a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7c472163b50bb87474e0331c53b7d49b002dc021a63cc09cabd668add97cf832"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    },
+    {
+      "file": "test/lib/pagination.test.ts",
+      "hash": "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d",
+      "collected": 8,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:58.364Z",
+      "cases": [
+        {
+          "name": "CursorQuerySchema > defaults limit to 20 and coerces query strings",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "36d0822b81ea5eba9f7330d3a84e29a839a0c26fe2a98beaa9c1510a05c6d501"
+        },
+        {
+          "name": "CursorQuerySchema > rejects limits outside 1..100 and empty cursors",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "02c0d65279c704aec668f5824830498e4b526e69d1ed468093be8e60146b6b05"
+        },
+        {
+          "name": "cursors > round-trips a key through an opaque base64url cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6439ed4462ada5629001351b8470ca6dd552339227b428a8eb6bda4147ef1903"
+        },
+        {
+          "name": "cursors > rejects cursors it did not issue with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ec1742b0818b5f1d788a8110a5cebacb46266c9580cedbaa80c84892aaa15369"
+        },
+        {
+          "name": "paginate > walks every item exactly once, in key order",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "9398ef998cbc8752f0b4042cd4886463e7ab0860a84ccabdcb9b7fc809bea4e5"
+        },
+        {
+          "name": "paginate > returns nextCursor null on the last page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39d634ad51d7d12fa09f193a599100d2fd929285676600b20088f8f43be5d69e"
+        },
+        {
+          "name": "paginate > does not depend on input order and survives deletion of the cursor item",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "a95d449841f54b16402464c0907ba4e766cb103698defb33e50ade98e2214934"
+        },
+        {
+          "name": "paginate > builds a page schema with data and nextCursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d05bcfa735c100c23c3202477301577c3b5c1073a4fb88279755d8c89cc387d5"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "8 tests passed"
+    },
+    {
+      "file": "test/lib/problem.test.ts",
+      "hash": "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5",
+      "collected": 7,
+      "failed": 0,
+      "turn": 10,
+      "at": "2026-10-04T14:51:58.364Z",
+      "cases": [
+        {
+          "name": "problem helpers > builds an HttpProblem with status and type",
+          "status": "pass",
+          "exercisesSource": false,
+          "constantOnly": false,
+          "bodyHash": "950527c292e5bd558d524b4b483c3cc5965ed9c7c579f57143eaa2aea2c96ba2"
+        },
+        {
+          "name": "problem helpers > accepts a custom problem type slug",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "332a98ffd5e227d2238b203a33074a565ae9d2dcbea1a4fb7e1be24bf03d8257"
+        },
+        {
+          "name": "problem helpers > turns an HttpProblem into a Problem with an instance",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "0841139237c79ee2cdcb5e65eb1a11dca4ed9ff4afcb8ccd1131bf833503471c"
+        },
+        {
+          "name": "problem helpers > sends a problem as application/problem+json",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "437af3c92bfe054b63392880509a83cef78e42509391af72b42a57e17922d14f"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "7 tests passed"
+    }
+  ],
+  "written": [
+    "src/routes/index.ts",
+    "src/routes/users.ts",
+    "test/users.test.ts"
+  ],
+  "initialHashes": [
+    [
+      "package.json",
+      "3e73b50e6a8153e1641b64a23433a41af067a235482a97428ddd2ac09434f63f"
+    ],
+    [
+      "src/app.ts",
+      "6d5c2ae6e9f164edeaeba76e5689340d68bee79ac335c3650571334d772c7338"
+    ],
+    [
+      "src/lib/errors.ts",
+      "bce991cc5bd1bc681160921a1659305140ed410b64385a68c90bdbc3a79f212b"
+    ],
+    [
+      "src/lib/idempotency.ts",
+      "40002911e5c28904b0dcd7e597b9105710a257037026c89483c932700454d0c1"
+    ],
+    [
+      "src/lib/pagination.ts",
+      "f1c2475d67fac9c192856971a7ff739ab4aae17ceccadce4b2b29f658cfd0f7b"
+    ],
+    [
+      "src/lib/problem.ts",
+      "b78071a0ec3d77f4694630176ccdade5a31c14e6873089d4b58793ed3fc333b9"
+    ],
+    [
+      "src/routes/index.ts",
+      "4398579c158f8624282d3c76591c4177efc0c17846b6eab2f9a6d60e63c63887"
+    ],
+    [
+      "src/server.ts",
+      "3322918a60dedb7b17737ac0a22e9352d1558c55d4cd1a64ffd8d70160200b5e"
+    ],
+    [
+      "test/lib/errors.test.ts",
+      "5d509bb11c43aca8b181963d107052b704613789974b44ab09804d4fbf83956f"
+    ],
+    [
+      "test/lib/idempotency.test.ts",
+      "9591d3755fbedecbb40cf0da669c2884351e95143d1e8a9768389a96587bfa57"
+    ],
+    [
+      "test/lib/pagination.test.ts",
+      "ede05aa45d15fd4a09b364712c521d5dcc3240d4f8c896d03fab5fbbf7ebe30d"
+    ],
+    [
+      "test/lib/problem.test.ts",
+      "2f3722bece1f3363bb077810d4bae95282b8b6d009497a6bb672071e9af75bd5"
+    ],
+    [
+      "tsconfig.json",
+      "a86c3e105465e1256eb624e94222f2031f7faf83bad0680101b5207acd8dd882"
+    ],
+    [
+      "vitest.config.ts",
+      "0651404096ec7c71a24635adb6bf78321e361d023e97b4b8ee2b775404bc6ad5"
+    ]
+  ],
+  "plan": [
+    "Add comprehensive users API tests and run them to observe red.",
+    "Implement a per-app users router with Zod schemas, CRUD, pagination, conflicts, and idempotency.",
+    "Run all tests, typecheck/standards gates, then finish."
+  ],
+  "events": [
+    {
+      "kind": "note",
+      "source": "loop",
+      "message": "baseline mode: context fetchers withheld (fetch_standard, list_files, outline, read_file, search_code, test_map); the repository and the standards are front-loaded every turn",
+      "turn": 0,
+      "at": "2026-10-04T14:50:10.172Z"
+    },
+    {
+      "kind": "tool",
+      "source": "plan",
+      "decision": "pass",
+      "message": "plan recorded (3 steps)",
+      "data": {
+        "callId": "call_1TIbMilmf2K6YRHwLcGp3zW2",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 1,
+      "at": "2026-10-04T14:50:12.681Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:21.532Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:21.534Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:21.536Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:21.538Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:21.539Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:21.540Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:21.540Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:21.545Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool write_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "write_file",
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:22.057Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote test/users.test.ts (new, 51 lines)",
+      "data": {
+        "callId": "call_YkKAUZiR53SedeJGrbz8rE5O",
+        "ok": true,
+        "paths": [
+          "test/users.test.ts"
+        ],
+        "logPath": "runs/users-api-openai-20261004-145009/logs/001-t2-write_file.txt"
+      },
+      "turn": 2,
+      "at": "2026-10-04T14:50:22.058Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 3 failed, 0 passed (3) in 1 files",
+      "data": {
+        "callId": "call_glWVn6U9IB5Fad8eAxGp2N4K",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/users-api-openai-20261004-145009/logs/005-t3-run_tests.txt"
+      },
+      "turn": 3,
+      "at": "2026-10-04T14:50:24.715Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.081Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.081Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.095Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.096Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.097Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.100Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.101Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.103Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool write_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "write_file",
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "paths": [
+          "src/routes/users.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.236Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote src/routes/users.ts (new, 60 lines)",
+      "data": {
+        "callId": "call_BSBPOi9Vo3OC6IJwsq3UCDgn",
+        "ok": true,
+        "paths": [
+          "src/routes/users.ts"
+        ],
+        "logPath": "runs/users-api-openai-20261004-145009/logs/006-t4-write_file.txt"
+      },
+      "turn": 4,
+      "at": "2026-10-04T14:50:33.240Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:34.993Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:34.996Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:35.070Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:35.071Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:35.072Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:35.073Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:35.073Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:35.074Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:35.175Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/routes/index.ts (+1 −0)",
+      "data": {
+        "callId": "call_FerwNtXx7mfIml9FvmjzYibp",
+        "ok": true,
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 5,
+      "at": "2026-10-04T14:50:35.175Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.561Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.563Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.575Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.575Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.576Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.577Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.578Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.579Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.600Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/routes/index.ts (+1 −1)",
+      "data": {
+        "callId": "call_VzGkLXgWNfUxs6JsFstlCCjJ",
+        "ok": true,
+        "paths": [
+          "src/routes/index.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-10-04T14:50:36.600Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 2 passed (3) in 1 files",
+      "data": {
+        "callId": "call_FzgDGJrS09KMuS45wiRvUK4E",
+        "ok": false,
+        "paths": []
+      },
+      "turn": 7,
+      "at": "2026-10-04T14:50:39.223Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.205Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.206Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.207Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.208Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.209Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.209Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.210Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.214Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.329Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited test/users.test.ts (+1 −1)",
+      "data": {
+        "callId": "call_LnuReWzSVHX87XL3I5Y4kI2M",
+        "ok": true,
+        "paths": [
+          "test/users.test.ts"
+        ]
+      },
+      "turn": 8,
+      "at": "2026-10-04T14:50:42.329Z"
+    },
+    {
+      "kind": "error",
+      "source": "driver",
+      "message": "complete failed (attempt 1): 429 You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.; retrying in 1000 ms",
+      "turn": 9,
+      "at": "2026-10-04T14:50:51.828Z"
+    },
+    {
+      "kind": "error",
+      "source": "driver",
+      "message": "complete failed (attempt 2): 429 You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.; retrying in 4000 ms",
+      "turn": 9,
+      "at": "2026-10-04T14:51:01.500Z"
+    },
+    {
+      "kind": "error",
+      "source": "driver",
+      "message": "complete failed (attempt 3): 429 You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.; retrying in 10000 ms",
+      "turn": 9,
+      "at": "2026-10-04T14:51:14.124Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "pass",
+      "message": "tests: 0 failed, 31 passed (31) in 5 files",
+      "data": {
+        "callId": "call_yOkYfog0vz5lxJBT81uRE7B1",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 9,
+      "at": "2026-10-04T14:51:33.991Z"
+    },
+    {
+      "kind": "tool",
+      "source": "check_standards",
+      "decision": "pass",
+      "message": "────────────────────────────────────────────────────────────",
+      "data": {
+        "callId": "call_7YkRtMRXSr7vabr70C9p0jyx",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 9,
+      "at": "2026-10-04T14:51:35.837Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "pass",
+      "message": "tests: 0 failed, 3 passed (3) in 1 files",
+      "data": {
+        "callId": "call_2mbsEGZ4DQULgmOGAFuxdlOK",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 9,
+      "at": "2026-10-04T14:51:36.327Z"
+    },
+    {
+      "kind": "tool",
+      "source": "finish",
+      "decision": "pass",
+      "message": "finish requested",
+      "data": {
+        "callId": "call_2LcoK7HJnQ3QSMdzCRy38nkV",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:46.756Z"
+    },
+    {
+      "kind": "gate",
+      "source": "contract-lock",
+      "decision": "pass",
+      "message": "finish: n/a not applicable to greenfield tasks",
+      "data": {
+        "phase": "finish",
+        "status": "n/a"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:46.757Z"
+    },
+    {
+      "kind": "gate",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "finish: pass 2 red observations (1 test files); 2 changed source files went red -> green (2 on unchanged cases, 0 on edited cases by differential proof), red again with the original source (each file reverted alone)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:49.718Z"
+    },
+    {
+      "kind": "gate",
+      "source": "orphans",
+      "decision": "pass",
+      "message": "finish: pass 1 created files, all imported by a test or by existing code",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:49.730Z"
+    },
+    {
+      "kind": "gate",
+      "source": "scope",
+      "decision": "pass",
+      "message": "finish: pass 3 changed files, all in scope",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:49.787Z"
+    },
+    {
+      "kind": "gate",
+      "source": "spec-coverage",
+      "decision": "pass",
+      "message": "finish: pass 18/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "logPath": "runs/users-api-openai-20261004-145009/logs/021-spec-coverage.txt"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:50.793Z"
+    },
+    {
+      "kind": "gate",
+      "source": "standards",
+      "decision": "pass",
+      "message": "finish: pass verdict 100% (4 rules)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.396Z"
+    },
+    {
+      "kind": "gate",
+      "source": "tests-green",
+      "decision": "pass",
+      "message": "finish: pass 31/31 tests passed in 5 files",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "details": [
+          "tests: 0 failed, 31 passed (31) in 5 files"
+        ],
+        "logPath": "runs/users-api-openai-20261004-145009/logs/026-vitest.txt"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.978Z"
+    },
+    {
+      "kind": "note",
+      "source": "finish",
+      "decision": "pass",
+      "message": "FINISH ACCEPTED",
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.978Z"
+    },
+    {
+      "kind": "gate",
+      "source": "contract-lock",
+      "decision": "pass",
+      "message": "finish: n/a not applicable to greenfield tasks",
+      "data": {
+        "phase": "finish",
+        "status": "n/a"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:52.980Z"
+    },
+    {
+      "kind": "gate",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "finish: pass 2 red observations (1 test files); 2 changed source files went red -> green (2 on unchanged cases, 0 on edited cases by differential proof), red again with the original source (each file reverted alone)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:55.550Z"
+    },
+    {
+      "kind": "gate",
+      "source": "orphans",
+      "decision": "pass",
+      "message": "finish: pass 1 created files, all imported by a test or by existing code",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:55.565Z"
+    },
+    {
+      "kind": "gate",
+      "source": "scope",
+      "decision": "pass",
+      "message": "finish: pass 3 changed files, all in scope",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:55.610Z"
+    },
+    {
+      "kind": "gate",
+      "source": "spec-coverage",
+      "decision": "pass",
+      "message": "finish: pass 18/18 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "logPath": "runs/users-api-openai-20261004-145009/logs/033-spec-coverage.txt"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:56.316Z"
+    },
+    {
+      "kind": "gate",
+      "source": "standards",
+      "decision": "pass",
+      "message": "finish: pass verdict 100% (4 rules)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:57.750Z"
+    },
+    {
+      "kind": "gate",
+      "source": "tests-green",
+      "decision": "pass",
+      "message": "finish: pass 31/31 tests passed in 5 files",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "details": [
+          "tests: 0 failed, 31 passed (31) in 5 files"
+        ],
+        "logPath": "runs/users-api-openai-20261004-145009/logs/038-vitest.txt"
+      },
+      "turn": 10,
+      "at": "2026-10-04T14:51:58.379Z"
+    }
+  ],
+  "scratch": [
+    [
+      "observed-red.unlocked",
+      [
+        "src/routes/index.ts",
+        "src/routes/users.ts"
+      ]
+    ]
+  ],
+  "finishAttempts": 1
+}

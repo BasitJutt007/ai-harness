@@ -1,0 +1,46 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145143/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?users API(?: > | )validates inputs and reports malformed JSON$ test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145143/generated/users-api
+
+ ❯ test/users.test.ts (5 tests | 1 failed | 4 skipped) 22ms
+   ❯ users API (5)
+     ↓ creates, gets, updates and deletes users
+     × validates inputs and reports malformed JSON 21ms
+     ↓ enforces unique email
+     ↓ paginates with cursors
+     ↓ replays idempotent creates and rejects changed reuse
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  19:53:11
+   Duration  231ms (import 63%, transform 20%, tests 16%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > users API > validates inputs and reports malformed JSON
+Error: expected 422 "Unprocessable Entity", got 404 "Not Found"
+ ❯ test/users.test.ts:26:61
+     24|   it('validates inputs and reports malformed JSON', async () => {
+     25|     const app = createApp();
+     26|     await request(app).post('/v1/users').send({ name: '' }).expect(422…
+       |                                                             ^
+     27|     await request(app).post('/v1/users').set('Content-Type', 'applicat…
+     28|     await request(app).get('/v1/users?limit=0').expect(422);
+ ❯ Test._assertStatus ../../../../../node_modules/supertest/lib/test.js:404:14
+ ❯ ../../../../../node_modules/supertest/lib/test.js:460:13
+ ❯ Test._assertFunction ../../../../../node_modules/supertest/lib/test.js:437:13
+ ❯ Test.assert ../../../../../node_modules/supertest/lib/test.js:302:23
+ ❯ localAssert ../../../../../node_modules/supertest/lib/test.js:220:38
+ ❯ Server.<anonymous> ../../../../../node_modules/supertest/lib/test.js:227:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":0,"numFailedTests":1,"numPendingTests":4,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791125591732,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes users","status":"skipped","title":"creates, gets, updates and deletes users","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates inputs and reports malformed JSON","status":"failed","title":"validates inputs and reports malformed JSON","duration":21.466208000000023,"failureMessages":["Error: expected 422 \"Unprocessable Entity\", got 404 \"Not Found\"\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145143/generated/users-api/test/users.test.ts:26:61\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)\n----\n    at Test._assertStatus (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:404:14)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:460:13\n    at Test._assertFunction (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:437:13)\n    at Test.assert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:302:23)\n    at localAssert (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:220:38)\n    at Server.<anonymous> (/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/supertest/lib/test.js:227:13)\n    at Object.onceWrapper (node:events:630:28)\n    at Server.emit (node:events:509:28)\n    at emitCloseNT (node:net:2661:8)\n    at processTicksAndRejections (node:internal/process/task_queues:89:21)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API enforces unique email","status":"skipped","title":"enforces unique email","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates with cursors","status":"skipped","title":"paginates with cursors","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed reuse","status":"skipped","title":"replays idempotent creates and rejects changed reuse","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791125591938,"endTime":1791125591959.4663,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-145143/generated/users-api/test/users.test.ts"}]}

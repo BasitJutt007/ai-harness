@@ -1,0 +1,632 @@
+{
+  "runId": "projects-change-openai-20261004-145143",
+  "taskFile": "/Users/abdulbasit/Documents/GitHub/ai-harness/tasks/projects-change.task.yaml",
+  "task": {
+    "id": "projects-change",
+    "kind": "brownfield",
+    "sha256": "5989d7c7716a48454801be7c511e81e42082d625dfbb580a70d96bc3ad798ad3",
+    "normalizedSha256": "1f248b49e00b4ce2690c7203d9ebb29672b9ede555354ba013d3599cb4428e55",
+    "format": "yaml",
+    "strict": false,
+    "file": "tasks/projects-change.task.yaml"
+  },
+  "driver": "openai",
+  "model": "gpt-5.6-luna (compat)",
+  "tokenCounter": "js-tiktoken o200k_base (local, OpenAI chat format)",
+  "mode": {
+    "jit": true,
+    "compactReturns": true,
+    "compactHistory": true
+  },
+  "startedAt": "2026-10-04T14:51:43.031Z",
+  "targetRepo": "/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/demo-final",
+  "worktreeRoot": "/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-145143",
+  "rootRel": "samples/existing-api",
+  "apiRoot": "/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-145143/samples/existing-api",
+  "branch": "harness/projects-change-openai-20261004-145143",
+  "baseBranch": "main",
+  "baseSha": "3296a138c375eb0a3b37babca5bd31349fe05c5c",
+  "pluginFingerprint": {
+    "plugins/checks/problem-json.ts": "f6801bee0ca83568b1e88d37fee137ccd11b6e2e41f997dfc8684388045914ea",
+    "plugins/checks/rest-conventions.ts": "c1a902e25773fe14970181d26746d9da968bfba4ee9abecaa138ff86aa9ca105",
+    "plugins/checks/tsc-strict.ts": "9e5a79ab3253a919fb5ff3967cdf288ad54c8a3d99c4a72f62b1440be34c9a7a",
+    "plugins/checks/zod-boundary.ts": "faf1153150bd374ae08f8fb25ac848239f0d29cb610705ee3764f96e8757e5d8",
+    "plugins/gates/contract-lock.ts": "095c7a23311ed44f6e1df1f8af8d11a6d1aab83218a5afaa568a5476d688750c",
+    "plugins/gates/observed-red.ts": "12aeaeb7fe1f33b2f4377f428ad371b0944d1dd55c9ffce82594c79fadf041ea",
+    "plugins/gates/orphans.ts": "28763bfb0f82061b3a35a74fa3f666aeae1bf45796b9b5db6306c30063e4e8f0",
+    "plugins/gates/scope.ts": "c27e4b4784492596d8108d357101ebb358a335244aed69ee04d9c3f79cadbbaf",
+    "plugins/gates/secrets.ts": "b8a6f0ed7dd2f0b07eabb16a5f4aef238a63d0bcece7cd56c317bd772fa5e096",
+    "plugins/gates/spec-coverage.ts": "f0fb33d2b9b6df90fe8321a1906e18b76ae5490141927beb25a1241411fd1cf3",
+    "plugins/gates/standards.ts": "db824346effb2e7dfa5a6e17954d978c8615f9d759cf3be3c6d0a847160ffd58",
+    "plugins/gates/tests-green.ts": "f8a5817872ccdfb1bc68fcf6492bfaeb8914d6793e6e4dfc1f84b9204a5021c2",
+    "plugins/hooks/dependency-policy.ts": "b05eedebe9646df9416fedcd87a459c67af7235fb9ad9339d53bd1739fd22985",
+    "plugins/hooks/elision-guard.ts": "d29f5e58fa814d2fcf8bcef85a2f2a9e4245fd8f811ef0d2ef847977543d8012",
+    "plugins/hooks/observed-red.ts": "28ee243ef3aa0f679d5014afedfda40fd40e65af1f7657c19fd7ca1c6f396eca",
+    "plugins/hooks/path-guard.ts": "57f64a2d471e0f8886b53a3522373424847c82a6a9209780b2e70b483a8ff6ee",
+    "plugins/hooks/secret-guard.ts": "2c9a270abdcf20eb02cfe1c183a403d7283d9785f2adccb59e4e8c1e31c53502",
+    "plugins/hooks/source-boundary.ts": "e8f3968919e78fc5c16cb783dcd02c54fa8a420072efc7838f402d57cfbaefe6",
+    "plugins/hooks/test-preservation.ts": "4e5670dba06db8e4681f90db2f6746b6b05727cf18dc2b72dd43d841bf079cbc",
+    "plugins/hooks/typecheck-feedback.ts": "204ef64bbeaed3c9d254e55ca814852f99cd3b3e8f752487cb02105e777dc063",
+    "plugins/hooks/unsafe-code-guard.ts": "ef68da9c5714176ebb34149ad444c9a996cd4d9ad20d035a664b34cc5b4250f1",
+    "plugins/lib/api-ast.ts": "37df50072e4e2b48da02f155766e7d655170cb6768f11eeafb75ba2fc0cfbe52",
+    "plugins/lib/app-entry.ts": "d20166048446c861f2078d05f16e725172b05fcd3cc8f457d7830e302e51ff29",
+    "plugins/lib/contract-runtime.ts": "61799effcdeb3a1e4b0f7116819c302980a9ff6d4bd8e456c9d8f4951cc87357",
+    "plugins/lib/contract.ts": "1cff64273c6c96c0bfc281a4cac4957022a100c6aad1ee58c6560cb1e7d27184",
+    "plugins/lib/dependencies.ts": "ab14bca0ec2399f2e0586afbccd8506bc5d4b8ab30d54163abec02af3de07eb9",
+    "plugins/lib/diff.ts": "1b5e24eadfddbd861edafb28fdbe8442dcb98031c77543656b01bc61800b0476",
+    "plugins/lib/path-policy.ts": "59a14b8c640bc04151d8b3643662bd6739e7b7b9e587cfe480d8a31c159a4e2c",
+    "plugins/lib/plugin-helpers.ts": "6cfaad24f3353379d1ce75820fe07953561e6cacd7e3eac2705cca30b976072a",
+    "plugins/lib/post-image.ts": "0b8f6304c95fcdebca2e39bc0b3d0e6deeae1481316c0a586c97c4f124f2dacd",
+    "plugins/lib/probe-runtime.ts": "6166bc3ba4b9a6a279cf7f7e2da05c0cbbbf5376cd7348108e791ef586165503",
+    "plugins/lib/probe.ts": "759733d6cfe8205c7a4adacc0762fa4d79431a7775d4b82dd38fd7a41f3d68d4",
+    "plugins/lib/red.ts": "3f364d73f9373dcfea21dd1e8073d64d3023f477d4e10f2aaf49016274f72e09",
+    "plugins/lib/replay-probe.ts": "e53acb6a0f381323c1fcb984b963a8837c66c3225751f6cdfb40d1bb5f8c726d",
+    "plugins/lib/schema-purity.ts": "d7c7a3fc452b6c5318eefcd66b3d77dd75561b262fe18fd74b6146a7928c0bb0",
+    "plugins/lib/secrets.ts": "dc9108f09c2b44952b36d2f963d2553c59611a3895521caba0f94f863d424f76",
+    "plugins/lib/spec-probes.ts": "7ffaa6a767a41749f109690eb80a83617b1b56e4bfb9a21c2a0b8ba7ae8cbeb6",
+    "plugins/lib/store-identity.ts": "77e9b610995d4a3b21553313c71085bd1c2e462d319dd7180a400d2331681862",
+    "plugins/lib/tokenize.ts": "759cca0e4ac694c6e0af1c626b19a9f3f244d6c6a6bebb626eb65d1a2306b2c9",
+    "plugins/lib/ts-safety.ts": "e85dc8a5134dbdc4172231c248a94c27beb3466c7d3084a02e9c7f9fde2da5dc",
+    "plugins/tools/append_file.ts": "ca033618fa9d4eab8caeaaa7e7e124825b52811b8cd3a73add658fd61bba8c4d",
+    "plugins/tools/check_standards.ts": "246aa43b315e51af1a40470db40fef19dcc747e4956ff07b12bce2dee1438ea9",
+    "plugins/tools/contract_diff.ts": "c92e1018ff0708f7a4e4241cd7878e1823d4b73a9c26330acda0fd4f39b50c2b",
+    "plugins/tools/delete_file.ts": "f2a801b39ad0a2336139adf924545e66fa038911e7e37acb37be1a6d5fbb6a08",
+    "plugins/tools/edit_file.ts": "54495139a65c33e78b2aad6b3ebfdb147af9c064b548873d4d33d6c99ea748c7",
+    "plugins/tools/fetch_standard.ts": "48135a9efdf47fb2dbfa90b94d8fdc364646cc0c6cb31481c88f927b030ed764",
+    "plugins/tools/finish.ts": "85c6dfec3bea66f83698b56eca4e927f6c63a9a672f7893cdeeac720111a5677",
+    "plugins/tools/list_files.ts": "bfacc1bb4f24aac395210c789ff4f08f92c6e684492c1642b5d37088ec925fd7",
+    "plugins/tools/outline.ts": "5abecb24c320071fb5facdfabbe799225bedc5d9e69a798e9dc30488d8252454",
+    "plugins/tools/plan.ts": "1be1e3bb17b429d0e569dd0e5ff97328bfc75d72279a1a9d6305d0fb9825bea7",
+    "plugins/tools/read_file.ts": "2ca52a89263839b265f6b2c684143760d9336a6990d7e18f055349f8ce007399",
+    "plugins/tools/run_tests.ts": "24ded6cc5044b63ccbd4abd38b88bf4d4a9940d1a7dca3c8977cf86a7717fba6",
+    "plugins/tools/search_code.ts": "3945daf015359971e1de1b48b3c95151b1973cc29acf08f3b9366ef889f09703",
+    "plugins/tools/test_map.ts": "75db6fc6445653a25a36abd82534b9985fcca5ad4e95250a260204598ade684e",
+    "plugins/tools/write_file.ts": "a6513e966c5644462f543ae7f1f40003500479e4c75c0d100d1f67b9859d60a5"
+  },
+  "governance": {
+    "manifest": [
+      {
+        "kind": "check",
+        "name": "problem-json",
+        "file": "plugins/checks/problem-json.ts",
+        "sha256": "f6801bee0ca83568b1e88d37fee137ccd11b6e2e41f997dfc8684388045914ea"
+      },
+      {
+        "kind": "check",
+        "name": "rest-conventions",
+        "file": "plugins/checks/rest-conventions.ts",
+        "sha256": "c1a902e25773fe14970181d26746d9da968bfba4ee9abecaa138ff86aa9ca105"
+      },
+      {
+        "kind": "check",
+        "name": "tsc-strict",
+        "file": "plugins/checks/tsc-strict.ts",
+        "sha256": "9e5a79ab3253a919fb5ff3967cdf288ad54c8a3d99c4a72f62b1440be34c9a7a"
+      },
+      {
+        "kind": "check",
+        "name": "zod-boundary",
+        "file": "plugins/checks/zod-boundary.ts",
+        "sha256": "faf1153150bd374ae08f8fb25ac848239f0d29cb610705ee3764f96e8757e5d8"
+      },
+      {
+        "kind": "gate",
+        "name": "contract-lock",
+        "file": "plugins/gates/contract-lock.ts",
+        "sha256": "095c7a23311ed44f6e1df1f8af8d11a6d1aab83218a5afaa568a5476d688750c"
+      },
+      {
+        "kind": "gate",
+        "name": "observed-red",
+        "file": "plugins/gates/observed-red.ts",
+        "sha256": "12aeaeb7fe1f33b2f4377f428ad371b0944d1dd55c9ffce82594c79fadf041ea"
+      },
+      {
+        "kind": "gate",
+        "name": "orphans",
+        "file": "plugins/gates/orphans.ts",
+        "sha256": "28763bfb0f82061b3a35a74fa3f666aeae1bf45796b9b5db6306c30063e4e8f0"
+      },
+      {
+        "kind": "gate",
+        "name": "scope",
+        "file": "plugins/gates/scope.ts",
+        "sha256": "c27e4b4784492596d8108d357101ebb358a335244aed69ee04d9c3f79cadbbaf"
+      },
+      {
+        "kind": "gate",
+        "name": "secrets",
+        "file": "plugins/gates/secrets.ts",
+        "sha256": "b8a6f0ed7dd2f0b07eabb16a5f4aef238a63d0bcece7cd56c317bd772fa5e096"
+      },
+      {
+        "kind": "gate",
+        "name": "spec-coverage",
+        "file": "plugins/gates/spec-coverage.ts",
+        "sha256": "f0fb33d2b9b6df90fe8321a1906e18b76ae5490141927beb25a1241411fd1cf3"
+      },
+      {
+        "kind": "gate",
+        "name": "standards",
+        "file": "plugins/gates/standards.ts",
+        "sha256": "db824346effb2e7dfa5a6e17954d978c8615f9d759cf3be3c6d0a847160ffd58"
+      },
+      {
+        "kind": "gate",
+        "name": "tests-green",
+        "file": "plugins/gates/tests-green.ts",
+        "sha256": "f8a5817872ccdfb1bc68fcf6492bfaeb8914d6793e6e4dfc1f84b9204a5021c2"
+      },
+      {
+        "kind": "hook",
+        "name": "dependency-policy",
+        "file": "plugins/hooks/dependency-policy.ts",
+        "sha256": "b05eedebe9646df9416fedcd87a459c67af7235fb9ad9339d53bd1739fd22985"
+      },
+      {
+        "kind": "hook",
+        "name": "elision-guard",
+        "file": "plugins/hooks/elision-guard.ts",
+        "sha256": "d29f5e58fa814d2fcf8bcef85a2f2a9e4245fd8f811ef0d2ef847977543d8012"
+      },
+      {
+        "kind": "hook",
+        "name": "observed-red",
+        "file": "plugins/hooks/observed-red.ts",
+        "sha256": "28ee243ef3aa0f679d5014afedfda40fd40e65af1f7657c19fd7ca1c6f396eca"
+      },
+      {
+        "kind": "hook",
+        "name": "path-guard",
+        "file": "plugins/hooks/path-guard.ts",
+        "sha256": "57f64a2d471e0f8886b53a3522373424847c82a6a9209780b2e70b483a8ff6ee"
+      },
+      {
+        "kind": "hook",
+        "name": "secret-guard",
+        "file": "plugins/hooks/secret-guard.ts",
+        "sha256": "2c9a270abdcf20eb02cfe1c183a403d7283d9785f2adccb59e4e8c1e31c53502"
+      },
+      {
+        "kind": "hook",
+        "name": "source-boundary",
+        "file": "plugins/hooks/source-boundary.ts",
+        "sha256": "e8f3968919e78fc5c16cb783dcd02c54fa8a420072efc7838f402d57cfbaefe6"
+      },
+      {
+        "kind": "hook",
+        "name": "test-preservation",
+        "file": "plugins/hooks/test-preservation.ts",
+        "sha256": "4e5670dba06db8e4681f90db2f6746b6b05727cf18dc2b72dd43d841bf079cbc"
+      },
+      {
+        "kind": "hook",
+        "name": "typecheck-feedback",
+        "file": "plugins/hooks/typecheck-feedback.ts",
+        "sha256": "204ef64bbeaed3c9d254e55ca814852f99cd3b3e8f752487cb02105e777dc063"
+      },
+      {
+        "kind": "hook",
+        "name": "unsafe-code-guard",
+        "file": "plugins/hooks/unsafe-code-guard.ts",
+        "sha256": "ef68da9c5714176ebb34149ad444c9a996cd4d9ad20d035a664b34cc5b4250f1"
+      },
+      {
+        "kind": "tool",
+        "name": "append_file",
+        "file": "plugins/tools/append_file.ts",
+        "sha256": "ca033618fa9d4eab8caeaaa7e7e124825b52811b8cd3a73add658fd61bba8c4d"
+      },
+      {
+        "kind": "tool",
+        "name": "check_standards",
+        "file": "plugins/tools/check_standards.ts",
+        "sha256": "246aa43b315e51af1a40470db40fef19dcc747e4956ff07b12bce2dee1438ea9"
+      },
+      {
+        "kind": "tool",
+        "name": "contract_diff",
+        "file": "plugins/tools/contract_diff.ts",
+        "sha256": "c92e1018ff0708f7a4e4241cd7878e1823d4b73a9c26330acda0fd4f39b50c2b"
+      },
+      {
+        "kind": "tool",
+        "name": "delete_file",
+        "file": "plugins/tools/delete_file.ts",
+        "sha256": "f2a801b39ad0a2336139adf924545e66fa038911e7e37acb37be1a6d5fbb6a08"
+      },
+      {
+        "kind": "tool",
+        "name": "edit_file",
+        "file": "plugins/tools/edit_file.ts",
+        "sha256": "54495139a65c33e78b2aad6b3ebfdb147af9c064b548873d4d33d6c99ea748c7"
+      },
+      {
+        "kind": "tool",
+        "name": "fetch_standard",
+        "file": "plugins/tools/fetch_standard.ts",
+        "sha256": "48135a9efdf47fb2dbfa90b94d8fdc364646cc0c6cb31481c88f927b030ed764"
+      },
+      {
+        "kind": "tool",
+        "name": "finish",
+        "file": "plugins/tools/finish.ts",
+        "sha256": "85c6dfec3bea66f83698b56eca4e927f6c63a9a672f7893cdeeac720111a5677"
+      },
+      {
+        "kind": "tool",
+        "name": "list_files",
+        "file": "plugins/tools/list_files.ts",
+        "sha256": "bfacc1bb4f24aac395210c789ff4f08f92c6e684492c1642b5d37088ec925fd7"
+      },
+      {
+        "kind": "tool",
+        "name": "outline",
+        "file": "plugins/tools/outline.ts",
+        "sha256": "5abecb24c320071fb5facdfabbe799225bedc5d9e69a798e9dc30488d8252454"
+      },
+      {
+        "kind": "tool",
+        "name": "plan",
+        "file": "plugins/tools/plan.ts",
+        "sha256": "1be1e3bb17b429d0e569dd0e5ff97328bfc75d72279a1a9d6305d0fb9825bea7"
+      },
+      {
+        "kind": "tool",
+        "name": "read_file",
+        "file": "plugins/tools/read_file.ts",
+        "sha256": "2ca52a89263839b265f6b2c684143760d9336a6990d7e18f055349f8ce007399"
+      },
+      {
+        "kind": "tool",
+        "name": "run_tests",
+        "file": "plugins/tools/run_tests.ts",
+        "sha256": "24ded6cc5044b63ccbd4abd38b88bf4d4a9940d1a7dca3c8977cf86a7717fba6"
+      },
+      {
+        "kind": "tool",
+        "name": "search_code",
+        "file": "plugins/tools/search_code.ts",
+        "sha256": "3945daf015359971e1de1b48b3c95151b1973cc29acf08f3b9366ef889f09703"
+      },
+      {
+        "kind": "tool",
+        "name": "test_map",
+        "file": "plugins/tools/test_map.ts",
+        "sha256": "75db6fc6445653a25a36abd82534b9985fcca5ad4e95250a260204598ade684e"
+      },
+      {
+        "kind": "tool",
+        "name": "write_file",
+        "file": "plugins/tools/write_file.ts",
+        "sha256": "a6513e966c5644462f543ae7f1f40003500479e4c75c0d100d1f67b9859d60a5"
+      }
+    ],
+    "config": {
+      "pluginDirs": [
+        "plugins"
+      ],
+      "disabled": [],
+      "protectedBranches": [
+        "main",
+        "master",
+        "develop",
+        "trunk",
+        "release/*",
+        "production"
+      ],
+      "templatesDir": "templates",
+      "history": {
+        "keepRecentTurns": 2
+      },
+      "limits": {
+        "maxReadLines": 160,
+        "maxListEntries": 200,
+        "maxSearchHits": 40
+      },
+      "sandbox": "auto"
+    },
+    "configSha256": "912e8fad0fa080e8b2e512f16e79b8d0a01ebb85a1a1e33906bb5dcc28a26e1e",
+    "core": {
+      "sha256": "fb1236f9d60dd8a2e36e3562fc7e6c84eaaf0d9b7a569d78d21a62eabcfb04a8",
+      "files": {
+        "src/core/checks.ts": "dba6e6acb2e6cb08b25d1d31e5e964443542af3bffdc971c1acc154c4fb48b10",
+        "src/core/cli.ts": "d1ad42a6eb37b2cb99ec6680391d1d6bd63411765feb96d5f3a51c2b730f3a30",
+        "src/core/config.ts": "90c094975a0038c14498f6f4a3fc8821c21e71e109bd966f7e16daa79841783d",
+        "src/core/context.ts": "ae7301ad543ca16600a540406ef99534d7dd3fc85da4e5b053e546656cc7a848",
+        "src/core/exec.ts": "70ac36dae502e8aaebba341f808415d71ede60eda38a237d2166e2bceebd85a1",
+        "src/core/gates.ts": "4a6b13b603db94f6f8ff96254ec748e3560b08067aceac31884080a21795f2cc",
+        "src/core/governance.ts": "a07b281094d06fb1d86ac5071523139a6ddaf7ca082a92525ae7b5a4cadbd739",
+        "src/core/hooks.ts": "812356754c09a2d0f6640e4ed6568b8d333aff17eab05dcde83169a0b4ee4535",
+        "src/core/initial.ts": "cf932488a5d173377a798a1a554a1450f79d1adf3a5bcd8cf6a4d37ba80ea69a",
+        "src/core/loop.ts": "af0794f8182214bde6295a244b8a6ead4044155bcfab59665fdcf005500a8af6",
+        "src/core/node-test-reporter.mjs": "1a10acd00028a740667db7674cbb02457288458d1001d7daf46aa8f78673e6a6",
+        "src/core/plugin-api.ts": "567d0944f3e5fb7dfc9264aa901461c96b1d864283864874fbfc2f6f997487b1",
+        "src/core/prompt.ts": "bd071d7ba3bb6a0dd3d9a22e4aa3e119b78ac3c8ddf1995b8e0d4f5426d02fbe",
+        "src/core/registry.ts": "50dced0bacbb969bf5e1711757520646badedae516149725f66fad2fd55b0a78",
+        "src/core/run-store.ts": "0783cd6a039dc3954618723ebebda941c154f1887121a7967a6ba5df101984d7",
+        "src/core/run.ts": "c4cbacc596f2133bc0438e034f688592a1781ab93584d9de2b5d10c339281ad9",
+        "src/core/sandbox.ts": "3797551216ad63198bf1825384b32be14ad92a40c648892caec51720da7c2da0",
+        "src/core/services.ts": "1770697ec76543fe44eced1191fd7efdf17c6cb898b6bfad77d4ee4802a00831",
+        "src/core/ship.ts": "f1b56e63c4fd255466b91a3a8da7d4ddf10e6974fadeb528822a843bcefd7d6d",
+        "src/core/target.ts": "882766ee8276a31e054036dbaaa8584841bb10a24f60c9f8eefd0715e554a7fd",
+        "src/core/task-normalize.ts": "f0d1930bd1c6e50f42b67beb8149dda57206a3e0c8a49b87137c14405fabfb7d",
+        "src/core/task.ts": "f296f14b18c04b233a59fa008b337eb82138697668839983c5709481f90794d9",
+        "src/core/template.ts": "bed6f1227d55b0af385738eb7f0bb085bc056368cc5b108990c32abdf59c6f54",
+        "src/core/test-baseline.ts": "782a8064da14a6d51ccaa8b6b707fdb0107a004c13b49c59107a2effdf34c5bd",
+        "src/core/testing.ts": "9028f20f96aca80db799581047a1b36cd5a7619b85d3a3e19b26f89f90879017",
+        "src/core/testmap.ts": "1acea1475b5776182c1156b253e5b794f585aeb6fb437138c9d6b023cb25bef0",
+        "src/core/tokens.ts": "0e76b5cdd7e62fc02abda800552804a61997d87735f04c8a2f0ad1c33b88e315",
+        "src/core/ts-fence.ts": "42ea59fc2c0bb41255db66d0c29561957c30e781a69a9d6865f6174bcf698635",
+        "src/core/typecheck.ts": "d94f6c699260c146b6c652346e2c0512cfe7024a774d0b5a04b1a0682364c4cf",
+        "src/core/types.ts": "5030e47bc761b34b2c6f46f3ef6c2cbd566107dab5f82a68ba972bc018d5cf29",
+        "src/core/workspace.ts": "3b3d48ce76ea2b36e3d720c927da373dc061eec11218cc6726d558a4e2c4e6ae"
+      }
+    }
+  },
+  "toolsOffered": [
+    "append_file",
+    "check_standards",
+    "contract_diff",
+    "delete_file",
+    "edit_file",
+    "fetch_standard",
+    "finish",
+    "list_files",
+    "outline",
+    "plan",
+    "read_file",
+    "run_tests",
+    "search_code",
+    "test_map",
+    "write_file"
+  ],
+  "turnLimit": {
+    "max": 40,
+    "source": "task"
+  },
+  "checksRegistered": [
+    "problem-json",
+    "rest-conventions",
+    "tsc-strict",
+    "zod-boundary"
+  ],
+  "isolation": {
+    "mode": "auto",
+    "mechanism": "sandbox-exec",
+    "policy": "agent code: reads only its worktree, node_modules and toolchain; writes only to a per-call temp dir; env allow-list; network loopback only"
+  },
+  "target": {
+    "framework": {
+      "name": "express",
+      "version": "5.2.1",
+      "supported": true
+    },
+    "runner": {
+      "kind": "vitest",
+      "name": "vitest 5.0.3",
+      "supported": true,
+      "origin": "harness",
+      "bin": "/Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs",
+      "evidence": "package.json scripts.test: vitest run"
+    },
+    "sourceRoots": [
+      "src"
+    ],
+    "testRoots": [
+      "test"
+    ],
+    "testSupportRoots": [
+      "test"
+    ],
+    "testGlobs": [
+      "test/**/*.test.ts"
+    ],
+    "testRegex": [],
+    "resolution": {
+      "tsconfig": "/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-145143/samples/existing-api/tsconfig.json",
+      "baseUrl": null,
+      "paths": [],
+      "aliases": []
+    },
+    "entryCandidates": [
+      "src/server.ts",
+      "src/app.ts"
+    ],
+    "dependencies": {
+      "express": {
+        "version": "5.2.1",
+        "origin": "harness",
+        "declared": "5.2.1"
+      },
+      "zod": {
+        "version": "4.6.5",
+        "origin": "harness",
+        "declared": "4.6.5"
+      },
+      "vitest": {
+        "version": "5.0.3",
+        "origin": "harness",
+        "declared": "5.0.3"
+      },
+      "typescript": {
+        "version": "6.0.3",
+        "origin": "harness",
+        "declared": "6.0.3"
+      },
+      "tsx": {
+        "version": "4.23.15",
+        "origin": "harness",
+        "declared": "4.23.15"
+      },
+      "supertest": {
+        "version": "7.3.1",
+        "origin": "harness",
+        "declared": "7.3.1"
+      }
+    },
+    "zod": {
+      "version": "4.6.5",
+      "major": 4,
+      "origin": "harness",
+      "converter": "toJSONSchema"
+    },
+    "notes": [],
+    "unsupported": []
+  },
+  "initialModel": "gpt-5.6-luna",
+  "status": "error",
+  "ok": false,
+  "turns": 8,
+  "error": "driver.complete failed after 4 attempts: 429 You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.",
+  "finishedAt": "2026-10-04T14:53:44.264Z",
+  "finishAttempts": 0,
+  "gatesOk": false,
+  "gates": [
+    {
+      "gate": "contract-lock",
+      "status": "pass",
+      "summary": "contract preserved (4 → 4 endpoints, via runtime): 1 additive (GET /v1/projects query.status: new optional property)",
+      "logPath": "runs/projects-change-openai-20261004-145143/logs/009-contract-diff.txt"
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "1 red observations (1 test files); 2 changed source files went red -> green (2 on unchanged cases, 0 on edited cases by differential proof), red again with the original source (each file reverted alone)"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "no new non-test files"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "3 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "n/a",
+      "summary": "not applicable to brownfield tasks"
+    },
+    {
+      "gate": "standards",
+      "status": "pass",
+      "summary": "verdict 100% (4 rules)"
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "3 of 22 tests failed in 1 files",
+      "details": [
+        "tests: 3 failed, 19 passed (22) in 1 files",
+        "FAIL test/projects.test.ts > project deletion and status filtering > deletes a project with 204 and then returns 404: expected 404 to be 204 // Object.is equality",
+        "FAIL test/projects.test.ts > project deletion and status filtering > returns a problem for deleting an unknown or malformed id: expected 404 to be 422 // Object.is equality",
+        "FAIL test/projects.test.ts > project deletion and status filtering > rejects a second delete: Error: expected 204 \"No Content\", got 404 \"Not Found\""
+      ],
+      "logPath": "runs/projects-change-openai-20261004-145143/logs/019-vitest.txt"
+    }
+  ],
+  "verdict": "NOT DONE (loop ended error)",
+  "gateStatuses": {
+    "contract-lock": "pass",
+    "observed-red": "pass",
+    "orphans": "pass",
+    "scope": "pass",
+    "spec-coverage": "n/a",
+    "standards": "pass",
+    "tests-green": "fail"
+  },
+  "standards": {
+    "verdict": {
+      "status": "pass",
+      "percent": 100
+    },
+    "rules": [
+      {
+        "rule": "problem-json",
+        "category": "standards",
+        "unit": "error paths",
+        "status": "pass",
+        "passed": 29,
+        "total": 29,
+        "files": 7
+      },
+      {
+        "rule": "rest-conventions",
+        "category": "standards",
+        "unit": "routes",
+        "status": "pass",
+        "passed": 4,
+        "total": 4,
+        "files": 1
+      },
+      {
+        "rule": "tsc-strict",
+        "category": "standards",
+        "unit": "errors",
+        "status": "pass",
+        "passed": 1,
+        "total": 1,
+        "files": 1
+      },
+      {
+        "rule": "zod-boundary",
+        "category": "standards",
+        "unit": "handlers",
+        "status": "pass",
+        "passed": 4,
+        "total": 4,
+        "files": 1
+      }
+    ]
+  },
+  "tokens": {
+    "actual_input_tokens": 42121,
+    "baseline_input_tokens": 104120,
+    "reduction_pct": 59.5,
+    "provider_reported_input_tokens": 40303,
+    "output_tokens": 1710,
+    "turns": 8,
+    "baseline_kind": "shadow",
+    "provider_usage": "reported",
+    "path": "tokens/projects-change-openai-20261004-145143.json"
+  },
+  "evidence": {
+    "runJson": "runs/projects-change-openai-20261004-145143/run.json",
+    "events": "runs/projects-change-openai-20261004-145143/events.jsonl",
+    "transcript": "runs/projects-change-openai-20261004-145143/transcript.jsonl",
+    "gates": "runs/projects-change-openai-20261004-145143/gates.json",
+    "standards": "runs/projects-change-openai-20261004-145143/standards.txt",
+    "state": "runs/projects-change-openai-20261004-145143/state.json",
+    "tokens": "tokens/projects-change-openai-20261004-145143.json"
+  },
+  "honesty": {
+    "proven": [
+      "gate:contract-lock",
+      "gate:observed-red",
+      "gate:orphans",
+      "gate:scope",
+      "gate:standards",
+      "check:problem-json",
+      "check:rest-conventions",
+      "check:tsc-strict",
+      "check:zod-boundary",
+      "isolation:sandbox-exec (agent code: reads only its worktree, node_modules and toolchain; writes only to a per-call temp dir; env allow-list; network loopback only)"
+    ],
+    "failed": [
+      "gate:tests-green (3 of 22 tests failed in 1 files)"
+    ],
+    "unproven": [],
+    "notApplicable": [
+      "gate:spec-coverage"
+    ],
+    "humanMustVerify": [
+      "behaviour semantics beyond the tests the agent wrote",
+      "that the agent-written tests cover every listed behaviour",
+      "that each accepted red tested the intended behaviour (any failing non-constant assertion on src/ code counts as red)",
+      "persistence, performance, security and concurrency beyond what the tests exercise",
+      "behaviour changes that keep the contract shape (the contract lock compares schemas and status codes only)"
+    ]
+  }
+}

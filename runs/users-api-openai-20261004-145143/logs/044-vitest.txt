@@ -1,0 +1,19 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-67992-281ac6ce/3a419f096b88/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 0
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-67992-281ac6ce/3a419f096b88/generated/users-api
+
+ ✓ test/users.test.ts (5 tests) 56ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  19:57:02
+   Duration  246ms (import 50%, tests 32%, transform 17%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":2,"numFailedTestSuites":0,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":5,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1791125822011,"success":true,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes users","status":"passed","title":"creates, gets, updates and deletes users","duration":30.060791999999992,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates inputs and reports malformed JSON","status":"passed","title":"validates inputs and reports malformed JSON","duration":7.712500000000006,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API enforces unique email","status":"passed","title":"enforces unique email","duration":3.829207999999994,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API paginates with cursors","status":"passed","title":"paginates with cursors","duration":9.066374999999994,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed reuse","status":"passed","title":"replays idempotent creates and rejects changed reuse","duration":4.397291999999993,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1791125822203,"endTime":1791125822258.3972,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-67992-281ac6ce/3a419f096b88/generated/users-api/test/users.test.ts"}]}
