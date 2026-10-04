@@ -19,6 +19,12 @@ export type * from './types.ts';
 /** The harness's single definition of a runnable test file and of test support code (see testmap.ts). */
 export { isTestFile, isTestSupport } from './testmap.ts';
 
+/** A scaffold template's manifest (templates/<name>/harness.template.json), or null. */
+export { templateManifest } from './template.ts';
+/** The API's strict type check behind ctx.program() (forced flags, every TS file, references; see typecheck.ts). */
+export { FORCED_FLAGS, typecheckOf } from './typecheck.ts';
+export type { TypeDiagnostic, Typecheck, TypecheckResult } from './typecheck.ts';
+
 export function defineDriver(p: Omit<DriverPlugin, 'kind'>): DriverPlugin {
   return { kind: 'driver', ...p };
 }

@@ -1,0 +1,14 @@
+# `name` instead of id, `description` free text, behaviours as one multi-line string.
+kind: greenfield
+name: Library Loans
+description: |
+  Members borrow books. A loan is open until returned.
+output: generated/loans-api
+resources:
+  - name: loan
+    fields:
+      - {name: memberEmail, type: email, required: true}
+      - {name: dueDate, type: datetime, required: true}
+behaviours: |
+  - Creating a loan returns 201.
+  - A loan with dueDate in the past is rejected with 422.

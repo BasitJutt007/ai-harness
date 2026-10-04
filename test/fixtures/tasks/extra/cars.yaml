@@ -1,0 +1,7 @@
+title: Car dealership
+models:
+  car:
+    fields:
+      make: string, required
+      model: string, required
+      year: integer, min 1900

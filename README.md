@@ -50,7 +50,7 @@ src/core/        engine: loop, hook bus, gates runner, context/compaction, token
 plugins/         drivers/ tools/ hooks/ gates/ checks/   (+ lib/ helpers, never loaded as plugins)
 templates/       greenfield scaffold (express-zod)
 samples/         brownfield sample API (existing-api: a projects API)
-tasks/           task files (provider-free; unknown keys such as `model:` are rejected)
+tasks/           task files (provider-free: `model:`/`provider:` keys are rejected; format: docs/task-format.md)
 examples/plugins ready-to-drop extensions: openapi_diff tool, ORM validator, lint rule
 runs/ tokens/    evidence written by the harness on every run
 ```
@@ -141,7 +141,11 @@ clients: `plugins/lib/contract.ts` extracts the public contract (every route, pl
 JSON Schemas of params/query/body/headers and of each 2xx response, generated from the
 actual Zod schemas at runtime) from both the base commit and the worktree, then diffs them.
 Removed routes, new required request fields, narrowed enums, removed or now-optional
-response fields and changed types are **breaking**. The `contract-lock` gate refuses finish
+response fields, changed types, request constraints that narrow (bounds, lengths, pattern, format,
+multipleOf, a closed object, a changed default) or response constraints that widen, and a new 4xx
+on an existing endpoint are **breaking**. A schema change JSON Schema cannot show (`.refine`),
+validation that moves out of sight and a POST/PUT/PATCH body read without an extractable schema
+are UNPROVEN, never "preserved". The `contract-lock` gate refuses finish
 and ship unless the task sets `allowBreaking: true`. The model can check itself first with
 the `contract_diff` tool. Evidence: the scripted run `projects-change-scripted-…172537`
 (script `projects-breaking.json`) appends one red test, leaves every existing test untouched,
@@ -270,3 +274,20 @@ Run the harness's own suite with `npm run verify` (strict `tsc`, then the Vitest
 including end-to-end runs in throwaway git repositories). Its budget and extensibility
 assertions cover the shipped plugins and the examples only, so it stays green after you
 drop your own tool, ORM validator or lint rule into `plugins/`.
+
+## Generality and hardening update (4 Oct)
+
+After an audit showed the harness was fitted to its own template and sample, these landed:
+- **Task files:** a lenient, deterministic front end accepts other task-file shapes, including plain-English briefs (`docs/task-format.md`, `harness task check <file>`). Provider keys are still rejected.
+- **App discovery:** probes find the app in any Express layout (factory, exported or default app, or an entry file that calls `listen()`), not only `src/app.ts#createApp`.
+- **Static analyzers:** judge meaning rather than template syntax (constant paths, middleware validation, status codes by type, problem classes by behaviour).
+- **tsc-strict:** forces every strict sub-flag and type-checks every TypeScript file.
+- **Contract Lock:** diffs constraint keywords.
+- **Brownfield standards:** compared to a baseline taken at run start, so pre-existing violations in untouched files no longer deadlock a run.
+- **Sandbox:** agent code gets a read fence and an environment allow-list.
+
+**Known gaps:**
+- tsc-strict now type-checks in-process, outside the read fence.
+- Nothing yet compares the API against the resources and operations the task listed, so DONE can be reached with a resource missing.
+- Not done yet: a target profile for other layouts and test runners (vitest only), an honest real `--baseline` run, and generalised hooks.
+- The DONE evidence runs predate these changes.

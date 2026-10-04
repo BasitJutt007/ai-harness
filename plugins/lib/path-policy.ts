@@ -12,6 +12,7 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
+import { templateManifest } from '../../src/core/plugin-api.ts';
 import type { Task, Workspace } from '../../src/core/plugin-api.ts';
 
 /** Files nobody but the harness may write, in any task kind (API-relative globs, matched case-insensitively). */
@@ -36,8 +37,14 @@ export const BUILTIN_DENY = [
   '**/.*/**',
 ];
 
-/** Greenfield: the scaffold's runtime library and entry point are read-only. */
-export const GREENFIELD_DENY = ['src/lib/**', 'src/server.ts'];
+/**
+ * Greenfield: what the template's manifest (templates/<name>/harness.template.json, `readOnly`)
+ * declares read-only, e.g. its runtime library and entry point. A template without a manifest
+ * declares nothing beyond BUILTIN_DENY.
+ */
+export function greenfieldReadOnly(template: string): string[] {
+  return templateManifest(template)?.readOnly ?? [];
+}
 
 /** Greenfield: the agent writes source and tests only. */
 export const GREENFIELD_ALLOW = ['src/**/*.ts', 'test/**/*.ts'];
@@ -126,8 +133,9 @@ export function writePolicy(task: Task, rel: string): PolicyDecision {
     return { allowed: false, reason: `${rel} is not a .ts file; only TypeScript source and tests may be written` };
   }
   if (task.kind === 'greenfield') {
-    if (matcher(GREENFIELD_DENY, true)(rel)) {
-      return { allowed: false, reason: `${rel} is part of the read-only scaffold (src/lib/**, src/server.ts); import from it instead` };
+    const readOnly = greenfieldReadOnly(task.template);
+    if (matcher(readOnly, true)(rel)) {
+      return { allowed: false, reason: `${rel} is part of the read-only scaffold (${readOnly.join(', ')}); import from it instead` };
     }
     if (!matcher(GREENFIELD_ALLOW)(rel)) {
       return { allowed: false, reason: `${rel} is outside the greenfield write scope (${GREENFIELD_ALLOW.join(', ')})` };

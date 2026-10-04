@@ -6,7 +6,8 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
-import { compactTree, SCAFFOLD_API_GLOBS, scaffoldApi, scaffoldApiOf, taskBrief } from '../../src/core/prompt.ts';
+import { compactTree, scaffoldApi, scaffoldApiOf, taskBrief } from '../../src/core/prompt.ts';
+import { templateManifest } from '../../src/core/template.ts';
 import type { Task } from '../../src/core/types.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import { GREENFIELD } from './fakes.ts';
@@ -35,8 +36,11 @@ describe('scaffoldApi', () => {
 
   it('over the shipped template: the helper API, not the server entry or the tests, in a few hundred tokens', async () => {
     const ws = createWorkspace(join(HARNESS_ROOT, 'templates'), 'express-zod');
-    const api = await scaffoldApiOf(ws);
-    expect(SCAFFOLD_API_GLOBS).toEqual(['src/lib/**/*.ts', 'src/app.ts', 'src/routes/index.ts']);
+    // the signature globs come from the template's own manifest, not from core code
+    const manifest = templateManifest('express-zod');
+    expect(manifest?.signatureGlobs).toEqual(['src/lib/**/*.ts', 'src/app.ts', 'src/routes/index.ts']);
+    const api = await scaffoldApiOf(ws, manifest);
+    expect(await scaffoldApiOf(ws)).toBe(api); // the default template's manifest by default
     expect(api).toMatch(/^src\/app\.ts:\d+ {2}export function createApp\(\)/m);
     expect(api).toMatch(/^src\/routes\/index\.ts:\d+ {2}export function registerRoutes\(app: Router\): void$/m);
     expect(api).toMatch(/^src\/lib\/problem\.ts:\d+ {2}export function notFound\(/m);

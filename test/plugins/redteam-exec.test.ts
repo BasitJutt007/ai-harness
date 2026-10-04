@@ -17,12 +17,22 @@ const KEYS = {
   GH_TOKEN: ['ghp', 'redteam111111111111111111111111'].join('_'),
   AWS_SECRET_ACCESS_KEY: 'redteam',
   NPM_TOKEN: 'redteam',
+  // shapes the old name filter let through: connection strings, cloud key ids, PATs, webhooks
+  DATABASE_URL: 'postgres://redteam:redteam@127.0.0.1:5/redteam',
+  AWS_ACCESS_KEY_ID: 'AKIAREDTEAM000000000',
+  GITHUB_PAT: 'redteam-pat',
+  SLACK_WEBHOOK_URL: 'https://hooks.invalid/redteam',
+};
+/** Toolchain-steering variables: fine for trusted children, never for generated code. */
+const CONFINED_ONLY = {
+  NODE_OPTIONS: '--title=redteam-node-options',
+  NODE_PATH: '/redteam/node_path',
 };
 const saved = new Map<string, string | undefined>();
 const dirs: string[] = [];
 
 beforeAll(() => {
-  for (const [k, v] of Object.entries(KEYS)) {
+  for (const [k, v] of Object.entries({ ...KEYS, ...CONFINED_ONLY })) {
     saved.set(k, process.env[k]);
     process.env[k] = v;
   }
@@ -46,7 +56,7 @@ describe('provider and forge credentials never reach generated code', () => {
       path.join(root, 'vitest.config.ts'),
       "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['test/**/*.test.ts'], cache: false } });\n",
     );
-    const names = JSON.stringify(Object.keys(KEYS));
+    const names = JSON.stringify([...Object.keys(KEYS), ...Object.keys(CONFINED_ONLY)]);
     writeFileSync(
       path.join(root, 'test', 'env.test.ts'),
       [

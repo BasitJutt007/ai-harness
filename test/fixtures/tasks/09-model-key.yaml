@@ -1,0 +1,9 @@
+kind: greenfield
+id: users-api
+title: Users API
+output: generated/users-api
+model: gpt-x
+resources:
+  - name: user
+    fields:
+      - {name: email, type: email, required: true, unique: true}

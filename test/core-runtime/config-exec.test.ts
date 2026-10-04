@@ -57,12 +57,24 @@ describe('exec', () => {
       DB_PASSWORD: 'f',
       KEEP_ME: 'g',
       TOKENIZER: 'h',
+      DATABASE_URL: 'i',
+      AWS_ACCESS_KEY_ID: 'j',
+      GITHUB_PAT: 'k',
+      SENTRY_DSN: 'l',
+      SLACK_WEBHOOK_URL: 'm',
+      SERVICE_URI: 'mongodb://user:pass@db.invalid/x',
+      AUTHOR_NAME: 'n',
+      PUBLIC_KEY: 'o',
     });
-    for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_BASE_URL', 'MY_API_KEY', 'GITHUB_TOKEN', 'CLIENT_SECRET_X', 'DB_PASSWORD']) {
-      expect(env[k]).toBeUndefined();
+    for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_BASE_URL', 'MY_API_KEY', 'GITHUB_TOKEN', 'CLIENT_SECRET_X', 'DB_PASSWORD',
+      'DATABASE_URL', 'AWS_ACCESS_KEY_ID', 'GITHUB_PAT', 'SENTRY_DSN', 'SLACK_WEBHOOK_URL', 'SERVICE_URI']) {
+      expect(env[k], k).toBeUndefined();
     }
     expect(env.KEEP_ME).toBe('g');
     expect(env.TOKENIZER).toBe('h');
+    // look-alikes the old name filter wrongly stripped
+    expect(env.AUTHOR_NAME).toBe('n');
+    expect(env.PUBLIC_KEY).toBe('o');
     expect(env.PATH).toBeDefined();
   });
 

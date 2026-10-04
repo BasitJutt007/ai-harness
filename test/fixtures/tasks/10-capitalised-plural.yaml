@@ -1,0 +1,12 @@
+# Near-canonical but natural-language names: "User", "Order Item", field "created_by", operations "read"/"patch".
+kind: greenfield
+id: Shop_API
+title: Shop API
+output: ./generated/shop-api
+resources:
+  - name: Order Item
+    fields:
+      - {name: quantity, type: int, required: true, minimum: 1}
+      - {name: unit_price, type: float, required: true}
+      - {name: id, type: uuid}
+    operations: [list, read, create, patch, delete]

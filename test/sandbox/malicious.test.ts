@@ -3,8 +3,11 @@
  * malicious schema module (imported by the contract runtime) and a malicious createApp
  * (imported by the probe runtime) each try to: write into the API root and outside it, rm -rf a sibling
  * "original checkout", `git commit` in it, connect to a non-loopback address, read a provider
- * key from the env and list a credential store. All of it must fail, the harness must still
- * report the run, and the original checkout must be byte-for-byte untouched.
+ * key from the env and list a credential store. They also try the read side: a credentials file in a
+ * home-like dir, the sibling checkout's .git, a listing of the dir around the API, another run's temp
+ * dir, and connection-string / cloud-key / NODE_OPTIONS variables planted in the harness's env (LANG
+ * must still arrive). All of it must fail, the harness must still report the run, and the original
+ * checkout must be byte-for-byte untouched.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,12 +24,17 @@ import {
   attackResult,
   attackSource,
   BLOCKED_EVERYWHERE,
+  blockedReads,
+  ENV_CANARIES,
   ENV_KEY,
   existingSecretDir,
   layout,
   loopbackServer,
+  plantEnvCanaries,
+  readCanaries,
   untouched,
   type Layout,
+  type ReadCanaries,
 } from './helpers.ts';
 
 const mechanism = detectMechanism();
@@ -50,13 +58,26 @@ function recordingExec(calls: Array<{ cmd: string; opts: ExecOptions; stdout: st
 
 let l: Layout;
 let server: { port: number; close: () => Promise<void> };
+let reads: ReadCanaries;
+let restoreEnv: () => void;
 const secretDir = existingSecretDir();
 
 beforeAll(async () => {
   process.env[ENV_KEY] = 'leak-me';
+  restoreEnv = plantEnvCanaries();
   l = layout('malicious');
+  reads = readCanaries(l);
   server = await loopbackServer();
-  const targets = { outside: l.outside, sibling: l.original, repo: l.original, apiFile: join(l.api, 'src', 'pwned.ts'), loopbackPort: server.port, secretDir };
+  const targets = {
+    outside: l.outside,
+    sibling: l.original,
+    repo: l.original,
+    apiFile: join(l.api, 'src', 'pwned.ts'),
+    loopbackPort: server.port,
+    secretDir,
+    reads,
+    envNames: [ENV_KEY, ...Object.keys(ENV_CANARIES)],
+  };
   writeFileSync(join(l.api, 'attack.mjs'), attackSource(targets));
   // (1) a malicious vitest test: records what happened (in its TMPDIR, the only writable place),
   // then asserts the attacks worked (so it FAILS when confined).
@@ -94,7 +115,9 @@ export function createApp() { return express(); }
 
 afterAll(async () => {
   delete process.env[ENV_KEY];
+  restoreEnv();
   await server.close();
+  reads.cleanup();
   l.cleanup();
 });
 
@@ -115,7 +138,7 @@ describe.runIf(mechanism !== 'none')(`malicious agent code under ${mechanism}`, 
     const json: unknown = JSON.parse(readFileSync(report, 'utf8'));
     expect(json).toMatchObject({ numFailedTests: 1, numPassedTests: 0 });
     const attempts: unknown = JSON.parse(readFileSync(join(l.runTmp, ATTACK_LOG), 'utf8'));
-    expect(attempts).toMatchObject({ ...BLOCKED_EVERYWHERE, writeApi: 'EPERM' });
+    expect(attempts).toMatchObject({ ...BLOCKED_EVERYWHERE, ...blockedReads(), writeApi: 'EPERM' });
     expect(attempts).not.toMatchObject({ gitCommit: 'ok' });
     if (darwin) expect(attempts).toMatchObject({ netLoopback: 'ok' });
     if (secretDir !== null) expect(attempts).not.toMatchObject({ readSecrets: 'ok' });
@@ -132,7 +155,7 @@ describe.runIf(mechanism !== 'none')(`malicious agent code under ${mechanism}`, 
     expect(rep.ok).toBe(false);
     expect(rep.totals).toMatchObject({ failed: 1, passed: 0 });
     const attempts: unknown = JSON.parse(call?.attackLog ?? 'null');
-    expect(attempts).toMatchObject({ ...BLOCKED_EVERYWHERE, writeApi: 'EPERM' });
+    expect(attempts).toMatchObject({ ...BLOCKED_EVERYWHERE, ...blockedReads(), writeApi: 'EPERM' });
     expect(attempts).not.toMatchObject({ gitCommit: 'ok' });
     expectOriginalUntouched();
   }, 120_000);
@@ -145,7 +168,7 @@ describe.runIf(mechanism !== 'none')(`malicious agent code under ${mechanism}`, 
     expect(calls[0]?.opts.sandbox?.network).toBe('none');
     expect(calls[0]?.sandbox).toBe(mechanism);
     const attempts = attackResult(calls[0]?.stdout ?? '');
-    expect(attempts).toMatchObject({ ...BLOCKED_EVERYWHERE, writeApi: 'EPERM' });
+    expect(attempts).toMatchObject({ ...BLOCKED_EVERYWHERE, ...blockedReads(), writeApi: 'EPERM' });
     expect(attempts).not.toMatchObject({ gitCommit: 'ok' });
     if (darwin) expect(attempts).toMatchObject({ netLoopback: 'EPERM' });
     expectOriginalUntouched();
@@ -160,7 +183,7 @@ describe.runIf(mechanism !== 'none')(`malicious agent code under ${mechanism}`, 
     expect(call?.opts.sandbox?.network).toBe('localhost');
     expect(call?.sandbox).toBe(mechanism);
     const attempts = attackResult(call?.stdout ?? '');
-    expect(attempts).toMatchObject({ ...BLOCKED_EVERYWHERE, writeApi: 'EPERM' });
+    expect(attempts).toMatchObject({ ...BLOCKED_EVERYWHERE, ...blockedReads(), writeApi: 'EPERM' });
     expect(attempts).not.toMatchObject({ gitCommit: 'ok' });
     if (darwin) expect(attempts).toMatchObject({ netLoopback: 'ok' });
     expectOriginalUntouched();

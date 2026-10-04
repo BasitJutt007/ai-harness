@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { createCheckContext, formatReport, runChecks } from '../../src/core/checks.ts';
+import { compilerOptions, createCheckContext, formatReport, runChecks } from '../../src/core/checks.ts';
 import { createServices } from '../../src/core/services.ts';
 import type { CheckContext, CheckFinding, CheckPlugin, Exec, LogStore, RegistryView, RunState, Workspace } from '../../src/core/types.ts';
 
@@ -38,7 +38,12 @@ async function findingsOf(checks: CheckPlugin[]): Promise<CheckFinding[]> {
 
 beforeAll(async () => {
   const files: Record<string, string> = {
-    'tsconfig.json': JSON.stringify({ compilerOptions: { strict: false, module: 'NodeNext', moduleResolution: 'NodeNext', target: 'ES2023', allowImportingTsExtensions: true, noEmit: false } }),
+    'tsconfig.json': JSON.stringify({ compilerOptions: {
+      strict: false, module: 'NodeNext', moduleResolution: 'NodeNext', target: 'ES2023', allowImportingTsExtensions: true, noEmit: false,
+      // every sub-flag explicitly off: each one must still be forced on
+      noImplicitAny: false, strictNullChecks: false, strictFunctionTypes: false, strictBindCallApply: false, strictPropertyInitialization: false,
+      strictBuiltinIteratorReturn: false, noImplicitThis: false, useUnknownInCatchVariables: false, noUncheckedIndexedAccess: false, noCheck: true,
+    } }),
     'src/a.ts': 'export function f(xs: number[]): number { const x = xs[0]; return x + 1; }\n',
     'src/a.test.ts': 'export {};\n',
     'src/types.d.ts': 'export {};\n',
@@ -98,6 +103,8 @@ describe('formatReport', () => {
     expect(lines).toContain('zod-boundary      FAIL  src/routes/orders.ts             1/2 handlers');
     expect(lines).toContain('    src/routes/orders.ts:42:5  POST /v1/orders: response body is not parsed with a Zod schema');
     expect(lines).toContain('tsc-strict        FAIL  src/a.ts                         2 errors');
+    // the failing whole-project row counts the project's errors, never "0 errors"
+    expect(lines).toContain('tsc-strict        FAIL  (project)                        2 errors');
     expect(lines).toContain('zod-boundary      FAIL     6/7 handlers');
     expect(lines).toContain('tsc-strict        FAIL     2 errors');
     expect(lines.at(-1)).toBe('verdict           75%     → failing: zod-boundary, tsc-strict');
@@ -111,7 +118,8 @@ describe('formatReport', () => {
     ])].filter((c): c is CheckPlugin => c !== undefined);
     const r = formatReport(await findingsOf(checks), checks, root);
     expect(r.verdict.status).toBe('unproven');
-    expect(r.text).toContain('tsc-strict        skip  (project)                        skipped: tsc could not run');
+    // the row says what the verdict says (UNPROVEN, not "skip"), with the reason
+    expect(r.text).toContain('tsc-strict        UNPROVEN  (project)                        skipped: tsc could not run');
     expect(r.text).toContain('tsc-strict        unproven 0 errors');
     expect(r.text.split('\n').at(-1)).toBe('verdict           UNPROVEN → not proven: tsc-strict (skipped)');
     expect(r.compact).toContain('skipped: tsc could not run');
@@ -207,9 +215,14 @@ describe('createCheckContext', () => {
     const program = ctx.program();
     expect(ctx.program()).toBe(program);
     const opts = program.getCompilerOptions();
-    expect(opts.strict).toBe(true);
-    expect(opts.noUncheckedIndexedAccess).toBe(true);
-    expect(opts.noEmit).toBe(true);
+    for (const flag of ['strict', 'noImplicitAny', 'strictNullChecks', 'strictFunctionTypes', 'strictBindCallApply', 'strictPropertyInitialization',
+      'strictBuiltinIteratorReturn', 'noImplicitThis', 'useUnknownInCatchVariables', 'alwaysStrict', 'noUncheckedIndexedAccess', 'noEmit'] as const) {
+      expect(opts[flag], flag).toBe(true);
+    }
+    expect(opts.noCheck).toBe(false);
+    expect(compilerOptions(root)).toMatchObject({ strictNullChecks: true, noImplicitAny: true, noCheck: false, noEmit: true });
+    // every TS file of the API is a root (the API's own .d.ts too), not only src/ and test/
+    expect(program.getRootFileNames().map((f) => f.slice(root.length + 1)).sort()).toEqual(['src/a.test.ts', 'src/a.ts', 'src/types.d.ts', 'test/a.test.ts', 'test/helpers.ts']);
     const diags = ts.getPreEmitDiagnostics(program).map((d) => d.code);
     expect(diags).toContain(18048); // 'x' is possibly 'undefined' (only under noUncheckedIndexedAccess)
   });

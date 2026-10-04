@@ -1,0 +1,8 @@
+# Brownfield in grader dialect: repo/path + description instead of target/change.
+kind: brownfield
+id: add-archive
+title: Archive projects
+repo: samples/existing-api
+description: Add POST /v1/projects/{projectId}/archive that sets status to archived and returns 200.
+acceptance_criteria:
+  - Archiving an unknown project returns 404.

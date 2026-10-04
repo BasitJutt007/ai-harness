@@ -24,14 +24,20 @@ const ROUTES = 'src/routes/users.ts';
 
 const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolations?: Partial<Record<Rule, number>> }> = {
   'bad-res-send-helper': {
-    fails: ['zod-boundary'],
-    expect: [{ rule: 'zod-boundary', at: [ROUTES, 'respond(res, 200, user)'], message: '`res` is passed along' }],
+    // respond(res, status: number, body: unknown) can send any status with any body: a non-constant status is an error path
+    fails: ['zod-boundary', 'problem-json'],
+    expect: [
+      { rule: 'zod-boundary', at: [ROUTES, 'respond(res, 200, user)'], message: '`res` is passed along' },
+      { rule: 'problem-json', at: ['src/http/respond.ts', 'res.status(status).send(body)'], message: 'status status is not a constant, so this may be an error response' },
+    ],
   },
   'bad-body-spread': {
-    fails: ['zod-boundary'],
+    fails: ['zod-boundary', 'problem-json'],
     expect: [
       { rule: 'zod-boundary', at: [ROUTES, '...req.body'], message: 'POST /v1/users: req.body is read without <ZodSchema>.parse()' },
       { rule: 'zod-boundary', at: [ROUTES, "usersRouter.post('/v1/users'"], message: 'request body is not parsed' },
+      // runtime: the unvalidated invalid body of the first probe is stored, so the second one (no Idempotency-Key) is not a 4xx validation problem
+      { rule: 'problem-json', message: 'POST /v1/users (missing Idempotency-Key): expected status 400 or 422 or 428, got' },
     ],
   },
   'bad-senderror-helper': {
@@ -121,11 +127,13 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
     expect: [{ rule: 'zod-boundary', at: [ROUTES, 'res.json(toDto(user))'], message: 'GET /v1/users/:userId: response body is not parsed with a Zod schema' }],
   },
   'bad-zod-any-schema': {
-    fails: ['zod-boundary', 'tsc-strict'],
+    fails: ['zod-boundary', 'tsc-strict', 'problem-json'],
     expect: [
       { rule: 'zod-boundary', at: [ROUTES, 'z.any().parse(req.body)'], message: 'z.any() accepts anything' },
       // the parsed value is `any` without the keyword: the type checker finds it
       { rule: 'tsc-strict', at: [ROUTES, 'z.any().parse(req.body)'], message: '`input` has type `any`' },
+      // runtime: z.any() stores the invalid body of the first probe, so the second one (no Idempotency-Key) is not a 4xx validation problem
+      { rule: 'problem-json', message: 'POST /v1/users (missing Idempotency-Key): expected status 400 or 422 or 428, got' },
     ],
   },
   'bad-error-leak': {

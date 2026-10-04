@@ -8,15 +8,17 @@ describe('problem-json', () => {
     for (const r of roots) await removeTempApi(r);
   });
 
-  it('good: static error paths and all 10 runtime probes pass', async () => {
+  it('good: static error paths and all 11 runtime probes pass', async () => {
     const findings = await runCheck(problemJson, 'good');
     expect(findings.filter((f) => f.status !== 'pass')).toEqual([]);
     const runtime = findings.find((f) => f.file === '(runtime)');
-    // 8 spec probes + collection success (GET /v1/users is JSON, not a problem) + injected internal error (500 problem, no leak)
-    expect(runtime?.units).toEqual({ passed: 10, total: 10 });
+    // 8 spec probes + collection success (GET /v1/users is JSON, not a problem) + POST /v1/users without
+    // Idempotency-Key (a problem) + injected internal error (500 problem, no leak)
+    expect(runtime?.units).toEqual({ passed: 11, total: 11 });
     expect(findings.find((f) => f.file === 'src/app.ts')?.units).toEqual({ passed: 2, total: 2 });
-    // every problem helper construction in lib/problem.ts is a unit
-    expect(findings.find((f) => f.file === 'src/lib/problem.ts')?.units).toEqual({ passed: 5, total: 5 });
+    // every problem helper construction in lib/problem.ts is a unit, plus sendProblem's res.status(problem.status):
+    // a non-constant status is judged as an error path (its ProblemSchema.parse body is a full problem)
+    expect(findings.find((f) => f.file === 'src/lib/problem.ts')?.units).toEqual({ passed: 6, total: 6 });
     // the three notFound(...) throws in the handlers
     expect(findings.find((f) => f.file === 'src/routes/users.ts')?.units).toEqual({ passed: 3, total: 3 });
   });
@@ -36,7 +38,7 @@ describe('problem-json', () => {
     const runtime = findings.find((f) => f.file === '(runtime)');
     expect(runtime?.status).toBe('fail');
     // only the collection GET (a 200 JSON success) is right; every error path, including the injected 500, is not problem+json
-    expect(runtime?.units).toEqual({ passed: 1, total: 10 });
+    expect(runtime?.units).toEqual({ passed: 1, total: 11 });
     expect(runtime?.violations.some((v) => v.message.includes('expected application/problem+json'))).toBe(true);
   });
 
@@ -63,13 +65,14 @@ export function createApp(): Express {
     expect(runtime?.units).toEqual({ passed: 0, total: 0 });
   });
 
-  it('runtime is UNPROVEN when there is no src/app.ts', async () => {
+  it('runtime is UNPROVEN when no candidate module holds an app, and the reason says what was tried', async () => {
     const root = await tempApi({ 'src/index.ts': 'export const x = 1;\n' });
     roots.push(root);
     const findings = await problemJson.run(await contextFor(root));
     const runtime = findings.find((f) => f.file === '(runtime)');
     expect(runtime?.status).toBe('skip');
-    expect(runtime?.skipReason).toContain('src/app.ts');
+    expect(runtime?.skipReason).toContain('no HTTP app found: tried src/index.ts: no app among its exports (x)');
+    expect(runtime?.skipReason).toContain('nothing called listen()');
   });
 
   it('flags error statuses without problem bodies and problems missing fields', async () => {

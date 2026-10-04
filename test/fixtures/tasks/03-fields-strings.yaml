@@ -1,0 +1,11 @@
+# Fields as compact strings.
+kind: greenfield
+id: members-api
+title: Members API
+output: generated/members-api
+resources:
+  - name: member
+    fields:
+      - "email: string, required, unique"
+      - "name: string, required"
+      - "age: integer"

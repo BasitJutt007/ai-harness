@@ -4,6 +4,7 @@
  */
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
 import { ruleWidth, runChecks, selectChecks } from './checks.ts';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
@@ -13,6 +14,7 @@ import { loadRegistry } from './registry.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
+import { loadTask } from './task.ts';
 import { buildTestMap } from './testmap.ts';
 import { compareRuns, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
 import { createWorkspace } from './workspace.ts';
@@ -22,11 +24,18 @@ export const USAGE = `usage: harness <command> [options]
 
 commands:
   run <task-file> --driver <name> [--model <id>] [--driver-opt k=v]... [--baseline]
-                  [--max-turns N] [--repo <dir>] [--ship [--remote <name>]]
+                  [--max-turns N] [--repo <dir>] [--target <dir> | --output <dir>]
+                  [--strict-task] [--ship [--remote <name>]]
       Govern one run in a fresh git worktree of the target repository: agent loop, hooks,
       fresh final gates, evidence in runs/<id>/ and tokens/<id>.json. The task's output/target
       resolves against --repo <dir> (default: the harness root); any git repository works, and
       the worktree always lives under the harness's .harness/worktrees.
+      Task files: .yaml/.yml/.json, or .md/.txt free text (docs/task-format.md). Aliases and
+      missing keys are normalized and reported before the first model call; the canonical task
+      is saved as runs/<id>/task.normalized.json. --target <dir> (an existing API: brownfield)
+      or --output <dir> (a new API: greenfield), relative to the current directory, overrides
+      the file. --strict-task accepts only the canonical schema (no aliases, inference or
+      carried keys).
       Evidence dirs: HARNESS_RUNS_DIR (default runs/) and HARNESS_TOKENS_DIR (default tokens/)
       override where runs/<id>/ and tokens/<id>.json are written (relative to the harness root).
       Ctrl-C or SIGTERM stops between steps and still writes the evidence (exit 130 / 143).
@@ -45,6 +54,9 @@ commands:
   ship <run> [--dry-run] [--remote <name>]
                                   re-run every gate fresh, then commit/push/PR the run branch
                                   (the harness ships; the agent never does). exit 0 iff shipped/dry-run
+  task check <task-file> [--strict-task] [--target <dir> | --output <dir>] [--json]
+                                  normalize a task file without a run (no tokens spent): the
+                                  canonical task (YAML) and every note; exit 0 iff it is valid
   testmap --api <dir>             print the test -> source import map
   doctor                          environment, plugin load, provider-leak scan and an isolation
                                   self-test (exit 1 if agent code cannot be confined in auto mode)
@@ -56,7 +68,7 @@ env: HARNESS_RUNS_DIR, HARNESS_TOKENS_DIR override where evidence is written and
      unconfined, recorded as UNPROVEN isolation).
 `;
 
-const BOOL_FLAGS = new Set(['baseline', 'ship', 'json', 'dry-run', 'help']);
+const BOOL_FLAGS = new Set(['baseline', 'ship', 'json', 'dry-run', 'help', 'strict-task']);
 
 export interface ParsedArgs {
   positionals: string[];
@@ -127,7 +139,7 @@ type Out = (line: string) => void;
 // ───────────────────────────── commands ─────────────────────────────
 
 async function cmdRun(p: ParsedArgs, out: Out): Promise<number> {
-  const bad = unknownFlags(p, ['driver', 'model', 'driver-opt', 'baseline', 'ship', 'max-turns', 'repo', 'remote']);
+  const bad = unknownFlags(p, ['driver', 'model', 'driver-opt', 'baseline', 'ship', 'max-turns', 'repo', 'remote', 'strict-task', 'target', 'output']);
   const taskFile = p.positionals[0];
   const driver = one(p, 'driver');
   if (bad !== null || taskFile === undefined || driver === undefined || p.positionals.length > 1) {
@@ -167,6 +179,11 @@ async function cmdRun(p: ParsedArgs, out: Out): Promise<number> {
     return 2;
   }
   const model = one(p, 'model');
+  const location = taskLocation(p);
+  if ('error' in location) {
+    out(location.error);
+    return 2;
+  }
 
   // Ctrl-C or SIGTERM (kill, a CI timeout): the first signal stops the loop between steps and the
   // evidence is still written; a second one exits now. Exit code 128 + signal number (130 / 143).
@@ -196,6 +213,8 @@ async function cmdRun(p: ParsedArgs, out: Out): Promise<number> {
       ...(maxTurns !== undefined ? { maxTurns } : {}),
       ...(repo !== undefined ? { repoBase: resolve(repo) } : {}),
       ...(remote !== undefined ? { remote } : {}),
+      ...location,
+      strictTask: p.bools.has('strict-task'),
       signal: controller.signal,
       log: out,
     });
@@ -206,6 +225,61 @@ async function cmdRun(p: ParsedArgs, out: Out): Promise<number> {
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
   }
+}
+
+/**
+ * --target / --output as absolute paths (a flag is typed relative to the shell, not the task file).
+ * They are mutually exclusive: one names an existing API to change, the other a new one to build.
+ */
+function taskLocation(p: ParsedArgs): { target?: string; output?: string } | { error: string } {
+  const target = one(p, 'target');
+  const output = one(p, 'output');
+  if (target !== undefined && output !== undefined) return { error: '--target (change an existing API) and --output (build a new one) are mutually exclusive' };
+  if (target !== undefined && !(existsSync(resolve(target)) && statSync(resolve(target)).isDirectory())) return { error: `--target is not a directory: ${target}` };
+  return {
+    ...(target !== undefined ? { target: resolve(target) } : {}),
+    ...(output !== undefined ? { output: resolve(output) } : {}),
+  };
+}
+
+/** `harness task check <file>`: the canonical task and every normalization note, no run and no tokens. */
+async function cmdTask(p: ParsedArgs, out: Out): Promise<number> {
+  const [sub, file, ...extra] = p.positionals;
+  const bad = unknownFlags(p, ['strict-task', 'target', 'output', 'json']);
+  if (bad !== null || sub !== 'check' || file === undefined || extra.length > 0) {
+    out(bad ?? 'usage: harness task check <task-file> [--strict-task] [--target <dir> | --output <dir>] [--json]');
+    return 2;
+  }
+  if (!existsSync(resolve(file))) {
+    out(`task file not found: ${file}`);
+    return 2;
+  }
+  const location = taskLocation(p);
+  if ('error' in location) {
+    out(location.error);
+    return 2;
+  }
+  let loaded: Awaited<ReturnType<typeof loadTask>>;
+  try {
+    loaded = await loadTask(file, { ...location, strict: p.bools.has('strict-task') });
+  } catch (e) {
+    out(errMsg(e));
+    return 1;
+  }
+  if (p.bools.has('json')) {
+    const { file: abs, format, strict, sha256, normalizedSha256, warnings, task } = loaded;
+    out(JSON.stringify({ file: abs, format, strict, sha256, normalizedSha256, warnings, task }, null, 2));
+    return 0;
+  }
+  const t = loaded.task;
+  out(`task      ${loaded.file} (${loaded.format}${loaded.strict ? ', --strict-task' : ''})`);
+  out(`kind      ${t.kind}  id ${t.id}  ${t.kind === 'greenfield' ? `output ${t.output}` : `target ${t.target}`}`);
+  out(`sha256    ${loaded.sha256}  normalized ${loaded.normalizedSha256}`);
+  out(`notes     ${loaded.warnings.length === 0 ? '(none: the file is canonical)' : loaded.warnings.length}`);
+  for (const w of loaded.warnings) out(`  - ${w}`);
+  out('canonical task:');
+  for (const line of stringifyYaml(t, { lineWidth: 0 }).trimEnd().split('\n')) out(`  ${line}`);
+  return 0;
 }
 
 /** 0 = done with all gates green (and shipped, when --ship was asked); 130 = interrupted; else 1. */
@@ -620,8 +694,10 @@ async function toolVersion(cmd: string): Promise<string | null> {
 }
 
 /**
- * Isolation line + self-test: a confined node child must fail both to write outside its writable
- * dir and to open an outbound socket. False (doctor fails) iff isolation is unavailable in auto mode.
+ * Isolation line + self-test: a confined node child must fail to write outside its writable dir, to
+ * open an outbound socket, to read a canary file outside its read allow-list, and to see an env canary
+ * (SANDBOX_CANARY_DATABASE_URL) planted in its caller's env. False (doctor fails) iff isolation is
+ * unavailable in auto mode or any of those succeeded.
  */
 export async function doctorIsolation(out: Out): Promise<boolean> {
   const mode = sandboxMode();
@@ -725,6 +801,8 @@ export async function main(argv: string[], out: Out = (l) => console.log(l)): Pr
         return await cmdShip(parsed, out);
       case 'testmap':
         return await cmdTestmap(parsed, out);
+      case 'task':
+        return await cmdTask(parsed, out);
       case 'doctor':
         return await cmdDoctor(out);
       default:

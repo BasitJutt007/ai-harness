@@ -110,22 +110,35 @@ describe('standards: the diff-aware policy cannot be used to hide violations', (
     }
   });
 
-  it('brownfield: a violation in a task-denied file left unchanged is pre-existing, not blocking', async () => {
+  it('brownfield: a violation in a task-denied file left unchanged is pre-existing (also at the base commit), not blocking', async () => {
     const legacy = 'console.log("legacy");\n';
-    const h = await harness({
-      task: brownfieldTask({ allow: ['src/routes/**/*.ts'], deny: ['src/legacy/**'] }),
-      files: { 'src/legacy/old.ts': legacy },
-      services: {
-        runChecks: async () => ({
-          ...base,
-          verdict: { status: 'fail', percent: 50 },
-          rules: [{ rule: 'zod-boundary', category: 'standards', unit: 'handlers', status: 'pass', passed: 1, total: 1, files: 1 }, lint('fail')],
-          findings: [{ rule: 'no-console', file: 'src/legacy/old.ts', status: 'fail', units: { passed: 0, total: 1 }, violations: [{ location: 'src/legacy/old.ts:1:1', message: 'console call' }] }],
-        }),
-      },
+    const lintReport = (): CheckReport => ({
+      ...base,
+      verdict: { status: 'fail', percent: 50 },
+      rules: [{ rule: 'zod-boundary', category: 'standards', unit: 'handlers', status: 'pass', passed: 1, total: 1, files: 1 }, lint('fail')],
+      findings: [{ rule: 'no-console', file: 'src/legacy/old.ts', status: 'fail', units: { passed: 0, total: 1 }, violations: [{ location: 'src/legacy/old.ts:1:1', message: 'console call' }] }],
     });
-    h.ctx.state.initialHashes.set('src/legacy/old.ts', sha(legacy));
-    expect(await run(standardsGate, h.ctx)).toMatchObject({ status: 'pass', details: ['pre-existing (not blocking): no-console src/legacy/old.ts:1:1  console call'] });
+    const setup = async (commit: boolean) => {
+      const h = await harness({
+        task: brownfieldTask({ allow: ['src/routes/**/*.ts'], deny: ['src/legacy/**'] }),
+        files: { 'src/legacy/old.ts': legacy },
+        services: { runChecks: async () => lintReport() },
+      });
+      h.ctx.state.initialHashes.set('src/legacy/old.ts', sha(legacy));
+      if (commit) {
+        const vcs = (...args: string[]) => exec('git', ['-c', 'user.name=t', '-c', 'user.email=t@localhost', '-c', 'commit.gpgsign=false', ...args], { cwd: h.dir });
+        for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'base']]) expect((await vcs(...args)).code).toBe(0);
+      }
+      return h;
+    };
+    // The base commit has the same violation: pre-existing, listed for a human, not blocking.
+    const withBase = await setup(true);
+    const r = await run(standardsGate, withBase.ctx);
+    expect(r).toMatchObject({ status: 'pass', details: ['pre-existing (not blocking): no-console src/legacy/old.ts:1:1  console call'] });
+    expect(r.humanMustVerify).toEqual(['pre-existing (not blocking): no-console src/legacy/old.ts:1:1  console call']);
+    // No base commit to compare with: an untouched-file violation cannot be proven pre-existing, never green.
+    const noBase = await setup(false);
+    expect((await run(standardsGate, noBase.ctx)).status).toBe('unproven');
   });
 });
 

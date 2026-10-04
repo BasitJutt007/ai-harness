@@ -1,0 +1,1 @@
+Build me an API to manage bakery orders with customers and order items; customers have email (unique) and name, orders have a status (pending, baked, delivered) and a list of items with quantity and price.

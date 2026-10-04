@@ -1,0 +1,5 @@
+kind: brownfield
+id: min
+title: Minimal
+target: .
+change: Add DELETE /v1/projects/{id}.

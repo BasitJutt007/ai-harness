@@ -1,11 +1,17 @@
 /**
- * Deterministic subprocess execution. No shell, bounded time, bounded output,
- * and provider credentials are always stripped from the child environment.
+ * Deterministic subprocess execution. No shell, bounded time, bounded output.
+ *
+ * Environment:
+ *  - confined calls (opts.sandbox, agent code): an allow-list built by sandbox.ts confinedEnv;
+ *    nothing else of the caller's env reaches the child, whatever its name;
+ *  - trusted calls (git, gh, tar): the caller's env minus anything credential-shaped (secretEnv),
+ *    except names the caller lists explicitly with passThroughEnv (ship's push and PR steps).
  */
 import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { HARNESS_ROOT } from './config.ts';
-import { isolationUnavailable, sandboxMode, wrap } from './sandbox.ts';
+import { confinedEnv, isolationUnavailable, sandboxMode, wrap } from './sandbox.ts';
 import type { Exec, ExecOptions, ExecResult, SandboxMechanism } from './types.ts';
 
 export const DEFAULT_TIMEOUT_MS = 120_000;
@@ -13,8 +19,37 @@ export const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const KILL_GRACE_MS = 2_000;
 const IS_WIN = process.platform === 'win32';
 
-// Generic credential/endpoint shapes only: core never names a provider.
-const SECRET_ENV = /(API_KEY|_KEY$|_TOKEN$|SECRET|PASSWORD|CREDENTIAL|AUTH|_BASE_URL$)/i;
+// Generic credential / endpoint / connection-string shapes only: core never names a provider.
+const SECRET_NAME = new RegExp(
+  [
+    'API_?KEY', '(?<!PUBLIC)_KEY$', '(^|_)TOKENS?($|_)', 'SECRET', 'PASSW(OR)?D', 'PASSPHRASE', 'CREDENTIAL',
+    '(^|_)AUTH(ORIZATION)?($|_)', '_BASE_URL$', '(^|_)PAT$', '(^|_)DSN$', 'WEBHOOK', '(^|_)PEM$', 'PRIVATE',
+    'COOKIE', '(^|_)SESSION($|_)', '^AWS_',
+    '(^|_)(DATABASE|DB|MONGO\\w*|REDIS|POSTGRES\\w*|PG|MYSQL|MARIADB|AMQP|RABBITMQ|CONNECTION)(_\\w+)?_(URL|URI|STRING)$',
+  ].join('|'),
+  'i',
+);
+/** Values that carry a credential whatever the name: URLs with user info (scheme://user:pass@host), PEM private keys. */
+const SECRET_VALUE = /^[a-z][a-z0-9+.-]*:\/\/[^/?#\s]*@|-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
+
+/** True when a trusted child must not see `name=value` (credential-shaped name or value). */
+export function secretEnv(name: string, value: string): boolean {
+  return SECRET_NAME.test(name) || SECRET_VALUE.test(value);
+}
+
+const PASS_THROUGH: unique symbol = Symbol('harness.exec.passThrough');
+type BrandedEnv = NodeJS.ProcessEnv & { [PASS_THROUGH]?: ReadonlySet<string> };
+
+/**
+ * `base` (default process.env) marked so that a TRUSTED exec keeps `names` although they look like
+ * credentials (ship: SSH_AUTH_SOCK for git push, GH_TOKEN for gh). The mark survives `{ ...env }`
+ * copies. Confined (sandboxed) calls ignore it: agent code never gets these.
+ */
+export function passThroughEnv(names: readonly string[], base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: BrandedEnv = { ...base };
+  env[PASS_THROUGH] = new Set(names);
+  return env;
+}
 
 /** Absolute path of a binary in the harness's node_modules/.bin. */
 export function bin(name: string): string {
@@ -27,9 +62,11 @@ export function safeEnv(extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 function filterEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const keep = (env as BrandedEnv)[PASS_THROUGH];
   const out: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(env)) {
-    if (v === undefined || SECRET_ENV.test(k)) continue;
+    if (v === undefined) continue;
+    if (keep?.has(k) !== true && secretEnv(k, v)) continue;
     out[k] = v;
   }
   return out;
@@ -59,23 +96,30 @@ class CappedBuffer {
 export const exec: Exec = (cmd: string, args: string[], opts: ExecOptions): Promise<ExecResult> => {
   const started = Date.now();
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  let env = opts.env !== undefined ? filterEnv(opts.env) : safeEnv();
-  // Untrusted code (opts.sandbox): confined by the OS sandbox, refused when none works in 'auto' mode.
+  let env: NodeJS.ProcessEnv;
+  // Untrusted code (opts.sandbox): env allow-list, confined by the OS sandbox, refused when none works in 'auto' mode.
   let sandbox: SandboxMechanism | undefined;
   if (opts.sandbox !== undefined) {
-    if (sandboxMode() === 'off') {
-      sandbox = 'none';
-    } else {
-      let w: ReturnType<typeof wrap>;
-      try {
-        w = wrap(cmd, args, opts.sandbox, env);
-      } catch (e) {
-        return Promise.reject(e instanceof Error ? e : new Error(String(e)));
+    const source = opts.env ?? process.env;
+    try {
+      if (sandboxMode() === 'off') {
+        env = confinedEnv(source, opts.sandbox);
+        sandbox = 'none';
+      } else {
+        const w = wrap(cmd, args, opts.sandbox, source, undefined, opts.cwd);
+        if (w.mechanism === 'none') return Promise.reject(isolationUnavailable());
+        ({ cmd, args, env } = w);
+        sandbox = w.mechanism;
       }
-      if (w.mechanism === 'none') return Promise.reject(isolationUnavailable());
-      ({ cmd, args, env } = w);
-      sandbox = w.mechanism;
+      // confinedEnv puts HOME inside a writable dir: create it so tools that keep state there work.
+      const home = env['HOME'];
+      const first = opts.sandbox.writable[0];
+      if (home !== undefined && first !== undefined && existsSync(first) && !existsSync(home)) mkdirSync(home, { recursive: true });
+    } catch (e) {
+      return Promise.reject(e instanceof Error ? e : new Error(String(e)));
     }
+  } else {
+    env = filterEnv(opts.env ?? process.env);
   }
   const tag = sandbox !== undefined ? { sandbox } : {};
   return new Promise<ExecResult>((resolve) => {
