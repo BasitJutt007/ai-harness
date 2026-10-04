@@ -97,7 +97,7 @@ Every `harness run` ends with a summary. From the real greenfield run
 ```
 status     done  turns 23  finish attempts 1  driver openai  model gpt-5.4
 gate  contract-lock  n/a       not applicable to greenfield tasks
-gate  observed-red   pass      3 red observations (1 test files); 1 changed source files went red -> green on unchanged cases, red again with the original source
+gate  observed-red   pass      3 red observations (1 test files); 1 changed source files went red -> green (1 on unchanged cases, 0 on edited cases by differential proof), red again with the original source
 gate  orphans        pass      no new non-test files
 gate  scope          pass      2 changed files, all in scope
 gate  spec-coverage  pass      17/17 units passed (1 resource(s), 5 endpoint(s)) [app: src/app.ts: export createApp()]

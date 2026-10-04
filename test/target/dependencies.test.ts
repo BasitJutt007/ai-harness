@@ -108,7 +108,8 @@ describe('monorepo package with its own and a hoisted node_modules', () => {
       const services = createServices({ ws, registry: emptyRegistry(), state, logs, exec, harnessRoot: HARNESS_ROOT, profile });
       expect(activeLayout()).toBe(profile);
       const reverted = await services.runTestsReverted(['test/deps.test.ts'], ['src/extra.ts']);
-      expect(reverted.ok, reverted.summary).toBe(true);
+      expect(reverted.current.ok, reverted.current.summary).toBe(true);
+      expect(reverted.reverted.ok, reverted.reverted.summary).toBe(true);
 
       // the contract base snapshot (git archive of the API) links the same levels
       const snap = await snapshotBase({ repoRoot: wt.worktreeRoot, baseSha: wt.baseSha, rootRel: 'packages/api', harnessRoot: HARNESS_ROOT, exec });
@@ -185,7 +186,8 @@ describe('the target\'s own test runner, installed in its node_modules', () => {
       await ws.write('src/extra.ts', 'export const extra = 1;\n');
       const services = createServices({ ws, registry: emptyRegistry(), state: newRunState(), logs, exec, harnessRoot: HARNESS_ROOT, profile });
       const reverted = await services.runTestsReverted(['test/deps.test.ts'], ['src/extra.ts']);
-      expect(reverted.ok, reverted.summary).toBe(true);
+      expect(reverted.current.ok, reverted.current.summary).toBe(true);
+      expect(reverted.reverted.ok, reverted.reverted.summary).toBe(true);
     } finally {
       setActiveLayout(undefined);
       await removeWorktree(repo, wt.worktreeRoot);

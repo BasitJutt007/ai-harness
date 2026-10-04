@@ -9,17 +9,23 @@
  *     with a non-constant assertion,
  *     and that the fresh run sees PASS with the same body hash (the hash covers the whole case call:
  *     title, callback, options, timeout, .each table), and
- *   - REVERT CHECK: that same case FAILS again when the harness runs it in a scratch copy of the
- *     API where every changed source file has its run-start content back. So the flip is caused
- *     by the source change, not by an edit elsewhere in the test file (a new mock, a changed
- *     file-level constant or helper), the clock, or randomness.
- * A case EDITED after its red (the model fixed its own test) counts only by differential execution:
- * its current body passes now AND fails with the run-start source (the revert check below), which proves
- * the source change, not the edit, is what makes it pass. An edit that makes the case pass regardless of
- * the source (`toBe(1)` -> `toBe(0)` over unchanged behaviour) still fails the revert check.
+ *   - REVERT CHECK (differential): the harness runs the tests in two fresh scratch copies of the API in
+ *     equivalent contexts (same parent dir, same-length random names, same env; see
+ *     CoreServices.runTestsReverted), one with the current source and one where every changed source file
+ *     has its run-start content back. The same case (name and body hash) must PASS in the current copy and
+ *     FAIL in the reverted one. So the flip is caused by the source change, not by an edit elsewhere in the
+ *     test file (a new mock, a changed file-level constant or helper), the clock, randomness, or where the
+ *     test runs (a case branching on process.cwd() sees the same kind of path in both copies).
+ * A case EDITED after its red (the model fixed its own test) counts only by that differential execution,
+ * which proves the source change, not the edit, is what makes it pass. An edit that makes the case pass
+ * regardless of the source (`toBe(1)` -> `toBe(0)` over unchanged behaviour) fails the revert check, and an
+ * edited case whose test file reads its environment, path, the clock or randomness (process.cwd/env,
+ * __dirname, import.meta, Date, Math.random, ...) is not accepted at all: such a file can behave differently
+ * between runs for reasons other than the source.
  */
+import ts from 'typescript';
 import { defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
-import type { TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
+import type { DifferentialRun, TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
 import { isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
 
 /** What is missing for one covering test, from least to most progress (the gate reports the most advanced one). */
@@ -73,9 +79,50 @@ function evidence(test: string, earlier: TestObservation[], fresh: TestObservati
   return greens.length > 0 ? { greens } : gap;
 }
 
-/** The case fails (or cannot load) in the reverted run. */
-function redAgain(rev: TestObservation | undefined, c: RedCase): boolean {
-  return (rev?.cases ?? []).some((x) => x.name === c.name && x.bodyHash === c.bodyHash && (x.status === 'fail' || x.status === 'error'));
+/** The case passes in the current-source copy and fails (or cannot load) in the reverted one. */
+function flipsWithSource(cur: TestObservation | undefined, rev: TestObservation | undefined, c: RedCase): boolean {
+  return passesIn(cur, c) && (rev?.cases ?? []).some((x) => sameCase(x, c) && (x.status === 'fail' || x.status === 'error'));
+}
+
+function sameCase(x: TestCaseObservation, c: RedCase): boolean {
+  return x.name === c.name && x.bodyHash === c.bodyHash;
+}
+
+function passesIn(o: TestObservation | undefined, c: RedCase): boolean {
+  return (o?.cases ?? []).some((x) => sameCase(x, c) && x.status === 'pass');
+}
+
+const PROCESS_STATE = new Set(['cwd', 'chdir', 'env', 'argv', 'execArgv', 'execPath', 'pid', 'ppid', 'hrtime', 'uptime', 'platform', 'arch']);
+const RANDOM = new Set(['random', 'randomUUID', 'randomBytes', 'randomInt', 'getRandomValues', 'randomFillSync']);
+const CONTEXT_GLOBALS = new Set(['__dirname', '__filename', 'Date', 'performance']);
+
+/**
+ * What in `text` (a test file) reads the run's environment, its own path, the clock or randomness: process
+ * state (cwd, env, argv, ...), __dirname / __filename, import.meta, Date, performance, Math.random / crypto.random*.
+ * Sorted, deduplicated.
+ */
+export function contextReads(fileName: string, text: string): string[] {
+  const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const found = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isMetaProperty(node) && node.keywordToken === ts.SyntaxKind.ImportKeyword) found.add('import.meta');
+    else if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+      const obj = node.expression.text;
+      const prop = node.name.text;
+      if (obj === 'process' && PROCESS_STATE.has(prop)) found.add(`process.${prop}`);
+      else if (RANDOM.has(prop) && (obj === 'Math' || obj === 'crypto')) found.add(`${obj}.${prop}`);
+    } else if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'process') {
+      found.add('process[...]');
+    } else if (ts.isIdentifier(node) && CONTEXT_GLOBALS.has(node.text)) {
+      const parent = node.parent;
+      const memberName = ts.isPropertyAccessExpression(parent) && parent.name === node;
+      const key = (ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent)) && parent.name === node;
+      if (!memberName && !key) found.add(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return [...found].sort();
 }
 
 export default defineGate({
@@ -115,6 +162,9 @@ export default defineGate({
     const unlocked = unlockedSources(ctx.state);
     const problems: string[] = [];
     const candidates = new Map<string, RedCase[]>();
+    /** Changed files proven by an unchanged case, and those proven only by an edited one (differential proof). */
+    const unchangedProofs = new Set<string>();
+    const editedProofs = new Set<string>();
     for (const f of changed) {
       if (!unlocked.has(f)) {
         problems.push(`${f}: changed without passing the observed-red hook (not written by a write tool, e.g. modified by test code)`);
@@ -136,23 +186,53 @@ export default defineGate({
       const best = gaps.reduce((a, b) => (rank(b.e) > rank(a.e) ? b : a));
       problems.push(`${f}: ${best.t}: ${'missing' in best.e ? `${best.e.missing}${best.e.detail}` : 'never red'}`);
     }
+    if (candidates.size > 0) {
+      // An edited case whose test file reads its environment, path, clock or randomness is not provable by
+      // differential execution alone: drop it (and say why when nothing else is left for the file).
+      const reads = new Map<string, string[]>();
+      for (const test of new Set([...candidates.values()].flat().filter((c) => c.edited === true).map((c) => c.test))) {
+        reads.set(test, contextReads(test, (await ctx.workspace.read(test)) ?? ''));
+      }
+      const contextBound = (c: RedCase): string[] => (c.edited === true ? reads.get(c.test) ?? [] : []);
+      for (const [f, greens] of candidates) {
+        const kept = greens.filter((c) => contextBound(c).length === 0);
+        if (kept.length > 0) {
+          candidates.set(f, kept);
+          continue;
+        }
+        candidates.delete(f);
+        const c = greens[0];
+        if (c === undefined) continue;
+        problems.push(`${f}: ${c.test}: "${c.name}" was edited after its red and its test file reads ${contextBound(c).join(', ')}: an edited case is accepted through the revert check only when its outcome cannot depend on where, when or how it runs`);
+      }
+    }
     if (problems.length === 0 && candidates.size > 0) {
-      // Revert check: with every changed source file back at its run-start content, the red cases must fail again.
+      // Revert check: in two equivalent fresh copies the cases must pass with the current source and fail with the run-start one.
       const files = [...new Set([...candidates.values()].flat().map((c) => c.test))].sort();
-      let reverted: TestRunReport;
+      let diff: DifferentialRun;
       try {
-        reverted = await ctx.services.runTestsReverted(files, changed);
+        diff = await ctx.services.runTestsReverted(files, changed);
       } catch (e) {
         return { status: 'unproven', summary: `revert check could not run: ${e instanceof Error ? e.message : String(e)}` };
       }
-      const rev = new Map(reverted.observations.map((o) => [o.file, o]));
+      const cur = new Map(diff.current.observations.map((o) => [o.file, o]));
+      const rev = new Map(diff.reverted.observations.map((o) => [o.file, o]));
       for (const [f, greens] of candidates) {
-        if (greens.some((c) => redAgain(rev.get(c.test), c))) continue;
+        const proven = greens.filter((c) => flipsWithSource(cur.get(c.test), rev.get(c.test), c));
+        if (proven.length > 0) {
+          (proven.some((c) => c.edited !== true) ? unchangedProofs : editedProofs).add(f);
+          continue;
+        }
         const c = greens[0];
+        if (c === undefined) continue;
+        if (!passesIn(cur.get(c.test), c)) {
+          problems.push(`${f}: ${c.test}: "${c.name}" does not pass in a fresh copy with the current source (revert check): its pass depends on where or how it runs, not on the source`);
+          continue;
+        }
         problems.push(
-          c?.edited === true
+          c.edited === true
             ? `${f}: ${c.test}: "${c.name}" was edited after its red and its current body also passes with the run-start source (revert check): the edit, not the source change, makes it pass`
-            : `${f}: ${c?.test ?? ''}: "${c?.name ?? ''}" also passes with the run-start source (revert check): its red did not depend on the source change`,
+            : `${f}: ${c.test}: "${c.name}" also passes with the run-start source (revert check): its red did not depend on the source change`,
         );
       }
     }
@@ -169,7 +249,7 @@ export default defineGate({
     }
     return {
       status: 'pass',
-      summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green on unchanged cases, red again with the original source`,
+      summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source`,
     };
   },
 });

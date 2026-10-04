@@ -143,7 +143,7 @@ describe('standards: the diff-aware policy cannot be used to hide violations', (
 });
 
 /** The fake runner's observations, with one case per file whose body hash is the file's hash (edit = new body). */
-function withCases(h: Awaited<ReturnType<typeof harness>>, revertStatus: 'fail' | 'pass' = 'fail'): void {
+function withCases(h: Awaited<ReturnType<typeof harness>>, revertStatus: 'fail' | 'pass' = 'fail', currentStatus: 'fail' | 'pass' = 'pass'): void {
   const inner = h.services.runTests;
   h.ctx.services.runTests = async (files) => {
     const report = await inner(files);
@@ -152,17 +152,19 @@ function withCases(h: Awaited<ReturnType<typeof harness>>, revertStatus: 'fail' 
     }
     return report;
   };
-  // The revert check's run (run-start source back in place): by default the case is red again.
-  h.ctx.services.runTestsReverted = async (files) => {
+  // The revert check's differential run: the current-source copy passes (unless `currentStatus` says otherwise),
+  // the run-start-source copy is red again by default.
+  const copyRun = async (files: string[], status: 'fail' | 'pass'): Promise<TestRunReport> => {
     const observations = await Promise.all(files.map(async (file) => {
       const hash = sha((await h.ws.read(file)) ?? '');
       return {
-        file, hash, status: revertStatus, collected: 1, failed: revertStatus === 'fail' ? 1 : 0, validRed: false, reason: '', turn: 1, at: '',
-        cases: [{ name: 'case', status: revertStatus, bodyHash: hash, exercisesSource: true, constantOnly: false }],
+        file, hash, status, collected: 1, failed: status === 'fail' ? 1 : 0, validRed: false, reason: '', turn: 1, at: '',
+        cases: [{ name: 'case', status, bodyHash: hash, exercisesSource: true, constantOnly: false }],
       };
     }));
-    return { ok: revertStatus === 'pass', totals: { files: files.length, tests: files.length, passed: 0, failed: 0 }, observations, summary: '', logPath: '' };
+    return { ok: status === 'pass', totals: { files: files.length, tests: files.length, passed: 0, failed: 0 }, observations, summary: '', logPath: '' };
   };
+  h.ctx.services.runTestsReverted = async (files) => ({ current: await copyRun(files, currentStatus), reverted: await copyRun(files, revertStatus) });
 }
 
 describe('observed-red gate: nothing changes source behind the hook', () => {
