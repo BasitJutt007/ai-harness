@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { ruleWidth, runChecks, selectChecks } from './checks.ts';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
+import { agnosticDiff, AgnosticRunSchema, runVerdict, type AgnosticRun } from './governance.ts';
 import { testMapSummary } from './prompt.ts';
 import { loadRegistry } from './registry.ts';
 import { TURN_EXTENSION_STEP, TURN_LIMIT_BASE, TURN_LIMIT_CAP, TURNS_PER_BEHAVIOUR, TURNS_PER_RESOURCE } from './loop.ts';
@@ -58,8 +59,9 @@ commands:
   tokens compare <jitRunId> <baselineRunId>
                                   measured comparison of a JIT run and a --baseline run: per-run
                                   totals and per-turn averages, with caveats
-  agnostic <runA> <runB>          compare task sha + tool/hook/gate/check fingerprints of two
-                                  runs (run ids or run directories). exit 0 iff zero diff
+  agnostic <runA> <runB>          compare task sha, active tool/hook/gate/check manifest, config
+                                  hash, core hash and helper files of two runs (run ids or dirs) and
+                                  report both verdicts. exit 0 iff zero diff AND both runs DONE
   ship <run> [--dry-run] [--remote <name>]
                                   re-run every gate fresh, then commit/push/PR the run branch
                                   (the harness ships; the agent never does). exit 0 iff shipped/dry-run
@@ -485,29 +487,7 @@ async function cmdTokens(p: ParsedArgs, out: Out): Promise<number> {
   return 0;
 }
 
-const RunFingerprintSchema = z.looseObject({
-  driver: z.string().optional(),
-  model: z.string().optional(),
-  task: z.looseObject({ id: z.string().optional(), sha256: z.string() }),
-  pluginFingerprint: z.record(z.string(), z.string()),
-});
-
-export function agnosticDiff(
-  a: z.infer<typeof RunFingerprintSchema>,
-  b: z.infer<typeof RunFingerprintSchema>,
-): string[] {
-  const diffs: string[] = [];
-  if (a.task.sha256 !== b.task.sha256) diffs.push(`task sha differs: ${a.task.sha256.slice(0, 12)} vs ${b.task.sha256.slice(0, 12)}`);
-  const files = [...new Set([...Object.keys(a.pluginFingerprint), ...Object.keys(b.pluginFingerprint)])].sort();
-  for (const f of files) {
-    const x = a.pluginFingerprint[f];
-    const y = b.pluginFingerprint[f];
-    if (x === undefined) diffs.push(`only in B: ${f}`);
-    else if (y === undefined) diffs.push(`only in A: ${f}`);
-    else if (x !== y) diffs.push(`changed: ${f} (${x.slice(0, 12)} vs ${y.slice(0, 12)})`);
-  }
-  return diffs;
-}
+export { agnosticDiff };
 
 async function cmdAgnostic(p: ParsedArgs, out: Out): Promise<number> {
   const [a, b] = p.positionals;
@@ -516,7 +496,7 @@ async function cmdAgnostic(p: ParsedArgs, out: Out): Promise<number> {
     return 2;
   }
   const runsDir = evidenceDirs(loadConfig(HARNESS_ROOT)).runsDir;
-  const read = (ref: string): z.infer<typeof RunFingerprintSchema> => {
+  const read = (ref: string): AgnosticRun => {
     const file = join(resolveRunDir(ref, runsDir), 'run.json');
     let json: unknown;
     try {
@@ -524,21 +504,30 @@ async function cmdAgnostic(p: ParsedArgs, out: Out): Promise<number> {
     } catch (e) {
       throw new Error(`${toPosix(relative(HARNESS_ROOT, file))} is not valid JSON: ${errMsg(e)}`);
     }
-    const r = RunFingerprintSchema.safeParse(json);
-    if (!r.success) throw new Error(`${toPosix(relative(HARNESS_ROOT, file))} has no task sha / plugin fingerprint`);
+    const r = AgnosticRunSchema.safeParse(json);
+    if (!r.success) throw new Error(`${toPosix(relative(HARNESS_ROOT, file))} has no task sha`);
     return r.data;
   };
   const ra = read(a);
   const rb = read(b);
-  out(`A  ${a}  driver ${ra.driver ?? '?'}  model ${ra.model ?? '?'}`);
-  out(`B  ${b}  driver ${rb.driver ?? '?'}  model ${rb.model ?? '?'}`);
+  const va = runVerdict(ra);
+  const vb = runVerdict(rb);
+  out(`A  ${a}  driver ${ra.driver ?? '?'}  model ${ra.model ?? '?'}  verdict ${va.text}`);
+  out(`B  ${b}  driver ${rb.driver ?? '?'}  model ${rb.model ?? '?'}  verdict ${vb.text}`);
   const diffs = agnosticDiff(ra, rb);
   if (diffs.length === 0) {
-    out(`zero diff: same task sha ${ra.task.sha256.slice(0, 12)}, ${Object.keys(ra.pluginFingerprint).length} tool/hook/gate/check and shared helper files identical`);
+    out(`zero governing diff: same task sha ${ra.task.sha256.slice(0, 12)}, active plugin manifest, config hash, core hash and shared helper files`);
+  } else {
+    out(`${diffs.length} governing difference(s):`);
+    for (const d of diffs) out(`  ${d}`);
+  }
+  const notDone = [...(va.done ? [] : [`run A is not DONE (${va.text})`]), ...(vb.done ? [] : [`run B is not DONE (${vb.text})`])];
+  if (diffs.length === 0 && notDone.length === 0) {
+    out('agnostic: PROVEN (same governance, both runs DONE)');
     return 0;
   }
-  out(`${diffs.length} difference(s):`);
-  for (const d of diffs) out(`  ${d}`);
+  const why = [...(diffs.length > 0 ? [`${diffs.length} governing difference(s)`] : []), ...notDone];
+  out(`agnostic: NOT PROVEN: ${why.join('; ')}`);
   return 1;
 }
 

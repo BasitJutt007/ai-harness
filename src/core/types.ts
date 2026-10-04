@@ -234,6 +234,12 @@ export interface BrownfieldTask extends TaskCommon {
   scope: { allow: string[]; deny: string[] };
   /** When false (default), any breaking contract change blocks finish and ship. */
   allowBreaking: boolean;
+  /**
+   * Standards policy of the standards gate. Absent or 'strict' (default): the standards-category rules
+   * must pass at 100% over the whole API, as in greenfield. 'baseline' (explicit opt-in): the API may stay
+   * below 100% as long as the run introduces no violation versus the base commit (labelled as such).
+   */
+  standards?: 'strict' | 'baseline' | undefined;
   /** Resources the change adds or extends, when the task lists them. */
   resources?: ResourceSpec[] | undefined;
 }

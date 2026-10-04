@@ -69,7 +69,7 @@ runs/ tokens/    evidence written by the harness on every run
 
 | Dimension | Command | What to read |
 |---|---|---|
-| Model agnosticism | `node bin/harness.mjs run tasks/users-api.task.yaml --driver claude`, then the same with `--driver openai` | both end `verdict DONE`; `node bin/harness.mjs agnostic <runA> <runB>` reports zero diff in task sha + every tool/hook/gate/check file. In this repository only the openai side has real DONE runs ([Evidence](#evidence-in-this-repository)) |
+| Model agnosticism | `node bin/harness.mjs run tasks/users-api.task.yaml --driver claude`, then the same with `--driver openai` | both end `verdict DONE`; `node bin/harness.mjs agnostic <runA> <runB>` reports zero governing diff (task sha, active tool/hook/gate/check manifest, config hash, `src/core` hash, helper files) and exits 0 only when both runs are DONE. In this repository only the openai side has real DONE runs ([Evidence](#evidence-in-this-repository)) |
 | Token efficiency | `harness run …`, then the same with `--baseline`, then `node bin/harness.mjs tokens compare <jitRun> <baselineRun>` | `tokens/<runId>.json` (per-turn actual vs a **shadow** baseline) and `tokens/compare-…json` (a **measured** baseline: fetchers withheld, repo front-loaded every turn, no compaction) |
 | API standards | `node bin/harness.mjs check --api <generated-api-dir>` | one line per rule per file, then one summary line each for `problem-json`, `rest-conventions`, `tsc-strict`, `zod-boundary` and `verdict 100%` |
 | Extensibility | `node scripts/simulate-extensions.mjs`, or add one file to `plugins/` yourself ([docs/extending.md](docs/extending.md)) | `git diff --stat` touches only the new plugin file; `src/core/**` sha256 unchanged |

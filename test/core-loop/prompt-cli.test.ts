@@ -144,12 +144,18 @@ describe('cli', () => {
     expect(await main(['check'], () => undefined)).toBe(2);
   });
 
-  it('agnostic diff: zero diff vs differences', () => {
+  it('agnostic diff: an old run.json without governance is never "equal": manifest, config and core are UNPROVEN', () => {
     const a = { task: { sha256: 'aaa' }, pluginFingerprint: { 'plugins/tools/a.ts': '1', 'plugins/hooks/b.ts': '2' } };
-    expect(agnosticDiff(a, { ...a, driver: 'other' })).toEqual([]);
+    const unproven = [
+      'active plugin manifest: not recorded in run A and B (older run.json): UNPROVEN',
+      'governing config hash: not recorded in run A and B (older run.json): UNPROVEN',
+      'core hash: not recorded in run A and B (older run.json): UNPROVEN',
+    ];
+    expect(agnosticDiff(a, { ...a, driver: 'other' })).toEqual(unproven);
     const b = { task: { sha256: 'bbb' }, pluginFingerprint: { 'plugins/tools/a.ts': '9', 'plugins/gates/c.ts': '3' } };
     expect(agnosticDiff(a, b)).toEqual([
       'task sha differs: aaa vs bbb',
+      ...unproven,
       'only in B: plugins/gates/c.ts',
       'only in A: plugins/hooks/b.ts',
       'changed: plugins/tools/a.ts (1 vs 9)',

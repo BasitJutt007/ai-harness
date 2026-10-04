@@ -1,7 +1,7 @@
 /**
  * E2E (c) users-api-cheat.json: every forbidden action is blocked by the expected hook,
  * finish is refused, and no gate that should be red is green.
- * E2E (f) `harness agnostic`: two runs of the same task → zero diff; a tampered hook hash → reported.
+ * E2E (f) `harness agnostic`: two runs of the same task → zero governing diff (exit 1: not DONE); a tampered hook hash → reported.
  * Plus: an aborted run (Ctrl-C) is reported cleanly and leaves the target untouched.
  */
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -87,13 +87,18 @@ describe('(c) users-api-cheat.json', () => {
 });
 
 describe('(f) harness agnostic', () => {
-  it('two runs of the same task: zero diff (exit 0)', async () => {
+  it('two runs of the same task: zero governing diff, but both NOT DONE, so exit 1 with the reason', async () => {
     expect(a.runId).not.toBe(b.runId);
     expect(a.worktree).not.toBe(b.worktree);
     const out = collector();
     const code = await main(['agnostic', a.runDir, b.runDir], out.out);
-    expect(code, out.text()).toBe(0);
-    expect(out.text()).toMatch(/zero diff/);
+    expect(code, out.text()).toBe(1);
+    expect(out.text()).toMatch(/zero governing diff/);
+    expect(out.text()).toMatch(/agnostic: NOT PROVEN: run A is not DONE \(NOT DONE .*\); run B is not DONE/);
+    const r = readRunJson(a.runDir) as Record<string, unknown>;
+    expect(r['verdict']).toMatch(/^NOT DONE/);
+    expect(r['gateStatuses']).toMatchObject({ 'observed-red': 'fail' });
+    expect(r['governance']).toMatchObject({ configSha256: expect.stringMatching(/^[0-9a-f]{64}$/), core: { sha256: expect.any(String) } });
   });
 
   it('a tampered hook hash in a copied run.json is reported (exit 1)', async () => {

@@ -180,6 +180,9 @@ export function taskBrief(
       task.allowBreaking
         ? 'Breaking contract changes: allowed for this task (allowBreaking).'
         : 'Breaking contract changes: refused (contract lock); check with contract_diff before finish.',
+      task.standards === 'baseline'
+        ? 'Standards: baseline mode (below 100% allowed): introduce no violation the base commit did not have.'
+        : 'Standards: the standards rules must pass at 100% over the whole API, pre-existing violations included; check with check_standards before finish.',
     );
     if (extras.testMap !== undefined && extras.testMap.length > 0) out.push('', 'Test map (test -> covered src):', extras.testMap);
     out.push('');

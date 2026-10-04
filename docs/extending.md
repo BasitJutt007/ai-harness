@@ -212,8 +212,9 @@ offline scripted run that calls the new tool, prints `git diff --stat` and
   Deleting the file works too.
 - **Fingerprints.** Every tool, hook, gate and check file, and every shared helper they can
   import (any other `.ts`/`.mts`/`.js`/`.mjs` under a plugin directory, e.g. `plugins/lib/**`),
-  is sha256-fingerprinted into `runs/<id>/run.json`; `harness agnostic <runA> <runB>` proves two
-  runs used identical ones. Driver code (files loaded as driver plugins and the `drivers/` folder)
+  is sha256-fingerprinted into `runs/<id>/run.json`, beside `governance` (the active manifest of
+  enabled plugins, the governing config hash and the `src/core/` hash); `harness agnostic <runA> <runB>`
+  proves two runs used identical ones (a `disabled` entry changes the manifest and the config hash). Driver code (files loaded as driver plugins and the `drivers/` folder)
   is excluded, because it legitimately differs between two drivers' runs. `run.json` also lists
   `toolsOffered` (tool names in the order the model got them) and `checksRegistered`.
 - **Fail closed.** A hook that throws or returns a malformed verdict blocks the call. A gate
@@ -341,10 +342,15 @@ The core guarantees:
   scope denies, which path-guard keeps read-only) are listed in the gate details as
   `pre-existing (not blocking): <rule> <location>` and the gate summary says how many there
   are. In greenfield the four `standards` rules stay strict over the whole API: 100% or refuse.
-  In brownfield every rule, any category, is compared with a baseline measured on the base
-  commit: only what the run introduced blocks (a violation the base did not have, wherever it is,
-  more failing units, a rule that becomes unproven); pre-existing violations are listed and named
-  under "human must verify". A skipped rule of any category still makes the gate `unproven`.
+  In brownfield (strict, the default) the four `standards` rules are also held to 100% over the
+  whole API; pre-existing violations in files the task scope forbids editing fail the gate as
+  `incompatible target: N pre-existing violation(s) in files outside the task scope (list)`. The
+  other rules are compared with a baseline measured on the base commit: only what the run
+  introduced blocks (a violation the base did not have, wherever it is, more failing units, a rule
+  that becomes unproven). A task may opt in to `standards: baseline` (aliases: `standards-mode`,
+  `standards-policy`; values such as `diff-aware` normalize to `baseline`): then every rule is
+  compared with the base commit, labelled "baseline mode: below 100% allowed" in the gate summary
+  and the honesty block, and pre-existing violations are named under "human must verify". A skipped rule of any category still makes the gate `unproven`.
 - `harness check --rule <id>` with an id no check has, or `--category <c>` that no check has, is a
   usage error (exit 2) that lists the registered rule ids.
 - Its `description` appears in the agent's system prompt rules index, and its `doc` is
