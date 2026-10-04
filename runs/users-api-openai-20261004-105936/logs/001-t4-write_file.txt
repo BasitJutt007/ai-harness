@@ -1,0 +1,50 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,47 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++
++const user = { email: 'a@example.com', name: 'Alice' };
++
++describe('users API', () => {
++  it('creates, gets, updates and deletes users', async () => {
++    const app = createApp();
++    const created = await request(app).post('/v1/users').send(user).expect(201);
++    expect(created.headers.location).toMatch(/^\/v1\/users\/.+/);
++    expect(created.body).toMatchObject({ ...user, role: 'member' });
++    const id = created.body.id;
++    await request(app).get(`/v1/users/${id}`).expect(200);
++    const patched = await request(app).patch(`/v1/users/${id}`).send({ name: 'A' }).expect(200);
++    expect(patched.body.name).toBe('A');
++    await request(app).delete(`/v1/users/${id}`).expect(204);
++    await request(app).get(`/v1/users/${id}`).expect(404).expect('Content-Type', /application\/problem\+json/);
++  });
++
++  it('validates fields, conflicts, malformed JSON and missing ids', async () => {
++    const app = createApp();
++    const bad = await request(app).post('/v1/users').send({ email: 'bad', name: '' }).expect(422);
++    expect(bad.body.detail).toContain('email'); expect(bad.body.detail).toContain('name');
++    await request(app).post('/v1/users').set('Content-Type', 'application/json').send('{').expect(400);
++    await request(app).get('/v1/users/nope').expect(404);
++    await request(app).patch('/v1/users/nope').send({ name: 'x' }).expect(404);
++    await request(app).delete('/v1/users/nope').expect(404);
++    await request(app).post('/v1/users').send(user).expect(201);
++    await request(app).post('/v1/users').send(user).expect(409);
++    await request(app).patch('/v1/users/nope').send({}).expect(404);
++  });
++
++  it('paginates and honors idempotency', async () => {
++    const app = createApp();
++    const first = await request(app).post('/v1/users').set('Idempotency-Key', 'k').send(user).expect(201);
++    const replay = await request(app).post('/v1/users').set('Idempotency-Key', 'k').send(user).expect(201);
++    expect(replay.headers['idempotent-replayed']).toBe('true'); expect(replay.body.id).toBe(first.body.id);
++    await request(app).post('/v1/users').set('Idempotency-Key', 'k').send({ ...user, name: 'Other' }).expect(422);
++    for (let i = 0; i < 2; i++) await request(app).post('/v1/users').send({ email: `${i}@e.com`, name: `N${i}` }).expect(201);
++    const page = await request(app).get('/v1/users?limit=2').expect(200);
++    expect(page.body.data).toHaveLength(2);
++    if (page.body.nextCursor) expect((await request(app).get(`/v1/users?limit=2&cursor=${page.body.nextCursor}`)).body.data).toHaveLength(1);
++    await request(app).get('/v1/users?limit=101').expect(422);
++    await request(app).patch(`/v1/users/${first.body.id}`).send({}).expect(422);
++  });
++});
