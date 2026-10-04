@@ -138,7 +138,7 @@ function sha(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
-/** Token texts of `node` joined by single spaces: whitespace, comments and line breaks do not change it. */
+/** Token texts of `node` joined by single spaces: whitespace, comments, line breaks and trailing commas do not change it. */
 export function tokenText(node: ts.Node): string {
   const out: string[] = [];
   const visit = (n: ts.Node): void => {
@@ -152,7 +152,8 @@ export function tokenText(node: ts.Node): string {
     for (const k of kids) visit(k);
   };
   visit(node);
-  return out.join(' ');
+  // A trailing comma before a closing bracket means nothing; reformatting may add or drop it.
+  return out.filter((t, i) => !(t === ',' && [')', ']', '}'].includes(out[i + 1] ?? ''))).join(' ');
 }
 
 /** Source tokens of a schema expression plus the initialisers of the consts it references (transitively). */
