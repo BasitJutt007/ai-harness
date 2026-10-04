@@ -1,0 +1,54 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,51 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++import { ProblemSchema } from '../src/lib/problem.ts';
++
++const valid = (i = 0) => ({ email: `user${i}@example.com`, name: `User ${i}` });
++
++describe('users API', () => {
++  it('creates, gets, updates, deletes and rejects missing users', async () => {
++    const app = createApp();
++    const created = await request(app).post('/v1/users').send(valid());
++    expect(created.status).toBe(201);
++    expect(created.headers.location).toMatch(/^\/v1\/users\//);
++    expect(created.body.role).toBe('member');
++    expect(created.body.id).toMatch(/^[0-9a-f-]{36}$/);
++    const id = created.body.id;
++    expect((await request(app).get(`/v1/users/${id}`)).status).toBe(200);
++    const patched = await request(app).patch(`/v1/users/${id}`).send({ name: 'Changed' });
++    expect(patched.status).toBe(200); expect(patched.body.name).toBe('Changed');
++    expect((await request(app).delete(`/v1/users/${id}`)).status).toBe(204);
++    for (const method of ['get', 'patch', 'delete'] as const) {
++      const res = method === 'patch' ? await request(app).patch(`/v1/users/${id}`).send({ name: 'x' }) : await request(app)[method](`/v1/users/${id}`);
++      expect(res.status).toBe(404); expect(res.headers['content-type']).toMatch(/^application\/problem\+json/); ProblemSchema.parse(res.body);
++    }
++  });
++  it('validates body, path, duplicate email, empty patch and malformed JSON', async () => {
++    const app = createApp();
++    const bad = await request(app).post('/v1/users').send({ email: 'bad', name: '' });
++    expect(bad.status).toBe(422); expect(bad.body.detail).toContain('email'); expect(bad.body.detail).toContain('name');
++    await request(app).post('/v1/users').send(valid());
++    const dup = await request(app).post('/v1/users').send(valid()); expect(dup.status).toBe(409);
++    const empty = await request(app).patch('/v1/users/not-a-uuid').send({}); expect(empty.status).toBe(422);
++    const malformed = await request(app).post('/v1/users').set('Content-Type','application/json').send('{'); expect(malformed.status).toBe(400);
++  });
++  it('supports idempotency and duplicate email on patch', async () => {
++    const app = createApp(); const key = 'create-key';
++    const first = await request(app).post('/v1/users').set('Idempotency-Key', key).send(valid());
++    const replay = await request(app).post('/v1/users').set('Idempotency-Key', key).send(valid());
++    expect(replay.status).toBe(201); expect(replay.headers['idempotent-replayed']).toBe('true'); expect(replay.body.id).toBe(first.body.id);
++    expect((await request(app).post('/v1/users').set('Idempotency-Key', key).send(valid(1))).status).toBe(422);
++    const second = await request(app).post('/v1/users').send(valid(1));
++    const conflict = await request(app).patch(`/v1/users/${second.body.id}`).send({ email: valid().email }); expect(conflict.status).toBe(409);
++  });
++  it('cursor paginates every user and validates query', async () => {
++    const app = createApp(); for (let i = 0; i < 5; i += 1) await request(app).post('/v1/users').send(valid(i));
++    const seen: string[] = []; let cursor: string | undefined;
++    do { const res = await request(app).get('/v1/users').query({ limit: 2, cursor }); expect(res.status).toBe(200); seen.push(...res.body.data.map((u: { id: string }) => u.id)); cursor = res.body.nextCursor ?? undefined; } while (cursor);
++    expect(new Set(seen).size).toBe(5);
++    expect((await request(app).get('/v1/users').query({ limit: 0 })).status).toBe(422);
++  });
++});

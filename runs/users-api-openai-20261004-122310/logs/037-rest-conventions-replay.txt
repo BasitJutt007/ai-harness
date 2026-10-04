@@ -1,0 +1,3 @@
+replay probe (transcript: runs/users-api-openai-20261004-122310/logs/036-rest-conventions-replay-probe.txt)
+POST /v1/users: replayed: the retry replayed 201
+PATCH /v1/users/:userId: replayed: the retry replayed 200

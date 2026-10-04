@@ -85,7 +85,11 @@ const COMPLIANT: Array<{ name: string; style: StyleName; edits: Edits; units?: n
     name: 'statuses from declared library-style constants (literal types only)',
     style: 'c-app-instance',
     edits: {
-      'src/http/codes.ts': 'export declare const CREATED: 201;\nexport declare const NO_CONTENT: 204;\n',
+      // Declarations only (statuses come from their literal types), with the values a library ships at
+      // runtime next to them: the replay probe serves the app, and a status that is undefined at runtime
+      // would turn the keyed replay into a 500.
+      'src/http/codes.d.ts': 'export declare const CREATED: 201;\nexport declare const NO_CONTENT: 204;\n',
+      'src/http/codes.js': 'export const CREATED = 201;\nexport const NO_CONTENT = 204;\n',
       [PRODUCTS]: [
         ["import { Router } from 'express';", "import { Router } from 'express';\nimport * as codes from '../http/codes.js';"],
         ['res.status(201)', 'res.status(codes.CREATED)'],

@@ -12,6 +12,7 @@ import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugi
 import { dynamicRouteReason, extractRouteTable, hasPathParams, isCollectionPath, location, propertyType, routeLabel } from '../lib/api-ast.ts';
 import type { ResponseSite, RouteInfo } from '../lib/api-ast.ts';
 import { unprovenFinding } from '../lib/plugin-helpers.ts';
+import { runReplayProbe } from '../lib/replay-probe.ts';
 
 const RULE = 'rest-conventions';
 export const ALLOWED_STATUSES = new Set([200, 201, 202, 204, 304, 400, 401, 403, 404, 409, 412, 415, 422, 428, 429, 500, 503]);
@@ -31,8 +32,8 @@ A route passes iff ALL of (paths and statuses are read by value: constants, enum
    req.headers['idempotency-key'], or a parse of req.headers with a schema that has 'idempotency-key'), stores
    a response keyed by it (store.set(key, …), store[key] = …) and replays one: a response sent (json, send,
    end, write) from a value looked up by the key (const hit = store.get(key) … res.send(hit.body)).
-   A key that is only tested (e.g. validated, then next()) fails; a key handed on to code this analysis
-   cannot follow (no keyed store write and replay in sight) makes the route UNPROVEN.
+   Write and lookup must hit ONE object (traced through aliases, properties, helpers, closures) created once and never replaced,
+   cleared or leaked per request, else UNPROVEN; a key only tested fails. Runtime: a keyed retry must get the 1st response again.
 5. Status codes (sends of program helpers given \`res\` count; \`res\` given to code that cannot be followed: UNPROVEN):
    POST on a collection responds 201 (never a bare 200) and sets the Location header of the new resource
    (res.location(u), res.set/header/setHeader/append('Location', u), in the handler or a function it calls);
@@ -156,7 +157,8 @@ export function responseUnproven(root: string, r: RouteInfo): string | undefined
 /** Why a route's idempotency cannot be proven statically (it reads the key, but no keyed store write and replay are in sight). */
 export function idempotencyUnproven(r: RouteInfo): string | undefined {
   if ((r.method !== 'post' && r.method !== 'patch') || !r.readsIdempotencyKey || r.idempotencyUse !== 'unproven') return undefined;
-  return `${routeLabel(r)} reads the Idempotency-Key header, but no function of its chain was shown to store a response keyed by it and replay a stored response (store.set(key, …) and res.send(stored…)), so its idempotency is unproven`;
+  const why = r.idempotencyWhy !== undefined ? ` (${r.idempotencyWhy})` : '';
+  return `${routeLabel(r)} reads the Idempotency-Key header, but no function of its chain was shown to store a response keyed by it and replay a stored response (store.set(key, …) and res.send(stored…)), so its idempotency is unproven${why}`;
 }
 
 function statusViolations(root: string, r: RouteInfo, at: string, knownPath: boolean): Violation[] {
@@ -223,6 +225,7 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
   const program = ctx.program();
   const checker = program.getTypeChecker();
   const { all, dynamic } = extractRouteTable(program, ctx.root, ctx.sourceFiles);
+  const notReplayed = await replayEvidence(ctx, all);
   const files = [...new Set([...all.map((r) => r.file), ...dynamic.map((d) => d.file)])].sort();
   const findings: CheckFinding[] = [];
   for (const file of files) {
@@ -232,6 +235,8 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
     const violations: Violation[] = [];
     for (const r of all.filter((x) => x.file === file)) {
       const v = routeViolations(checker, ctx.root, r);
+      const broken = notReplayed.get(r);
+      if (broken !== undefined) v.push(broken);
       if (r.unresolvedPath !== undefined && v.length === 0) {
         const at = location(ctx.root, r.unresolvedPath.node);
         findings.push(unprovenFinding(RULE, file, `${at}: ${r.method.toUpperCase()} route: ${r.unresolvedPath.reason}, so its versioning, naming, pagination and 404 rules are unproven`));
@@ -254,6 +259,30 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
     if (total > 0) findings.push({ rule: RULE, file, status: violations.length === 0 ? 'pass' : 'fail', units: { passed, total }, violations });
   }
   return findings;
+}
+
+/**
+ * Runtime replay probe (replay-probe.ts) for the POST/PATCH routes whose idempotency is accepted or unproven
+ * statically (it never upgrades a verdict): a keyed retry that is not replayed is a violation of the route.
+ * Every outcome, inconclusive ones included, is logged.
+ */
+async function replayEvidence(ctx: CheckContext, all: RouteInfo[]): Promise<Map<RouteInfo, Violation>> {
+  const out = new Map<RouteInfo, Violation>();
+  const resolved = all.filter((r) => r.unresolvedPath === undefined);
+  const candidates = resolved.filter((r) => (r.method === 'post' || r.method === 'patch') && r.readsIdempotencyKey && r.idempotencyUse !== 'ignored');
+  if (candidates.length === 0) return out;
+  const run = await runReplayProbe(ctx, candidates, resolved);
+  const notes: string[] = [];
+  for (const o of run.outcomes) {
+    notes.push(`${routeLabel(o.route)}: ${o.result}: ${o.detail}`);
+    if (o.result !== 'not-replayed') continue;
+    out.set(o.route, {
+      location: location(ctx.root, o.route.registration),
+      message: `${routeLabel(o.route)}: ${o.detail} (runtime probe: the same request sent twice with one Idempotency-Key must get the first response again). Keep the idempotency store in one object created once (module scope or the middleware factory) and never replace or clear it per request`,
+    });
+  }
+  await ctx.logs.write('rest-conventions-replay.txt', [`replay probe${run.logPath !== undefined ? ` (transcript: ${run.logPath})` : ''}`, ...notes].join('\n'));
+  return out;
 }
 
 export default defineCheck({
