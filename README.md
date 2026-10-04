@@ -124,7 +124,7 @@ the worktree still lives under the harness's `.harness/worktrees/`), and set
 | Principle | Where it lives |
 |---|---|
 | Deterministic tools for deterministic tasks | `src/core/testing.ts` (the harness's own Vitest runner), `checks.ts`, `testmap.ts`, `ship.ts`. The model never runs git, tsc or tests itself |
-| Hooks, not prompts | `plugins/hooks/`: `path-guard`, `observed-red`, `unsafe-code-guard`, `secret-guard`, `source-boundary`, `test-preservation`, `elision-guard`. All fail closed |
+| Hooks, not prompts | `plugins/hooks/`: pre-tool `path-guard`, `observed-red`, `unsafe-code-guard`, `secret-guard`, `source-boundary`, `test-preservation`, `elision-guard`, `dependency-policy`; post-tool `typecheck-feedback` (records type errors of the written files, never blocks). Content hooks judge the post-write file each write tool declares (`preview`), so a write tool without one is refused. All fail closed |
 | Observed red before source edits | `observed-red` hook + gate: a `src/` file is writable only after a test case that asserts on its values was **run by the harness and seen failing** on a non-constant assertion at its current content; finish needs that case to pass, and to fail again when the harness puts the run-start source back (revert check). A case edited after its red counts only through that differential proof. A weak but change-sensitive test still satisfies this; whether a test checks the right thing is for a human |
 | One definition of a test file | `src/core/testmap.ts`: `*.test.ts` / `*.spec.ts` is a runnable test, any other file under `test/` is test support; the hooks, `run_tests`, `test_map`, the coverage map and observed red all use this one definition |
 | Existing tests only grow | `test-preservation` hook (the `append_file` tool is the safe way to add a `describe` block): pre-existing test cases are append-only (no deleting, skipping, rewriting or mocking them out, nothing hoisted into them), their hooks, imports and top-level helpers stay as they were, new code in that file changes no shared state, and pre-existing test helpers are read-only. A brownfield task with `allowBreaking: true` may change existing bodies, but still not remove, rename or skip a case |
@@ -284,10 +284,11 @@ After an audit showed the harness was fitted to its own template and sample, the
 - **tsc-strict:** forces every strict sub-flag and type-checks every TypeScript file.
 - **Contract Lock:** diffs constraint keywords.
 - **Brownfield standards:** compared to a baseline taken at run start, so pre-existing violations in untouched files no longer deadlock a run.
+- **Hooks:** content hooks judge the post-write file (`preview`), not input field names; `elision-guard` refuses every placeholder the context views render and writes that break or gut an existing source file; `dependency-policy` refuses imports of packages the API has not declared and installed; `typecheck-feedback` records type errors after each write. Any assertion API (node:assert, vitest/chai `assert`, imported helpers, supertest) now counts as red, judged at the statement that failed. A `delete_file` tool removes files the run created, and the `orphans` gate fails finish on created files nothing uses.
 - **Sandbox:** agent code gets a read fence and an environment allow-list.
 
 **Known gaps:**
 - tsc-strict now type-checks in-process, outside the read fence.
 - Nothing yet compares the API against the resources and operations the task listed, so DONE can be reached with a resource missing.
-- Not done yet: a target profile for other layouts and test runners (vitest only), an honest real `--baseline` run, and generalised hooks.
+- Not done yet: a target profile for other layouts and test runners (vitest only) and an honest real `--baseline` run.
 - The DONE evidence runs predate these changes.
