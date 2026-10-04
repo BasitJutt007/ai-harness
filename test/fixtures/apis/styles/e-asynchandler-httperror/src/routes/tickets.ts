@@ -39,13 +39,13 @@ export function ticketsRouter(repo = new TicketRepo()): Router {
   router.patch(
     '/v1/tickets/:ticketId',
     asyncHandler(async (req, res) => {
-      idempotencyHeaders.parse(req.headers);
+      const headers = idempotencyHeaders.parse(req.headers);
       const { ticketId } = ticketParams.parse(req.params);
       const { status } = updateTicketBody.parse(req.body);
       const current = await repo.byId(ticketId);
       if (!current) throw new NotFoundError('ticket', ticketId);
       if (current.status === 'closed' && status === 'closed') throw new ConflictError('ticket is already closed');
-      res.json(ticketSchema.parse(await repo.setStatus(ticketId, status)));
+      res.json(ticketSchema.parse(await repo.setStatus(ticketId, status, headers['idempotency-key'])));
     }),
   );
 

@@ -2,7 +2,8 @@
  * rest-conventions: versioned plural resource paths, cursor pagination on
  * collections, idempotency on POST/PATCH and the house status-code rules.
  * Paths and statuses are read by value (constants, enums, `as const` objects);
- * idempotency is recognised by behaviour (the chain reads the Idempotency-Key header).
+ * idempotency is recognised by behaviour (the chain reads the Idempotency-Key header, stores a response
+ * keyed by it and replays a stored response; a key that is only read is not idempotency).
  */
 import pluralize from 'pluralize';
 import ts from 'typescript';
@@ -26,9 +27,15 @@ A route passes iff ALL of (paths and statuses are read by value: constants, enum
    middleware) with a schema whose type has cursor and limit (and no page/offset/skip), and its 2xx response
    schema has nextCursor and an array property data or items.
 4. Idempotency: every POST and PATCH has a function in its chain (route middleware, router.use(...) before the
-   route, or the handler) that reads the Idempotency-Key header: req.get/req.header('Idempotency-Key'),
-   req.headers['idempotency-key'], or a parse of req.headers with a schema that has 'idempotency-key'.
-5. Status codes: POST on a collection responds 201 (never a bare 200); an action POST responds 200/201/202/204;
+   route, or the handler) that reads the Idempotency-Key header (req.get/req.header('Idempotency-Key'),
+   req.headers['idempotency-key'], or a parse of req.headers with a schema that has 'idempotency-key'), stores
+   a response keyed by it (store.set(key, …), store[key] = …) and replays one: a response sent (json, send,
+   end, write) from a value looked up by the key (const hit = store.get(key) … res.send(hit.body)).
+   A key that is only tested (e.g. validated, then next()) fails; a key handed on to code this analysis
+   cannot follow (no keyed store write and replay in sight) makes the route UNPROVEN.
+5. Status codes: POST on a collection responds 201 (never a bare 200) and sets the Location header of the new
+   resource (res.location(u), res.set/header/setHeader/append('Location', u), in the handler or a function it
+   calls); an action POST responds 200/201/202/204;
    DELETE responds 204 with no body; every status is one of 200 201 202 204 304 400 401 403 404 409 412 415 422
    428 429 500 503; :param routes have a 404 path (throw notFound(...), an error class the error middleware maps
    to 404, or res.status(404)); validation failures are 422: a literal 400 in a handler is a violation.
@@ -128,8 +135,19 @@ function maySucceed(s: ResponseSite): boolean {
 
 function idempotencyViolations(r: RouteInfo, at: string): Violation[] {
   if (r.method !== 'post' && r.method !== 'patch') return [];
-  if (r.readsIdempotencyKey) return [];
-  return [{ location: at, message: `${routeLabel(r)}: no idempotency: nothing in the chain reads the Idempotency-Key header; add the idempotency() middleware (or a middleware that reads Idempotency-Key)` }];
+  if (!r.readsIdempotencyKey) {
+    return [{ location: at, message: `${routeLabel(r)}: no idempotency: nothing in the chain reads the Idempotency-Key header; add the idempotency() middleware (or a middleware that reads Idempotency-Key)` }];
+  }
+  if (r.idempotencyUse === 'ignored') {
+    return [{ location: at, message: `${routeLabel(r)}: no idempotency: the chain reads the Idempotency-Key header but only tests it; nothing stores a response under the key or replays one. Use the idempotency() middleware` }];
+  }
+  return [];
+}
+
+/** Why a route's idempotency cannot be proven statically (it reads the key, but no keyed store write and replay are in sight). */
+export function idempotencyUnproven(r: RouteInfo): string | undefined {
+  if ((r.method !== 'post' && r.method !== 'patch') || !r.readsIdempotencyKey || r.idempotencyUse !== 'unproven') return undefined;
+  return `${routeLabel(r)} reads the Idempotency-Key header, but no function of its chain was shown to store a response keyed by it and replay a stored response (store.set(key, …) and res.send(stored…)), so its idempotency is unproven`;
 }
 
 function statusViolations(root: string, r: RouteInfo, at: string, knownPath: boolean): Violation[] {
@@ -147,6 +165,8 @@ function statusViolations(root: string, r: RouteInfo, at: string, knownPath: boo
     const plain = r.responses.find((s) => has(s, 200));
     if (!created || plain !== undefined) {
       out.push({ location: plain !== undefined ? location(root, plain.call) : at, message: `${label}: creating a resource must respond res.status(201) (with Location), not 200` });
+    } else if (!r.setsLocation) {
+      out.push({ location: at, message: `${label}: creating a resource must set the Location header of the new resource: res.status(201).location(\`…/\${id}\`)` });
     }
   }
   if (r.method === 'delete') {
@@ -202,6 +222,11 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
       if (r.unresolvedPath !== undefined && v.length === 0) {
         const at = location(ctx.root, r.unresolvedPath.node);
         findings.push(unprovenFinding(RULE, file, `${at}: ${r.method.toUpperCase()} route: ${r.unresolvedPath.reason}, so its versioning, naming, pagination and 404 rules are unproven`));
+        continue;
+      }
+      const idem = idempotencyUnproven(r);
+      if (idem !== undefined && v.length === 0) {
+        findings.push(unprovenFinding(RULE, file, `${location(ctx.root, r.registration)}: ${idem}`));
         continue;
       }
       total++;

@@ -318,18 +318,25 @@ describe('permissive schemas never validate a request or a response', () => {
   });
 });
 
-describe('idempotency is recognised by behaviour (the chain reads the Idempotency-Key header)', () => {
-  const CASES: Array<[string, string, boolean]> = [
-    ['req.get', "const keyed: RequestHandler = (req, _res, next) => { if (req.get('Idempotency-Key') === undefined) next(); else next(); };", true],
-    ['req.header', "const keyed: RequestHandler = (req, _res, next) => { void req.header('idempotency-key'); next(); };", true],
-    ['req.headers[...]', "const keyed: RequestHandler = (req, _res, next) => { void req.headers['idempotency-key']; next(); };", true],
-    ['a header schema parse', "const H = z.object({ 'idempotency-key': z.string().optional() });\nconst keyed: RequestHandler = (req, _res, next) => { H.parse(req.headers); next(); };", true],
-    ['a callee that receives req', "function readKey(r: Request): string | undefined { return r.get('Idempotency-Key'); }\nconst keyed: RequestHandler = (req, _res, next) => { void readKey(req); next(); };", true],
-    ['a factory with the header name bound', "const requireHeader = (name: string): RequestHandler => (req, _res, next) => { void req.get(name); next(); };\nconst keyed = requireHeader('Idempotency-Key');", true],
+describe('idempotency is recognised by behaviour (the chain reads the Idempotency-Key header, stores a response keyed by it and replays it)', () => {
+  /** Remembers the JSON a request answered under its key and replays it for the same key. */
+  const STORE = "if (key === undefined) { next(); return; } const hit = done.get(key); if (hit !== undefined) { res.status(201).json(hit); return; } const json = res.json.bind(res); res.json = (b: unknown) => { done.set(key, b); return json(b); }; next();";
+  const DONE = 'const done = new Map<unknown, unknown>();';
+  const CASES: Array<[string, string, boolean | undefined]> = [
+    ['req.get', `${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = req.get('Idempotency-Key'); ${STORE} };`, true],
+    ['req.header', `${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = req.header('idempotency-key'); ${STORE} };`, true],
+    ['req.headers[...]', `${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = req.headers['idempotency-key']; ${STORE} };`, true],
+    ['a header schema parse', `const H = z.object({ 'idempotency-key': z.string().optional() });\n${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = H.parse(req.headers)['idempotency-key']; ${STORE} };`, true],
+    ['a callee that receives req', `function readKey(r: Request): string | undefined { return r.get('Idempotency-Key'); }\n${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = readKey(req); ${STORE} };`, true],
+    ['a factory with the header name bound', `${DONE}\nconst requireHeader = (name: string): RequestHandler => (req, res, next) => { const key = req.get(name); ${STORE} };\nconst keyed = requireHeader('Idempotency-Key');`, true],
+    ['store helpers the key is passed to', `const done = new Map<string, unknown>();\nconst recall = (k: string): unknown => done.get(k);\nfunction remember(k: string, body: unknown): void { done.set(k, body); }\nconst keyed: RequestHandler = (req, res, next) => { const key = req.get('Idempotency-Key'); if (key === undefined) { next(); return; } const hit = recall(key); if (hit !== undefined) { res.status(201).json(hit); return; } const json = res.json.bind(res); res.json = (b: unknown) => { remember(key, b); return json(b); }; next(); };`, true],
+    ['a key only tested, then next()', "const keyed: RequestHandler = (req, _res, next) => { if (req.get('Idempotency-Key') === undefined) next(); else next(); };", false],
+    ['a header schema parse alone', "const H = z.object({ 'idempotency-key': z.string().optional() });\nconst keyed: RequestHandler = (req, _res, next) => { H.parse(req.headers); next(); };", false],
+    ['a key stored but never replayed', `${DONE}\nconst keyed: RequestHandler = (req, _res, next) => { const key = req.get('Idempotency-Key'); if (key !== undefined) done.set(key, true); next(); };`, undefined],
     ['a name alone', 'const idempotency = (): RequestHandler => (_req, _res, next) => { next(); };\nconst keyed = idempotency();', false],
-    ['another header', "const keyed: RequestHandler = (req, _res, next) => { void req.get('x-request-id'); next(); };", false],
+    ['another header', `${DONE}\nconst keyed: RequestHandler = (req, res, next) => { const key = req.get('x-request-id'); ${STORE} };`, false],
   ];
-  it.each(CASES)('%s → idempotent: %s', async (_name, middleware, ok) => {
+  it.each(CASES)('%s → idempotent (undefined: UNPROVEN): %s', async (_name, middleware, ok) => {
     const ctx = await api({
       'src/routes.ts': `import { Router, type Request, type RequestHandler } from 'express';
 import { z } from 'zod';
@@ -337,12 +344,15 @@ const Item = z.object({ id: z.string() });
 ${middleware}
 export const r = Router();
 r.post('/v1/items', keyed, (req, res) => {
-  res.status(201).json(Item.parse(Item.parse(req.body)));
+  res.status(201).location('/v1/items/1').json(Item.parse(Item.parse(req.body)));
 });
 `,
     });
-    const msgs = forRoute(await restConventions.run(ctx), 'POST /v1/items');
-    expect(msgs.some((m) => m.includes('no idempotency')), msgs.join('\n')).toBe(!ok);
+    const findings = await restConventions.run(ctx);
+    const msgs = forRoute(findings, 'POST /v1/items');
+    expect(msgs.some((m) => m.includes('no idempotency')), msgs.join('\n')).toBe(ok === false);
+    const unproven = findings.some((f) => f.status === 'skip' && (f.skipReason ?? '').includes('POST /v1/items reads the Idempotency-Key header'));
+    expect(unproven, JSON.stringify(findings)).toBe(ok === undefined);
   });
 
   it('router.use(middleware) counts only for routes registered after it', async () => {
@@ -350,7 +360,16 @@ r.post('/v1/items', keyed, (req, res) => {
       'src/routes.ts': `import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 const Item = z.object({ id: z.string() });
-const keyed: RequestHandler = (req, _res, next) => { void req.get('Idempotency-Key'); next(); };
+const done = new Map<string, unknown>();
+const keyed: RequestHandler = (req, res, next) => {
+  const key = req.get('Idempotency-Key');
+  if (key === undefined) return next();
+  const hit = done.get(key);
+  if (hit !== undefined) return void res.status(201).json(hit);
+  const json = res.json.bind(res);
+  res.json = (b: unknown) => { done.set(key, b); return json(b); };
+  next();
+};
 export const r = Router();
 r.post('/v1/early', (req, res) => { res.status(201).json(Item.parse(req.body)); });
 r.use(keyed);

@@ -10,7 +10,9 @@
  *   (plugins/lib/spec-probes.ts): create 201 echoing the sent fields, get 200, list contains it
  *   (pagination followed), missing required / enum outside values / above max / below min -> 422
  *   problem, duplicate unique -> 409 problem, partial update 200 keeping the other fields, delete 204
- *   then 404, same Idempotency-Key + body twice -> same status and id.
+ *   then 404, same Idempotency-Key + body twice -> same status and id; with create and update: POST with a
+ *   key, update the created resource (PATCH or PUT), then the same key + body -> the ORIGINAL response
+ *   (same status, deep-equal body), not the updated state.
  * - pass only if every unit passes; any fail -> fail; else any undecidable unit (no app, 401/403,
  *   no valid body from the spec, a failed request) -> unproven.
  * - Greenfield with only a free-text brief: n/a, and a human must verify behaviour coverage
@@ -149,7 +151,7 @@ export default defineGate({
   name: 'spec-coverage',
   description:
     'Greenfield: every endpoint the task\'s resources × operations imply exists, and probes generated from the field specs (required, enum, min/max, unique, '
-    + 'create/get/list/update/delete, idempotency) pass against the running app. Free-text-only tasks: n/a, a human verifies coverage.',
+    + 'create/get/list/update/delete, idempotency incl. replay after an update) pass against the running app. Free-text-only tasks: n/a, a human verifies coverage.',
   phases: ['finish', 'ship'],
   appliesTo: ['greenfield'],
   async run(ctx): Promise<GateResult> {

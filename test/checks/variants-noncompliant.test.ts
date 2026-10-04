@@ -98,6 +98,20 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
     expect: [{ rule: 'rest-conventions', at: [ROUTES, "usersRouter.post('/v1/users'"], message: 'POST /v1/users: no idempotency' }],
     exactViolations: { 'rest-conventions': 1 },
   },
+  'bad-idempotency-noop': {
+    // the middleware validates Idempotency-Key and calls next(): nothing is stored or replayed
+    fails: ['rest-conventions'],
+    expect: [
+      { rule: 'rest-conventions', at: [ROUTES, "usersRouter.post('/v1/users'"], message: 'POST /v1/users: no idempotency: the chain reads the Idempotency-Key header but only tests it' },
+      { rule: 'rest-conventions', at: [ROUTES, "usersRouter.patch('/v1/users/:userId'"], message: 'PATCH /v1/users/:userId: no idempotency: the chain reads the Idempotency-Key header but only tests it' },
+    ],
+    exactViolations: { 'rest-conventions': 2 },
+  },
+  'bad-create-no-location': {
+    fails: ['rest-conventions'],
+    expect: [{ rule: 'rest-conventions', at: [ROUTES, "usersRouter.post('/v1/users'"], message: 'POST /v1/users: creating a resource must set the Location header' }],
+    exactViolations: { 'rest-conventions': 1 },
+  },
   'bad-delete-200': {
     fails: ['rest-conventions'],
     expect: [{ rule: 'rest-conventions', at: [ROUTES, 'res.status(200).json(UserSchema.parse(user))'], message: 'DELETE must respond res.status(204).end()' }],
