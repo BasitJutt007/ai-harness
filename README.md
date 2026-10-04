@@ -61,6 +61,7 @@ templates/       greenfield scaffold (express-zod) with its manifest (harness.te
 samples/         brownfield sample API (existing-api: a projects API)
 tasks/           task files (provider-free: `model:`/`provider:` keys are rejected)
 examples/plugins ready-to-drop extensions: openapi_diff tool, ORM validator, lint rule
+governed/        the two governed APIs the harness produced and shipped (snapshots; see governed/README.md)
 runs/ tokens/    evidence written by the harness on every run
 ```
 
@@ -68,19 +69,19 @@ runs/ tokens/    evidence written by the harness on every run
 
 | Dimension | Command | What to read |
 |---|---|---|
-| Model agnosticism | `npx harness run tasks/users-api.task.yaml --driver claude`, then the same with `--driver openai` | both end `verdict DONE`; `npx harness agnostic <runA> <runB>` reports zero diff in task sha + every tool/hook/gate/check file. In this repository only the openai side has real DONE runs ([Evidence](#evidence-in-this-repository)) |
-| Token efficiency | `harness run …`, then the same with `--baseline`, then `npx harness tokens compare <jitRun> <baselineRun>` | `tokens/<runId>.json` (per-turn actual vs a **shadow** baseline) and `tokens/compare-…json` (a **measured** baseline: fetchers withheld, repo front-loaded every turn, no compaction) |
-| API standards | `npx harness check --api <generated-api-dir>` | one line per rule per file, then one summary line each for `problem-json`, `rest-conventions`, `tsc-strict`, `zod-boundary` and `verdict 100%` |
+| Model agnosticism | `node bin/harness.mjs run tasks/users-api.task.yaml --driver claude`, then the same with `--driver openai` | both end `verdict DONE`; `node bin/harness.mjs agnostic <runA> <runB>` reports zero diff in task sha + every tool/hook/gate/check file. In this repository only the openai side has real DONE runs ([Evidence](#evidence-in-this-repository)) |
+| Token efficiency | `harness run …`, then the same with `--baseline`, then `node bin/harness.mjs tokens compare <jitRun> <baselineRun>` | `tokens/<runId>.json` (per-turn actual vs a **shadow** baseline) and `tokens/compare-…json` (a **measured** baseline: fetchers withheld, repo front-loaded every turn, no compaction) |
+| API standards | `node bin/harness.mjs check --api <generated-api-dir>` | one line per rule per file, then one summary line each for `problem-json`, `rest-conventions`, `tsc-strict`, `zod-boundary` and `verdict 100%` |
 | Extensibility | `node scripts/simulate-extensions.mjs`, or add one file to `plugins/` yourself ([docs/extending.md](docs/extending.md)) | `git diff --stat` touches only the new plugin file; `src/core/**` sha256 unchanged |
 
 ```bash
 export ANTHROPIC_API_KEY=… OPENAI_API_KEY=…
-npx harness run tasks/users-api.task.yaml       --driver claude --ship  # greenfield → PR
-npx harness run tasks/users-api.task.yaml       --driver openai         # same task, other provider
-npx harness agnostic <claudeRunId> <openaiRunId>                        # zero diff
-npx harness run tasks/projects-change.task.yaml --driver openai --ship  # brownfield → PR
-npx harness check --api .harness/worktrees/<runId>/generated/users-api  # the generated API
-npx harness task check <task-file>                                      # how a task file is read, no tokens spent
+node bin/harness.mjs run tasks/users-api.task.yaml       --driver claude --ship  # greenfield → PR
+node bin/harness.mjs run tasks/users-api.task.yaml       --driver openai         # same task, other provider
+node bin/harness.mjs agnostic <claudeRunId> <openaiRunId>                        # zero diff
+node bin/harness.mjs run tasks/projects-change.task.yaml --driver openai --ship  # brownfield → PR
+node bin/harness.mjs check --api .harness/worktrees/<runId>/generated/users-api  # the generated API
+node bin/harness.mjs task check <task-file>                                      # how a task file is read, no tokens spent
 ```
 
 Models are chosen outside the task file: `--model <id>`, `HARNESS_CLAUDE_MODEL`
@@ -114,11 +115,11 @@ loop, hooks, gates and checks. These runs are harness demos, **not model evidenc
 
 ```bash
 S=fixtures/scripted
-npx harness run tasks/users-api.task.yaml       --driver scripted --driver-opt script=$S/users-api.json          # greenfield: DONE
-npx harness run tasks/projects-change.task.yaml --driver scripted --driver-opt script=$S/projects-change.json    # brownfield: DONE, 2 additive
-npx harness run tasks/users-api.task.yaml       --driver scripted --driver-opt script=$S/users-api-cheat.json    # cheat: forbidden writes blocked, exit 1
-npx harness run tasks/projects-change.task.yaml --driver scripted --driver-opt script=$S/projects-breaking.json  # tests green, contract-lock fail, exit 1
-npx harness ship <greenfieldRunId> --dry-run                                # gates re-run fresh; prints the plan, changes nothing
+node bin/harness.mjs run tasks/users-api.task.yaml       --driver scripted --driver-opt script=$S/users-api.json          # greenfield: DONE
+node bin/harness.mjs run tasks/projects-change.task.yaml --driver scripted --driver-opt script=$S/projects-change.json    # brownfield: DONE, 2 additive
+node bin/harness.mjs run tasks/users-api.task.yaml       --driver scripted --driver-opt script=$S/users-api-cheat.json    # cheat: forbidden writes blocked, exit 1
+node bin/harness.mjs run tasks/projects-change.task.yaml --driver scripted --driver-opt script=$S/projects-breaking.json  # tests green, contract-lock fail, exit 1
+node bin/harness.mjs ship <greenfieldRunId> --dry-run                                # gates re-run fresh; prints the plan, changes nothing
 ```
 
 A run without `--repo` creates a branch `harness/<runId>` and a worktree in this repository;
@@ -167,7 +168,7 @@ placeholder and contract-lock failed the run (4 → 0 endpoints).
 
 | run | task | model | turns | result |
 |---|---|---|---|---|
-| `users-api-openai-20261004-045649` | greenfield `users-api` | `gpt-5.4` | 23 | **DONE**: 6 gates pass, contract-lock n/a (spec-coverage 17/17, 41/41 tests, standards 100%) |
+| `users-api-openai-20261004-045649` | greenfield `users-api` | `gpt-5.4` | 23 | **DONE**: 6 gates pass, contract-lock n/a (spec-coverage 17/17 on the task's fields and operations, 41/41 tests, standards 100%) |
 | `users-api-openai-20261004-045825` | greenfield `users-api`, **`--baseline`** | `gpt-5.4-mini` | 16 | **DONE** in baseline mode (fetchers withheld, repo front-loaded every turn, no compaction) |
 | `users-api-openai-20261004-045424` | greenfield `users-api` | `gpt-5.4-mini` | 60 | NOT DONE (max turns): the model looped for ~40 turns on a failing test it wrote; the fresh final gates were green, but it never asked to finish again |
 | `real-model/projects-change-openai-20261004-045936`, `…050115` | brownfield | `gpt-5.4` | 40, 40 | NOT DONE: one failing agent-written test each (see below) |
@@ -187,6 +188,9 @@ Each run directory holds `run.json`, `events.jsonl`, `transcript.jsonl`, `gates.
 `standards.txt`, `logs/` and `cli-output.txt`; both DONE runs also have `check-generated-api.txt`
 or `check-existing-api.txt` (`harness check --api`, verdict 100%) and `ship-dry-run.txt` (every
 gate re-run fresh, `secrets` included, all green; nothing pushed).
+
+**The two governed APIs** are in this repository under [`governed/`](governed/README.md) (snapshots of
+the shipped commits; `node bin/harness.mjs check --api governed/users-api` reads 100%).
 
 **Pull requests opened by the harness** (`harness ship`, every gate re-run fresh first, pushed to a
 feature branch, opened with `gh`), on the demo repository whose `main` holds the sample API:
