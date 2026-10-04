@@ -123,7 +123,8 @@ describe('ship', () => {
     const base = makeCtx({ repoRoot: s.repo, rootRel: 'api', task: brownfieldTask(), branch: s.branch, baseBranch: 'main', baseSha: s.baseSha, exec: withGh('missing'), gates: [pass], runDir });
     const ctx = { ...base, config: { ...base.config, tokensDir } };
     const body = prBody(ctx, { ok: true, results: [], text: 'gates ok', compact: '' });
-    expect(body).toContain('actual 120 vs baseline 2400 input tokens (reduction 95%)');
+    // No baseline_kind recorded: the body must not present the number as measured.
+    expect(body).toContain('actual 120 vs shadow baseline (an estimate, never sent; measure with --baseline + tokens compare) 2400 input tokens (reduction 95%)');
     expect(body).toContain(`Run evidence: ${relative(HARNESS_ROOT, runDir).split('\\').join('/')}/`);
     expect(body).not.toContain('Run evidence: runs/');
   });

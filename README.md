@@ -188,6 +188,14 @@ Each run directory holds `run.json`, `events.jsonl`, `transcript.jsonl`, `gates.
 or `check-existing-api.txt` (`harness check --api`, verdict 100%) and `ship-dry-run.txt` (every
 gate re-run fresh, `secrets` included, all green; nothing pushed).
 
+**Pull requests opened by the harness** (`harness ship`, every gate re-run fresh first, pushed to a
+feature branch, opened with `gh`), on the demo repository whose `main` holds the sample API:
+- [BasitJutt007/harness-demo#1](https://github.com/BasitJutt007/harness-demo/pull/1): greenfield, run `users-api-openai-20261004-045649`
+- [BasitJutt007/harness-demo#2](https://github.com/BasitJutt007/harness-demo/pull/2): brownfield, run `projects-change-openai-20261004-052623`
+
+Their PR bodies quote the run's token totals against the shadow baseline; `harness ship` now labels
+that baseline as a shadow estimate in new PRs.
+
 **Tokens, measured: the >90% target is not met.** `tokens/compare-users-api-openai-20261004-045424-vs-users-api-openai-20261004-045825.json`
 compares a normal run with a real `--baseline` run on the same model (`gpt-5.4-mini`):
 

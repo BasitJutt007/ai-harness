@@ -155,7 +155,9 @@ function tokenTotals(ctx: RunContext): string {
     const raw: unknown = JSON.parse(readFileSync(file, 'utf8'));
     if (isRecord(raw) && isRecord(raw.totals)) {
       const t = raw.totals;
-      return `actual ${String(t.actual_input_tokens)} vs baseline ${String(t.baseline_input_tokens)} input tokens (reduction ${String(t.reduction_pct)}%)`;
+      // Say which baseline: a shadow estimate (never sent) is not a measured --baseline run.
+      const kind = raw.baseline_kind === 'measured' ? 'measured baseline' : 'shadow baseline (an estimate, never sent; measure with --baseline + tokens compare)';
+      return `actual ${String(t.actual_input_tokens)} vs ${kind} ${String(t.baseline_input_tokens)} input tokens (reduction ${String(t.reduction_pct)}%)`;
     }
   } catch {
     // not recorded
