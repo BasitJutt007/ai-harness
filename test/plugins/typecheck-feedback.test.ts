@@ -45,6 +45,18 @@ async function writeThenCheck(ctx: RunContext, p: string, content: string): Prom
 }
 
 describe('typecheck-feedback (post_tool)', () => {
+  it('reads only inside the API tree: a file outside it, imported by absolute path, never reaches the note', async () => {
+    const h = await harness();
+    const outsideDir = await makeHarness({ label: 'tsfeedback-outside', files: { 'secret.ts': "export interface Leaked { CANARY_TYPECHECK_FEEDBACK_9f2c: number }\n" } });
+    dirs.push(outsideDir.dir);
+    const outsideFile = path.join(outsideDir.ctx.workspace.root, 'secret.ts');
+    // If the file were read, TS2741 would name the missing property: "Property 'CANARY…' is missing in type '{}'".
+    const content = `import type { Leaked } from '${outsideFile}';\nexport const n: Leaked = {};\n`;
+    const { verdict } = await writeThenCheck(h.ctx, 'test/probe.test.ts', content);
+    const note = verdict.decision === 'record' ? verdict.note : '';
+    expect(note).not.toContain('CANARY_TYPECHECK_FEEDBACK_9f2c');
+  });
+
   it('records type and syntax errors of the written file with file:line, and passes a clean file', async () => {
     const h = await harness();
     const good = "import { z } from 'zod';\nexport const Name = z.string().min(1);\nexport function greet(n: string): string { return `hi ${n}`; }\n";

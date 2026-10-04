@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
-import { defineHook, fileCheckOptions } from '../../src/core/plugin-api.ts';
+import { createTsFence, defineHook, fileCheckOptions } from '../../src/core/plugin-api.ts';
 import { toApiRel } from '../lib/path-policy.ts';
 
 /** Time budget of one check: a check still running at the deadline is cancelled and its result skipped. */
@@ -60,6 +60,10 @@ function serviceFor(root: string): Service {
     return known;
   }
   const options = fileCheckOptions(root);
+  // Agent code steers what this program reads (imports, tsconfig paths): every read goes through the same
+  // fence as the other in-process programs, so a file outside the API's tree reads as absent.
+  const fence = createTsFence(root);
+  const read = (f: string): string | undefined => (fence.allows(f) ? fence.host.readFile(f) : undefined);
   const state: CheckState = { roots: [], versions: new Map(), deadline: null, overruns: 0, off: false };
   const host: ts.LanguageServiceHost = {
     getScriptFileNames: () => state.roots,
@@ -67,25 +71,25 @@ function serviceFor(root: string): Service {
       if (!inside(root, f)) return '0'; // libraries and node_modules do not change during a run
       const memo = state.versions.get(f);
       if (memo !== undefined) return memo;
-      const text = ts.sys.readFile(f);
+      const text = read(f);
       const v = text === undefined ? 'absent' : createHash('sha256').update(text).digest('hex');
       state.versions.set(f, v);
       return v;
     },
     getScriptSnapshot: (f) => {
-      const text = ts.sys.readFile(f);
+      const text = read(f);
       return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text);
     },
     getCurrentDirectory: () => root,
     getCompilationSettings: () => options,
     getDefaultLibFileName: (o) => ts.getDefaultLibFilePath(o),
     getCancellationToken: () => ({ isCancellationRequested: () => state.deadline !== null && performance.now() > state.deadline }),
-    fileExists: (f) => ts.sys.fileExists(f),
-    readFile: (f, enc) => ts.sys.readFile(f, enc),
-    readDirectory: (...args) => ts.sys.readDirectory(...args),
-    directoryExists: (d) => ts.sys.directoryExists(d),
-    getDirectories: (d) => ts.sys.getDirectories(d),
-    realpath: (p) => (ts.sys.realpath !== undefined ? ts.sys.realpath(p) : p),
+    fileExists: (f) => fence.host.fileExists(f),
+    readFile: (f) => read(f),
+    readDirectory: (dir, extensions, exclude, include, depth) => [...fence.host.readDirectory(dir, extensions ?? [], exclude, include ?? [], depth)],
+    directoryExists: (d) => fence.host.directoryExists(d),
+    getDirectories: (d) => fence.host.getDirectories(d),
+    realpath: (p) => fence.host.realpath(p),
   };
   const svc: Service = { ls: ts.createLanguageService(host, documents), state };
   services.set(root, svc);
