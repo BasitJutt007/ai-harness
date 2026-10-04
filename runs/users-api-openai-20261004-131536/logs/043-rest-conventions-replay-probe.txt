@@ -1,0 +1,16 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261004-131536/generated/users-api (port 62702)
+exit=0 timedOut=false served=true
+candidates: src/app.ts (conventional entry file), src/server.ts (conventional entry file)
+app (as reported by the runtime): src/app.ts: export createApp()
+control /__harness_probe__/control -> {"status":200,"contentType":"text/plain; charset=utf-8","body":"harness-probe-control-f7364ae16af4"} injected=true
+POST /v1/users: POST /v1/users {"email":"probe-84a9231@example.com","name":"probe84a9231","role":"admin"} (Idempotency-Key 8dd28deb-c86e-4196-89b0-e6b1d47e0142)
+  first  -> {"status":201,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"28e2d710-d5d0-4e0b-bcaf-0db291107612\",\"email\":\"probe-84a9231@example.com\",\"name\":\"probe84a9231\",\"role\":\"admin\",\"createdAt\":\"2026-10-04T13:17:53.945Z\",\"updatedAt\":\"2026-10-04T13:17:53.945Z\"}","location":"/v1/users/28e2d710-d5d0-4e0b-bcaf-0db291107612"}
+  second -> {"status":201,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"28e2d710-d5d0-4e0b-bcaf-0db291107612\",\"email\":\"probe-84a9231@example.com\",\"name\":\"probe84a9231\",\"role\":\"admin\",\"createdAt\":\"2026-10-04T13:17:53.945Z\",\"updatedAt\":\"2026-10-04T13:17:53.945Z\"}","location":"/v1/users/28e2d710-d5d0-4e0b-bcaf-0db291107612"}
+PATCH /v1/users/:userId: create POST /v1/users {"email":"probe-84a9233@example.com","name":"probe84a9233","role":"admin"} -> {"status":201,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"137534a6-56e2-4c44-8081-1a18c39d8e56\",\"email\":\"probe-84a9233@example.com\",\"name\":\"probe84a9233\",\"role\":\"admin\",\"createdAt\":\"2026-10-04T13:17:53.952Z\",\"updatedAt\":\"2026-10-04T13:17:53.952Z\"}","location":"/v1/users/137534a6-56e2-4c44-8081-1a18c39d8e56"}
+PATCH /v1/users/:userId: PATCH /v1/users/137534a6-56e2-4c44-8081-1a18c39d8e56 {"email":"probe-84a9232@example.com","name":"probe84a9232","role":"admin"} (Idempotency-Key 01dd7196-a921-46cb-801d-d13ef1cee153)
+  first  -> {"status":200,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"137534a6-56e2-4c44-8081-1a18c39d8e56\",\"email\":\"probe-84a9232@example.com\",\"name\":\"probe84a9232\",\"role\":\"admin\",\"createdAt\":\"2026-10-04T13:17:53.952Z\",\"updatedAt\":\"2026-10-04T13:17:53.955Z\"}"}
+  second -> {"status":200,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"137534a6-56e2-4c44-8081-1a18c39d8e56\",\"email\":\"probe-84a9232@example.com\",\"name\":\"probe84a9232\",\"role\":\"admin\",\"createdAt\":\"2026-10-04T13:17:53.952Z\",\"updatedAt\":\"2026-10-04T13:17:53.955Z\"}"}
+--- stdout
+
+--- stderr
+probe runtime: serving src/app.ts: export createApp(); probe routes injected

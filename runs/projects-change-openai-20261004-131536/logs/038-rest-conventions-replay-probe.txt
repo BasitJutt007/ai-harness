@@ -1,0 +1,16 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/projects-change-openai-20261004-131536/samples/existing-api (port 61917)
+exit=0 timedOut=false served=true
+candidates: src/app.ts (conventional entry file), src/server.ts (conventional entry file)
+app (as reported by the runtime): src/app.ts: export createApp()
+control /__harness_probe__/control -> {"status":200,"contentType":"text/plain; charset=utf-8","body":"harness-probe-control-68b57b9446bf"} injected=true
+POST /v1/projects: POST /v1/projects {"name":"probed4619f1","description":"probed4619f1","status":"active"} (Idempotency-Key 2f58fd32-89ca-47ce-86bb-aacff2be30fb)
+  first  -> {"status":201,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"1805faa8-8829-4353-aff4-408dbd94da37\",\"name\":\"probed4619f1\",\"description\":\"probed4619f1\",\"status\":\"active\",\"createdAt\":\"2026-10-04T13:17:03.065Z\",\"updatedAt\":\"2026-10-04T13:17:03.065Z\"}","location":"/v1/projects/1805faa8-8829-4353-aff4-408dbd94da37"}
+  second -> {"status":201,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"1805faa8-8829-4353-aff4-408dbd94da37\",\"name\":\"probed4619f1\",\"description\":\"probed4619f1\",\"status\":\"active\",\"createdAt\":\"2026-10-04T13:17:03.065Z\",\"updatedAt\":\"2026-10-04T13:17:03.065Z\"}","location":"/v1/projects/1805faa8-8829-4353-aff4-408dbd94da37"}
+PATCH /v1/projects/:projectId: create POST /v1/projects {"name":"probed4619f3","description":"probed4619f3","status":"active"} -> {"status":201,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"c2c3a844-2692-41c8-9d69-e6ed1e97a1e7\",\"name\":\"probed4619f3\",\"description\":\"probed4619f3\",\"status\":\"active\",\"createdAt\":\"2026-10-04T13:17:03.071Z\",\"updatedAt\":\"2026-10-04T13:17:03.071Z\"}","location":"/v1/projects/c2c3a844-2692-41c8-9d69-e6ed1e97a1e7"}
+PATCH /v1/projects/:projectId: PATCH /v1/projects/c2c3a844-2692-41c8-9d69-e6ed1e97a1e7 {"name":"probed4619f2","description":"probed4619f2","status":"active"} (Idempotency-Key 666b04cb-5ba7-411f-8306-9c47869e81b1)
+  first  -> {"status":200,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"c2c3a844-2692-41c8-9d69-e6ed1e97a1e7\",\"name\":\"probed4619f2\",\"description\":\"probed4619f2\",\"status\":\"active\",\"createdAt\":\"2026-10-04T13:17:03.071Z\",\"updatedAt\":\"2026-10-04T13:17:03.074Z\"}"}
+  second -> {"status":200,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"c2c3a844-2692-41c8-9d69-e6ed1e97a1e7\",\"name\":\"probed4619f2\",\"description\":\"probed4619f2\",\"status\":\"active\",\"createdAt\":\"2026-10-04T13:17:03.071Z\",\"updatedAt\":\"2026-10-04T13:17:03.074Z\"}"}
+--- stdout
+
+--- stderr
+probe runtime: serving src/app.ts: export createApp(); probe routes injected
