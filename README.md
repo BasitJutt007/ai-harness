@@ -3,7 +3,7 @@
 A **harness, not an agent**, for TypeScript REST API work. It drives a model through a provider-neutral
 driver, runs every tool call through hooks that can block it, fetches context just in time, and ends
 only when deterministic gates (not the model) say the work is done. The harness, never the agent,
-opens the pull request. ss
+opens the pull request.
 
 - **Greenfield:** from a task file it scaffolds an Express 5 + Zod 4 + Vitest API and drives the model
   test-first until every gate is green.
