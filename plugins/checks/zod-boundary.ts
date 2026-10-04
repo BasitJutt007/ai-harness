@@ -24,7 +24,11 @@ A route handler passes iff ALL of (its middleware chain counts: validate({ body:
    z.object({}).passthrough()/.loose() validate nothing and fail, as request or response schemas.
 4. Every 2xx (or non-constant status) body sent with res.json(x) / res.send(x) is <schema>.parse(...) (or a const
    / helper returning one) or a full problem. res.status(204).end() is fine. \`res\` is not passed to helpers
-   (problem senders such as sendProblem(res, p) excepted).
+   (problem senders such as sendProblem(res, p) excepted). This holds for EVERY function of the route chain that
+   answers: middleware (factories followed) and helpers it passes \`res\` to are judged like the handler.
+   A parsed const must not change between the parse and the send (member assignment, delete, ++, push/splice/…,
+   Object.assign(it, …), through any alias): FAIL. Handing it to code that may change it (an unknown function,
+   storing it in another structure) before the send: UNPROVEN. res.json(Schema.parse(value)) at the send is fine.
 Per src file: no hand-written data types: interface, type X = { ... } (also arrays/tuples of them), DTO classes,
 or an enum duplicating a z.enum; use type X = z.infer<typeof XSchema>. Method-only interfaces (ports) are fine.
 A route whose path cannot be resolved statically and that does not parse req.params is UNPROVEN.
@@ -80,17 +84,42 @@ export function handlerViolations(root: string, r: RouteInfo, checker: ts.TypeCh
   for (const node of r.resEscapes) {
     out.push({ location: location(root, node), message: `${label}: \`res\` is passed along or aliased, so the response body cannot be verified; respond with res.json(Schema.parse(value)) in the handler` });
   }
-  for (const resp of r.responses) {
+  const judged = new Set<ts.Node>();
+  for (const resp of [...r.responses, ...r.chainResponses]) {
+    if (judged.has(resp.call)) continue;
+    judged.add(resp.call);
+    // A middleware or helper answering before the handler sends the route's response too.
+    const who = r.responses.includes(resp) ? '' : ' (sent by a middleware/helper in the route chain)';
     const why = resp.schema !== undefined ? gap(resp.schema) : undefined;
     if (resp.schema !== undefined && why !== undefined) {
-      out.push({ location: location(root, resp.call), message: `${label}: response schema ${resp.schema.text} accepts anything (${why}); use the resource schema` });
+      out.push({ location: location(root, resp.call), message: `${label}: response schema ${resp.schema.text} accepts anything (${why}); use the resource schema${who}` });
       continue;
     }
-    if (!resp.hasBody || resp.schema !== undefined || resp.isProblem) continue;
+    if (!resp.hasBody || resp.schema !== undefined || resp.isProblem || resp.replay === true) continue;
     if (resp.statuses !== null && resp.statuses.every((s) => s < 200 || s > 299)) continue;
-    out.push({ location: location(root, resp.call), message: `${label}: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)` });
+    if (resp.taint?.kind === 'escaped') continue; // UNPROVEN (handlerUnproven), unless something else fails
+    if (resp.taint?.kind === 'mutated') {
+      out.push({
+        location: location(root, resp.call),
+        message: `${label}: response body ${resp.taint.name} is changed after its Zod parse (at ${location(root, resp.taint.node)}), so what is sent is not the schema's output; parse at the send: res.json(Schema.parse(${resp.taint.name}))${who}`,
+      });
+      continue;
+    }
+    out.push({ location: location(root, resp.call), message: `${label}: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)${who}` });
   }
   return out;
+}
+
+/** Why a route's 2xx body cannot be proven to be a schema's output although nothing is known to be wrong. */
+export function handlerUnproven(root: string, r: RouteInfo): string[] {
+  const out: string[] = [];
+  for (const resp of [...r.responses, ...r.chainResponses]) {
+    if (resp.taint?.kind !== 'escaped' || resp.isProblem || (resp.statuses !== null && resp.statuses.every((s) => s < 200 || s > 299))) continue;
+    out.push(
+      `${location(root, resp.call)}: ${routeLabel(r)}: the parsed response body ${resp.taint.name} is passed to code that may change it before the send (at ${location(root, resp.taint.node)}), so whether the body is still the schema's output is unproven; send res.json(Schema.parse(${resp.taint.name}))`,
+    );
+  }
+  return [...new Set(out)];
 }
 
 // ───────────────────────────── hand-written types ─────────────────────────────
@@ -221,6 +250,11 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
     for (const r of fileRoutes) {
       const known = r.unresolvedPath === undefined;
       const v = handlerViolations(ctx.root, r, checker, known);
+      const unproven = handlerUnproven(ctx.root, r);
+      if (v.length === 0 && unproven.length > 0) {
+        for (const why of unproven) findings.push(unprovenFinding(RULE, file, why));
+        continue;
+      }
       if (!known && v.length === 0 && !r.parses.some((p) => p.target === 'params')) {
         // Nothing wrong found, but a :param in the unknown path may go unparsed: unproven, never pass.
         findings.push(unresolvedRouteFinding(ctx.root, r, file));

@@ -25,6 +25,7 @@ import {
   problemProducer,
   problemStatus,
   propName,
+  resolveFunction,
   responseChain,
   unwrap,
   useRegistrations,
@@ -43,8 +44,8 @@ Every error response is RFC 9457 application/problem+json: { type, title, status
 Static rules (per src file):
 - Never send ad-hoc error bodies (object literals with error / errors / message keys).
 - A response whose status is >= 400, or not a constant (res.status(code) with code: number), is an error path:
-  its body must be a full problem (a value typed with all five members, or a five-key literal sent with
-  .type('application/problem+json')). Replaying a recorded response (res.status(r.status).json(r.body)) is exempt.
+  its body must be a full problem (typed with all five members, or a five-key literal), sent as application/problem+json
+  however it is built (.type(...) in the chain, or set earlier on that res, by .set/.setHeader or a helper). Replaying a recorded response (res.status(r.status).json(r.body)) is exempt.
   Prefer: throw notFound(detail) / new HttpProblem({...}) and let the error middleware send it.
 - Problem producers: an error class the error middleware tests with instanceof (and its subclasses) is a
   problem; any other producer yields type, title, status (an Error) or all five members (a plain object).
@@ -131,9 +132,44 @@ function setsProblemType(checker: ts.TypeChecker, call: ts.CallExpression): bool
   return (name === 'set' || name === 'header' || name === 'setHeader') && constString(checker, a0)?.toLowerCase() === 'content-type' && mentionsProblemType(checker, a1);
 }
 
+/** The symbol at the root of a call chain (`res` of `res.status(1).type(x)`). */
+function chainRootSymbol(checker: ts.TypeChecker, expr: ts.Expression): ts.Symbol | undefined {
+  let r: ts.Expression = expr;
+  while (ts.isPropertyAccessExpression(r) || ts.isCallExpression(r)) r = r.expression;
+  const u = unwrap(r);
+  return ts.isIdentifier(u) ? checker.getSymbolAtLocation(u) : undefined;
+}
+
 /**
- * Whether the response sets Content-Type application/problem+json: in the send chain itself, or in an
- * earlier statement on the same response in the same function (`res.setHeader('Content-Type', …); res.json(…)`).
+ * Whether code in `scope` (before `limit` when given) sets the problem Content-Type on the response `sym`:
+ * directly, or through a program helper it passes the response to (`useProblemType(res)`), up to 3 calls deep.
+ */
+function setsProblemTypeOn(checker: ts.TypeChecker, scope: ts.Node, sym: ts.Symbol, limit: number | undefined, depth: number): boolean {
+  let found = false;
+  walk(scope, (n) => {
+    if (found || !ts.isCallExpression(n) || (limit !== undefined && n.getStart() >= limit)) return;
+    if (setsProblemType(checker, n) && chainRootSymbol(checker, n.expression) === sym) {
+      found = true;
+      return;
+    }
+    if (depth >= 3) return;
+    const at = n.arguments.findIndex((a) => {
+      const u = unwrap(a);
+      return ts.isIdentifier(u) && checker.getSymbolAtLocation(u) === sym;
+    });
+    const fn = at >= 0 ? resolveFunction(checker, n.expression) : undefined;
+    const param = fn?.parameters[at];
+    if (fn?.body === undefined || param === undefined || !ts.isIdentifier(param.name) || fn.getSourceFile().isDeclarationFile) return;
+    const inner = checker.getSymbolAtLocation(param.name);
+    if (inner !== undefined) found = setsProblemTypeOn(checker, fn.body, inner, undefined, depth + 1);
+  });
+  return found;
+}
+
+/**
+ * Whether the response sets Content-Type application/problem+json: in the send chain itself, or earlier on the
+ * same response in the same function (`res.setHeader('Content-Type', …); res.json(…)`), directly or through a
+ * program helper the response is passed to.
  */
 function chainSetsProblemType(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
   let cur: ts.Expression = call.expression;
@@ -141,25 +177,16 @@ function chainSetsProblemType(checker: ts.TypeChecker, call: ts.CallExpression):
     if (ts.isCallExpression(cur) && setsProblemType(checker, cur)) return true;
     cur = cur.expression;
   }
-  const root = unwrap(cur);
-  const sym = ts.isIdentifier(root) ? checker.getSymbolAtLocation(root) : undefined;
+  const sym = chainRootSymbol(checker, cur);
   let fn: ts.Node | undefined = call.parent;
   while (fn !== undefined && !ts.isFunctionLike(fn)) fn = fn.parent;
   if (sym === undefined || fn === undefined) return false;
-  let found = false;
-  walk(fn, (n) => {
-    if (found || !ts.isCallExpression(n) || n.getStart() >= call.getStart() || !setsProblemType(checker, n)) return;
-    let r: ts.Expression = n.expression;
-    while (ts.isPropertyAccessExpression(r) || ts.isCallExpression(r)) r = r.expression;
-    const rr = unwrap(r);
-    found = ts.isIdentifier(rr) && checker.getSymbolAtLocation(rr) === sym;
-  });
-  return found;
+  return setsProblemTypeOn(checker, fn, sym, call.getStart(), 0);
 }
 
 /**
- * Members a sent error body lacks: an object literal needs all five problem keys and the problem content type;
- * any other value needs a type with all five members (required).
+ * Members a sent error body lacks: an object literal needs all five problem keys, any other value a type with
+ * all five members (required); either way the response must be sent as application/problem+json.
  */
 function problemBodyGaps(checker: ts.TypeChecker, chain: ResponseChain): string[] {
   const body = chain.body;
@@ -172,8 +199,10 @@ function problemBodyGaps(checker: ts.TypeChecker, chain: ResponseChain): string[
     return gaps;
   }
   const typed = isProblemDocument(checker, checker.getTypeAtLocation(body), body);
-  if (!typed) return missingMembers(checker, checker.getTypeAtLocation(body), body, PROBLEM_MEMBERS, true);
-  return lit !== undefined && ts.isObjectLiteralExpression(lit) && !chainSetsProblemType(checker, chain.call) ? [".type('application/problem+json')"] : [];
+  const gaps = typed ? [] : missingMembers(checker, checker.getTypeAtLocation(body), body, PROBLEM_MEMBERS, true);
+  // However the body is built (ProblemSchema.parse(…), a typed value), the client needs the problem media type.
+  if (!chainSetsProblemType(checker, chain.call)) gaps.push(".type('application/problem+json')");
+  return gaps;
 }
 
 /** Errors constructed by a handler that are not problems: `throw new Error(...)`, `next(new Error(...))`. */
