@@ -81,6 +81,14 @@ export function lineOfAfter(fixture: string, file: string, anchor: string, needl
 }
 
 /**
+ * `src/app.ts` that serves the router `name` exported from `from` (relative to src/): a route on a router
+ * nothing mounts is UNPROVEN (its served path is unknown), so a snippet judged on its merits mounts its router.
+ */
+export function mountApp(name = 'r', from = './routes.ts'): Record<string, string> {
+  return { 'src/app.ts': `import express from 'express';\nimport { ${name} } from '${from}';\nexport const app = express();\napp.use(${name});\n` };
+}
+
+/**
  * A throwaway API inside the repo (so node_modules resolve), with the good fixture's
  * package.json/tsconfig.json and (optionally) its src/lib. Returns the absolute root.
  */

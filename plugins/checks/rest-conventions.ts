@@ -9,7 +9,7 @@ import pluralize from 'pluralize';
 import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
-import { dynamicRouteReason, extractRouteTable, hasPathParams, isCollectionPath, location, propertyType, routeLabel } from '../lib/api-ast.ts';
+import { dynamicRouteReason, extractRouteTable, routeUnknownReason, hasPathParams, isCollectionPath, location, propertyType, routeLabel } from '../lib/api-ast.ts';
 import type { ResponseSite, RouteInfo } from '../lib/api-ast.ts';
 import { unprovenFinding } from '../lib/plugin-helpers.ts';
 import { PROBE_INPUT_FILE, runReplayProbe } from '../lib/replay-probe.ts';
@@ -255,6 +255,12 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
       const unrun = unconfirmed.get(r);
       if (unrun !== undefined && v.length === 0) {
         findings.push(unprovenFinding(RULE, file, `${location(ctx.root, r.registration)}: ${routeLabel(r)}: its replay looks right in the code, but it was not confirmed at runtime (${unrun}), so its idempotency is unproven; add a valid request body for "${r.method.toUpperCase()} ${r.path}" to ${PROBE_INPUT_FILE} in the API root to let the replay probe run`));
+        continue;
+      }
+      // Fail-closed, after the specific reasons above: anything in the chain the analysis does not model.
+      const unknown = routeUnknownReason(ctx.root, r, 'REST');
+      if (unknown !== undefined && v.length === 0) {
+        findings.push(unprovenFinding(RULE, file, unknown));
         continue;
       }
       total++;

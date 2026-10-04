@@ -4,10 +4,11 @@
  * `<schema>.parse(...)`, schemas actually constrain the data, and no DTO type is
  * hand-written (types are inferred from schemas).
  */
+import { glob } from 'tinyglobby';
 import ts from 'typescript';
-import { defineCheck } from '../../src/core/plugin-api.ts';
+import { activeLayout, defineCheck, isSourcePath } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
-import { constString, dynamicRouteReason, extractRouteTable, hasPathParams, isZodSchemaType, location, permissiveReason, programFile, routeLabel, walk } from '../lib/api-ast.ts';
+import { constString, dynamicRouteReason, extractRouteTable, hasPathParams, isZodSchemaType, location, permissiveReason, programFile, routeLabel, routeUnknownReason, schemaConstructReason, walk } from '../lib/api-ast.ts';
 import type { ParseSite, RouteInfo, SchemaRef } from '../lib/api-ast.ts';
 import { unprovenFinding } from '../lib/plugin-helpers.ts';
 
@@ -62,7 +63,7 @@ export function handlerViolations(root: string, r: RouteInfo, checker: ts.TypeCh
     out.push({ location: location(root, r.registration), message: `${label}: handler could not be resolved to a function; cannot verify its boundary` });
     return out;
   }
-  const gap = (s: SchemaRef): string | undefined => permissiveReason(checker, s.parsedType);
+  const gap = (s: SchemaRef): string | undefined => permissiveReason(checker, s.parsedType) ?? schemaConstructReason(checker, s.expr);
   for (const read of r.unparsedReads) {
     const what = READ_TEXT[read.target] ?? `req.${read.target}`;
     const why = read.note !== undefined ? ` (${read.note})` : '';
@@ -238,13 +239,26 @@ function unresolvedRouteFinding(root: string, r: RouteInfo, file: string): Check
   return unprovenFinding(RULE, file, `${at}: ${r.method.toUpperCase()} route: ${why}, so whether its path parameters are parsed is unproven (parse req.params or use a constant path)`);
 }
 
+/**
+ * Source files the analysis does not read (JavaScript, JSX/TSX) under the API's source roots: a route or
+ * input read in one is judged by no rule, so each makes the rule UNPROVEN (fail-closed).
+ */
+async function unanalysedSources(ctx: CheckContext): Promise<CheckFinding[]> {
+  const files = await glob(['**/*.{js,mjs,cjs,jsx,tsx}'], { cwd: ctx.root, ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**', '**/coverage/**'] });
+  return files
+    .map((f) => f.split('\\').join('/'))
+    .filter((f) => isSourcePath(f.replace(/\.(m|c)?jsx?$|\.tsx$/, '.ts'), ctx.layout ?? activeLayout()))
+    .sort()
+    .map((f) => unprovenFinding(RULE, f, `${f} is under the source roots but is not TypeScript the analysis reads, so any route or input it handles is judged by no rule; write it as .ts`));
+}
+
 async function run(ctx: CheckContext): Promise<CheckFinding[]> {
   const program = ctx.program();
   const checker = program.getTypeChecker();
   const table = extractRouteTable(program, ctx.root, ctx.sourceFiles);
   const sources = ctx.sourceFiles.map((f) => programFile(program, ctx.root, f) ?? ctx.sourceFile(f));
   const zodEnums = zodEnumValueSets(checker, sources);
-  const findings: CheckFinding[] = [];
+  const findings: CheckFinding[] = await unanalysedSources(ctx);
   for (const file of ctx.sourceFiles) {
     const sf = programFile(program, ctx.root, file) ?? ctx.sourceFile(file);
     const fileRoutes = table.all.filter((r) => r.file === file);
@@ -260,6 +274,8 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
       const known = r.unresolvedPath === undefined;
       const v = handlerViolations(ctx.root, r, checker, known);
       const unproven = handlerUnproven(ctx.root, r);
+      const unknown = routeUnknownReason(ctx.root, r, 'input and response');
+      if (unknown !== undefined) unproven.push(unknown);
       if (v.length === 0 && unproven.length > 0) {
         for (const why of unproven) findings.push(unprovenFinding(RULE, file, why));
         continue;

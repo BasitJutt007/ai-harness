@@ -109,6 +109,18 @@ export interface RouteInfo {
   setsLocation: boolean;
   /** Set when the full path cannot be determined statically; `path` is then only a display label. */
   unresolvedPath?: { node: ts.Node; reason: string };
+  /**
+   * Fail-closed: everything in the route's chain the analysis does not model (an unresolved handler or
+   * middleware, a library middleware not known to be harmless, a `res` member that may send or set the status,
+   * a status that is not a constant, a request member that may carry client input, a router whose mount is not
+   * followed). A route with any of these is UNPROVEN in every route rule unless it already fails.
+   */
+  unknowns: Unknown[];
+}
+
+export interface Unknown {
+  node: ts.Node;
+  why: string;
 }
 
 /** Problem helper names and the status they produce (fallback when the helper cannot be followed). */
@@ -1278,6 +1290,63 @@ export function permissiveReason(checker: ts.TypeChecker, type: ts.Type | undefi
   return undefined;
 }
 
+/**
+ * Why a schema validates nothing although its output type looks concrete, judged by how it is built (the type
+ * alone cannot tell): its root is `z.any()`/`z.unknown()`/`z.custom()` (`const S: z.ZodType<User> = z.any()`,
+ * `z.any().transform(v => v as User)`), it uses `z.custom(...)` anywhere (an unchecked cast), or it falls back
+ * on invalid input with `.catch(...)`. Follows const schema references (through imports) a few levels.
+ */
+export function schemaConstructReason(checker: ts.TypeChecker, expr: ts.Expression, depth = 0): string | undefined {
+  if (depth > 6) return undefined;
+  const e = unwrap(expr);
+  if (ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) {
+    const init = constInitializerOf(resolveSymbol(checker, ts.isIdentifier(e) ? e : e.name));
+    if (init !== undefined) return schemaConstructReason(checker, init, depth + 1);
+    if (ts.isIdentifier(e)) return undefined;
+  }
+  if (!ts.isCallExpression(e)) return undefined;
+  // The root of the chain: `z.any().transform(…).catch(…)` → `z.any()`.
+  let root: ts.Expression = e;
+  const methods: string[] = [];
+  while (ts.isCallExpression(root) && ts.isPropertyAccessExpression(unwrap(root.expression))) {
+    const pa = unwrap(root.expression) as ts.PropertyAccessExpression;
+    const inner = unwrap(pa.expression);
+    if (!ts.isCallExpression(inner) && !ts.isIdentifier(inner) && !ts.isPropertyAccessExpression(inner)) break;
+    if (ts.isCallExpression(inner) || !isZodNamespace(inner)) {
+      methods.push(pa.name.text);
+      root = inner;
+      continue;
+    }
+    break;
+  }
+  if (methods.includes('catch')) return 'it replaces invalid input with a fallback (.catch), so nothing is rejected';
+  const r = unwrap(root);
+  if (ts.isCallExpression(r) && ts.isPropertyAccessExpression(unwrap(r.expression))) {
+    const pa = unwrap(r.expression) as ts.PropertyAccessExpression;
+    // `z.custom<T>(check)` validates with its check; without one it is an unchecked cast.
+    if (isZodNamespace(unwrap(pa.expression)) && (['any', 'unknown'].includes(pa.name.text) || (pa.name.text === 'custom' && r.arguments.length === 0))) {
+      return `it is built on z.${pa.name.text}(), which accepts anything whatever its declared type`;
+    }
+  } else if (r !== e) {
+    const inner = schemaConstructReason(checker, r, depth + 1);
+    if (inner !== undefined) return inner;
+  }
+  // `z.custom(...)` anywhere inside (a member, an array element): an unchecked cast.
+  let custom = false;
+  walk(e, (n) => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(unwrap(n.expression))) {
+      const pa = unwrap(n.expression) as ts.PropertyAccessExpression;
+      if (pa.name.text === 'custom' && n.arguments.length === 0 && isZodNamespace(unwrap(pa.expression))) custom = true;
+    }
+  });
+  return custom ? 'it contains z.custom() without a check, an unchecked cast' : undefined;
+}
+
+/** `z` / `zod` (an imported namespace of the zod package, by name). */
+function isZodNamespace(e: ts.Expression): boolean {
+  return ts.isIdentifier(e) && (e.text === 'z' || e.text === 'zod');
+}
+
 // ───────────────────────────── problems ─────────────────────────────
 
 /** Name of a call/new that names a problem (helper, `problem(…)`, `new HttpProblem(…)`, `ProblemSchema.parse(…)`). */
@@ -1475,8 +1544,15 @@ export function responseChain(checker: ts.TypeChecker, call: ts.CallExpression, 
  * and an opaque (unknown/any) body. The recorded response was itself checked where it was first sent.
  */
 export function isReplay(checker: ts.TypeChecker, chain: ResponseChain, statusExpr: ts.Expression | undefined = chain.statusExpr): boolean {
-  if (statusExpr === undefined || chain.body === undefined) return false;
+  if (statusExpr === undefined) return false;
   const s = unwrap(statusExpr);
+  if (chain.body === undefined) {
+    // `res.status(rec.status); res.end()`: the replay of a record that had no body (its `body` member is recorded bytes).
+    if (!(ts.isPropertyAccessExpression(s) || ts.isElementAccessExpression(s))) return false;
+    const recBody = checker.getApparentType(checker.getTypeAtLocation(s.expression)).getProperty('body');
+    const t = recBody !== undefined ? checker.getTypeOfSymbol(recBody) : undefined;
+    return t !== undefined && (isAnyOrUnknown(t) || isRecordedBytes(checker, t));
+  }
   const b = unwrap(chain.body);
   if (!(ts.isPropertyAccessExpression(s) || ts.isElementAccessExpression(s)) || !(ts.isPropertyAccessExpression(b) || ts.isElementAccessExpression(b))) return false;
   const sr = unwrap(s.expression);
@@ -1544,6 +1620,35 @@ function alwaysExits(st: ts.Statement): boolean {
 }
 
 /** Whether `at` runs only when the safeParse result `sym` succeeded (an enclosing success branch, or an earlier exiting failure branch). */
+/**
+ * A `safeParse`/`safeParseAsync` call validates only if its result is used where `success` holds: it is bound to
+ * a const and every `.data` read of it is reached only on success (onlyOnSuccess). Any other call is a parse.
+ */
+function safeParseChecked(checker: ts.TypeChecker, call: ts.CallExpression): boolean {
+  const callee = unwrap(call.expression);
+  if (!ts.isPropertyAccessExpression(callee) || !callee.name.text.startsWith('safeParse')) return true;
+  let at: ts.Node = call;
+  while (ts.isAwaitExpression(at.parent) || ts.isParenthesizedExpression(at.parent)) at = at.parent;
+  const decl = at.parent;
+  if (!ts.isVariableDeclaration(decl) || decl.initializer !== at || !ts.isIdentifier(decl.name) || !isConstDeclaration(decl)) return false;
+  const sym = checker.getSymbolAtLocation(decl.name);
+  let fn: ts.Node | undefined = decl.parent;
+  while (fn !== undefined && !isFunctionLike(fn) && !ts.isSourceFile(fn)) fn = fn.parent;
+  if (sym === undefined || fn === undefined) return false;
+  let ok = true;
+  walk(fn, (n) => {
+    if (!ok || !ts.isIdentifier(n) || n === decl.name || checker.getSymbolAtLocation(n) !== sym) return;
+    const up = n.parent;
+    // `r.success` (the test itself) and `r.error` are fine; `r.data` only where success holds; any other use hands the result on.
+    if (ts.isPropertyAccessExpression(up) && up.expression === n) {
+      if (up.name.text === 'data' && !onlyOnSuccess(checker, up, sym)) ok = false;
+      return;
+    }
+    ok = false;
+  });
+  return ok;
+}
+
 function onlyOnSuccess(checker: ts.TypeChecker, at: ts.Node, sym: ts.Symbol): boolean {
   let cur: ts.Node = at;
   for (let p = cur.parent; !isFunctionLike(p) && !ts.isSourceFile(p); cur = p, p = p.parent) {
@@ -1736,11 +1841,49 @@ interface FnFacts {
   /** What is done with the key, when idempotencyKey (see RouteInfo.idempotencyUse). */
   idempotencyUse: IdempotencyUse;
   idempotencyWhy?: string;
+  /** What this function (and the helpers it hands `req`/`res` to) does that is not modelled (RouteInfo.unknowns). */
+  unknowns: Unknown[];
 }
 
 function emptyFacts(): FnFacts {
-  return { parses: [], reads: [], writeBacks: [], responses: [], helperResponses: [], statusLiterals: [], problemSites: [], resEscapes: [], resUnfollowed: [], idempotencyKey: false, idempotencyUse: 'ignored' };
+  return { parses: [], reads: [], writeBacks: [], responses: [], helperResponses: [], statusLiterals: [], problemSites: [], resEscapes: [], resUnfollowed: [], idempotencyKey: false, idempotencyUse: 'ignored', unknowns: [] };
 }
+
+/**
+ * The `res` members whose use is modelled: the senders (RESPONSE_METHODS) and status setters the response
+ * chain follows, and members that only set headers, read state or listen. Any other member (`write`,
+ * `writeHead`, `redirect`, `render`, `sendFile`, `download`, `format`, `req`, an assignment to `statusCode`, …)
+ * may send or change a response in a way the rules do not see.
+ */
+const RES_MODELLED = new Set([
+  ...RESPONSE_METHODS, 'status', 'location', 'set', 'header', 'setHeader', 'append', 'type', 'contentType', 'get', 'getHeader',
+  'getHeaders', 'getHeaderNames', 'hasHeader', 'removeHeader', 'cookie', 'clearCookie', 'vary', 'links', 'attachment', 'locals',
+  'headersSent', 'statusCode', 'writableEnded', 'writableFinished', 'finished', 'on', 'once', 'off', 'removeListener',
+]);
+/** `res` members that are modelled when read but not when assigned. */
+const RES_READ_ONLY = new Set(['statusCode', 'headersSent', 'writableEnded', 'writableFinished', 'finished', 'locals']);
+
+/**
+ * Express request members that carry no client payload (or are read through the modelled `get`/`header`).
+ * Members the program declares itself (`req.user` set by its own middleware) are not client input either; any
+ * other Express member (`req.param()`, `req.pipe`, `req.on('data')`, `req.read`, `req.res`, `req.socket`, …) may.
+ */
+const REQ_SAFE = new Set([
+  'method', 'path', 'baseUrl', 'originalUrl', 'url', 'ip', 'ips', 'protocol', 'secure', 'hostname', 'host', 'subdomains', 'xhr',
+  'fresh', 'stale', 'route', 'app', 'is', 'accepts', 'acceptsCharsets', 'acceptsEncodings', 'acceptsLanguages', 'get', 'header',
+  'httpVersion', 'aborted', 'complete', 'destroyed',
+]);
+
+/** Library middleware known not to send a success response or read input past a parse: body parsers and the usual hardening/logging. */
+const HARMLESS_LIBRARY_MIDDLEWARE: Readonly<Record<string, ReadonlySet<string> | 'default'>> = {
+  express: new Set(['json', 'urlencoded', 'raw', 'text']),
+  'body-parser': new Set(['json', 'urlencoded', 'raw', 'text']),
+  cors: 'default',
+  helmet: 'default',
+  compression: 'default',
+  morgan: 'default',
+  'cookie-parser': 'default',
+};
 
 /** `res` used other than as `res.<member>`: aliased, or passed to a non-problem helper. */
 function isResEscape(id: ts.Identifier): boolean {
@@ -1770,6 +1913,21 @@ function reqRead(checker: ts.TypeChecker, id: ts.Identifier, env: Env): { target
   }
   // Bare use (destructuring, aliasing, passing req along): unverifiable.
   return { target: 'req', node: id };
+}
+
+/**
+ * Why a non-payload request member read (`req.<m>`) may still carry client input: an Express/Node member
+ * outside REQ_SAFE (`req.param()`, `req.pipe`, `req.on('data')`, `req.res`, …). Members the program declares
+ * itself (declaration merging: `req.user` set by its own middleware) are its own values.
+ */
+function unmodelledReqMember(checker: ts.TypeChecker, node: ts.Node, env: Env): string | undefined {
+  const name = ts.isPropertyAccessExpression(node) ? node.name.text : ts.isElementAccessExpression(node) ? constString(checker, node.argumentExpression, env) : undefined;
+  if (name !== undefined && REQ_SAFE.has(name)) return undefined;
+  if (name === undefined) return `\`${node.getText().slice(0, 40)}\` reads the request through a computed member, which is not followed`;
+  const sym = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node) ? node.name : node);
+  const decls = sym?.declarations ?? [];
+  if (decls.length > 0 && decls.every((d) => isProgramNode(d))) return undefined;
+  return `\`req.${name}\` is not modelled (it may carry client input or send through \`req.res\`), so this route's input boundary is unproven`;
 }
 
 /** Whether `expr` is (a const holding) the data of an active parse: `S.parse(x)`, `await S.parseAsync(x)`, `S.safeParse(x).data`. */
@@ -1873,9 +2031,16 @@ function analyseFunction(
   const resSym = resIndex >= 0 ? paramSymbol(checker, fn, resIndex) : undefined;
   const isSym = (n: ts.Node, s: ts.Symbol | undefined): boolean => s !== undefined && ts.isIdentifier(n) && checker.getSymbolAtLocation(n) === s;
   const isReq = (n: ts.Node): boolean => isSym(n, reqSym);
+  const unknown = (node: ts.Node, why: string): void => {
+    facts.unknowns.push({ node, why });
+  };
+  const resParam = resIndex >= 0 ? fn.parameters[resIndex] : undefined;
+  if (resParam !== undefined && resSym === undefined) unknown(resParam, `the response parameter ${resParam.getText().slice(0, 40)} is not a plain name, so what it sends is not followed`);
   const writes = new Set<ts.Node>();
   /** The expressions of this function that yield the Idempotency-Key value (or a value carrying it). */
   const keyReads: ts.Node[] = [];
+  /** `res.status(x)` / `res.sendStatus(x)` calls whose status is not a constant. */
+  const unknownStatus: ts.CallExpression[] = [];
 
   // `({ body, params }, res) => …`: destructuring the request reads those parts raw.
   if (reqParam !== undefined && ts.isObjectBindingPattern(reqParam.name)) {
@@ -1927,6 +2092,10 @@ function analyseFunction(
     if (isReq(node) && ts.isIdentifier(node)) {
       if (writes.has(node)) return;
       const read = reqRead(checker, node, env);
+      if (read.target === '' && !writes.has(read.node)) {
+        const why = unmodelledReqMember(checker, read.node, env);
+        if (why !== undefined) unknown(read.node, why);
+      }
       if (read.target === '' || writes.has(read.node)) return;
       if (read.target === 'req') {
         const parent = node.parent;
@@ -1977,7 +2146,7 @@ function analyseFunction(
         if (info === 'inactive') return;
         // `JSON.stringify(z.unknown().parse(req.body))`: a no-op parse of a value that is only serialised.
         if (info !== undefined && permissiveReason(checker, info.parsedType) !== undefined && isOpaqueUse(m, parent)) return;
-        if (info !== undefined) {
+        if (info !== undefined && safeParseChecked(checker, parent)) {
           addParse(read.target, parent, info);
           return;
         }
@@ -2014,7 +2183,7 @@ function analyseFunction(
       if (REQ_TARGETS.has(read.target) && ts.isExpression(arg) && (arg === read.node || read.target === 'params')) {
         const key = arg === read.node ? read.target : ts.isPropertyAccessExpression(arg) ? arg.name.text : ts.isElementAccessExpression(arg) ? constString(checker, arg.argumentExpression, env) : undefined;
         const flow = key !== undefined ? flowParse(m, arg, key, env) : undefined;
-        if (flow !== undefined) {
+        if (flow !== undefined && (flow.info === 'inactive' || safeParseChecked(checker, flow.call))) {
           if (flow.info !== 'inactive') addParse(read.target, flow.call, flow.info);
           return;
         }
@@ -2043,12 +2212,27 @@ function analyseFunction(
           facts.statusLiterals.push(...sub.statusLiterals);
           facts.resEscapes.push(...sub.resEscapes);
           facts.resUnfollowed.push(...sub.resUnfollowed);
+          facts.unknowns.push(...sub.unknowns);
         } else if (!/problem/i.test(calleeName(call.expression) ?? '')) {
           facts.resUnfollowed.push(call);
+        } else {
+          unknown(call, `\`res\` is handed to ${call.expression.getText().slice(0, 40)}, which cannot be followed, so what it sends is unproven`);
         }
         return;
       }
-      if (isResEscape(node)) facts.resEscapes.push(node);
+      const member = node.parent;
+      if ((ts.isPropertyAccessExpression(member) || ts.isElementAccessExpression(member)) && member.expression === node) {
+        const name = ts.isPropertyAccessExpression(member) ? member.name.text : constString(checker, member.argumentExpression, env);
+        const assigned = ts.isBinaryExpression(member.parent) && member.parent.left === member && member.parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && member.parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+        if (ts.isElementAccessExpression(member)) unknown(member, `\`${member.getText().slice(0, 40)}\` uses the response through a computed member, which is not followed`);
+        else if (name === undefined || !RES_MODELLED.has(name)) unknown(member, `\`res.${name ?? '?'}\` is not modelled (it may send a response or set its status), so what this route sends is unproven`);
+        else if (assigned && RES_READ_ONLY.has(name) && name !== 'locals') unknown(member, `\`res.${name}\` is assigned, which is not modelled, so the status this route sends is unproven`);
+        return;
+      }
+      if (isResEscape(node)) {
+        facts.resEscapes.push(node);
+        unknown(node, `\`res\` is used as a value (${node.parent.getText().slice(0, 40)}), so what is sent through it is not followed`);
+      }
       return;
     }
     if (ts.isCallExpression(node) && resSym !== undefined) {
@@ -2076,7 +2260,9 @@ function analyseFunction(
         let r: ts.Expression = callee.expression;
         while (ts.isCallExpression(r) && ts.isPropertyAccessExpression(r.expression)) r = r.expression.expression;
         if (isSym(unwrap(r), resSym)) {
-          for (const n of statusValues(checker, node.arguments[0], env) ?? []) facts.statusLiterals.push({ status: n, node });
+          const values = statusValues(checker, node.arguments[0], env);
+          for (const n of values ?? []) facts.statusLiterals.push({ status: n, node });
+          if (values === null) unknownStatus.push(node);
         }
       }
     }
@@ -2086,9 +2272,16 @@ function analyseFunction(
         const status = problemStatus(m, node, producer.name, env);
         facts.problemSites.push({ name: producer.name, status, node });
         if (status !== null) facts.statusLiterals.push({ status, node });
+        else unknown(node, `the status of ${node.getText().slice(0, 50)} is not a constant, so which status this route sends is unproven`);
       }
     }
   });
+  // A status that is not a constant is unknown, except the recorded status of a replay (checked where it was first sent).
+  const replayCalls = facts.responses.filter((r) => r.replay === true).map((r) => r.call);
+  const replayed = (n: ts.Node): boolean => replayCalls.some((c) => c === n || (n.getStart() >= c.getStart() && n.getEnd() <= c.getEnd()));
+  for (const n of unknownStatus) {
+    if (!replayed(n) && !replayCalls.some((c) => lastStatusBefore(checker, body, c) === n.arguments[0])) unknown(n, `the status in ${n.getText().slice(0, 50)} is not a constant, so which status this route sends is unproven`);
+  }
   // Reads after a write-back of the same part in this function see the parsed value.
   facts.reads = facts.reads.filter((r) => !facts.writeBacks.some((w) => w.target === r.target && w.pos < r.node.getStart()));
   if (keyReads.length > 0) {
@@ -2547,6 +2740,57 @@ export function setsLocationHeader(checker: ts.TypeChecker, fn: ts.FunctionLikeD
   return found;
 }
 
+/**
+ * The statuses a send without `.status()` in its own chain sends: those of the last `<res>.status(x)` before it in
+ * its enclosing function (`res.status(404); res.json(…)`), [200] when there is none; null when not a constant.
+ */
+export function earlierStatus(checker: ts.TypeChecker, send: ts.CallExpression): { statuses: number[] | null; expr?: ts.Expression } {
+  let fn: ts.Node | undefined = send.parent;
+  while (fn !== undefined && !isFunctionLike(fn)) fn = fn.parent;
+  const scope = fn !== undefined && isFunctionLike(fn) && fn.body !== undefined ? fn.body : send.getSourceFile();
+  const rootSym = (e: ts.Expression): ts.Symbol | undefined => {
+    let r = e;
+    while (ts.isPropertyAccessExpression(r) || ts.isCallExpression(r)) r = r.expression;
+    const u = unwrap(r);
+    return ts.isIdentifier(u) ? checker.getSymbolAtLocation(u) : undefined;
+  };
+  const sym = rootSym(send.expression);
+  if (sym === undefined) return { statuses: [200] };
+  const contains = (outer: ts.Node, inner: ts.Node): boolean => inner.getStart() >= outer.getStart() && inner.getEnd() <= outer.getEnd();
+  /** The statement of `n` that sits directly in a block (or the function body). */
+  const statementOf = (n: ts.Node): ts.Node => {
+    let c: ts.Node = n;
+    while (c.parent !== undefined && !ts.isBlock(c.parent) && !ts.isSourceFile(c.parent) && c !== scope) c = c.parent;
+    return c;
+  };
+  /** Whether the block holding `stmt` (not enclosing `send`) ends in a return/throw: its status never reaches the send. */
+  const exits = (stmt: ts.Node): boolean => {
+    const block = stmt.parent;
+    return block !== undefined && ts.isBlock(block) && block.statements.some((st) => ts.isReturnStatement(st) || ts.isThrowStatement(st));
+  };
+  let dominating: ts.Expression | undefined;
+  const branches: ts.Expression[] = [];
+  walk(scope, (n) => {
+    if (!ts.isCallExpression(n) || n.getStart() >= send.getStart() || !ts.isPropertyAccessExpression(n.expression) || n.expression.name.text !== 'status') return;
+    const arg = n.arguments[0];
+    if (arg === undefined || rootSym(n.expression.expression) !== sym) return;
+    const stmt = statementOf(n);
+    if (stmt.parent !== undefined && contains(stmt.parent, send)) {
+      dominating = arg;
+      branches.length = 0;
+    } else if (!exits(stmt)) branches.push(arg);
+  });
+  const exprs = [...(dominating !== undefined ? [dominating] : []), ...branches];
+  if (exprs.length === 0) return { statuses: [200] };
+  const out = new Set<number>(dominating === undefined ? [200] : []);
+  for (const e of exprs) {
+    const v = statusValues(checker, e, NO_ENV);
+    if (v === null) return { statuses: null, expr: e };
+    for (const x of v) out.add(x);
+  }
+  return dominating !== undefined && branches.length === 0 ? { statuses: [...out], expr: dominating } : { statuses: [...out] };
+}
+
 /** The argument of the last `<res>.status(x)` call before `send` on the same response (in `scope`). */
 function lastStatusBefore(checker: ts.TypeChecker, scope: ts.Node, send: ts.CallExpression): ts.Expression | undefined {
   const rootSym = (e: ts.Expression): ts.Symbol | undefined => {
@@ -2769,6 +3013,8 @@ interface Prefixes {
   values: string[];
   /** A mount on the way up whose path could not be resolved. */
   unresolved?: ts.Node;
+  /** A router (or a parameter standing for one) no followed mount serves: its routes are judged at its own paths, unproven. */
+  unmounted?: ts.Node;
 }
 
 /** Every function symbol some call expression in the sources invokes. */
@@ -2806,19 +3052,84 @@ function prefixesOf(m: ApiModel, mounts: Mount[], sym: ts.Symbol | undefined, se
   const inner = new Set(seen).add(sym);
   const factory = factoryOf(m.checker, sym);
   const own = mounts.filter((x) => (x.child === sym || (factory !== undefined && x.child === factory)) && !isDeadRouter(m, x.parent));
-  if (own.length === 0) return { values: [''] };
+  if (own.length === 0) {
+    // An application is served at the root; a router nothing mounts (as far as the analysis follows) is not known to be.
+    const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+    if (decl === undefined || isApplicationSymbol(m.checker, sym, decl)) return { values: [''] };
+    // `function registerRoutes(app: Router) { app.use(…) }`: the parameter is whatever each call passes.
+    if (ts.isParameter(decl) && isFunctionLike(decl.parent)) {
+      const fn = decl.parent;
+      const at = fn.parameters.indexOf(decl);
+      const values = new Set<string>();
+      let unresolved: ts.Node | undefined;
+      let calls = 0;
+      for (const { sf } of m.sources) {
+        walk(sf, (n) => {
+          if (!ts.isCallExpression(n) || resolveFunction(m.checker, n.expression) !== fn) return;
+          calls++;
+          const arg = n.arguments[at];
+          const argSym = arg !== undefined && !n.arguments.slice(0, at + 1).some(ts.isSpreadElement) ? rootSymbol(m.checker, arg) : undefined;
+          const p = argSym !== undefined ? prefixesOf(m, mounts, argSym, inner) : { values: [] as string[], unresolved: n as ts.Node };
+          for (const v of p.values) values.add(v);
+          unresolved ??= p.unresolved;
+        });
+      }
+      if (calls > 0) return unresolved !== undefined ? { values: [...values, ''], unmounted: unresolved } : { values: [...values] };
+    }
+    return { values: [''], unmounted: decl };
+  }
   const values = new Set<string>();
   let unresolved: ts.Node | undefined;
+  let unmounted: ts.Node | undefined;
   for (const mount of own) {
     const parent = prefixesOf(m, mounts, mount.parent, inner);
     unresolved ??= parent.unresolved;
+    unmounted ??= parent.unmounted;
     if (mount.prefixes === null) {
       unresolved ??= mount.pathNode ?? mount.call;
       continue;
     }
     for (const pp of parent.values) for (const p of mount.prefixes) values.add(joinPaths(pp, p));
   }
-  return unresolved !== undefined ? { values: [...values], unresolved } : { values: [...values] };
+  return { values: [...values], ...(unresolved !== undefined ? { unresolved } : {}), ...(unmounted !== undefined ? { unmounted } : {}) };
+}
+
+/** Whether `sym` (declared at `decl`) is an application (it can `listen`), not a router. */
+function isApplicationSymbol(checker: ts.TypeChecker, sym: ts.Symbol, decl: ts.Node): boolean {
+  const type = checker.getApparentType(checker.getTypeOfSymbolAtLocation(sym, decl));
+  if (type.getProperty('listen') !== undefined) return true;
+  // A function standing for its result (`createApp()`): judge what it returns.
+  const sig = type.getCallSignatures()[0];
+  return sig !== undefined && checker.getApparentType(sig.getReturnType()).getProperty('listen') !== undefined;
+}
+
+/** A Router or application value (it has `use` and `route`), by type. */
+function isRouterValue(checker: ts.TypeChecker, expr: ts.Expression): boolean {
+  const t = checker.getApparentType(checker.getTypeAtLocation(unwrap(expr)));
+  return t.getProperty('use') !== undefined && t.getProperty('route') !== undefined && t.getProperty('get') !== undefined;
+}
+
+function isApplication(checker: ts.TypeChecker, expr: ts.Expression): boolean {
+  return checker.getApparentType(checker.getTypeAtLocation(unwrap(expr))).getProperty('listen') !== undefined;
+}
+
+/**
+ * Library middleware known to be harmless (HARMLESS_LIBRARY_MIDDLEWARE): `express.json()`, `cors()`, … by the
+ * package that declares the callee.
+ */
+function isHarmlessLibraryMiddleware(checker: ts.TypeChecker, expr: ts.Expression): boolean {
+  const e = unwrap(expr);
+  if (!ts.isCallExpression(e)) return false;
+  const callee = unwrap(e.expression);
+  const nameNode = ts.isPropertyAccessExpression(callee) ? callee.name : callee;
+  let sym = checker.getSymbolAtLocation(nameNode);
+  if (sym !== undefined && (sym.flags & ts.SymbolFlags.Alias) !== 0) sym = checker.getAliasedSymbol(sym);
+  const file = sym?.declarations?.[0]?.getSourceFile().fileName;
+  const pkg = file !== undefined ? /node_modules\/(?:@types\/)?((?:@[^/]+\/)?[^/]+)\//.exec(file)?.[1] : undefined;
+  const allowed = pkg !== undefined ? HARMLESS_LIBRARY_MIDDLEWARE[pkg] : undefined;
+  if (allowed === undefined) return false;
+  if (allowed === 'default') return true;
+  return ts.isPropertyAccessExpression(callee) && allowed.has(callee.name.text);
 }
 
 /** `:name` → `:` so a use path and a route path with differently named params compare equal. */
@@ -2971,8 +3282,18 @@ export function extractRouteTable(program: ts.Program, root: string, files: stri
     const hit = memberFacts.get(expr);
     if (hit !== undefined) return hit;
     const c = resolveCallable(m, expr, NO_ENV);
+    let f: FnFacts | null;
     // Error middleware (err, req, res, next) is not part of the request chain.
-    const f = c !== undefined && c.fn.parameters.length < 4 && isProgramNode(c.fn) ? analyseFunction(m, c.fn, c.env, 0, 1) : null;
+    if (c !== undefined && c.fn.parameters.length >= 4) f = null;
+    else if (c !== undefined && isProgramNode(c.fn) && c.fn.body !== undefined) f = analyseFunction(m, c.fn, c.env, 0, 1);
+    else if (isHarmlessLibraryMiddleware(checker, expr)) f = null;
+    // A mounted router or sub-app: its own routes are entries of this table, judged on their own.
+    else if (isRouterValue(checker, expr)) f = null;
+    else {
+      // Fail-closed: middleware that cannot be followed may read input, send a response or skip the handler.
+      f = emptyFacts();
+      f.unknowns.push({ node: expr, why: `the middleware ${expr.getText().slice(0, 50)} ${c === undefined ? 'cannot be resolved' : c.fn.body === undefined ? 'has no body (declared only)' : 'is library code'}, so what it reads and sends is not followed` });
+    }
     memberFacts.set(expr, f);
     return f;
   };
@@ -2989,7 +3310,12 @@ export function extractRouteTable(program: ts.Program, root: string, files: stri
       const last = args[args.length - 1];
       const resolved = last !== undefined ? resolveCallable(m, last, NO_ENV) : undefined;
       const handler = resolved?.fn;
-      const own = resolved !== undefined ? analyseFunction(m, resolved.fn, resolved.env, 0, 1) : emptyFacts();
+      const followed = resolved !== undefined && isProgramNode(resolved.fn) && resolved.fn.body !== undefined;
+      const own = followed ? analyseFunction(m, resolved.fn, resolved.env, 0, 1) : emptyFacts();
+      if (last !== undefined && !followed) {
+        const what = resolved === undefined ? 'cannot be resolved' : resolved.fn.body === undefined ? 'has no body (declared only)' : 'is library code';
+        own.unknowns.push({ node: last, why: `the handler ${last.getText().slice(0, 50)} ${what}, so nothing it does is checked` });
+      }
       const calleeProblemSites = handler !== undefined ? calleeProblems(m, handler) : [];
       const setsLocation = handler !== undefined && setsLocationHeader(checker, handler);
       const lc = sf.getLineAndCharacterOfPosition(node.getStart(sf));
@@ -2997,7 +3323,14 @@ export function extractRouteTable(program: ts.Program, root: string, files: stri
       if (reg.paths === undefined) {
         targets.push({ path: `<${reg.pathNode.getText()}>`, unresolvedPath: { node: reg.pathNode, reason: `route path ${reg.pathNode.getText()} is not a constant string` } });
       } else {
-        const prefixes = prefixesOf(m, mounts, rootSymbol(checker, reg.receiver));
+        const receiverSym = rootSymbol(checker, reg.receiver);
+        const prefixes: Prefixes = receiverSym === undefined && !isApplication(checker, reg.receiver)
+          ? { values: [''], unmounted: reg.receiver }
+          : prefixesOf(m, mounts, receiverSym);
+        if (prefixes.unmounted !== undefined) {
+          const text = prefixes.unmounted.getText().split('\n')[0]?.slice(0, 60) ?? '';
+          own.unknowns.push({ node: prefixes.unmounted, why: `the router ${text} is not mounted where the analysis can follow it, so the path this route is served at is unproven` });
+        }
         for (const path of reg.paths) {
           for (const p of prefixes.values) targets.push({ path: joinPaths(p, path) });
           if (prefixes.unresolved !== undefined) {
@@ -3041,7 +3374,7 @@ export function extractRouteTable(program: ts.Program, root: string, files: stri
 function combineChain(
   chain: FnFacts[],
   handler: FnFacts,
-): Pick<RouteInfo, 'parses' | 'unparsedReads' | 'responses' | 'chainResponses' | 'statusLiterals' | 'problemSites' | 'resEscapes' | 'resUnfollowed' | 'readsIdempotencyKey' | 'idempotencyUse' | 'idempotencyWhy'> {
+): Pick<RouteInfo, 'parses' | 'unparsedReads' | 'responses' | 'chainResponses' | 'statusLiterals' | 'problemSites' | 'resEscapes' | 'resUnfollowed' | 'readsIdempotencyKey' | 'idempotencyUse' | 'idempotencyWhy' | 'unknowns'> {
   const written = new Set<string>();
   const keyed = [handler, ...chain].filter((f) => f.idempotencyKey);
   const use = keyed.reduce<IdempotencyUse>((best, f) => betterUse(best, f.idempotencyUse), 'ignored');
@@ -3062,9 +3395,28 @@ function combineChain(
     resEscapes: handler.resEscapes,
     resUnfollowed: handler.resUnfollowed,
     readsIdempotencyKey: handler.idempotencyKey || chain.some((f) => f.idempotencyKey),
+    unknowns: [...chain.flatMap((f) => f.unknowns), ...handler.unknowns],
     idempotencyUse: use,
     ...(use === 'unproven' && why !== undefined ? { idempotencyWhy: why } : {}),
   };
+}
+
+/**
+ * Why a route is UNPROVEN for every route rule (fail-closed): what its chain does that the analysis does not
+ * model (RouteInfo.unknowns), first three with their locations; undefined when everything was followed.
+ */
+export function routeUnknownReason(root: string, r: RouteInfo, rule: string): string | undefined {
+  if (r.unknowns.length === 0) return undefined;
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const u of r.unknowns) {
+    const text = `${location(root, u.node)}: ${u.why}`;
+    if (seen.has(text)) continue;
+    seen.add(text);
+    parts.push(text);
+  }
+  const more = parts.length > 3 ? `; and ${parts.length - 3} more` : '';
+  return `${location(root, r.registration)}: ${routeLabel(r)}: its ${rule} rules are unproven because the route does something the checker does not model: ${parts.slice(0, 3).join('; ')}${more}`;
 }
 
 /** Why a route registered with a computed method (`router[verb](…)`) is UNPROVEN, with its location. */
