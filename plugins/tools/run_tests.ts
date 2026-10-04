@@ -1,7 +1,8 @@
+import { posix } from 'node:path';
 import { z } from 'zod';
-import { defineTool } from '../../src/core/plugin-api.ts';
+import { activeLayout, defineTool } from '../../src/core/plugin-api.ts';
 import { toApiRel } from '../lib/path-policy.ts';
-import { isTestFile, isTestSupport } from '../lib/red.ts';
+import { isTestFile, isTestSupport, suggestedTest } from '../lib/red.ts';
 
 const Input = z.object({
   files: z.array(z.string()).optional().describe('Test files, default all'),
@@ -21,7 +22,9 @@ async function checkFiles(files: string[], ws: Parameters<typeof toApiRel>[0]): 
     if (!r.ok) return { ok: false, reason: r.reason };
     if (!isTestFile(r.rel)) {
       const what = isTestSupport(r.rel) ? 'is test support code (a helper), not a runnable test' : 'is not a runnable test file';
-      return { ok: false, reason: `${r.rel} ${what}; runnable tests are *.test.ts / *.spec.ts: write test/<name>.test.ts` };
+      // A path the API's runner collects (test/<name>.test.ts for the template; tests/…, colocated … otherwise).
+      const where = suggestedTest(posix.join(posix.dirname(r.rel), '<name>.ts'));
+      return { ok: false, reason: `${r.rel} ${what}; runnable tests are *.test.ts / *.spec.ts the runner collects (${activeLayout().testGlobs.join(', ')}): write ${where}` };
     }
     if (!(await ws.exists(r.rel))) return { ok: false, reason: `${r.rel} does not exist` };
     if (!out.includes(r.rel)) out.push(r.rel);

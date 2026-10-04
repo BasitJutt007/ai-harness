@@ -3,31 +3,36 @@
  * the test cases inside a test file.
  *
  * Deterministic: parses with the TypeScript parser (no type checking), resolves
- * relative specifiers the way NodeNext + TS do for .ts sources, and keeps targets
+ * relative specifiers the way NodeNext + TS do for .ts sources, bare specifiers through
+ * the API's own module resolution (tsconfig paths/baseUrl, package.json imports, the
+ * runner's aliases; see target.ts), follows require() as well as import, and keeps targets
  * that do not exist yet as nodes (a test may import a module the agent has not
  * written; that is exactly the "observed red" case).
  *
- * ONE definition of a test file for the whole harness:
- *   - a runnable test file is `*.test.ts` / `*.spec.ts` (also .mts/.cts) anywhere;
- *   - test support code is any other file under test/ (helpers, fixtures): writable
- *     without a red, never run as a test, never "covered" by a test.
+ * ONE definition of a test file for the whole harness (per the TargetLayout, see target.ts):
+ *   - a runnable test file is `*.test.ts` / `*.spec.ts` (also .mts/.cts/.tsx) anywhere, or a file
+ *     the runner's globs collect inside a dedicated test dir;
+ *   - test support code is any other file in a dedicated test dir (test/ for the template;
+ *     tests/, __tests__/ … as the target's runner config says): writable without a red, never
+ *     run as a test, never "covered" by a test.
  */
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
-import { posix } from 'node:path';
+import { join, posix } from 'node:path';
+import { activeLayout, isSourcePath, isTestPath, isTestSupportPath, underRoot } from './target.ts';
+import type { TargetLayout } from './target.ts';
 import type { TestMap, Workspace } from './types.ts';
 
-const TEST_RE = /\.(test|spec)\.[cm]?ts$/;
-const TS_RE = /\.[cm]?ts$/;
+const TS_RE = /\.[cm]?tsx?$/;
 
-/** A runnable test file: `*.test|spec.(c|m)?ts` anywhere under the API root. */
+/** A runnable test file of the active layout (see the module comment; target.ts isTestPath takes an explicit one). */
 export function isTestFile(rel: string): boolean {
-  return TEST_RE.test(rel);
+  return isTestPath(rel, activeLayout());
 }
 
-/** Test support code: any other file under test/ (helpers, fixtures). Never a runnable test, never covered. */
+/** Test support code of the active layout: any other file in a dedicated test dir (helpers, fixtures). Never a runnable test, never covered. */
 export function isTestSupport(rel: string): boolean {
-  return rel.startsWith('test/') && !isTestFile(rel);
+  return isTestSupportPath(rel, activeLayout());
 }
 
 /** Import graph over API-relative .ts files: file -> resolved relative import targets. */
@@ -36,14 +41,14 @@ export interface ImportGraph {
   edges: ReadonlyMap<string, string[]>;
 }
 
-export async function importGraph(files: string[], read: (rel: string) => Promise<string | null>): Promise<ImportGraph> {
+export async function importGraph(files: string[], read: (rel: string) => Promise<string | null>, layout: TargetLayout = activeLayout()): Promise<ImportGraph> {
   const existing = new Set(files);
   const edges = new Map<string, string[]>();
   for (const file of files) {
     const text = (await read(file)) ?? '';
     const targets = new Set<string>();
     for (const spec of importSpecifiers(file, text)) {
-      const target = resolveSpecifier(file, spec, existing);
+      const target = resolveImport(file, spec, existing, layout);
       if (target !== null) targets.add(target);
     }
     edges.set(file, [...targets].sort());
@@ -53,15 +58,15 @@ export async function importGraph(files: string[], read: (rel: string) => Promis
 
 /** Every .ts file under the API root the graph is built over (no .d.ts, no build output). */
 export function graphFiles(listed: string[]): string[] {
-  return listed.filter((f) => !/\.d\.[cm]?ts$/.test(f) && !f.startsWith('dist/') && !f.includes('/dist/')).sort();
+  return listed.filter((f) => !/\.d\.[cm]?tsx?$/.test(f) && !f.startsWith('dist/') && !f.includes('/dist/')).sort();
 }
 
-export async function buildTestMap(ws: Workspace): Promise<TestMap> {
-  // Every .ts file under the API root: governed files outside src/ are covered through imports too.
-  const files = graphFiles(await ws.list(['**/*.ts', '**/*.mts', '**/*.cts']));
-  const graph = await importGraph(files, (f) => ws.read(f));
+export async function buildTestMap(ws: Workspace, layout: TargetLayout = activeLayout()): Promise<TestMap> {
+  // Every .ts file under the API root: governed files outside the source roots are covered through imports too.
+  const files = graphFiles(await ws.list(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx']));
+  const graph = await importGraph(files, (f) => ws.read(f), layout);
   const coverage: Record<string, string[]> = {};
-  for (const test of files.filter(isTestFile)) coverage[test] = closure(test, graph.edges);
+  for (const test of files.filter((f) => isTestPath(f, layout))) coverage[test] = closure(test, graph.edges, layout);
   return createTestMap(coverage, graph.existing);
 }
 
@@ -85,7 +90,7 @@ export function createTestMap(coverage: Record<string, string[]>, existing?: Rea
   };
 }
 
-/** Every module specifier a file references: import/export-from, dynamic import(lit), vi.mock(lit) & friends. */
+/** Every module specifier a file references: import/export-from, import x = require(), require(lit), dynamic import(lit), vi.mock(lit)/jest.mock(lit) & friends. */
 export function importSpecifiers(fileName: string, text: string): string[] {
   const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const out: string[] = [];
@@ -109,13 +114,20 @@ export function importSpecifiers(fileName: string, text: string): string[] {
 function isImportLikeCall(call: ts.CallExpression): boolean {
   const callee = call.expression;
   if (callee.kind === ts.SyntaxKind.ImportKeyword) return true;
-  return isViCall(call, ['mock', 'doMock', 'importActual', 'importMock']);
+  if (isRequireCall(call)) return true;
+  return isViCall(call, ['mock', 'doMock', 'importActual', 'importMock', 'requireActual', 'requireMock']);
 }
 
+/** `require('x')` (CommonJS): an import edge like any other. */
+function isRequireCall(call: ts.CallExpression): boolean {
+  return ts.isIdentifier(call.expression) && call.expression.text === 'require' && call.arguments.length === 1;
+}
+
+/** vi.<name>(...) or jest.<name>(...): the mocking APIs of vitest and jest. */
 function isViCall(call: ts.CallExpression, names: string[]): boolean {
   const callee = call.expression;
-  return ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'vi'
-    && names.includes(callee.name.text);
+  return ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)
+    && (callee.expression.text === 'vi' || callee.expression.text === 'jest') && names.includes(callee.name.text);
 }
 
 /**
@@ -125,15 +137,98 @@ function isViCall(call: ts.CallExpression, names: string[]): boolean {
  */
 export function resolveSpecifier(from: string, spec: string, existing: ReadonlySet<string>): string | null {
   if (!spec.startsWith('./') && !spec.startsWith('../')) return null;
-  const joined = posix.normalize(posix.join(posix.dirname(from), spec));
-  if (joined.startsWith('../') || joined === '..') return null;
-  const jsMatch = /\.([cm]?)js$/.exec(joined);
-  if (jsMatch !== null) return `${joined.slice(0, -jsMatch[0].length)}.${jsMatch[1] ?? ''}ts`;
-  if (/\.[cm]?ts$/.test(joined)) return joined;
+  return resolveJoined(posix.normalize(posix.join(posix.dirname(from), spec)), existing);
+}
+
+/** Extension resolution of an API-relative module path (shared by relative and aliased specifiers). */
+function resolveJoined(joined: string, existing: ReadonlySet<string>): string | null {
+  if (joined.startsWith('../') || joined === '..' || posix.isAbsolute(joined)) return null;
+  const jsMatch = /\.([cm]?)js(x?)$/.exec(joined);
+  if (jsMatch !== null) {
+    const stem = joined.slice(0, -jsMatch[0].length);
+    const tsx = `${stem}.${jsMatch[1] ?? ''}tsx`;
+    return jsMatch[2] === 'x' || existing.has(tsx) ? tsx : `${stem}.${jsMatch[1] ?? ''}ts`;
+  }
+  if (/\.[cm]?tsx?$/.test(joined)) return joined;
   if (/\.[a-z0-9]+$/i.test(joined) && !existing.has(`${joined}.ts`)) return joined; // e.g. ./data.json
-  if (existing.has(`${joined}.ts`)) return `${joined}.ts`;
-  if (existing.has(`${joined}/index.ts`)) return `${joined}/index.ts`;
+  for (const c of [`${joined}.ts`, `${joined}.tsx`, `${joined}/index.ts`, `${joined}/index.tsx`]) if (existing.has(c)) return c;
   return `${joined}.ts`;
+}
+
+/**
+ * Resolve any specifier of `from` to an API-relative path, the way the API itself resolves it:
+ * relative paths as above; bare specifiers through the runner's aliases (vite/vitest resolve.alias,
+ * jest moduleNameMapper), tsconfig `paths`/`baseUrl`, then ts.resolveModuleName with the API's
+ * compiler options (package.json `imports`, …). A bare specifier that resolves to nothing inside the
+ * API root is a package → null. A not-yet-existing target is kept (the "observed red" case).
+ */
+export function resolveImport(from: string, spec: string, existing: ReadonlySet<string>, layout: TargetLayout = activeLayout()): string | null {
+  if (spec.startsWith('./') || spec.startsWith('../') || spec === '.' || spec === '..') {
+    return resolveSpecifier(from, spec === '.' || spec === '..' ? `${spec}/index` : spec, existing);
+  }
+  const r = layout.resolution;
+  for (const a of r.aliases) {
+    if (spec === a.find || spec.startsWith(`${a.find}/`)) {
+      return resolveJoined(posix.normalize(posix.join(a.replacement, spec.slice(a.find.length))), existing);
+    }
+  }
+  const mapped = mapPaths(spec, r.paths, existing);
+  if (mapped !== null) return mapped;
+  if (r.baseUrl !== null) {
+    const viaBase = resolveJoined(posix.normalize(posix.join(r.baseUrl, spec)), existing);
+    if (viaBase !== null && (existing.has(viaBase) || existing.has(viaBase.replace(/\.ts$/, '/index.ts')))) return viaBase;
+  }
+  if (spec.startsWith('#') && r.tsconfig !== null) return resolveWithTs(from, spec, existing, layout);
+  return null;
+}
+
+/** tsconfig `paths`: the first target of the longest matching pattern that exists, else its first target. */
+function mapPaths(spec: string, paths: TargetLayout['resolution']['paths'], existing: ReadonlySet<string>): string | null {
+  let best: { prefix: number; targets: string[]; star: string } | null = null;
+  for (const p of paths) {
+    const at = p.pattern.indexOf('*');
+    const pre = at < 0 ? p.pattern : p.pattern.slice(0, at);
+    const post = at < 0 ? '' : p.pattern.slice(at + 1);
+    const hit = at < 0 ? spec === p.pattern : spec.startsWith(pre) && spec.endsWith(post) && spec.length >= pre.length + post.length;
+    if (!hit || (best !== null && best.prefix >= pre.length)) continue;
+    best = { prefix: pre.length, targets: p.targets, star: at < 0 ? '' : spec.slice(pre.length, spec.length - post.length) };
+  }
+  if (best === null) return null;
+  const candidates = best.targets.flatMap((t) => {
+    const r = resolveJoined(posix.normalize(t.replace('*', best?.star ?? '')), existing);
+    return r === null ? [] : [r];
+  });
+  return candidates.find((c) => existing.has(c)) ?? candidates[0] ?? null;
+}
+
+/**
+ * ts.resolveModuleName with the API's compiler options for what only the type checker knows
+ * (package.json `imports` subpaths). Files are looked up in `existing` first, then on disk.
+ */
+function resolveWithTs(from: string, spec: string, existing: ReadonlySet<string>, layout: TargetLayout): string | null {
+  const tsconfig = layout.resolution.tsconfig;
+  if (tsconfig === null) return null;
+  const apiRoot = posix.dirname(tsconfig.split('\\').join('/'));
+  const toRel = (abs: string): string | null => {
+    const rel = posix.relative(apiRoot, abs.split('\\').join('/'));
+    return rel.startsWith('..') || posix.isAbsolute(rel) ? null : rel;
+  };
+  const host: ts.ModuleResolutionHost = {
+    fileExists: (f) => {
+      const rel = toRel(f);
+      return (rel !== null && existing.has(rel)) || ts.sys.fileExists(f);
+    },
+    readFile: (f) => ts.sys.readFile(f),
+    directoryExists: (d) => ts.sys.directoryExists(d),
+    realpath: (p) => p,
+  };
+  for (const mode of [ts.ModuleKind.ESNext, ts.ModuleKind.CommonJS] as const) {
+    const out = ts.resolveModuleName(spec, join(apiRoot, from), layout.resolution.options, host, undefined, undefined, mode).resolvedModule;
+    if (out === undefined || out.isExternalLibraryImport === true) continue;
+    const rel = toRel(out.resolvedFileName);
+    if (rel !== null && !rel.split('/').includes('node_modules')) return rel;
+  }
+  return null;
 }
 
 function reachable(start: string, edges: ReadonlyMap<string, string[]>): Set<string> {
@@ -149,16 +244,23 @@ function reachable(start: string, edges: ReadonlyMap<string, string[]>): Set<str
   return seen;
 }
 
-/** Whether `target` is under src/ or its import closure reaches a file under src/. */
-export function reachesSource(target: string, edges: ReadonlyMap<string, string[]>): boolean {
-  return [...reachable(target, edges)].some((f) => f.startsWith('src/'));
+/**
+ * Whether `target` is governed source (TypeScript under a source root; not a test, test support or
+ * tooling config) or its import closure reaches such a file.
+ */
+export function reachesSource(target: string, edges: ReadonlyMap<string, string[]>, layout: TargetLayout = activeLayout()): boolean {
+  // Non-TypeScript modules (e.g. a JSON file) count when they sit under an explicit source root, as src/ always did.
+  const governed = (f: string): boolean => isSourcePath(f, layout)
+    || (!TS_RE.test(f) && layout.sourceRoots.some((r) => r !== '.' && underRoot(f, r)));
+  return [...reachable(target, edges)].some(governed);
 }
 
-/** Governed files reachable from `start` (excluding `start`): .ts anywhere, anything under src/; never tests or test support. */
-function closure(start: string, edges: ReadonlyMap<string, string[]>): string[] {
+/** Governed files reachable from `start` (excluding `start`): .ts anywhere, anything under a source root; never tests or test support. */
+function closure(start: string, edges: ReadonlyMap<string, string[]>, layout: TargetLayout): string[] {
   const seen = reachable(start, edges);
   seen.delete(start);
-  return [...seen].filter((f) => !isTestFile(f) && !isTestSupport(f) && (TS_RE.test(f) || f.startsWith('src/'))).sort();
+  return [...seen].filter((f) => !isTestPath(f, layout) && !isTestSupportPath(f, layout)
+    && (TS_RE.test(f) || layout.sourceRoots.some((r) => r !== '.' && underRoot(f, r)))).sort();
 }
 
 function normalizeSource(p: string): string {
@@ -280,7 +382,7 @@ function declaredNames(node: ts.Node): Set<string> {
 }
 
 /**
- * Whether `node` references one of `names` (minus `shadowed`) or dynamically imports a module that reaches src/.
+ * Whether `node` references one of `names` (minus `shadowed`) or dynamically imports / require()s a module that reaches source.
  * With `valueOnly`, operands of `void` and `typeof` do not count (they never use the value).
  */
 function usesSource(node: ts.Node, names: ReadonlySet<string>, shadowed: ReadonlySet<string>, r: CaseResolver, valueOnly = false): boolean {
@@ -292,7 +394,7 @@ function usesSource(node: ts.Node, names: ReadonlySet<string>, shadowed: Readonl
       found = true;
       return;
     }
-    if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword) {
+    if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCall(n))) {
       const arg = n.arguments[0];
       const target = arg !== undefined && ts.isStringLiteralLike(arg) ? r.resolve(arg.text) : null;
       if (target !== null && r.reachesSource(target)) {

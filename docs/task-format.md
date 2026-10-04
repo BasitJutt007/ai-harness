@@ -64,6 +64,13 @@ Keys are matched ignoring case, `-`, `_` and spaces. The canonical name is liste
 Any other top-level key is **carried**: the model sees it verbatim under "Additional details from the
 task file". It is never dropped.
 
+**Scope** (brownfield) is `allow`/`deny` glob lists (`include`, `write` and `exclude`, `readonly`, ...
+also accepted), or one list of allow globs. A task that names no allow list writes within the target
+API's own source and test roots, read from its tsconfig and test-runner config at preflight (`src/`
+and `test/` for the template layout), not the `src/**/*.ts`, `test/**/*.ts` default that `harness task
+check` prints; its deny list still applies. The run records the scope it used (`run.json`
+`target.defaultScope`).
+
 **Resources** can be a list of specs, one spec, a map `name: spec`, or a list of names. A spec can
 hold `fields` (or `properties`, `attributes`, `columns`), `operations` and `endpoints`. A spec that
 holds only fields can be the field map itself (`car: {make: string, year: integer}`). Names become

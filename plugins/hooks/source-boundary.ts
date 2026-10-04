@@ -2,8 +2,9 @@
  * source-boundary (pre, write of governed .ts): production code may only import
  * production code. A source file must not import a test file (test/**, *.test.ts,
  * *.spec.ts) — those are writable without an observed red, so importing one would
- * smuggle unreviewed behaviour past the observed-red rule. Files under src/ may
- * only import relative modules under src/ (plus packages), and nobody may import
+ * smuggle unreviewed behaviour past the observed-red rule. Files under the API's source
+ * roots (src/ for the template; its TargetProfile layout otherwise) may only import relative
+ * modules under the source roots (plus packages), and nobody may import
  * by absolute path or through a computed `import(x)` / `require(x)`. Module-loader APIs
  * (`node:module`, e.g. createRequire, and process.getBuiltinModule) are refused too: a
  * require function they return loads any path without the hook seeing it. Production code
@@ -12,7 +13,7 @@
  */
 import path from 'node:path';
 import ts from 'typescript';
-import { defineHook } from '../../src/core/plugin-api.ts';
+import { activeLayout, defineHook, sourceRootsLabel, underAny } from '../../src/core/plugin-api.ts';
 import { proposedContent } from '../lib/diff.ts';
 import { stringField, toApiRel } from '../lib/path-policy.ts';
 import { isGovernedSource, isTestFile, isTestSupport } from '../lib/red.ts';
@@ -57,7 +58,8 @@ function specifiers(sf: ts.SourceFile): Spec[] {
 /** Import-boundary violations of `content` as file `rel` (API-relative). */
 export function boundaryViolations(rel: string, content: string): BoundaryViolation[] {
   const sf = ts.createSourceFile(rel, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const inSrc = rel.startsWith('src/');
+  const roots = activeLayout().sourceRoots;
+  const inSrc = underAny(rel, roots);
   const out: BoundaryViolation[] = [];
   for (const s of specifiers(sf)) {
     const lc = sf.getLineAndCharacterOfPosition(s.node.getStart(sf));
@@ -85,8 +87,9 @@ export function boundaryViolations(rel: string, content: string): BoundaryViolat
       out.push({ ...at, key: `escape|${spec}`, message: `"${spec}" resolves outside the API root` });
     } else if (isTestFile(target) || isTestSupport(target)) {
       out.push({ ...at, key: `test|${target}`, message: `"${spec}" imports test code (${target}); production code must not depend on tests` });
-    } else if (inSrc && !target.startsWith('src/')) {
-      out.push({ ...at, key: `outside|${target}`, message: `"${spec}" imports ${target}, outside src/; source under src/ may only import src/ modules and packages` });
+    } else if (inSrc && !underAny(target, roots)) {
+      const where = sourceRootsLabel();
+      out.push({ ...at, key: `outside|${target}`, message: `"${spec}" imports ${target}, outside ${where}; source under ${where} may only import modules there and packages` });
     }
   }
   return out;

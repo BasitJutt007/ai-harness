@@ -245,7 +245,7 @@ const MAX_REASON = 1600;
  * probe counts only when the harness itself reaches the injected control route; otherwise it is UNPROVEN.
  */
 export async function runProbe(ctx: CheckContext, routes: RouteInfo[], opts: ProbeOptions = {}): Promise<ProbeRun> {
-  const discovery = discoverEntries(ctx.root, opts.entry);
+  const discovery = discoverEntries(ctx.root, opts.entry, ctx.layout?.sourceRoots);
   if (discovery.candidates.length === 0) return { ok: false, reason: `no app entry found: ${describeSearch(discovery)}` };
   try {
     annotateTypedExports(ctx.program(), ctx.root, discovery.candidates);

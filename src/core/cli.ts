@@ -14,6 +14,7 @@ import { loadRegistry } from './registry.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
+import { targetLayout } from './target.ts';
 import { loadTask } from './task.ts';
 import { buildTestMap } from './testmap.ts';
 import { compareRuns, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
@@ -267,8 +268,8 @@ async function cmdTask(p: ParsedArgs, out: Out): Promise<number> {
     return 1;
   }
   if (p.bools.has('json')) {
-    const { file: abs, format, strict, sha256, normalizedSha256, warnings, task } = loaded;
-    out(JSON.stringify({ file: abs, format, strict, sha256, normalizedSha256, warnings, task }, null, 2));
+    const { file: abs, format, strict, sha256, normalizedSha256, warnings, declaresScope, task } = loaded;
+    out(JSON.stringify({ file: abs, format, strict, sha256, normalizedSha256, warnings, ...(task.kind === 'brownfield' ? { declaresScope } : {}), task }, null, 2));
     return 0;
   }
   const t = loaded.task;
@@ -277,6 +278,9 @@ async function cmdTask(p: ParsedArgs, out: Out): Promise<number> {
   out(`sha256    ${loaded.sha256}  normalized ${loaded.normalizedSha256}`);
   out(`notes     ${loaded.warnings.length === 0 ? '(none: the file is canonical)' : loaded.warnings.length}`);
   for (const w of loaded.warnings) out(`  - ${w}`);
+  if (t.kind === 'brownfield' && !loaded.declaresScope) {
+    out("scope     not declared: a run writes within the target API's own source and test roots (its layout, printed at preflight), not the default allow list below");
+  }
   out('canonical task:');
   for (const line of stringifyYaml(t, { lineWidth: 0 }).trimEnd().split('\n')) out(`  ${line}`);
   return 0;
@@ -549,7 +553,7 @@ async function cmdShip(p: ParsedArgs, out: Out): Promise<number> {
 async function cmdTestmap(p: ParsedArgs, out: Out): Promise<number> {
   const root = apiDir(p, out);
   if (root === null) return 2;
-  const map = await buildTestMap(createWorkspace(root, '.'));
+  const map = await buildTestMap(createWorkspace(root, '.'), await targetLayout(root));
   const text = testMapSummary(map, 500);
   out(text.length > 0 ? text : '(no test files)');
   return 0;

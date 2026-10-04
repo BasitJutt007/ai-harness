@@ -2,10 +2,12 @@
  * App entry discovery, harness side: reads files only, runs nothing. Produces the ordered list of
  * modules the probe runtime (probe-runtime.ts) imports to find the API's HTTP app:
  *   1. an explicit entry (passed in, e.g. from the task, then the `entry` of harness.template.json);
- *   2. the usual entry files: src/{app,index,server,main}.ts, the same under tsconfig rootDir, then
- *      {app,index,server,main}.ts at the API root;
+ *   2. the usual entry files: src/{app,index,server,main}.ts, the same under tsconfig rootDir and under
+ *      each source root of the API's layout (its TargetProfile: tsconfig include/rootDir, e.g. lib/),
+ *      then {app,index,server,main}.ts at the API root;
  *   3. what package.json names: "main", "exports" ("."), and the file run by scripts start/dev/serve,
- *      each mapped from built JavaScript (dist/x.js) back to its TypeScript source (src/x.ts).
+ *      each mapped from built JavaScript (dist/x.js) back to its TypeScript source (src/x.ts, or the
+ *      same path under tsconfig rootDir / a source root).
  * The runtime then tries each module's exports (factory, app instance, default export) and, as a
  * last resort, captures a server the module starts itself with listen().
  */
@@ -94,6 +96,8 @@ interface Layout {
   rootDir: string;
   /** Build output folder from tsconfig (outDir), '' when unset. */
   outDir: string;
+  /** Further source roots (the API's layout; '' = the API root). */
+  sourceRoots?: readonly string[];
 }
 
 function tsLayout(root: string): Layout {
@@ -128,9 +132,10 @@ export function tsSourceOf(root: string, path: string, layout: Layout = tsLayout
   const stem = rel.slice(0, rel.length - ext.length);
   const js = JS_TO_TS[ext];
   const direct = TS_EXTS.includes(ext) ? [rel] : js !== undefined ? [stem + js] : ext === '' ? [`${rel}.ts`, `${rel}/index.ts`] : [];
-  const srcRoot = layout.rootDir !== '' ? layout.rootDir : 'src';
+  const srcRoots = [...new Set([layout.rootDir !== '' ? layout.rootDir : 'src', ...(layout.sourceRoots ?? [])])];
   const outs = layout.outDir !== '' ? [layout.outDir] : OUT_DIRS;
-  const mapped = direct.flatMap((p) => outs.filter((o) => p.startsWith(`${o}/`)).map((o) => `${srcRoot}/${p.slice(o.length + 1)}`));
+  const mapped = direct.flatMap((p) => outs.filter((o) => p.startsWith(`${o}/`))
+    .flatMap((o) => srcRoots.map((r) => (r === '' ? p.slice(o.length + 1) : `${r}/${p.slice(o.length + 1)}`))));
   return [...direct, ...mapped].find((p) => isFile(root, p));
 }
 
@@ -152,9 +157,13 @@ function exportTargets(v: unknown): string[] {
   return keys.filter((k) => k !== 'types').flatMap((k) => exportTargets(v[k]));
 }
 
-/** Ordered, de-duplicated candidate modules (see the file comment). */
-export function discoverEntries(root: string, explicit?: AppEntry): EntryDiscovery {
-  const layout = tsLayout(root);
+/**
+ * Ordered, de-duplicated candidate modules (see the file comment). `sourceRoots`: the API's source roots
+ * (CheckContext.layout, API-relative, '.' = the root), searched after src/ and tsconfig rootDir.
+ */
+export function discoverEntries(root: string, explicit?: AppEntry, sourceRoots: readonly string[] = []): EntryDiscovery {
+  const roots = sourceRoots.map((r) => (r === '.' ? '' : insideRoot(r))).filter((r): r is string => r !== undefined);
+  const layout: Layout = { ...tsLayout(root), sourceRoots: roots };
   const candidates: EntryCandidate[] = [];
   const missing: string[] = [];
   const add = (path: string, why: string, exp?: string): void => {
@@ -174,7 +183,7 @@ export function discoverEntries(root: string, explicit?: AppEntry): EntryDiscove
   const declared = manifestEntry(root);
   if (declared !== undefined) add(declared.module, `entry in ${ENTRY_MANIFEST}`, declared.export);
   const searched: string[] = [];
-  for (const dir of new Set(['src', layout.rootDir, ''])) {
+  for (const dir of new Set(['src', layout.rootDir, ...roots, ''])) {
     for (const name of ENTRY_NAMES) {
       const stem = dir === '' ? name : `${dir}/${name}`;
       searched.push(`${stem}.ts`);

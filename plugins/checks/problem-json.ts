@@ -31,6 +31,7 @@ import {
   walk,
 } from '../lib/api-ast.ts';
 import type { ApiModel, Env, Producer, ResponseChain, RouteInfo, UseRegistration } from '../lib/api-ast.ts';
+import { discoverEntries } from '../lib/app-entry.ts';
 import { runProbe, substituteParams } from '../lib/probe.ts';
 
 const RULE = 'problem-json';
@@ -294,7 +295,9 @@ function appUnits(ctx: CheckContext, m: ApiModel, map: Map<string, Tally>): void
       u.fn !== undefined && matchesEverything(u.path) && u.fn.parameters.length >= 2 && u.fn.parameters.length <= 3 && producesNotFound(m, u.fn, u.env),
   );
   const anchor = errorRegs[0]?.call ?? notFoundRegs[0]?.call;
-  const file = anchor !== undefined ? location(ctx.root, anchor).replace(/:\d+:\d+$/, '') : ctx.sourceFiles.includes('src/app.ts') ? 'src/app.ts' : (ctx.sourceFiles[0] ?? '(project)');
+  // Nothing registered: blame the app's entry module (app-entry discovery over the API's layout), else the first source file.
+  const entry = anchor === undefined ? discoverEntries(ctx.root, undefined, ctx.layout?.sourceRoots).candidates.find((c) => ctx.sourceFiles.includes(c.module))?.module : undefined;
+  const file = anchor !== undefined ? location(ctx.root, anchor).replace(/:\d+:\d+$/, '') : (entry ?? ctx.sourceFiles[0] ?? '(project)');
   const fallbackLoc = file === '(project)' ? '(project)' : `${file}:1:1`;
   const t = tally(map, file);
   const errorReg = errorRegs[errorRegs.length - 1];

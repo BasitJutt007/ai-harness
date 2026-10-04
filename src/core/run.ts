@@ -18,6 +18,7 @@ import { deserializeState, newRunId, newRunState, RunStore, serializeState } fro
 import { isolationHonesty, isolationInfo, isolationUnavailable, setSandboxMode } from './sandbox.ts';
 import { saveInitial } from './initial.ts';
 import { createServices } from './services.ts';
+import { computeTargetProfile, defaultScopeAllow, formatProfile, profileRecord, type TargetProfile } from './target.ts';
 import { loadTask, parseTask } from './task.ts';
 import { TEMPLATE_MANIFEST, templateManifest, type TemplateManifest } from './template.ts';
 import { TokenLedger, type TokenReport } from './tokens.ts';
@@ -103,6 +104,8 @@ export function buildContext(opts: {
   registry: RegistryView;
   /** Subprocess runner (default: the core exec). */
   exec?: Exec;
+  /** The API's profile (layout, runner) from preflight. */
+  profile?: TargetProfile;
 }): RunContext {
   const { state, store } = opts;
   const run = opts.exec ?? exec;
@@ -116,6 +119,7 @@ export function buildContext(opts: {
     taskKind: opts.task.kind,
     baseSha: opts.run.baseSha,
     runDir: opts.run.runDir,
+    ...(opts.profile !== undefined ? { profile: opts.profile } : {}),
   });
   return {
     run: opts.run,
@@ -135,6 +139,32 @@ export function buildContext(opts: {
     },
   };
 }
+
+/** The profile of the API in the worktree (target.ts). Never throws: a profile that cannot be computed is reported, and the template layout stays. */
+export async function targetProfile(ws: Workspace): Promise<{ profile?: TargetProfile; error?: string }> {
+  try {
+    return { profile: await computeTargetProfile({ apiRoot: ws.root, repoRoot: ws.repoRoot, harnessRoot: HARNESS_ROOT }) };
+  } catch (e) {
+    return { error: `target profile could not be computed (template layout assumed): ${errMsg(e)}` };
+  }
+}
+
+/**
+ * Preflight: the target profile of the API in the worktree. A brownfield task that does not declare its
+ * write scope (LoadedTask.declaresScope: decided by the task front end, whatever the file's format or key
+ * spelling) gets the profile's roots as its allow list instead of the schema default (the template's
+ * src/ + test/); its deny list is kept. A declared scope is never overridden.
+ */
+export async function preflight(task: Task, declaresScope: boolean, ws: Workspace): Promise<{ profile?: TargetProfile; error?: string; scopeFromProfile: boolean }> {
+  const { profile, error } = await targetProfile(ws);
+  if (profile === undefined) return { error: error ?? 'no profile', scopeFromProfile: false };
+  if (task.kind !== 'brownfield' || declaresScope) return { profile, scopeFromProfile: false };
+  task.scope = { allow: defaultScopeAllow(profile), deny: task.scope.deny };
+  return { profile, scopeFromProfile: true };
+}
+
+/** run.json `target` of a brownfield run whose write scope came from the target layout (preflight). */
+const RecordedTargetScope = z.looseObject({ defaultScope: z.array(z.string().min(1)).min(1) });
 
 async function loadRegistryOrThrow(config: HarnessConfig): Promise<RegistryView> {
   const registry = await loadRegistry(config, HARNESS_ROOT);
@@ -439,7 +469,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const branch = `harness/${runId}`;
   let wt: { worktreeRoot: string; baseBranch: string; baseSha: string };
   try {
-    wt = await createWorktree({ harnessRoot: HARNESS_ROOT, config, repoDir, runId, branch });
+    wt = await createWorktree({ harnessRoot: HARNESS_ROOT, config, repoDir, runId, branch, apiRel: rootRel });
   } finally {
     claim.release();
   }
@@ -462,6 +492,13 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const state = newRunState();
   state.initialHashes = await snapshotHashes(ws, store.runDir);
   const mode = opts.baseline ? BASELINE_MODE : JIT_MODE;
+  // The task exactly as the front end normalized it (what normalizedSha256 hashes), before preflight sets a default scope.
+  const normalizedTask: Task = structuredClone(task);
+  // Preflight, before the first model turn: what the target looks like and what the harness cannot prove on it.
+  const target = await preflight(task, loaded.declaresScope, ws);
+  const targetLines = target.profile !== undefined ? formatProfile(target.profile) : [`target     UNPROVEN: ${target.error ?? 'no profile'}`];
+  if (target.scopeFromProfile && task.kind === 'brownfield') targetLines.push(`           scope (task declares none; from the target layout): ${task.scope.allow.join(', ')}`);
+  log(targetLines.join('\n'));
   const ctx = buildContext({
     run: {
       id: runId,
@@ -482,6 +519,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     config,
     registry,
     exec: run,
+    ...(target.profile !== undefined ? { profile: target.profile } : {}),
   });
 
   // The tool list exactly as the model will be offered it (order included), recorded in run.json.
@@ -521,8 +559,13 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     toolsOffered: (offered ?? []).map((t) => t.name),
     checksRegistered: registry.checks.map((r) => r.plugin.id),
     isolation,
+    target: target.profile !== undefined
+      ? { ...profileRecord(target.profile), ...(target.scopeFromProfile && task.kind === 'brownfield' ? { defaultScope: task.scope.allow } : {}) }
+      : { error: target.error ?? 'no profile' },
   };
   store.writeJson('run.json', { ...runRecordBase, status: 'running' });
+  // A brownfield write scope taken from the target layout is not part of the normalized task: it is recorded in
+  // run.json (target.defaultScope), named here, and applied again when the run is reopened (openRun).
   store.writeJson('task.normalized.json', {
     file: loaded.file,
     format: loaded.format,
@@ -530,7 +573,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     sha256: loaded.sha256,
     normalizedSha256: loaded.normalizedSha256,
     warnings: loaded.warnings,
-    task,
+    ...(task.kind === 'brownfield'
+      ? { scopeSource: loaded.declaresScope ? 'task' : target.scopeFromProfile ? 'target layout (run.json target.defaultScope)' : 'schema default' }
+      : {}),
+    task: normalizedTask,
   });
   if (loaded.warnings.length > 0) {
     ctx.emit({ kind: 'note', source: 'task', message: `${loaded.warnings.length} task-file normalization note(s); see task.normalized.json`, data: loaded.warnings });
@@ -654,7 +700,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const notes = abortedRun
     ? [final.results.length > 0 || report !== null ? 'run stopped by signal after the loop ended: the remaining post-loop steps did not run' : 'gates and checks: not run because the run was aborted']
     : [];
-  const h = honesty(task, final.results, report, notes);
+  const targetNotes = target.profile !== undefined ? target.profile.unsupported.map((u) => `target: ${u}`) : [`target: ${target.error ?? 'no profile'}`];
+  const h = honesty(task, final.results, report, [...notes, ...targetNotes]);
   const iso = isolationHonesty(isolation);
   (iso.proven ? h.proven : h.unproven).push(iso.line);
   const evidence = {
@@ -768,7 +815,12 @@ export async function openRun(
   // The task exactly as the run used it (CLI overrides included); older runs re-read the task file.
   const normalized = store.readJson<{ task?: unknown }>('task.normalized.json');
   const runTask = normalized?.task !== undefined ? parseTask(normalized.task, `${harnessRel(runDir)}/task.normalized.json`) : (await loadTask(record.taskFile)).task;
+  // The write scope the run took from the target layout at preflight: recorded, never re-derived (the tree has changed since).
+  const recordedScope = RecordedTargetScope.safeParse(record['target']);
+  if (recordedScope.success && runTask.kind === 'brownfield') runTask.scope = { allow: recordedScope.data.defaultScope, deny: runTask.scope.deny };
   const ws = createWorkspace(record.worktreeRoot, record.rootRel);
+  // The profile of the API as it is now, so ship re-runs every gate on the target's layout and runner.
+  const target = await targetProfile(ws);
   const savedState = store.readJson<unknown>('state.json');
   const state = savedState === null ? newRunState() : deserializeState(savedState);
   const ctx = buildContext({
@@ -791,6 +843,7 @@ export async function openRun(
     config,
     registry,
     ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
+    ...(target.profile !== undefined ? { profile: target.profile } : {}),
   });
   return { ctx, registry, store, record };
 }

@@ -119,8 +119,9 @@ describe('createWorktree', () => {
     expect(r.baseSha).toBe(await git(repo, 'rev-parse', 'HEAD'));
     expect(existsSync(join(r.worktreeRoot, 'README.md'))).toBe(true);
     expect(await git(r.worktreeRoot, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('harness/test-1');
-    // worktree is inside the harness root: node resolution already walks up to it, no link
-    expect(existsSync(join(r.worktreeRoot, 'node_modules'))).toBe(false);
+    // The target's own dependencies come first (its node_modules is linked in); the harness's is only the
+    // fallback, reached by walking up because the worktree is inside the harness root (never linked here).
+    expect(realpathSync(join(r.worktreeRoot, 'node_modules'))).toBe(realpathSync(join(repo, 'node_modules')));
     await removeWorktree(repo, r.worktreeRoot);
     expect(existsSync(r.worktreeRoot)).toBe(false);
   });

@@ -71,7 +71,7 @@ process.stdout.write(JSON.stringify(r));
 `;
 
 describe.runIf(mechanism !== 'none')(`read fence under ${mechanism}`, () => {
-  it('reads: own tree, symlinked node_modules and workspace links (require resolves), harness runtime; never harness .git/runs/sources or a sibling checkout', async () => {
+  it('reads: own tree, symlinked node_modules and workspace links (require resolves), harness runtime files (probe, contract, node:test reporter); never harness .git/runs/sources or a sibling checkout', async () => {
     const tmp = join(l.runTmp, 'fence-read');
     mkdirSync(tmp, { recursive: true });
     const targets = {
@@ -80,6 +80,7 @@ describe.runIf(mechanism !== 'none')(`read fence under ${mechanism}`, () => {
       linkedNmReal: join(l.dir, 'shared-nm', 'canary-pkg', 'index.js'),
       harnessNm: join(HARNESS_ROOT, 'node_modules', 'zod', 'package.json'),
       probeRuntime: join(HARNESS_ROOT, 'plugins', 'lib', 'probe-runtime.ts'),
+      nodeTestReporter: join(HARNESS_ROOT, 'src', 'core', 'node-test-reporter.mjs'),
       harnessGit: join(HARNESS_ROOT, '.git'),
       harnessRuns: join(HARNESS_ROOT, 'runs'),
       harnessSource: join(HARNESS_ROOT, 'src', 'core', 'exec.ts'),
@@ -95,6 +96,7 @@ describe.runIf(mechanism !== 'none')(`read fence under ${mechanism}`, () => {
       linkedNmReal: 'ok',
       harnessNm: 'ok',
       probeRuntime: 'ok',
+      nodeTestReporter: 'ok',
       harnessGit: blocked,
       harnessRuns: blocked,
       harnessSource: blocked,

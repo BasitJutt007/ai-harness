@@ -7,6 +7,7 @@
  */
 import type { z } from 'zod';
 import type ts from 'typescript';
+import type { TargetLayout } from './target.ts';
 
 // ───────────────────────────── Conversation model ─────────────────────────────
 // A provider-neutral transcript. Drivers translate to and from their wire format.
@@ -226,6 +227,11 @@ export interface LoadedTask {
   strict: boolean;
   /** Everything the front end renamed, inferred, dropped or carried, one line each. */
   warnings: string[];
+  /**
+   * True when the task names its own write scope (scope.allow). Otherwise a brownfield run writes within
+   * the target API's own source and test roots (the TargetProfile), not the schema default.
+   */
+  declaresScope: boolean;
 }
 
 // ───────────────────────────── Run state & context ─────────────────────────────
@@ -639,10 +645,15 @@ export interface CheckFinding {
 export interface CheckContext {
   /** Absolute API root. */
   root: string;
-  /** API-relative .ts files under src/ (non-test). */
+  /** API-relative TypeScript files under the API's source roots (non-test, non-declaration). */
   sourceFiles: string[];
-  /** API-relative test files. */
+  /** API-relative test files and test support (helpers, fixtures in the dedicated test dirs). */
   testFiles: string[];
+  /**
+   * Where the API keeps source and tests (source roots, test dirs, runner globs, import resolution): the
+   * run's TargetProfile, else computed from the API's own config. Absent only in hand-built contexts.
+   */
+  layout?: TargetLayout;
   read(rel: string): Promise<string>;
   /** Parsed source file (cached). */
   sourceFile(rel: string): ts.SourceFile;

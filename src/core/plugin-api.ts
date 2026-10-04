@@ -18,6 +18,9 @@ export type * from './types.ts';
 
 /** The harness's single definition of a runnable test file and of test support code (see testmap.ts). */
 export { isTestFile, isTestSupport } from './testmap.ts';
+/** The governed API's layout (source roots, test dirs, runner globs; see target.ts). */
+export { activeLayout, isSourcePath, linkDependencies, sourceRootsLabel, suggestTestPath, targetLayout, underAny } from './target.ts';
+export type { TargetLayout, TargetProfile } from './target.ts';
 
 /** A scaffold template's manifest (templates/<name>/harness.template.json), or null. */
 export { templateManifest } from './template.ts';

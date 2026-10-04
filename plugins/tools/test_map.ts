@@ -1,5 +1,6 @@
+import { posix } from 'node:path';
 import { z } from 'zod';
-import { defineTool } from '../../src/core/plugin-api.ts';
+import { defineTool, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import { toApiRel } from '../lib/path-policy.ts';
 import { describeTest, isGovernedSource, isTestFile, isTestSupport, lockState, suggestedTest, testRedStatus } from '../lib/red.ts';
 
@@ -17,7 +18,7 @@ export default defineTool({
     if (input.path === undefined) {
       const entries = Object.entries(map.coverage).sort(([a], [b]) => a.localeCompare(b));
       const max = ctx.config.limits.maxListEntries;
-      const lines = entries.slice(0, max).map(([t, srcs]) => `${t} -> ${srcs.length ? srcs.join(', ') : '(no src imports)'}`);
+      const lines = entries.slice(0, max).map(([t, srcs]) => `${t} -> ${srcs.length ? srcs.join(', ') : '(no source imports)'}`);
       if (entries.length > max) lines.push(`… ${entries.length - max} more tests`);
       const summary = [`${entries.length} test files`, ...lines].join('\n');
       return { ok: true, summary, raw: summary };
@@ -28,11 +29,11 @@ export default defineTool({
     if (isTestFile(r.rel)) {
       const status = await testRedStatus(ctx, r.rel);
       const covers = map.coverage[r.rel] ?? [];
-      const summary = `${r.rel}: ${describeTest(status)}\ncovers: ${covers.length ? covers.join(', ') : '(nothing under src/)'}`;
+      const summary = `${r.rel}: ${describeTest(status)}\ncovers: ${covers.length ? covers.join(', ') : `(nothing under ${sourceRootsLabel()})`}`;
       return { ok: true, summary, raw: summary };
     }
     if (isTestSupport(r.rel)) {
-      const summary = `${r.rel}: test support code (writable without red; not a runnable test, never covered). Runnable tests are test/<name>.test.ts`;
+      const summary = `${r.rel}: test support code (writable without red; not a runnable test, never covered). Runnable tests are files the runner collects, e.g. ${suggestedTest(posix.join(posix.dirname(r.rel), '<name>.ts'))}`;
       return { ok: true, summary, raw: summary };
     }
     const lock = await lockState(ctx, r.rel);
