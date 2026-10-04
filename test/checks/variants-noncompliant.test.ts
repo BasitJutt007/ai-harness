@@ -24,10 +24,11 @@ const ROUTES = 'src/routes/users.ts';
 
 const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolations?: Partial<Record<Rule, number>> }> = {
   'bad-res-send-helper': {
-    // respond(res, status: number, body: unknown) can send any status with any body: a non-constant status is an error path
+    // respond(res, status: number, body: unknown) can send any status with any body: a non-constant status is an error path.
+    // The helper is followed: the raw user it sends with 200 is an unparsed 2xx body, reported at its send.
     fails: ['zod-boundary', 'problem-json'],
     expect: [
-      { rule: 'zod-boundary', at: [ROUTES, 'respond(res, 200, user)'], message: '`res` is passed along' },
+      { rule: 'zod-boundary', at: ['src/http/respond.ts', 'res.status(status).send(body)'], message: 'GET /v1/users/:userId: response body is not parsed with a Zod schema; send ResponseSchema.parse(value) (sent by respond(), called at src/routes/users.ts:24:' },
       { rule: 'problem-json', at: ['src/http/respond.ts', 'res.status(status).send(body)'], message: 'status status is not a constant, so this may be an error response' },
     ],
   },
@@ -41,12 +42,12 @@ const MATRIX: Record<string, { fails: Rule[]; expect: Expected[]; exactViolation
     ],
   },
   'bad-senderror-helper': {
-    fails: ['zod-boundary', 'problem-json', 'rest-conventions'],
+    // sendError(res, 404, …) is followed: the routes do have a 404 path (rest-conventions) and send no unparsed
+    // 2xx body (zod-boundary); its ad-hoc error body is what is wrong, and problem-json says so.
+    fails: ['problem-json'],
     expect: [
       { rule: 'problem-json', at: ['src/http/errors.ts', 'res.status(status).json({ message })'], message: 'ad-hoc error body with "message"' },
       { rule: 'problem-json', message: 'GET /v1/users/00000000-0000-4000-8000-000000000000 (unknown id): Content-Type is "application/json' },
-      { rule: 'zod-boundary', at: [ROUTES, 'sendError(res, 404'], message: '`res` is passed along' },
-      { rule: 'rest-conventions', at: [ROUTES, "usersRouter.get('/v1/users/:userId'"], message: 'no 404 path' },
     ],
   },
   'bad-error-middleware-json': {

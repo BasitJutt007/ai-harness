@@ -727,10 +727,10 @@ r.get('/v1/d', (_req, res) => { reply(res, { id: 'd' }); });
     expect(forRoute(findings, 'GET /v1/a').some((m) => m.includes('not parsed') && m.includes('middleware/helper'))).toBe(true);
     expect(forRoute(findings, 'GET /v1/b').some((m) => m.includes('not parsed') && m.includes('middleware/helper'))).toBe(true);
     expect(forRoute(findings, 'GET /v1/c')).toEqual([]);
-    // `res` passed along (an existing rule) and the helper's own unparsed send
+    // The helper given `res` is followed: its own unparsed send fails, naming the call
     const d = forRoute(findings, 'GET /v1/d');
-    expect(d.some((m) => m.includes('`res` is passed along'))).toBe(true);
-    expect(d.some((m) => m.includes('not parsed') && m.includes('middleware/helper'))).toBe(true);
+    expect(d.some((m) => m.includes('`res` is passed along'))).toBe(false);
+    expect(d.some((m) => m.includes('not parsed') && m.includes('sent by reply(), called at src/routes.ts:14:'))).toBe(true);
   });
 });
 

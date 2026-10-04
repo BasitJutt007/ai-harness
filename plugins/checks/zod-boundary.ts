@@ -16,16 +16,17 @@ const RULE = 'zod-boundary';
 const DOC = `zod-boundary (unit: route handlers; each hand-written DTO type is one more failing unit)
 A route handler passes iff ALL of (its middleware chain counts: validate({ body: S }) and router.use(...) included):
 1. Every read of req.params / req.query / req.body / req.headers / req.get() / req.header(), in the handler or a
-   middleware, is the direct argument of <schema>.parse() / .safeParse() / .parseAsync() / .safeParseAsync(),
-   or follows a middleware that wrote the parsed value back (req.body = S.parse(req.body)). Only serialising a
-   whole part with JSON.stringify (to hash it) is exempt. Destructuring or passing \`req\` along is not.
+   middleware, is the direct argument of <schema>.parse() / .safeParse() / .parseAsync() / .safeParseAsync(), or of
+   a program helper whose every return is its parse of that parameter (validate(S, req.query): S.parse(v), or r.data
+   of r = S.safeParse(v) only after r.success), or follows a middleware that wrote the parsed value back
+   (req.body = S.parse(req.body)). Serialising a whole part with JSON.stringify is exempt; passing \`req\` is not.
 2. A path with :param segments parses req.params; POST / PUT / PATCH parse req.body (anywhere in the chain).
 3. Schemas constrain the data: z.any()/z.unknown()/z.custom() without a type, z.record(k, z.unknown()) and
    z.object({}).passthrough()/.loose() validate nothing and fail, as request or response schemas.
 4. Every 2xx (or non-constant status) body sent with res.json(x) / res.send(x) is <schema>.parse(...) (or a const
-   / helper returning one) or a full problem. res.status(204).end() is fine. \`res\` is not passed to helpers
-   (problem senders such as sendProblem(res, p) excepted). This holds for EVERY function of the route chain that
-   answers: middleware (factories followed) and helpers it passes \`res\` to are judged like the handler.
+   / helper returning one) or a full problem. res.status(204).end() is fine. Program helpers given \`res\`
+   (respond(res, 201, body)) and middleware are judged like the handler (their sends, statuses included, are the
+   route's); \`res\` given to code that cannot be followed (a library function) is UNPROVEN, aliasing it fails.
    A parsed const must not change between the parse and the send (member assignment, delete, ++, push/splice/…,
    Object.assign(it, …), through any alias): FAIL. Handing it to code that may change it (an unknown function,
    storing it in another structure) before the send: UNPROVEN. res.json(Schema.parse(value)) at the send is fine.
@@ -64,7 +65,8 @@ export function handlerViolations(root: string, r: RouteInfo, checker: ts.TypeCh
   const gap = (s: SchemaRef): string | undefined => permissiveReason(checker, s.parsedType);
   for (const read of r.unparsedReads) {
     const what = READ_TEXT[read.target] ?? `req.${read.target}`;
-    out.push({ location: location(root, read.node), message: `${label}: ${what} is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(${read.target === 'req' ? 'req.body' : read.target === 'headers' ? 'req.headers' : `req.${read.target}`})` });
+    const why = read.note !== undefined ? ` (${read.note})` : '';
+    out.push({ location: location(root, read.node), message: `${label}: ${what} is read without <ZodSchema>.parse()${why}; parse it directly, e.g. XSchema.parse(${read.target === 'req' ? 'req.body' : read.target === 'headers' ? 'req.headers' : `req.${read.target}`})` });
   }
   const permissive = new Set<ParseSite>();
   for (const p of r.parses) {
@@ -89,7 +91,9 @@ export function handlerViolations(root: string, r: RouteInfo, checker: ts.TypeCh
     if (judged.has(resp.call)) continue;
     judged.add(resp.call);
     // A middleware or helper answering before the handler sends the route's response too.
-    const who = r.responses.includes(resp) ? '' : ' (sent by a middleware/helper in the route chain)';
+    const who = resp.via !== undefined
+      ? ` (sent by ${resp.via.expression.getText()}(), called at ${location(root, resp.via)})`
+      : r.responses.includes(resp) ? '' : ' (sent by a middleware/helper in the route chain)';
     const why = resp.schema !== undefined ? gap(resp.schema) : undefined;
     if (resp.schema !== undefined && why !== undefined) {
       out.push({ location: location(root, resp.call), message: `${label}: response schema ${resp.schema.text} accepts anything (${why}); use the resource schema${who}` });
@@ -113,6 +117,11 @@ export function handlerViolations(root: string, r: RouteInfo, checker: ts.TypeCh
 /** Why a route's 2xx body cannot be proven to be a schema's output although nothing is known to be wrong. */
 export function handlerUnproven(root: string, r: RouteInfo): string[] {
   const out: string[] = [];
+  for (const call of r.resUnfollowed) {
+    out.push(
+      `${location(root, call)}: ${routeLabel(r)}: \`res\` is passed to ${call.expression.getText()}(), which cannot be followed (not program code with a plain res parameter), so what it sends is unproven; respond with res.json(Schema.parse(value)) in the handler or a program helper`,
+    );
+  }
   for (const resp of [...r.responses, ...r.chainResponses]) {
     if (resp.taint?.kind !== 'escaped' || resp.isProblem || (resp.statuses !== null && resp.statuses.every((s) => s < 200 || s > 299))) continue;
     out.push(
