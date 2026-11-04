@@ -167,3 +167,20 @@ describe('write policy per stack', () => {
     }
   });
 });
+
+describe('the prompt follows the stack and carries the approved contract', () => {
+  it('names the stack the agent works in, never Express on a NestJS or React target', async () => {
+    const { systemPrompt, taskBrief } = await import('../../src/core/prompt.ts');
+    const { parseContract } = await import('../../src/core/items.ts');
+    const task = { kind: 'brownfield', id: 'x', title: 'X', change: 'fix it', behaviours: [], limits: { maxOutputTokens: 1 }, target: '.', scope: { allow: ['src/**'], deny: [] }, allowBreaking: false } as unknown as BrownfieldTask;
+    const nest = systemPrompt({ task, checks: [], tools: [], stack: 'nestjs' });
+    expect(nest).toMatch(/^You change a NestJS \+ Prisma backend/);
+    expect(nest).not.toMatch(/Express 5/);
+    expect(systemPrompt({ task, checks: [], tools: [], stack: 'react-vite' })).toMatch(/node:test: put them under test\//);
+    expect(systemPrompt({ task, checks: [], tools: [] })).toMatch(/^You implement TypeScript REST APIs \(Express 5/);
+    expect(nest).toMatch(/any edit before the item's contract is complete and approved/);
+    const parse = parseContract('Problem: Lists go stale.\nOwner: o\nStakeholder: S\nRepo: a/b\nBase: main\nMetric: m, w before: ____ after: ____\nMeasure: node metrics/m.mjs\nScenario: WHEN a THEN b\nNot included: c\n');
+    const brief = taskBrief(task, { tree: '', contract: { slug: 'x', parse } });
+    expect(brief).toMatch(/Contract docs\/contracts\/x\.md, approved by S \(build exactly this\):\nProblem: Lists go stale\.\nScenario: WHEN a THEN b\nNot included \(do not build\):\n- c\nMetric \(read by the harness after the merge, not by you\): m/);
+  });
+});

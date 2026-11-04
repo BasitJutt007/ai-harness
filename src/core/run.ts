@@ -10,9 +10,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { z } from 'zod';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
+import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
 import { missingRequiredHooks } from './hooks.ts';
-import { appendLedger, itemPaths, itemsRoot, itemStatus } from './items.ts';
+import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
 import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
@@ -709,8 +710,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   try {
     if (offered === undefined) throw new Error(`tool schemas could not be built: ${offerError}`);
     const tools = offered;
-    const checks = registry.checks.map((r) => r.plugin);
-    const system = systemPrompt({ task, checks, tools });
+    // Only the rules written for this stack: the agent is never told to meet another stack's standards.
+    const checks = selectChecks(registry.checks.map((r) => r.plugin), undefined, undefined, ctx.stack);
+    const system = systemPrompt({ task, checks, tools, ...(ctx.stack !== undefined ? { stack: ctx.stack } : {}) });
     const baselineSystem = baselineSystemRenderer({ task, checks, tools: withoutFetchers(tools, toolPlugins), ws });
     const tree = compactTree(await ws.list(['**/*']));
     let testMapText: string | undefined;
@@ -722,11 +724,13 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       }
     }
     const api = task.kind === 'greenfield' ? await scaffoldApiOf(ws, manifest) : undefined;
+    const contract = contractVerdict(itemPaths(item.root, item.slug)).parse;
     const brief = taskBrief(task, {
       tree,
       template: manifest,
       ...(testMapText !== undefined ? { testMap: testMapText } : {}),
       ...(api !== undefined ? { scaffoldApi: api } : {}),
+      ...(contract !== null ? { contract: { slug: item.slug, parse: contract } } : {}),
     });
     const first = { role: 'user' as const, parts: [{ type: 'text' as const, text: brief }] };
     agent = await runAgent({
