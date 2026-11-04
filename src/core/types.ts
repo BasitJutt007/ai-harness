@@ -627,6 +627,8 @@ export interface RunContext {
   task: Task;
   /** The backlog item this run is bound to; absent = none, and then no edit is allowed (problem-gate). */
   item?: ItemBinding;
+  /** The target's stack from preflight (absent: not computed, e.g. a hand-built context). */
+  stack?: Stack;
   workspace: Workspace;
   state: RunState;
   logs: LogStore;
@@ -779,6 +781,8 @@ export interface GatePlugin {
   description?: string;
   phases: GatePhase[];
   appliesTo?: TaskKind[];
+  /** Stacks this gate applies to (default: every stack); on another stack it reports n/a, unless required. */
+  stacks?: Stack[];
   run(ctx: RunContext, phase: GatePhase): Promise<GateResult>;
 }
 
@@ -801,6 +805,8 @@ export interface CheckFinding {
   violations: Violation[];
   /** Why the rule was skipped (status === 'skip'). Skipped = UNPROVEN. */
   skipReason?: string;
+  /** Why a rule found nothing to check (0 units): printed with its n/a line, never counted as proof. */
+  naReason?: string;
 }
 
 export interface CheckContext {
@@ -833,10 +839,20 @@ export interface CheckContext {
   base?: { repoRoot: string; rootRel: string; sha: string };
   /** Merged dependencies + devDependencies of <root>/package.json ({} if absent or unreadable). */
   dependencies(): Record<string, string>;
+  /** The target's stack, when known (the run's profile, or computed by `harness check`). */
+  stack?: Stack;
 }
+
+/**
+ * The target's stack (src/core/target.ts computes it from package.json): which checks and gates
+ * apply. A plugin that declares `stacks` runs only on those; one that declares none runs on all.
+ */
+export type Stack = 'express' | 'nestjs' | 'react-vite' | 'unknown';
 
 export interface CheckPlugin {
   kind: 'check';
+  /** Stacks this rule applies to (default: every stack). The 01 Express rules declare ['express']. */
+  stacks?: Stack[];
   /** Rule id printed in reports, e.g. "zod-boundary". */
   id: string;
   /** Grouping: "standards" (the graded four), "orm", "lint", or any custom label. */

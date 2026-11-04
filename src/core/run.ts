@@ -134,6 +134,7 @@ export function buildContext(opts: {
     run: opts.run,
     task: opts.task,
     ...(opts.item !== undefined ? { item: opts.item } : {}),
+    ...(opts.profile !== undefined ? { stack: opts.profile.stack } : {}),
     workspace: opts.ws,
     state,
     logs: store.logs,
@@ -763,7 +764,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // Fresh final gate run: never trust what the loop saw. Skipped (and reported UNPROVEN) after an abort.
   const final: GateOutcome = abortedRun
     ? { ok: false, results: [], text: 'gates     not run: the run was aborted (UNPROVEN)', compact: '' }
-    : await runGates(registry.gates, ctx, 'finish', { required: requiredGates(task, 'finish') });
+    : await runGates(registry.gates, ctx, 'finish', { required: requiredGates(task, 'finish', ctx.stack) });
   abortedRun ||= stopRequested();
   let report: CheckReport | null = null;
   if (abortedRun) {

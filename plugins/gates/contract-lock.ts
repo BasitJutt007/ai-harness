@@ -20,6 +20,8 @@ const line = (c: Change): string => `${c.location}  ${c.message}`;
 
 export default defineGate({
   name: 'contract-lock',
+  // The Express contract lock; a NestJS change is locked by route-lock, a React app serves no API.
+  stacks: ['express'],
   description: 'No breaking change to the public API contract (routes, request and response schemas, new 4xx statuses) versus the base commit.',
   phases: ['finish', 'ship'],
   appliesTo: ['brownfield'],

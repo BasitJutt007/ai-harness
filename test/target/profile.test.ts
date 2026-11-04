@@ -132,8 +132,34 @@ describe('profile: unsupported targets are refused at preflight (UNPROVEN), neve
     const { p } = await profileOf({ 'package.json': JSON.stringify({ dependencies: { fastify: '^5.0.0' }, scripts: { test: 'mocha -r ts-node/register test/**/*.ts' } }) });
     expect(p.runner).toMatchObject({ kind: 'unknown', name: 'mocha', supported: false });
     expect(p.unsupported.join('\n')).toMatch(/unsupported test runner mocha/);
-    expect(p.unsupported.join('\n')).toMatch(/framework fastify: .*Express only.*UNPROVEN/);
+    expect(p.unsupported.join('\n')).toMatch(/framework fastify: no stack profile \(express, nestjs, react-vite\) applies, .*UNPROVEN/);
+    expect(p.stack).toBe('unknown');
     expect(formatProfile(p).join('\n')).toMatch(/UNPROVEN: unsupported test runner mocha/);
+  });
+});
+
+describe('profile: the stack decides which gates apply (assignment 02)', () => {
+  it('NestJS (declares @nestjs/core) is the nestjs stack, supported, with its standards named', async () => {
+    const { p } = await profileOf({ 'package.json': JSON.stringify({ dependencies: { '@nestjs/core': '^10.0.0', express: '^4.0.0' }, devDependencies: { jest: '^29.0.0', 'ts-jest': '^29.0.0' }, jest: { rootDir: 'src', testRegex: '.*\\.spec\\.ts$' } }) });
+    expect(p.stack).toBe('nestjs');
+    expect(p.framework).toMatchObject({ name: '@nestjs/core', supported: true });
+    expect(p.unsupported.join('\n')).not.toMatch(/framework/);
+    expect(p.notes.join('\n')).toMatch(/stack nestjs: standards are the repository's own/);
+    expect(formatProfile(p)[0]).toMatch(/^target\s+stack nestjs\s+framework @nestjs\/core/);
+  });
+
+  it('React + Vite is the react-vite stack', async () => {
+    const { p } = await profileOf({ 'package.json': JSON.stringify({ dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' }, devDependencies: { vite: '^6.0.0', typescript: '^5.0.0' } }) });
+    expect(p.stack).toBe('react-vite');
+    expect(p.framework.supported).toBe(true);
+    expect(p.notes.join('\n')).toMatch(/stack react-vite: .*serves no API, so there is no route lock/);
+  });
+
+  it('Express stays the 01 stack; React without Vite is not guessed', async () => {
+    expect((await profileOf({ 'package.json': JSON.stringify({ dependencies: { express: '^5.0.0' } }) })).p.stack).toBe('express');
+    const cra = (await profileOf({ 'package.json': JSON.stringify({ dependencies: { react: '^19.0.0', 'react-scripts': '5.0.1' } }) })).p;
+    expect(cra.stack).toBe('unknown');
+    expect(cra.unsupported.join('\n')).toMatch(/no stack profile/);
   });
 
   it('jest declared but not installed: unsupported with the precise reason (no fake jest run)', async () => {

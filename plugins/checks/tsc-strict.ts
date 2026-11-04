@@ -128,6 +128,8 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
 
 export default defineCheck({
   id: RULE,
+  // An Express + Zod rule (assignment 01): not run on a NestJS or React target, never counted there.
+  stacks: ['express'],
   category: 'standards',
   description: 'Every TypeScript file of the API type-checks with all strict flags + noUncheckedIndexedAccess forced; no `any`, no `x!` / `id!: T`, no @ts-ignore/@ts-expect-error/@ts-nocheck.',
   unit: 'errors',
