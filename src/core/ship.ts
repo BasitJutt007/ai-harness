@@ -13,6 +13,7 @@ import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { passThroughEnv } from './exec.ts';
 import { requiredGates, runGates } from './gates.ts';
+import { appendLedger, itemPaths } from './items.ts';
 import type { GateOutcome } from './gates.ts';
 import type { ExecResult, RegistryView, RunContext } from './types.ts';
 import { isProtectedBranch, normalizeBranch } from './workspace.ts';
@@ -320,6 +321,9 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
   const pr = await run('gh', prArgs);
   if (pr.code !== 0) return committed([`pushed ${branch} to ${remote}; gh pr create failed: ${firstLine(pr)}`]);
   const url = [...pr.stdout.matchAll(/https?:\/\/\S+/g)].map((m) => m[0]).pop();
+  if (ctx.item !== undefined) {
+    appendLedger(itemPaths(ctx.item.root, ctx.item.slug).ledger, { type: 'shipped', runId: ctx.run.id, branch, headSha: sha, base, prUrl: url ?? null });
+  }
   return {
     status: 'shipped',
     branch,

@@ -129,8 +129,9 @@ describe('required gates: a missing or n/a required gate is unproven', () => {
   }
 
   it('per task kind and phase', () => {
-    expect(requiredGates(brownfieldTask(), 'finish')).toEqual(['tests-green', 'observed-red', 'scope', 'orphans', 'standards', 'contract-lock']);
-    expect(requiredGates(greenfieldTask(), 'ship')).toEqual(['tests-green', 'observed-red', 'scope', 'orphans', 'standards', 'spec-coverage', 'secrets']);
+    // stakeholder-yes (assignment 02) is required in every phase: no run finishes or ships without the item's typed yes.
+    expect(requiredGates(brownfieldTask(), 'finish')).toEqual(['stakeholder-yes', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards', 'contract-lock']);
+    expect(requiredGates(greenfieldTask(), 'ship')).toEqual(['stakeholder-yes', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards', 'spec-coverage', 'secrets']);
     expect(requiredGates({ ...greenfieldTask(), brief: 'b', specCoverage: 'human' }, 'finish')).not.toContain('spec-coverage');
   });
 

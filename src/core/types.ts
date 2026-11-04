@@ -608,10 +608,25 @@ export interface DifferentialRun {
   reverted: TestRunReport;
 }
 
+/**
+ * The backlog item a run is bound to (assignment 02). Every edit needs the item's contract
+ * (docs/contracts/<slug>.md) and the stakeholder's typed yes (items/<slug>/ledger.jsonl); the
+ * problem-gate and contract-gate hooks re-read both on every call.
+ */
+export interface ItemBinding {
+  slug: string;
+  /** Directory holding docs/contracts/ and items/ (the harness root unless HARNESS_ITEMS_ROOT). */
+  root: string;
+  /** Hash of the approved contract text the run started under. */
+  contractHash: string;
+}
+
 /** Everything a plugin can reach during a run. */
 export interface RunContext {
   run: RunInfo;
   task: Task;
+  /** The backlog item this run is bound to; absent = none, and then no edit is allowed (problem-gate). */
+  item?: ItemBinding;
   workspace: Workspace;
   state: RunState;
   logs: LogStore;
