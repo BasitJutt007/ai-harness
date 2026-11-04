@@ -21,7 +21,7 @@ export default defineHook({
       if (!r.ok) {
         return { decision: 'block', reason: `path-guard: ${r.reason}. Use a path relative to the API root, e.g. src/routes/items.ts.` };
       }
-      const policy = writePolicy(ctx.task, r.rel);
+      const policy = writePolicy(ctx.task, r.rel, ctx.stack);
       if (!policy.allowed) return { decision: 'block', reason: `path-guard: ${policy.reason}.` };
     }
     return { decision: 'pass' };

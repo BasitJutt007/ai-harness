@@ -354,7 +354,7 @@ async function brownfieldStrict(ctx: RunContext, report: CheckReport, counted: R
   const percent = report.verdict.percent;
   const now = failingItems(report.findings.filter((f) => standardsRules.has(f.rule)), report.root);
   const task = ctx.task;
-  const outsideScope = (file: string | null): boolean => file !== null && task.kind === 'brownfield' && !writePolicy(task, file).allowed;
+  const outsideScope = (file: string | null): boolean => file !== null && task.kind === 'brownfield' && !writePolicy(task, file, ctx.stack).allowed;
   const baseline = now.some((it) => outsideScope(it.file)) ? await loadBaseline(ctx) : 'not needed';
   const remaining = new Map<string, number>();
   if (typeof baseline !== 'string') {
