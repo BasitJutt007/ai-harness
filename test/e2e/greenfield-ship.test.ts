@@ -117,10 +117,10 @@ describe('greenfield users-api (scripted) in a throwaway repo', () => {
   });
 
   it('prints status, every gate, standards, tokens, evidence and honesty', () => {
-    // The preflight target profile is printed before the first model turn; the run summary follows at the end.
+    // The item binding, then the preflight target profile, are printed before the first model turn; the run summary follows at the end.
     const text = printed.text();
     expect(text.endsWith(summary.text)).toBe(true);
-    expect(text).toMatch(/^target\s+framework express \S+\s+runner vitest/);
+    expect(text).toMatch(/^item\s+users-api: contract complete and approved in a typed turn \(.*users-api\.md\)\ntarget\s+framework express \S+\s+runner vitest/);
     expect(text).toMatch(/^\s+source src\/\s+tests test\//m);
     expect(text).toMatch(/^status\s+done\s+turns \d+/m);
     for (const g of summary.gates) expect(text).toContain(`gate  ${g.gate}`);

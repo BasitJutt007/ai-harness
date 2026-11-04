@@ -1,0 +1,32 @@
+/**
+ * problem-gate (pre, write): the problem-statement gate. No edit happens until
+ * docs/contracts/<slug>.md exists for the run's item and names every required field: Problem,
+ * Owner, Stakeholder, Repo, Base, Metric (name, window, before/after slots), Measure (the command
+ * the harness runs to read the metric), at least one WHEN ... THEN ... Scenario, and Not included.
+ * The refusal names each missing field.
+ *
+ * Fail closed: a run bound to no item is refused (there is no edit without a contract), and the
+ * contract is re-read on every write, so a contract emptied or changed mid-run stops edits at once
+ * (a changed text needs a new proposal and a new yes: see contract-gate).
+ */
+import { contractVerdict, defineHook, itemPaths } from '../../src/core/plugin-api.ts';
+
+export default defineHook({
+  name: 'problem-gate',
+  description: 'Blocks every edit until docs/contracts/<slug>.md names the owner, metric, measure, WHEN/THEN scenarios and the not-included list; names each missing field.',
+  events: ['pre_tool'],
+  effects: ['write'],
+  async run(event, ctx) {
+    if (event.event !== 'pre_tool') return { decision: 'pass' };
+    const item = ctx.item;
+    if (item === undefined) {
+      return { decision: 'block', reason: 'problem-gate: this run is bound to no backlog item, and no edit happens without a contract: write docs/contracts/<slug>.md and run with --item <slug>.' };
+    }
+    const v = contractVerdict(itemPaths(item.root, item.slug));
+    if (!v.ok || v.parse === null) return { decision: 'block', reason: `problem-gate: ${v.reason}.` };
+    if (v.parse.hash !== item.contractHash) {
+      return { decision: 'block', reason: `problem-gate: docs/contracts/${item.slug}.md changed after this run started (the approved text was ${item.contractHash.slice(0, 12)}, it is now ${v.parse.hash.slice(0, 12)}): stop; the changed contract must be proposed again and get a new yes.` };
+    }
+    return { decision: 'pass' };
+  },
+});

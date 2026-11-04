@@ -34,6 +34,10 @@ export type { TsFence } from './ts-fence.ts';
 /** The import graph over the API's .ts files (see testmap.ts), for plugins that reason about what imports what. */
 export { graphFiles, importGraph, importSpecifiers, resolveImport } from './testmap.ts';
 
+/** Backlog items (assignment 02): the contract, the stakeholder's typed yes, and their verdicts (see items.ts). */
+export { approvalVerdict, classifyReply, contractVerdict, itemPaths, itemStatus, parseContract, readLedger } from './items.ts';
+export type { ApprovalVerdict, ContractParse, ContractVerdict, ItemStatus, Ledger, LedgerEntry, LedgerEvent } from './items.ts';
+
 /** Every placeholder the context views render for content left out of the model's view (see context.ts). */
 export { ELISION_PLACEHOLDER } from './context.ts';
 

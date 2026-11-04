@@ -84,7 +84,7 @@ export function gatesOk(results: GateResult[]): boolean {
 
 /** The harness's own gates every task needs at `phase`; a greenfield task needs spec-coverage unless it opted out. */
 export function requiredGates(task: Task, phase: GatePhase): string[] {
-  const out = ['tests-green', 'observed-red', 'scope', 'orphans', 'standards'];
+  const out = ['stakeholder-yes', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards'];
   if (task.kind === 'brownfield') out.push('contract-lock');
   else if (!specCoverageOptedOut(task)) out.push('spec-coverage');
   if (phase === 'ship') out.push('secrets');
