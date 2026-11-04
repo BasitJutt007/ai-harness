@@ -152,6 +152,7 @@ describe('profile: the stack decides which gates apply (assignment 02)', () => {
     const bare = (await profileOf({ 'package.json': JSON.stringify({ type: 'module', dependencies: { react: '^19.0.0' }, devDependencies: { vite: '^6.0.0' } }) })).p;
     expect(bare.runner).toMatchObject({ kind: 'node-test', supported: true });
     expect(bare.runner.evidence).toMatch(/no dependency to add, no Vite config to load/);
+    expect(bare.runner.nodeArgs?.join(' ')).toMatch(/--import=file:.*tsx/);
     const withVitest = (await profileOf({ 'package.json': JSON.stringify({ dependencies: { react: '^19.0.0' }, devDependencies: { vite: '^6.0.0', vitest: '^3.0.0' } }) })).p;
     expect(withVitest.runner.kind).toBe('vitest');
     const express = (await profileOf({ 'package.json': JSON.stringify({ dependencies: { express: '^5.0.0' } }) })).p;
