@@ -9,7 +9,7 @@
  *   1. the item ledger is intact, the contract is complete and its text is approved (typed yes);
  *   2. the harness shipped it: a `shipped` ledger entry with the PR the harness opened;
  *   3. a `before` reading exists (taken when the contract was proposed);
- *   4. GitHub says that PR is MERGED, by someone, into the contract's Base, with the head commit the
+ *   4. GitHub says that PR is MERGED, by a person (not a "[bot]" account), into the contract's Base, with the head commit the
  *      harness shipped (a PR that gained commits after ship is not what the gates cleared);
  *   5. the merge commit is on origin/<Base>;
  *   6. the Measure command, run by the harness at the merge commit, prints the same number twice.
@@ -77,6 +77,8 @@ export function outcomeVerdict(f: OutcomeFacts): OutcomeVerdict {
   const pr = f.pr;
   if (pr.state !== 'MERGED' || pr.mergeSha === null) return { ok: false, reasons: [`PR #${pr.number} is ${pr.state}, not merged: the metric is read after the merge`] };
   if (pr.mergedBy === null || pr.mergedBy.length === 0) return { ok: false, reasons: [`PR #${pr.number} has no merger on record`] };
+  // A person merges: a GitHub App or bot account ("name[bot]", e.g. an auto-merge action) is not a person.
+  if (/\[bot\]$/i.test(pr.mergedBy)) return { ok: false, reasons: [`PR #${pr.number} was merged by ${pr.mergedBy}, a bot: a person must merge what the harness opened`] };
   const base = (f.status.contract.parse?.fields.Base ?? '').trim();
   if (pr.baseRef !== base) return { ok: false, reasons: [`PR #${pr.number} merged into ${pr.baseRef}, but the contract's Base is ${base}`] };
   if (pr.headSha !== f.shipped.event.headSha) {
