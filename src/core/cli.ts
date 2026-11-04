@@ -15,6 +15,7 @@ import { loadRegistry } from './registry.ts';
 import { TURN_EXTENSION_STEP, TURN_LIMIT_BASE, TURN_LIMIT_CAP, TURNS_PER_BEHAVIOUR, TURNS_PER_RESOURCE } from './loop.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
+import { cmdItem } from './item-cli.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
 import { targetLayout } from './target.ts';
 import { loadTask } from './task.ts';
@@ -28,7 +29,7 @@ export const USAGE = `usage: harness <command> [options]
 commands:
   run <task-file> --driver <name> [--model <id>] [--driver-opt k=v]... [--baseline]
                   [--max-turns N] [--repo <dir>] [--target <dir> | --output <dir>]
-                  [--strict-task] [--ship [--remote <name>]]
+                  [--strict-task] [--ship [--remote <name>]] [--item <slug>]
       Govern one run in a fresh git worktree of the target repository: agent loop, hooks,
       fresh final gates, evidence in runs/<id>/ and tokens/<id>.json. The task's output/target
       resolves against --repo <dir> (default: the harness root); any git repository works, and
@@ -69,6 +70,15 @@ commands:
                                   normalize a task file without a run (no tokens spent): the
                                   canonical task (YAML) and every note; exit 0 iff it is valid
   testmap --api <dir>             print the test -> source import map
+  item new|status|propose|reply|close <slug> [--repo <dir>]
+                                  a backlog item (assignment 02): docs/contracts/<slug>.md and
+                                  items/<slug>/ledger.jsonl. propose reads the metric's before value
+                                  at origin/<Base> and records the proposal; reply takes the
+                                  stakeholder's yes, typed at a terminal (a piped reply never
+                                  approves); close reads the metric after the PR merged and writes
+                                  it next to the before value, or refuses. Every run is bound to an
+                                  item (--item <slug>, default the task id) and is refused before the
+                                  first model turn unless its contract is complete and approved.
   doctor                          environment, plugin load, provider-leak scan and an isolation
                                   self-test (exit 1 if agent code cannot be confined in auto mode)
 
@@ -150,7 +160,7 @@ type Out = (line: string) => void;
 // ───────────────────────────── commands ─────────────────────────────
 
 async function cmdRun(p: ParsedArgs, out: Out): Promise<number> {
-  const bad = unknownFlags(p, ['driver', 'model', 'driver-opt', 'baseline', 'ship', 'max-turns', 'repo', 'remote', 'strict-task', 'target', 'output']);
+  const bad = unknownFlags(p, ['driver', 'model', 'driver-opt', 'baseline', 'ship', 'max-turns', 'repo', 'remote', 'strict-task', 'target', 'output', 'item']);
   const taskFile = p.positionals[0];
   const driver = one(p, 'driver');
   if (bad !== null || taskFile === undefined || driver === undefined || p.positionals.length > 1) {
@@ -224,6 +234,7 @@ async function cmdRun(p: ParsedArgs, out: Out): Promise<number> {
       ...(maxTurns !== undefined ? { maxTurns } : {}),
       ...(repo !== undefined ? { repoBase: resolve(repo) } : {}),
       ...(remote !== undefined ? { remote } : {}),
+      ...(one(p, 'item') !== undefined ? { item: one(p, 'item') } : {}),
       ...location,
       strictTask: p.bools.has('strict-task'),
       signal: controller.signal,
@@ -811,6 +822,8 @@ export async function main(argv: string[], out: Out = (l) => console.log(l)): Pr
         return await cmdTask(parsed, out);
       case 'doctor':
         return await cmdDoctor(out);
+      case 'item':
+        return await cmdItem(parsed, out);
       default:
         out(`unknown command "${command}"\n\n${USAGE}`);
         return 2;
