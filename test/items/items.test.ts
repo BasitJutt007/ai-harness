@@ -8,11 +8,14 @@ import {
   classifyReply,
   contractVerdict,
   itemPaths,
+  itemStatus,
   parseContract,
+  proposeItem,
   parseMeasure,
   readLedger,
   type LedgerEvent,
 } from '../../src/core/items.ts';
+import { approveForTest } from '../support/items.ts';
 
 export const COMPLETE = `# Guard the export route
 
@@ -21,6 +24,7 @@ Owner: Example product team
 Stakeholder: Abdul Basit
 Repo: example-org/shop-api
 Base: harness-test
+Commit: fix(leads): require the leads entitlement on the export route
 Metric: unguarded export routes, harness-test HEAD before: ____ after: ____
 Measure: node metrics/unguarded-routes.mjs src/modules/leads
 Scenario: WHEN a vendor without the leads entitlement calls GET /leads/export THEN the API answers 403
@@ -241,6 +245,18 @@ describe('approval verdict (human-yes gate)', () => {
     const v = approvalVerdict(ledgerWith([proposed, typed('yes'), proposed]), hash);
     expect(v.ok).toBe(false);
     expect(v.reason).toMatch(/no typed yes .* after the proposal \(seq 3\)/);
+  });
+
+  it('status says a changed contract needs a new proposal, not a yes; re-proposing makes it awaiting-yes again', () => {
+    const root = tmp();
+    approveForTest(root, 'guard-export', COMPLETE);
+    expect(itemStatus(root, 'guard-export').stage).toBe('approved');
+    writeFileSync(itemPaths(root, 'guard-export').contract, COMPLETE.replace('403', '401'));
+    const s = itemStatus(root, 'guard-export');
+    expect(s.stage).toBe('unproposed');
+    expect(s.editable).toBe(false);
+    proposeItem(root, 'guard-export', { session: 't', before: null });
+    expect(itemStatus(root, 'guard-export').stage).toBe('awaiting-yes');
   });
 
   it('refuses a hand-edited "no" turned into "yes" (ledger broken), though the text now reads yes', () => {

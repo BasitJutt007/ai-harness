@@ -3,10 +3,12 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
 import { exec } from '../../src/core/exec.ts';
+import { itemsRoot, parseContract } from '../../src/core/items.ts';
+import { contractFor } from '../support/items.ts';
 import { newRunState } from '../../src/core/run-store.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import type {
-  BrownfieldTask, Exec, GatePlugin, GateResult, GreenfieldTask, LogStore, PluginRecord, RegistryView, RunContext,
+  BrownfieldTask, Exec, GatePlugin, GateResult, GreenfieldTask, ItemBinding, LogStore, PluginRecord, RegistryView, RunContext,
 } from '../../src/core/types.ts';
 
 /** Temp dir INSIDE the repo (.harness/tmp is gitignored) so node_modules resolution works. */
@@ -150,9 +152,17 @@ export function registryWith(gates: PluginRecord<GatePlugin>[]): RegistryView {
   return { drivers: [], tools: [], hooks: [], gates, checks: [], errors: [] };
 }
 
+/**
+ * The approved fixture item a shipped run is bound to (test/setup/items.ts approves it in the suite's
+ * own items root): ship takes the commit message and the PR description from its contract.
+ */
+export function fixtureItem(slug = 'projects-change'): ItemBinding {
+  return { slug, root: itemsRoot(HARNESS_ROOT), contractHash: parseContract(contractFor(slug)).hash };
+}
+
 export function makeCtx(opts: {
   repoRoot: string; rootRel: string; task: BrownfieldTask | GreenfieldTask; branch: string; baseBranch: string; baseSha: string;
-  exec?: Exec; gates?: PluginRecord<GatePlugin>[]; runDir?: string;
+  exec?: Exec; gates?: PluginRecord<GatePlugin>[]; runDir?: string; item?: ItemBinding | null;
 }): RunContext & { logs: ReturnType<typeof memoryLogs> } {
   const logs = memoryLogs();
   // The harness's required gates (gates.ts requiredGates) stubbed green unless the test supplies its own: these
@@ -177,5 +187,6 @@ export function makeCtx(opts: {
     services: { runTests: fail, runChecks: fail, testMap: fail, runTestsReverted: fail },
     registry,
     emit: () => undefined,
+    ...(opts.item === null ? {} : { item: opts.item ?? fixtureItem() }),
   };
 }

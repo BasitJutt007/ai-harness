@@ -3,9 +3,10 @@
  * the stakeholder and the harness did, and the verdicts the gates block on.
  *
  *   contract  docs/contracts/<slug>.md, written by people (the agent may only draft one through a
- *             harness tool): Problem, Owner, Stakeholder, Repo, Base, Metric (name, window, before,
- *             after), Measure (the command the harness runs to read the metric), one or more
- *             Scenario lines (WHEN ... THEN ...), Not included, and Signed (written by the harness).
+ *             harness tool): Problem, Owner, Stakeholder, Repo, Base, Commit (the Conventional
+ *             Commits header the harness ships with), Metric (name, window, before, after), Measure
+ *             (the command the harness runs to read the metric), one or more Scenario lines
+ *             (WHEN ... THEN ...), Not included, optionally Ticket, and Signed (written by the harness).
  *   ledger    items/<slug>/ledger.jsonl: append-only, hash-chained, written only by the harness
  *             process, never by a model tool (path-guard confines model writes to the target
  *             worktree): proposed, human_turn, approved, declined, metric, run, shipped, closed.
@@ -20,6 +21,7 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { commitHeaderProblems } from './ship-text.ts';
 
 // ───────────────────────────── paths ─────────────────────────────
 
@@ -59,8 +61,9 @@ export function sha256Hex(text: string): string {
 // ───────────────────────────── contract ─────────────────────────────
 
 /** Every field a contract must carry before an edit may happen (the refusal names the missing ones). */
-export const REQUIRED_FIELDS = ['Problem', 'Owner', 'Stakeholder', 'Repo', 'Base', 'Metric', 'Measure', 'Scenario', 'Not included'] as const;
-export type ContractField = (typeof REQUIRED_FIELDS)[number] | 'Signed';
+export const REQUIRED_FIELDS = ['Problem', 'Owner', 'Stakeholder', 'Repo', 'Base', 'Commit', 'Metric', 'Measure', 'Scenario', 'Not included'] as const;
+/** Ticket is optional (work reaches me through people more often than tickets); Signed is written by the harness. */
+export type ContractField = (typeof REQUIRED_FIELDS)[number] | 'Ticket' | 'Signed';
 
 const FIELD_NAMES: Record<string, ContractField> = {
   problem: 'Problem',
@@ -70,6 +73,10 @@ const FIELD_NAMES: Record<string, ContractField> = {
   repository: 'Repo',
   base: 'Base',
   'base branch': 'Base',
+  commit: 'Commit',
+  'commit header': 'Commit',
+  'commit title': 'Commit',
+  ticket: 'Ticket',
   metric: 'Metric',
   measure: 'Measure',
   scenario: 'Scenario',
@@ -225,6 +232,9 @@ export function parseContract(text: string): ContractParse {
     if (isPlaceholder(fields[name])) missing.push(name);
   }
   if (values.has('Problem') && (values.get('Problem') ?? []).length > 1) problems.push('Problem appears more than once');
+  // The commit the harness will ship is part of what the stakeholder approves (habit 5: commits that say nothing).
+  if (isPlaceholder(fields.Commit)) missing.push('Commit');
+  else problems.push(...commitHeaderProblems(fields.Commit ?? ''));
 
   let metric: MetricSpec | null = null;
   if (isPlaceholder(fields.Metric?.replace(/\s+before:.*$/i, ''))) missing.push('Metric');
@@ -296,7 +306,7 @@ export interface ContractVerdict {
 export function contractVerdict(paths: ItemPaths, read: (file: string) => string | null = readOrNull): ContractVerdict {
   const rel = `${CONTRACTS_DIR}/${paths.slug}.md`;
   const text = read(paths.contract);
-  if (text === null) return { ok: false, reason: `no contract for item "${paths.slug}": write ${rel} (Problem, Owner, Stakeholder, Repo, Base, Metric, Measure, Scenario, Not included) before any source edit`, parse: null };
+  if (text === null) return { ok: false, reason: `no contract for item "${paths.slug}": write ${rel} (${REQUIRED_FIELDS.join(', ')}) before any source edit`, parse: null };
   const parse = parseContract(text);
   if (parse.complete) return { ok: true, reason: `${rel} names every required field`, parse };
   const parts: string[] = [];
@@ -518,6 +528,9 @@ export function itemStatus(root: string, slug: string): ItemStatus {
   const ledger = readLedger(paths.ledger);
   const approval = contract.parse !== null && contract.ok ? approvalVerdict(ledger, contract.parse.hash) : null;
   const has = (t: LedgerEvent['type']): boolean => ledger.entries.some((e) => e.event.type === t);
+  // A proposal of an older text is no proposal of this one: the item needs a new proposal, not a yes.
+  const latest = ledger.entries.filter((e) => e.event.type === 'proposed').at(-1);
+  const proposedThis = latest?.event.type === 'proposed' && contract.parse !== null && latest.event.contractHash === contract.parse.hash;
   let stage: ItemStage;
   if (ledger.problems.length > 0) stage = 'broken';
   else if (contract.parse === null) stage = 'no-contract';
@@ -525,7 +538,7 @@ export function itemStatus(root: string, slug: string): ItemStatus {
   else if (has('closed')) stage = 'closed';
   else if (approval?.ok === true && has('shipped')) stage = 'shipped';
   else if (approval?.ok === true) stage = 'approved';
-  else if (approval?.proposal === null) stage = 'unproposed';
+  else if (approval?.proposal === null || !proposedThis) stage = 'unproposed';
   else if (approval?.turn !== null && approval?.turn !== undefined) stage = 'declined';
   else stage = 'awaiting-yes';
   const editable = contract.ok && approval?.ok === true;
