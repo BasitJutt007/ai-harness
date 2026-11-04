@@ -807,6 +807,12 @@ function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: strin
   }
   if (seen.node > seen.vitest && seen.node >= seen.jest) return { kind: 'node-test', name: 'node:test', evidence: 'test files import node:test' };
   if (seen.jest > seen.vitest) return { kind: 'jest', name: 'jest', evidence: 'test files use jest APIs' };
+  // A React + Vite app with no runner at all (assignment 02): node:test, Node's own runner. Adding a runner would
+  // change package.json and the lockfile (which no run may write), and the harness's vitest would load the app's
+  // vite.config (which the sandbox refuses to let it bundle into node_modules). The team runs the tests with `node --test`.
+  if (seen.vitest === 0 && deps['react'] !== undefined && deps['vite'] !== undefined) {
+    return { kind: 'node-test', name: 'node:test', evidence: "no runner declared: a React + Vite app gets node:test (no dependency to add, no Vite config to load)" };
+  }
   return { kind: 'vitest', name: 'vitest', evidence: seen.vitest > 0 ? 'test files import vitest' : 'no runner declared (harness default)' };
 }
 

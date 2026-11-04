@@ -148,6 +148,16 @@ describe('profile: the stack decides which gates apply (assignment 02)', () => {
     expect(formatProfile(p)[0]).toMatch(/^target\s+stack nestjs\s+framework @nestjs\/core/);
   });
 
+  it('a React + Vite app with no runner gets node:test; one that declares vitest keeps it', async () => {
+    const bare = (await profileOf({ 'package.json': JSON.stringify({ type: 'module', dependencies: { react: '^19.0.0' }, devDependencies: { vite: '^6.0.0' } }) })).p;
+    expect(bare.runner).toMatchObject({ kind: 'node-test', supported: true });
+    expect(bare.runner.evidence).toMatch(/no dependency to add, no Vite config to load/);
+    const withVitest = (await profileOf({ 'package.json': JSON.stringify({ dependencies: { react: '^19.0.0' }, devDependencies: { vite: '^6.0.0', vitest: '^3.0.0' } }) })).p;
+    expect(withVitest.runner.kind).toBe('vitest');
+    const express = (await profileOf({ 'package.json': JSON.stringify({ dependencies: { express: '^5.0.0' } }) })).p;
+    expect(express.runner.kind).toBe('vitest');
+  });
+
   it('React + Vite is the react-vite stack', async () => {
     const { p } = await profileOf({ 'package.json': JSON.stringify({ dependencies: { react: '^19.0.0', 'react-dom': '^19.0.0' }, devDependencies: { vite: '^6.0.0', typescript: '^5.0.0' } }) });
     expect(p.stack).toBe('react-vite');

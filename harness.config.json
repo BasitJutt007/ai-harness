@@ -1,7 +1,7 @@
 {
   "pluginDirs": ["plugins"],
   "disabled": [],
-  "protectedBranches": ["main", "master", "develop", "trunk", "release/*", "production"],
+  "protectedBranches": ["main", "master", "develop", "development", "staging", "trunk", "release/*", "production"],
   "worktreeDir": ".harness/worktrees",
   "runsDir": "runs",
   "tokensDir": "tokens",
