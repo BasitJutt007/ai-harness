@@ -39,9 +39,12 @@ const SKIP_PREFIXES = ['runs/', 'tokens/', 'node_modules/', '.harness/', '.git/'
 /**
  * The sandbox's evidence stays inside the sandbox: a parent HARNESS_RUNS_DIR / HARNESS_TOKENS_DIR
  * would send the child runs' runs/ and tokens/ elsewhere (and the checks below read them from
- * <sandbox>/runs), so every child gets an env without them.
+ * <sandbox>/runs), and a parent HARNESS_ITEMS_ROOT would bind the run to (and append to) another
+ * items root, so every child gets an env without them. The scripted run is bound to the
+ * projects-change item like any run: it needs that item's contract approved in a typed turn
+ * (docs/contracts/ and items/ are copied in from this repository).
  */
-const CHILD_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'HARNESS_RUNS_DIR' && k !== 'HARNESS_TOKENS_DIR'));
+const CHILD_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'HARNESS_RUNS_DIR' && k !== 'HARNESS_TOKENS_DIR' && k !== 'HARNESS_ITEMS_ROOT'));
 const GIT_ENV = { ...CHILD_ENV, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' };
 
 const STEPS = [
@@ -236,15 +239,17 @@ function assertToolInRun(step) {
   check(called, `turn 1 called ${step.name}`);
   check(content !== '' && !/unknown tool/.test(content), `${step.name} was offered and returned a result in the run`);
   say(indent(content.split('\n').slice(0, 6).join('\n'), 8));
-  // Run evidence (runs/, tokens/) is committed by design; it is not part of the extension.
+  // Run evidence (runs/, tokens/, and the run's line in its item's ledger under items/) is committed by design; it is not part of the extension.
   const porcelain = git('status', '--porcelain', '--untracked-files=all').split('\n').filter((l) => l !== '');
-  const outside = porcelain.map((l) => l.slice(3)).filter((p) => !p.startsWith('plugins/') && !p.startsWith('runs/') && !p.startsWith('tokens/'));
-  check(outside.length === 0, `the run changed nothing outside plugins/, runs/, tokens/${outside.length > 0 ? `: ${outside.join(', ')}` : ''}`);
+  const outside = porcelain.map((l) => l.slice(3)).filter((p) => !p.startsWith('plugins/') && !p.startsWith('runs/') && !p.startsWith('tokens/') && !p.startsWith('items/'));
+  check(outside.length === 0, `the run changed nothing outside plugins/, runs/, tokens/, items/${outside.length > 0 ? `: ${outside.join(', ')}` : ''}`);
   // Remove the run's evidence, worktree and branch so the next step's diff is only the next plugin.
   if (typeof rec.worktreeRoot === 'string') sh('git', ['worktree', 'remove', '--force', rec.worktreeRoot]);
   if (typeof rec.branch === 'string') sh('git', ['branch', '-D', rec.branch]);
   rmSync(join(runsDir), { recursive: true, force: true });
   rmSync(join(repo, 'tokens', `${id}.json`), { force: true });
+  sh('git', ['checkout', '--', 'items']);
+  sh('git', ['clean', '-fdq', '--', 'items']);
 }
 
 function assertDiff(step, baseCore, expected) {
