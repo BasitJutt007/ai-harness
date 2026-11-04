@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import nestRouteGuard from '../../plugins/checks/nest-route-guard.ts';
+import prismaUnbounded, { findManyCalls } from '../../plugins/checks/prisma-unbounded.ts';
 import repoTypecheck, { projectsOf } from '../../plugins/checks/repo-typecheck.ts';
 import routeLock from '../../plugins/gates/route-lock.ts';
 import { isAdminFacing, routeKey, routesOf } from '../../plugins/lib/nest-routes.ts';
@@ -83,6 +84,46 @@ describe('nest-route-guard: who may call each route', () => {
     const [f] = await nestRouteGuard.run(checkCtx(root, ['src/a.controller.ts']));
     expect(f?.status).toBe('skip');
     expect(f?.skipReason).toMatch(/not a string literal/);
+  });
+});
+
+describe('prisma-unbounded: every findMany is bounded', () => {
+  const SERVICE = `
+export class NotificationsService {
+  constructor(private prisma: any) {}
+  all() { return this.prisma.notification.findMany(); }
+  mine(userId: string) { return this.prisma.notification.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }); }
+  page(userId: string, take: number, skip: number) { return this.prisma.notification.findMany({ where: { userId }, take, skip }); }
+  byIds(ids: string[]) { return this.prisma.notification.findMany({ where: { id: { in: ids } } }); }
+  one(id: string) { return this.prisma.notification.findMany({ where: { id } }); }
+  opaque(args: object) { return this.prisma.notification.findMany(args); }
+  spread(extra: object) { return this.prisma.notification.findMany({ ...extra, where: { read: false } }); }
+  boundedSpread(extra: object) { return this.prisma.notification.findMany({ ...extra, take: 20 }); }
+  first(id: string) { return this.prisma.notification.findFirst({ where: { id } }); }
+}`;
+
+  it('flags findMany without take (no arguments, a where, an opaque argument, a spread); passes take and id lookups', () => {
+    const calls = findManyCalls('src/n.service.ts', SERVICE);
+    expect(calls).toHaveLength(8);
+    expect(calls.map((c) => c.reason === null)).toEqual([false, false, true, true, true, false, false, true]);
+    expect(calls[0]?.reason).toMatch(/has no arguments: it reads every row/);
+    expect(calls[1]?.reason).toMatch(/without take: it reads every matching row/);
+    expect(calls[5]?.reason).toMatch(/not an object literal, so no take can be seen/);
+    expect(calls[6]?.reason).toMatch(/inside the spread cannot be seen/);
+  });
+
+  it('reports per file in queries, never a skip; one-off jobs are not counted; nothing to check is n/a', async () => {
+    const root = tmp();
+    put(root, { 'src/n.service.ts': SERVICE, 'src/scripts/backfill.ts': 'prisma.user.findMany();\n', 'src/ok.service.ts': 'prisma.user.findMany({ take: 10 });\n' });
+    const findings = await prismaUnbounded.run(checkCtx(root, ['src/n.service.ts', 'src/scripts/backfill.ts', 'src/ok.service.ts']));
+    expect(findings.map((f) => [f.file, f.status, f.units])).toEqual([
+      ['src/n.service.ts', 'fail', { passed: 4, total: 8 }],
+      ['src/ok.service.ts', 'pass', { passed: 1, total: 1 }],
+    ]);
+    // The baseline comparison matches by message, so messages carry no line numbers.
+    expect(findings[0]?.violations.every((v) => !/:\d+/.test(v.message))).toBe(true);
+    const none = await prismaUnbounded.run(checkCtx(root, ['src/scripts/backfill.ts']));
+    expect(none).toEqual([{ rule: 'prisma-unbounded', file: '(project)', status: 'pass', units: { passed: 0, total: 0 }, violations: [], naReason: 'no Prisma findMany call in per-request code' }]);
   });
 });
 
