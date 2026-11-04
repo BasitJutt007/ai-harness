@@ -52,9 +52,9 @@ to a habit.
 | "Only `prisma generate`; never `db push` or migrations; I do the db push myself" (10) | no harness clone has DB credentials; `prisma/` is unwritable |
 | "Explain plainly: what is done, what is blocked, what needs me; no yapping" (18) | the run verdict: gates, UNPROVEN, human-must-verify |
 | "No co-author line, no AI attribution" (9 corrections, 2 still merged) | ship commits as the harness, with no trailers |
-| "Commit with a real title and description, not one-for-all" (3 dates) | ship's commit message from the contract (building) |
+| "Commit with a real title and description, not one-for-all" (3 dates) | the contract's Commit line, checked at propose and ship; the PR template filled from the contract |
 | "Branch from the latest development; never push to development/staging/main" (7 corrections) | protected branches; ship pushes only `harness/<run>` |
-| "Use only the cheapest model" (8 turns, 3 dates) | model allowlist and spend cap (building) |
+| "Use only the cheapest model" (8 turns, 3 dates) | model allowlist and a per-run spend cap |
 
 ## What breaks
 
@@ -129,11 +129,11 @@ says so. Each contract is in `docs/contracts/<slug>.md`.
 | 3. A type check that checks zero files | check | `plugins/checks/repo-typecheck.ts` |
 | 3. Lint that lints no TypeScript | check | `plugins/checks/repo-lint.ts` |
 | 3. A build broken only at deploy | check | `plugins/checks/vite-build.ts` |
-| 4. Unbounded queries | check (building) | `plugins/checks/prisma-unbounded.ts` |
-| 5. Commits and PRs that say nothing | check at ship (building) | `src/core/ship.ts` |
+| 4. Unbounded queries | check | `plugins/checks/prisma-unbounded.ts` |
+| 5. Commits and PRs that say nothing | check (contract field, then propose and ship) | `src/core/ship-text.ts`, `src/core/ship.ts`, `src/core/items.ts` (Commit) |
 | 6. Supply-chain payloads in tooling files | rule (01) | `plugins/lib/path-policy.ts` (`BUILTIN_DENY`): config, lockfiles, dot-directories, non-TS files are unwritable |
 | 7. Schema changes, db push drift | rule | `plugins/lib/path-policy.ts` (`prisma/` is not TypeScript: unwritable); clones carry no DB credentials |
 | 8. Claims without proof | gate (01) | `src/core/gates.ts`: DONE only when every required gate passes; UNPROVEN is never green |
-| 9. Cost blow-ups | hook (building) | model allowlist and spend cap |
+| 9. Cost blow-ups | check before the first turn + loop limit | `src/core/spend.ts`, `harness.config.json` (`models`) |
 | 10. Caches that go stale or repeat after a change | rule + regression specs | `src/core/prompt.ts` (react-vite rule: tags never cross slices; a refetched page replaces, never appends); each item's spec stays in the repository |
 | Branch discipline | rule (01) | `harness.config.json` `protectedBranches`, `src/core/ship.ts` |
