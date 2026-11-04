@@ -5,6 +5,7 @@ Owner: Vendor Portal admin app (Abdul Basit)
 Stakeholder: Abdul Basit
 Repo: Software-Finder-1/VendorPortal-Admin
 Base: harness-test
+Commit: fix(members): refetch every Members list after a member is added
 Metric: members lists left stale after a member mutation (failed checks of 3), harness-test HEAD before: 1 after: ____
 Measure: node metrics/members-list-stale-after-add.mjs
 Scenario: WHEN an admin adds a member and the request succeeds THEN every subscribed Members list (any tab, page, page size or search) is fetched again

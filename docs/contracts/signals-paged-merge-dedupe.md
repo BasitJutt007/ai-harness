@@ -5,6 +5,7 @@ Owner: Vendor Portal vendor app, Buyer Intelligence (Abdul Basit)
 Stakeholder: Abdul Basit
 Repo: Software-Finder-1/VendorPortal-React
 Base: harness-test
+Commit: fix(signals): replace a refetched page instead of appending it again
 Metric: duplicate rows in the Tech Stack and Headquarters caches after a refresh at page 2, harness-test HEAD before: 50 after: ____
 Measure: node metrics/signals-paged-merge-dedupe.mjs
 Scenario: WHEN the Tech Stack or Headquarters list is on page 2 and the Signals cards are refreshed THEN each row appears once and the refreshed rows replace the old ones

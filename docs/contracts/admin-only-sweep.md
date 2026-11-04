@@ -5,6 +5,7 @@ Owner: Vendor Portal backend (Abdul Basit)
 Stakeholder: Abdul Basit
 Repo: Software-Finder-1/vp-business-backend
 Base: harness-test
+Commit: fix(AUTH): Require the admin role on the ten admin-only routes
 Metric: admin-only routes open to vendor tokens, harness-test HEAD before: 10 after: ____
 Measure: node metrics/admin-only-sweep.mjs
 Scenario: WHEN a vendor token calls any of the 10 admin-only routes THEN the API answers 403 and the service is never called
