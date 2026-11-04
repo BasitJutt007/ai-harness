@@ -391,10 +391,12 @@ async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
     out(`note: no node_modules at or above ${root}; checking a copy under ${toPosix(relative(HARNESS_ROOT, mirror))} that resolves dependencies from the harness`);
   }
   let report: Awaited<ReturnType<typeof runChecks>>;
+  let stack = 'unknown';
   try {
     // The stack decides which rules apply (an Express rule is never run on a NestJS or React target).
     const profile = await computeTargetProfile({ apiRoot: mirror ?? root, repoRoot: mirror ?? root, harnessRoot: HARNESS_ROOT });
-    out(`stack     ${profile.stack}${profile.framework.supported ? '' : ' (UNSUPPORTED: no stack profile applies)'}`);
+    stack = profile.stack;
+    if (!p.bools.has('json')) out(`stack     ${profile.stack}${profile.framework.supported ? '' : ' (UNSUPPORTED: no stack profile applies)'}`);
     const checked = await runChecks({
       root: mirror ?? root,
       checks: registry.checks.map((r) => r.plugin),
@@ -410,7 +412,7 @@ async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
   } finally {
     if (mirror !== null) rmSync(mirror, { recursive: true, force: true });
   }
-  if (p.bools.has('json')) out(JSON.stringify(report, null, 2));
+  if (p.bools.has('json')) out(JSON.stringify({ ...report, stack }, null, 2));
   else out(report.text);
   return report.verdict.status === 'pass' && report.verdict.percent === 100 ? 0 : 1;
 }

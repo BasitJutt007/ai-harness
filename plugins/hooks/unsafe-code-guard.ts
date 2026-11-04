@@ -1,5 +1,5 @@
 /**
- * unsafe-code-guard (pre, write of .ts): parses the post-image of the write (the loop's
+ * unsafe-code-guard (pre, write of .ts / .tsx): parses the post-image of the write (the loop's
  * preview, whatever tool makes it) and blocks new `any`, non-null assertions and ts-ignore
  * family comments, with locations. A write tool without preview() is refused (fail closed).
  */
@@ -18,7 +18,7 @@ export default defineHook({
     const { call } = event;
     for (const target of call.paths) {
       const r = toApiRel(ctx.workspace, target);
-      if (!r.ok || !r.rel.endsWith('.ts')) continue;
+      if (!r.ok || !/\.tsx?$/.test(r.rel)) continue;
       const img = postImage(call, target);
       if (!img.ok) return { decision: 'block', reason: `unsafe-code-guard: ${img.reason}` };
       if (img.after === null) continue; // no file afterwards
