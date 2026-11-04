@@ -184,3 +184,34 @@ describe('the prompt follows the stack and carries the approved contract', () =>
     expect(brief).toMatch(/Contract docs\/contracts\/x\.md, approved by S \(build exactly this\):\nProblem: Lists go stale\.\nScenario: WHEN a THEN b\nNot included \(do not build\):\n- c\nMetric \(read by the harness after the merge, not by you\): m/);
   });
 });
+
+describe('a generated Prisma client reaches the run worktree', () => {
+  function git(cwd: string, ...args: string[]): string {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } }).trim();
+  }
+  it('links an untracked generator output; never a tracked one or one outside the repository', async () => {
+    const { prismaClientOutputs } = await import('../../src/core/target.ts');
+    const { createWorktree } = await import('../../src/core/workspace.ts');
+    const { loadConfig } = await import('../../src/core/config.ts');
+    const root = tmp();
+    put(root, {
+      'prisma/schema/schema.prisma': 'generator client {\n  provider = "prisma-client-js"\n  output   = "../../generated/prisma"\n}\ngenerator docs {\n  output = "../../../outside"\n}\n',
+      'prisma/schema/tracked.prisma': 'generator other {\n  output = "../../committed"\n}\n',
+      'committed/index.ts': 'export const x = 1;\n',
+      'src/a.ts': 'export const a = 1;\n',
+      '.gitignore': 'generated/\n',
+    });
+    git(root, 'init', '-q', '-b', 'main');
+    git(root, 'add', '.');
+    git(root, 'commit', '-q', '-m', 'init');
+    put(root, { 'generated/prisma/index.d.ts': 'export declare const client: number;\n' });
+    expect(prismaClientOutputs(root, (rel) => rel === 'committed')).toEqual(['generated/prisma']);
+    const harness = tmp();
+    const wt = await createWorktree({ harnessRoot: harness, config: { ...loadConfig(), worktreeDir: 'wt' }, repoDir: root, runId: 'r1', branch: 'harness/r1' });
+    const { lstatSync, readFileSync } = await import('node:fs');
+    expect(lstatSync(join(wt.worktreeRoot, 'generated/prisma')).isSymbolicLink()).toBe(true);
+    expect(readFileSync(join(wt.worktreeRoot, 'generated/prisma/index.d.ts'), 'utf8')).toMatch(/client/);
+    expect(lstatSync(join(wt.worktreeRoot, 'committed')).isSymbolicLink()).toBe(false);
+    git(root, 'worktree', 'remove', '--force', wt.worktreeRoot);
+  });
+});

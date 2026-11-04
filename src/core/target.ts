@@ -17,7 +17,7 @@
  * Without a computed profile every predicate falls back to LEGACY_LAYOUT (src/ + test/), the
  * behaviour of the harness's own template.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
@@ -311,6 +311,44 @@ export function linkDependencies(srcTop: string, apiRel: string, destTop: string
     made.push(top);
   }
   return made;
+}
+
+/**
+ * Prisma clients a target imports but does not commit (assignment 02, NestJS + Prisma): every
+ * `generator ... { output = "..." }` in the repository's Prisma schema files, resolved against the schema
+ * file, kept when it lies inside the repository, exists in the source checkout and is not tracked
+ * (`tracked` answers that, e.g. from `git ls-files`). The result is repository-relative.
+ */
+export function prismaClientOutputs(srcTop: string, tracked: (rel: string) => boolean): string[] {
+  const schemas: string[] = [];
+  const visit = (dir: string, depth: number): void => {
+    if (depth > 3 || !isDir(dir)) return;
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      if (isDir(p)) visit(p, depth + 1);
+      else if (name.endsWith('.prisma')) schemas.push(p);
+    }
+  };
+  visit(join(srcTop, 'prisma'), 0);
+  const out: string[] = [];
+  for (const file of schemas) {
+    let text = '';
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const m of text.matchAll(/generator\s+\w+\s*\{([^}]*)\}/g)) {
+      const o = /\boutput\s*=\s*"([^"]+)"/.exec(m[1] ?? '');
+      if (o?.[1] === undefined) continue;
+      const abs = resolve(dirname(file), o[1]);
+      const rel = toPosix(relative(srcTop, abs));
+      if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || rel.split('/').includes('node_modules')) continue;
+      if (isDir(abs) && !tracked(rel) && !out.includes(rel)) out.push(rel);
+    }
+  }
+  return out;
 }
 
 function exists(p: string): boolean {
