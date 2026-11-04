@@ -17,7 +17,7 @@ import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
 import { cmdItem } from './item-cli.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
-import { targetLayout } from './target.ts';
+import { computeTargetProfile, targetLayout } from './target.ts';
 import { loadTask } from './task.ts';
 import { buildTestMap } from './testmap.ts';
 import { comparisonsFor, compareRuns, formatComparison, formatTokenReport, parseTokenReport, type TokenReport } from './tokens.ts';
@@ -392,12 +392,17 @@ async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
   }
   let report: Awaited<ReturnType<typeof runChecks>>;
   try {
+    // The stack decides which rules apply (an Express rule is never run on a NestJS or React target).
+    const profile = await computeTargetProfile({ apiRoot: mirror ?? root, repoRoot: mirror ?? root, harnessRoot: HARNESS_ROOT });
+    out(`stack     ${profile.stack}${profile.framework.supported ? '' : ' (UNSUPPORTED: no stack profile applies)'}`);
     const checked = await runChecks({
       root: mirror ?? root,
       checks: registry.checks.map((r) => r.plugin),
       exec,
       harnessRoot: HARNESS_ROOT,
       logs,
+      layout: profile,
+      stack: profile.stack,
       ...(rules.length > 0 ? { rules } : {}),
       ...(categories.length > 0 ? { categories } : {}),
     });

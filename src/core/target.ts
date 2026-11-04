@@ -22,6 +22,7 @@ import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:p
 import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
+import type { Stack } from './types.ts';
 
 // ───────────────────────────── types ─────────────────────────────
 
@@ -90,8 +91,18 @@ export interface TestRunnerInfo {
   patterns?: string[];
 }
 
+/**
+ * What kind of codebase the target is, which decides the gates that apply (assignment 02):
+ *   express     the 01 stack: route extraction, zod-boundary, rest-conventions, problem+json, contract lock;
+ *   nestjs      NestJS + Jest: the repository's own tsc/ESLint/Prettier, nest-route-guard, the Nest route lock;
+ *   react-vite  React + Vite: the repository's own tsc and ESLint, the Vite build; no served API to lock;
+ *   unknown     none of these: every stack-specific gate is UNPROVEN (never another stack's rules).
+ */
+export type { Stack } from './types.ts';
+
 export interface TargetProfile extends TargetLayout {
   apiRoot: string;
+  stack: Stack;
   framework: { name: string; version: string | null; supported: boolean };
   runner: TestRunnerInfo;
   /** Likely app entry files (package.json main/exports/bin/scripts, then common names). */
@@ -1136,11 +1147,24 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   const declaredFw = FRAMEWORKS.filter((f) => pkg?.deps[f] !== undefined);
   const importedFw = FRAMEWORKS.filter((f) => analysis.bareImports.includes(f));
   const pick = (list: string[]): string | undefined => (list.includes('express') ? 'express' : list[0]);
-  const fwName = pick(declaredFw) ?? pick(importedFw) ?? 'unknown';
+  const declaredFwName = pick(declaredFw) ?? pick(importedFw) ?? 'unknown';
+  const deps = pkg?.deps ?? {};
+  const stack: Stack = deps['@nestjs/core'] !== undefined
+    ? 'nestjs'
+    : declaredFwName === 'express'
+      ? 'express'
+      : deps['react'] !== undefined && deps['vite'] !== undefined
+        ? 'react-vite'
+        : 'unknown';
+  const fwName = stack === 'nestjs' ? '@nestjs/core' : stack === 'react-vite' ? 'react' : declaredFwName;
   const fwPkg = fwName === 'unknown' ? null : resolvePackage(fwName, apiRoot, ctx);
-  const framework = { name: fwName, version: fwPkg?.version ?? null, supported: fwName === 'express' };
+  const framework = { name: fwName, version: fwPkg?.version ?? null, supported: stack !== 'unknown' };
   if (!framework.supported) {
-    unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: route extraction, zod-boundary, rest-conventions, problem+json probes and the contract lock understand Express only and will report UNPROVEN`);
+    unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: no stack profile (express, nestjs, react-vite) applies, so route extraction, the standards and the contract lock report UNPROVEN`);
+  } else if (stack === 'nestjs') {
+    notes.push("stack nestjs: standards are the repository's own (tsc with its tsconfig, its ESLint and Prettier on changed files) plus nest-route-guard; the Nest route lock compares controller routes (method and path), not DTO shapes");
+  } else if (stack === 'react-vite') {
+    notes.push("stack react-vite: standards are the repository's own tsc and ESLint plus the Vite build; a frontend serves no API, so there is no route lock");
   }
 
   const runner = runnerInfo(analysis.runner, apiRoot, pkg, ctx, analysis.testFiles);
@@ -1155,6 +1179,7 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   return {
     apiRoot,
     ...layout,
+    stack,
     framework,
     runner,
     entryCandidates: analysis.entries,
@@ -1173,7 +1198,7 @@ export function formatProfile(p: TargetProfile): string[] {
   };
   const roots = (r: string[]): string => (r.length === 0 ? '(none)' : r.map((x) => (x === '.' ? './' : `${x}/`)).join(' '));
   const lines = [
-    `target     framework ${p.framework.name}${p.framework.version !== null ? ` ${p.framework.version}` : ''}${p.framework.supported ? '' : ' (UNSUPPORTED)'}  runner ${p.runner.name}${p.runner.origin !== undefined ? ` (${p.runner.origin})` : ''}${p.runner.supported ? '' : ' (UNSUPPORTED)'}`,
+    `target     stack ${p.stack}  framework ${p.framework.name}${p.framework.version !== null ? ` ${p.framework.version}` : ''}${p.framework.supported ? '' : ' (UNSUPPORTED)'}  runner ${p.runner.name}${p.runner.origin !== undefined ? ` (${p.runner.origin})` : ''}${p.runner.supported ? '' : ' (UNSUPPORTED)'}`,
     `           source ${roots(p.sourceRoots)}  tests ${roots(p.testRoots)} [${p.testGlobs.join(', ')}${p.testRegex.length > 0 ? `; regex ${p.testRegex.join(', ')}` : ''}]  test dirs ${roots(p.testSupportRoots)}`,
     `           entry ${p.entryCandidates.slice(0, 3).join(', ') || '(none found)'}  zod ${p.zod.version ?? '-'} → ${p.zod.converter}`,
     `           deps ${TRACKED_DEPENDENCIES.slice(0, 4).map(dep).join(', ')}`,
@@ -1186,6 +1211,7 @@ export function formatProfile(p: TargetProfile): string[] {
 /** JSON-safe record of the profile for run.json (no compiler options blob). */
 export function profileRecord(p: TargetProfile): Record<string, unknown> {
   return {
+    stack: p.stack,
     framework: p.framework,
     runner: { kind: p.runner.kind, name: p.runner.name, supported: p.runner.supported, origin: p.runner.origin ?? null, bin: p.runner.bin ?? null, evidence: p.runner.evidence, ...(p.runner.reason !== undefined ? { reason: p.runner.reason } : {}) },
     sourceRoots: p.sourceRoots,

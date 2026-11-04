@@ -26,6 +26,7 @@ import type {
   Exec,
   LogStore,
   RuleSummary,
+  Stack,
   TaskKind,
 } from './types.ts';
 
@@ -50,6 +51,8 @@ const IGNORE = ['**/node_modules/**', '**/.git/**', '**/dist/**'];
 export interface CheckRunInfo {
   taskKind?: TaskKind;
   base?: { repoRoot: string; rootRel: string; sha: string };
+  /** The target's stack: checks declaring other stacks are not run (listed as such in the report). */
+  stack?: Stack;
 }
 
 export async function createCheckContext(opts: {
@@ -90,6 +93,7 @@ export async function createCheckContext(opts: {
     logs: opts.logs,
     ...(opts.taskKind !== undefined ? { taskKind: opts.taskKind } : {}),
     ...(opts.base !== undefined ? { base: { ...opts.base } } : {}),
+    ...(opts.stack !== undefined ? { stack: opts.stack } : {}),
     dependencies,
     read: (rel: string) => readFile(join(root, rel), 'utf8'),
     sourceFile(rel: string): ts.SourceFile {
@@ -146,7 +150,8 @@ export async function runChecks(opts: {
   rules?: string[];
   layout?: TargetLayout;
 } & CheckRunInfo): Promise<CheckReport> {
-  const selected = selectChecks(opts.checks, opts.categories, opts.rules);
+  const selected = selectChecks(opts.checks, opts.categories, opts.rules, opts.stack);
+  const otherStacks = selectChecks(opts.checks, opts.categories, opts.rules).filter((c) => !selected.includes(c));
   const ctx = await createCheckContext(opts);
   const findings: CheckFinding[] = [];
   for (const check of selected) {
@@ -165,13 +170,21 @@ export async function runChecks(opts: {
       });
     }
   }
-  return { root: opts.root, findings, ...formatReport(findings, selected, opts.root) };
+  const report = formatReport(findings, selected, opts.root);
+  if (otherStacks.length > 0 && opts.stack !== undefined) {
+    // Rules written for another stack are never run here and never counted (in either direction).
+    const line = `other stacks  not run on ${opts.stack}: ${otherStacks.map((c) => `${c.id} (${(c.stacks ?? []).join(', ')})`).join(', ')}`;
+    report.text = `${report.text}\n${line}`;
+  }
+  return { root: opts.root, findings, ...report };
 }
 
-export function selectChecks(checks: CheckPlugin[], categories?: string[], rules?: string[]): CheckPlugin[] {
+/** Checks matching the categories, rules and (when given) the stack; a check declaring no stacks applies to all. */
+export function selectChecks(checks: CheckPlugin[], categories?: string[], rules?: string[], stack?: Stack): CheckPlugin[] {
   return checks.filter((c) =>
     (categories === undefined || categories.length === 0 || categories.includes(c.category))
-    && (rules === undefined || rules.length === 0 || rules.includes(c.id)));
+    && (rules === undefined || rules.length === 0 || rules.includes(c.id))
+    && (stack === undefined || c.stacks === undefined || c.stacks.includes(stack)));
 }
 
 /** Units of a finding are counts: finite, non-negative integers with passed <= total. Null when they are. */
@@ -211,7 +224,9 @@ export function validFinding(raw: unknown, rule: string): CheckFinding {
   const units = f.units as CheckFinding['units'];
   // A pass that names violations is not a pass.
   const status = f.status === 'pass' && violations.length > 0 ? 'fail' : f.status;
-  return { rule: r, file, status, units: { passed: units.passed, total: units.total }, violations };
+  // A reason for having nothing to check is kept only where there is nothing to check.
+  const na = typeof f.naReason === 'string' && f.naReason !== '' && units.total === 0 && status === 'pass' ? { naReason: f.naReason } : {};
+  return { rule: r, file, status, units: { passed: units.passed, total: units.total }, violations, ...na };
 }
 
 // ───────────────────────────── report ─────────────────────────────
@@ -242,8 +257,9 @@ export function formatReport(
     const { rule, unit } = v.summary;
     // Nothing to check: a non-standards rule is n/a; a standards rule is unproven (an empty check proves nothing).
     const empty = v.summary.status === 'n/a' ? 'n/a' : v.unprovenWhy === EMPTY_WHY ? 'unproven' : null;
-    if (v.findings.length === 0) {
-      const line = `${pad(rule, ruleW)}${pad(empty ?? 'n/a', STATUS_W)}${pad('(none)', fileW)}0/0 ${unit}`;
+    if (v.findings.length === 0 || (empty === 'n/a' && v.findings.every((f) => f.naReason !== undefined))) {
+      const why = v.findings.find((f) => f.naReason !== undefined)?.naReason;
+      const line = `${pad(rule, ruleW)}${pad(empty ?? 'n/a', STATUS_W)}${pad('(none)', fileW)}0/0 ${unit}${why !== undefined ? `  (${oneLine(why)})` : ''}`;
       full.push(line);
       if (empty === 'unproven') compact.push(line);
       continue;

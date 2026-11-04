@@ -135,6 +135,16 @@ describe('required gates: a missing or n/a required gate is unproven', () => {
     expect(requiredGates({ ...greenfieldTask(), brief: 'b', specCoverage: 'human' }, 'finish')).not.toContain('spec-coverage');
   });
 
+  it('the API lock a brownfield change needs follows the stack; an unknown stack still needs the Express lock (UNPROVEN)', () => {
+    expect(requiredGates(brownfieldTask(), 'finish', 'express')).toContain('contract-lock');
+    expect(requiredGates(brownfieldTask(), 'finish', 'nestjs')).toEqual(expect.arrayContaining(['route-lock', 'standards', 'stakeholder-yes']));
+    expect(requiredGates(brownfieldTask(), 'finish', 'nestjs')).not.toContain('contract-lock');
+    expect(requiredGates(brownfieldTask(), 'finish', 'react-vite')).not.toEqual(expect.arrayContaining(['contract-lock']));
+    expect(requiredGates(brownfieldTask(), 'finish', 'react-vite')).not.toContain('route-lock');
+    expect(requiredGates(brownfieldTask(), 'finish', 'unknown')).toContain('contract-lock');
+    expect(requiredGates(brownfieldTask(), 'finish')).toContain('contract-lock');
+  });
+
   it('a disabled (unregistered) required gate and a required gate saying n/a make the run not ok', async () => {
     const c = await ctx();
     const required = requiredGates(c.task, 'finish');

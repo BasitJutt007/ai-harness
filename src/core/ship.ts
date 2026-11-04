@@ -246,7 +246,7 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
   // 2. Gates, fresh — over a tree we fingerprint first, so a change made while they run is caught.
   const before = await treeFingerprint(git, repo, [pathspec, ...excludes]);
   if (before === null) return refuse('cannot list the files under the API root (git ls-files failed)');
-  const gates = await runGates(opts.registry.gates, ctx, 'ship', { required: requiredGates(ctx.task, 'ship') });
+  const gates = await runGates(opts.registry.gates, ctx, 'ship', { required: requiredGates(ctx.task, 'ship', ctx.stack) });
   if (!gates.ok) return refuse('gates are not green (re-run fresh for ship):', ...gates.compact.split('\n'));
 
   // 3. Plan.
