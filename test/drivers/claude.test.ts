@@ -14,6 +14,7 @@ import type {
 import plugin, {
   BETAS,
   COMPAT_SUFFIX,
+  UNCACHED_SUFFIX,
   buildClaudeParams,
   createClaudeDriver,
   fromClaudeResponse,
@@ -117,7 +118,7 @@ interface Fake {
   counted: MessageCountTokensParams[];
 }
 
-function fakeClient(responses: BetaStep[], plainResponses: PlainMessage[] = []): Fake {
+function fakeClient(responses: BetaStep[], plainResponses: (PlainMessage | Error)[] = []): Fake {
   const created: MessageCreateParamsNonStreaming[] = [];
   const plain: PlainCreateParams[] = [];
   const counted: MessageCountTokensParams[] = [];
@@ -138,6 +139,7 @@ function fakeClient(responses: BetaStep[], plainResponses: PlainMessage[] = []):
         plain.push(structuredClone(params));
         const r = plainResponses.shift();
         if (r === undefined) throw new Error('no fake plain response left');
+        if (r instanceof Error) throw r;
         return r;
       },
       async countTokens(params) {
@@ -506,19 +508,22 @@ describe('claude driver', () => {
       { role: 'user', parts: [{ type: 'tool_result', callId: 't1', content: '1: x', isError: false }] },
     ];
 
-    it('retries once with the minimal request and stays there for the session', async () => {
+    it('steps down to the cached plain request (prompt caching kept) and stays there for the session', async () => {
       const ok = betaMessage([{ type: 'text', text: 'fine', citations: null }], 'end_turn');
       const f = fakeClient([apiError(400, 'thinking.block_binding: Extra inputs are not permitted')], [plainMessage(ok), plainMessage(ok)]);
       const driver = createClaudeDriver({ options: {}, env, harnessRoot: '/x' }, () => f.client);
       expect(driver.model).toBe('claude-opus-5-5');
+      expect(driver.tier).toBe('full');
       const res = await driver.complete(request(conversation));
       expect(res.parts).toEqual([{ type: 'text', text: 'fine' }]);
       expect(driver.compat).toBe(true);
+      expect(driver.tier).toBe('cached');
       expect(driver.model).toBe(`claude-opus-5-5${COMPAT_SUFFIX}`);
       expect(f.created).toHaveLength(1);
       expect(f.plain[0]).toEqual({
         model: 'claude-opus-5-5',
         max_tokens: 4000,
+        cache_control: { type: 'ephemeral' },
         system: 'be terse',
         messages: [
           { role: 'user', content: [{ type: 'text', text: 'go' }] },
@@ -532,6 +537,46 @@ describe('claude driver', () => {
       await driver.complete(request(conversation));
       expect(f.created).toHaveLength(1);
       expect(f.plain).toHaveLength(2);
+    });
+
+    it('steps down to the bare request when the cached one is rejected for cache_control, and stays there', async () => {
+      const ok = betaMessage([{ type: 'text', text: 'fine', citations: null }], 'end_turn');
+      const f = fakeClient(
+        [apiError(400, 'output_config.effort: Extra inputs are not permitted')],
+        [apiError(400, 'cache_control: Extra inputs are not permitted'), plainMessage(ok), plainMessage(ok)],
+      );
+      const driver = createClaudeDriver({ options: {}, env, harnessRoot: '/x' }, () => f.client);
+      const res = await driver.complete(request(conversation));
+      expect(res.parts).toEqual([{ type: 'text', text: 'fine' }]);
+      expect(driver.tier).toBe('bare');
+      expect(driver.model).toBe(`claude-opus-5-5${UNCACHED_SUFFIX}`);
+      expect(f.plain).toHaveLength(2);
+      expect(f.plain[0]?.cache_control).toEqual({ type: 'ephemeral' });
+      expect(f.plain[1] !== undefined && 'cache_control' in f.plain[1]).toBe(false);
+      await driver.complete(request(conversation));
+      expect(f.created).toHaveLength(1);
+      expect(f.plain).toHaveLength(3);
+      expect(f.plain[2] !== undefined && 'cache_control' in f.plain[2]).toBe(false);
+    });
+
+    it('does not step below the bare request: a further extras rejection propagates', async () => {
+      const f = fakeClient(
+        [apiError(400, 'thinking.type: Extra inputs are not permitted')],
+        [apiError(400, 'cache_control: Extra inputs are not permitted'), apiError(400, 'tool_choice: Extra inputs are not permitted')],
+      );
+      const driver = createClaudeDriver({ options: {}, env, harnessRoot: '/x' }, () => f.client);
+      await expect(driver.complete(request(conversation))).rejects.toThrow(/tool_choice/);
+      expect(driver.tier).toBe('bare');
+      expect(f.created).toHaveLength(1);
+      expect(f.plain).toHaveLength(2);
+    });
+
+    it('a non-extras 400 on the cached tier propagates without stepping down', async () => {
+      const f = fakeClient([apiError(400, 'fallbacks: not available')], [apiError(400, 'messages.2: `tool_use` ids were found without `tool_result` blocks')]);
+      const driver = createClaudeDriver({ options: {}, env, harnessRoot: '/x' }, () => f.client);
+      await expect(driver.complete(request(conversation))).rejects.toThrow(/tool_use/);
+      expect(driver.tier).toBe('cached');
+      expect(f.plain).toHaveLength(1);
     });
 
     it('recognises rejections of each optional extra, and nothing else', () => {

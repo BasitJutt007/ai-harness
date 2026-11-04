@@ -91,7 +91,10 @@ interface Driver {
 
 `plugins/drivers/claude.ts` maps it to the Anthropic Messages API, `openai.ts` to Chat Completions
 function tools (local o200k counting). On a 400 that rejects an optional parameter a driver switches
-the session to a compatible request and reports `<id> (compat)`. Vendor shapes never cross the
+the session to a compatible request and reports `<id> (compat)`. The claude driver steps down in two
+tiers: first the plain endpoint with automatic prompt caching kept (what `claude-haiku-4-5` needs: it
+rejects adaptive thinking and `effort` but caches prompts), then, only if `cache_control` is refused
+too, the bare request, reported as `<id> (compat, uncached)`. Vendor shapes never cross the
 interface: reasoning blocks and per-call extras (a thought signature) travel as `opaque` parts only
 their own driver replays. Task files cannot name a model or provider, and `harness doctor` scans
 `src/core/`, `tasks/` and every non-driver plugin file for provider vocabulary. `run.json`

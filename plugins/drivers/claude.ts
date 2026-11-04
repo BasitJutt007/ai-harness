@@ -9,9 +9,12 @@
  * limit that outlasts them tells the loop its wait through retryAfterMs (_wire.ts), and a request
  * that does not fit the context window is reported as errorKind 'context_overflow'.
  * A 400/403 that names one of the optional extras (betas, fallbacks, thinking block binding,
- * cache_control, output_config / effort, thinking) switches the session to a minimal
- * request on the plain endpoint (no betas, no fallbacks, no cache_control, no thinking
- * config, no replayed opaque blocks) and retries once; `model` then reads "<id> (compat)".
+ * cache_control, output_config / effort, thinking) steps the session down one tier and retries:
+ * full (beta surface) -> cached (plain endpoint, no betas, no fallbacks, no thinking config, no
+ * replayed opaque blocks, but still top-level automatic prompt caching) -> bare (the cached tier
+ * without cache_control). Models such as claude-haiku-4-5, which reject adaptive thinking and
+ * effort but cache prompts, so keep caching. `model` reads "<id> (compat)" on the cached tier
+ * and "<id> (compat, uncached)" on the bare one.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type {
@@ -54,6 +57,11 @@ export const MAX_RETRIES = 4;
  */
 export const TIMEOUT_MS = 15 * 60 * 1000;
 export const COMPAT_SUFFIX = ' (compat)';
+export const UNCACHED_SUFFIX = ' (compat, uncached)';
+
+/** Request tiers, most capable first; a session only ever steps down. */
+export const TIERS = ['full', 'cached', 'bare'] as const;
+export type Tier = (typeof TIERS)[number];
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORTS)[number];
@@ -255,13 +263,17 @@ export function buildClaudeParams(req: ModelRequest, model: string, effort: Effo
   return params;
 }
 
-/** The minimal request (plain endpoint): no betas, fallbacks, cache_control, thinking config or replayed blocks. */
-export function buildCompatParams(req: ModelRequest, model: string, ceiling?: number): PlainCreateParams {
+/**
+ * The compatible request (plain endpoint): no betas, fallbacks, thinking config or replayed blocks.
+ * `cache` keeps top-level automatic prompt caching (the cached tier); false is the bare tier.
+ */
+export function buildCompatParams(req: ModelRequest, model: string, ceiling?: number, cache = true): PlainCreateParams {
   const params: PlainCreateParams = {
     model,
     max_tokens: maxTokens(req, ceiling),
     messages: toPlainClaudeMessages(req.messages),
   };
+  if (cache) params.cache_control = { type: 'ephemeral' };
   if (req.system.length > 0) params.system = req.system;
   if (req.tools.length > 0) {
     params.tools = toClaudeTools(req.tools);
@@ -293,8 +305,10 @@ function parseEffort(v: string | undefined): Effort {
 }
 
 export interface ClaudeDriver extends Driver {
-  /** True once the session switched to the minimal request. */
+  /** True once the session stepped down from the full request. */
   readonly compat: boolean;
+  /** The request tier the session is on. */
+  readonly tier: Tier;
 }
 
 export function createClaudeDriver(opts: DriverCreateOptions, factory: ClaudeClientFactory = defaultFactory): ClaudeDriver {
@@ -303,39 +317,44 @@ export function createClaudeDriver(opts: DriverCreateOptions, factory: ClaudeCli
   const model = opts.model ?? opts.env['HARNESS_CLAUDE_MODEL'] ?? DEFAULT_MODEL;
   const effort = parseEffort(opts.env['HARNESS_CLAUDE_EFFORT']);
   const client = factory(apiKey);
-  let compat = false;
+  let tier: Tier = 'full';
   let ceiling: number | undefined;
 
   const send = async (req: ModelRequest, ro: RequestOpts | undefined): Promise<ModelResponse> => {
-    if (compat) return fromClaudeResponse(await client.messages.create(buildCompatParams(req, model, ceiling), ro));
-    return fromClaudeResponse(await client.beta.messages.create(buildClaudeParams(req, model, effort, ceiling), ro));
+    if (tier === 'full') return fromClaudeResponse(await client.beta.messages.create(buildClaudeParams(req, model, effort, ceiling), ro));
+    return fromClaudeResponse(await client.messages.create(buildCompatParams(req, model, ceiling, tier === 'cached'), ro));
   };
 
   return {
     name: DRIVER_NAME,
     get model() {
-      return compat ? `${model}${COMPAT_SUFFIX}` : model;
+      if (tier === 'full') return model;
+      return `${model}${tier === 'cached' ? COMPAT_SUFFIX : UNCACHED_SUFFIX}`;
     },
     get compat() {
-      return compat;
+      return tier !== 'full';
+    },
+    get tier() {
+      return tier;
     },
     tokenCounter: 'anthropic messages.countTokens',
     async complete(req, signal) {
       const ro = signal === undefined ? undefined : { signal };
-      // At most one max_tokens clamp and one downgrade per call; each retry changes the request.
+      // At most one max_tokens clamp and one step down per tier per call; each retry changes the request.
       for (let attempt = 0; ; attempt += 1) {
         try {
           return await send(req, ro);
         } catch (e) {
           // A request that does not fit is never a parameter problem: the loop shrinks it (errorKind).
-          if (attempt >= 2 || isContextOverflowError(e)) throw e;
+          if (attempt >= TIERS.length || isContextOverflowError(e)) throw e;
           const cap = rejectedCeiling(e);
           if (cap !== undefined && (ceiling === undefined || cap < ceiling) && cap < maxTokens(req, ceiling)) {
             ceiling = cap;
             continue;
           }
-          if (!compat && isExtrasRejection(e)) {
-            compat = true;
+          const next = TIERS[TIERS.indexOf(tier) + 1];
+          if (next !== undefined && isExtrasRejection(e)) {
+            tier = next;
             continue;
           }
           throw e;
@@ -356,6 +375,6 @@ export function createClaudeDriver(opts: DriverCreateOptions, factory: ClaudeCli
 
 export default defineDriver({
   name: DRIVER_NAME,
-  description: 'Anthropic Messages API (adaptive thinking, server-side fallback, automatic prompt caching).',
+  description: 'Anthropic Messages API (adaptive thinking, server-side fallback, automatic prompt caching; steps down for older models).',
   create: (opts) => createClaudeDriver(opts),
 });

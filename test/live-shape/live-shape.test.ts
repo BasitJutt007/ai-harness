@@ -349,7 +349,7 @@ describe('model agnosticism across the two real drivers', () => {
 });
 
 describe('400 downgrade through the real SDK', () => {
-  it('claude: a 400 naming an optional extra switches to the plain endpoint and the run continues', () => {
+  it('claude: a 400 naming an optional extra switches to the plain endpoint (caching kept) and the run continues', () => {
     expect(claudeCompat.rejections).toEqual([]);
     expect(claudeCompat.injected).toHaveLength(1);
     expect(claudeCompat.injected[0]?.url.searchParams.get('beta')).toBe('true');
@@ -358,7 +358,8 @@ describe('400 downgrade through the real SDK', () => {
     for (const r of creates.slice(1)) {
       expect(r.url.searchParams.has('beta')).toBe(false);
       expect(r.headers.get('anthropic-beta')).toBeNull();
-      expect(Object.keys(r.body).sort()).toEqual(['max_tokens', 'messages', 'model', 'system', 'tool_choice', 'tools']);
+      expect(Object.keys(r.body).sort()).toEqual(['cache_control', 'max_tokens', 'messages', 'model', 'system', 'tool_choice', 'tools']);
+      expect(r.body['cache_control']).toEqual({ type: 'ephemeral' });
     }
     const s = claudeCompatRun.summary;
     expect(s.status).toBe('max_turns');
