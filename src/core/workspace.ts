@@ -2,13 +2,13 @@
  * Git worktrees and the sandboxed filesystem view of the governed API.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, symlinkSync } from 'node:fs';
 import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
 import { exec } from './exec.ts';
-import { linkDependencies } from './target.ts';
+import { linkDependencies, prismaClientOutputs } from './target.ts';
 import type { HarnessConfig, Workspace } from './types.ts';
 
 export function sha256(text: string | Buffer): string {
@@ -91,6 +91,17 @@ export async function createWorktree(opts: {
   const apiRel = opts.apiRel ?? (toPosix(relative(top, realpathSync(repoDir))) || '.');
   const inHarness = isInside(realpathSync(harnessRoot), realpathSync(worktreeRoot));
   linkDependencies(top, apiRel, worktreeRoot, inHarness ? undefined : join(harnessRoot, 'node_modules'));
+  // A generated Prisma client the source imports but git does not track (e.g. generated/prisma) is build
+  // output like node_modules: linked from the target checkout, so the worktree type-checks and tests as it does.
+  const tracked = async (rel: string): Promise<boolean> => (await exec('git', ['-C', top, 'ls-files', '--error-unmatch', '--', rel], { cwd: top })).code === 0;
+  const candidates = prismaClientOutputs(top, () => false);
+  for (const rel of candidates) {
+    if (await tracked(rel)) continue;
+    const dest = join(worktreeRoot, rel);
+    if (existsSync(dest)) continue;
+    await mkdir(dirname(dest), { recursive: true });
+    symlinkSync(realpathSync(join(top, rel)), dest, 'dir');
+  }
   return { worktreeRoot: realpathSync(worktreeRoot), baseBranch, baseSha };
 }
 
