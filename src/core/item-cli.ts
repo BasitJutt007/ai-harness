@@ -21,6 +21,7 @@ import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
 import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
+import { repoCommitlint } from './ship-text.ts';
 import type { Exec } from './types.ts';
 
 type Out = (line: string) => void;
@@ -62,6 +63,7 @@ Owner: <team or person who pays for this>
 Stakeholder: <the person whose typed yes approves this contract>
 Repo: <owner/name of the repository the change lands in>
 Base: <branch the harness PR targets>
+Commit: <type>(<scope>): <subject naming what changes: the header the harness commits and titles the PR with>
 Metric: <name>, <window> before: ____ after: ____
 Measure: node metrics/<script>.mjs [args]
 Scenario: WHEN <condition> THEN <observable result>
@@ -180,6 +182,14 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
           return 1;
         }
         if (c.measure === null) return 1;
+        // The Commit header is approved with the contract, so the repository's own rules see it first.
+        const header = (c.fields.Commit ?? '').trim();
+        const lint = await repoCommitlint(run, repoDir, `${header}\n`);
+        if (lint.status === 'fail' || lint.status === 'unproven') {
+          out(`refused: Commit "${header}": ${lint.summary}`);
+          for (const d of lint.details) out(`  ${d}`);
+          return 1;
+        }
         const before = await readMetric({ harnessRoot, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug });
         if (!before.ok) {
           out(`refused: the before value could not be read: ${before.reason}`);
@@ -190,6 +200,7 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
         out(`proposed ${slug} (ledger seq ${p.seq}, contract ${c.hash.slice(0, 12)}) to ${(c.fields.Stakeholder ?? '').trim()}`);
         out(`  Problem   ${(c.fields.Problem ?? '').split('\n')[0] ?? ''}`);
         out(`  Owner     ${(c.fields.Owner ?? '').trim()}`);
+        out(`  Commit    ${header}  (${lint.summary})`);
         out(`  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: before ${reading.value} (read at origin/${base} ${reading.sha.slice(0, 12)})`);
         for (const sc of c.scenarios) out(`  Scenario  WHEN ${sc.when} THEN ${sc.then}`);
         out(`  Not incl. ${c.notIncluded.join('; ')}`);

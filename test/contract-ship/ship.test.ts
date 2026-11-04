@@ -146,8 +146,13 @@ describe('ship', () => {
 
     expect(await git(s.repo, 'log', '-1', '--format=%an <%ae>')).toBe('sf-harness <harness@localhost>');
     const msg = await git(s.repo, 'log', '-1', '--format=%B');
-    expect(msg).toContain('run: projects-change-scripted-20261002-120000');
-    expect(msg).toContain('gate  stub');
+    // The approved contract's Commit line is the header; its Problem is the body; no trailers.
+    expect(msg.split('\n')[0]).toBe('test(fixture): drive a governed run through projects-change');
+    expect(msg).toContain('Test fixture item projects-change: the suite drives a governed run\nthrough it.');
+    expect(msg.split('\n').every((l) => l.length <= 72)).toBe(true);
+    expect(msg).toContain('- WHEN the run finishes THEN its gates decide');
+    expect(msg).toContain('Harness run: projects-change-scripted-20261002-120000');
+    expect(msg).not.toMatch(/co-authored-by|generated with/i);
     expect((await git(s.repo, 'show', '--name-only', '--format=', 'HEAD')).split('\n').sort()).toEqual(['api/src/app.ts', 'api/src/new.ts']);
     expect(await git(s.repo, 'status', '--porcelain')).toBe('M README.md');
     expect(await git(s.repo, 'rev-parse', 'main')).toBe(s.baseSha);
@@ -163,9 +168,14 @@ describe('ship', () => {
     expect(r.prUrl).toBe('https://example.test/org/repo/pull/7');
     const pr = ghCalls.find((a) => a[0] === 'pr');
     expect(pr?.slice(0, 6)).toEqual(['pr', 'create', '--base', 'main', '--head', 'harness/projects-change']);
+    expect(pr?.[pr.indexOf('--title') + 1]).toBe('test(fixture): drive a governed run through projects-change');
     const body = pr?.[pr.indexOf('--body') + 1] ?? '';
     expect(body).toContain('gate  stub');
     expect(body).toContain('### Tokens');
+    // No PR template in this repository: the harness layout, filled from the contract.
+    expect(body).toMatch(/^# Description\n\nTest fixture item projects-change/);
+    expect(body).toContain('No ticket: backlog item `projects-change`');
+    expect(body).toContain('Approval: Test Stakeholder typed "yes, approved" at a terminal');
   });
 
   it('no remote → committed, not pushed', async () => {

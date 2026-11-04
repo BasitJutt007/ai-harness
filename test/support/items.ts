@@ -15,6 +15,7 @@ export function contractFor(slug: string, overrides: Record<string, string> = {}
     Stakeholder: 'Test Stakeholder',
     Repo: 'fixture/repo',
     Base: 'main',
+    Commit: `test(fixture): drive a governed run through ${slug}`,
     Metric: 'fixture metric, one run before: ____ after: ____',
     Measure: 'node metrics/fixture-zero.mjs',
     Scenario: 'WHEN the run finishes THEN its gates decide',
