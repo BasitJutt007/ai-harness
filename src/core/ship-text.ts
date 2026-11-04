@@ -79,16 +79,18 @@ export function commitHeaderProblems(header: string): string[] {
 
 // ───────────────────────────── commit message ─────────────────────────────
 
-const AI_NAME = /\b(claude|anthropic|openai|chatgpt|gpt-?\d[\w.-]*|copilot|cursor|gemini|codex|llm)\b/i;
+/** The "...-by:" trailers a person signs; any other (Assisted-by, Generated-by, ...) is attribution. */
+const PERSON_TRAILERS = new Set(['signed-off-by', 'reviewed-by', 'acked-by', 'tested-by', 'reported-by', 'suggested-by', 'helped-by']);
 
 /** AI attribution and co-author trailers: the harness commits, a person merges, nobody co-authors. */
 export function trailerProblems(message: string): string[] {
   const out: string[] = [];
   for (const line of message.split('\n')) {
     const l = line.trim();
-    if (/^co-authored-by\s*:/i.test(l)) out.push(`"${l}": no co-author trailer`);
+    const by = /^([A-Za-z-]+-by)\s*:/i.exec(l)?.[1]?.toLowerCase();
+    if (by === 'co-authored-by') out.push(`"${l}": no co-author trailer`);
     else if (/\bgenerated (with|by)\b/i.test(l) || l.includes('🤖')) out.push(`"${l}": no "generated with" attribution`);
-    else if (/^[A-Za-z-]+-by\s*:/i.test(l) && AI_NAME.test(l)) out.push(`"${l}": no AI attribution trailer`);
+    else if (by !== undefined && !PERSON_TRAILERS.has(by)) out.push(`"${l}": not a trailer a person signs (no attribution trailers)`);
   }
   return out;
 }
