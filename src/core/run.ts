@@ -17,6 +17,7 @@ import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from 
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
 import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
+import { modelAllowed, modelPolicyVerdict, normalizeModel, SpendMeter, spendLine } from './spend.ts';
 import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
 import { loadRegistry, pluginFingerprint, toolSpecs } from './registry.ts';
 import { deserializeState, newRunId, newRunState, RunStore, serializeState } from './run-store.ts';
@@ -544,6 +545,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   } catch (e) {
     throw new Error(`driver "${opts.driver}" could not start: ${errMsg(e)}`);
   }
+  // Habit 9: only an allowed, priced model runs, under the run's spend cap (src/core/spend.ts).
+  const policy = modelPolicyVerdict(config.models, driver.name, driver.model);
+  if (!policy.ok) throw new Error(`refused before the first model turn (no tokens spent): ${policy.reason}`);
+  const meter = new SpendMeter(config.models.maxRunUsd, policy.price, normalizeModel(driver.model));
 
   // ── workspace: a fresh worktree of the target repository; the target checkout itself is never touched.
   const startedAt = new Date();
@@ -745,6 +750,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       maxTurns: turnLimit.max,
       ...(turnLimit.extension !== undefined ? { turnExtension: turnLimit.extension } : {}),
       maxOutputTokens: task.limits.maxOutputTokens,
+      spend: { meter, allowed: (m) => modelAllowed(config.models, m) },
       ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
     });
   } catch (e) {
@@ -868,6 +874,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     },
     evidence,
     honesty: h,
+    spend: { model: meter.model, spentUsd: Number(meter.spentUsd.toFixed(6)), capUsd: meter.capUsd, price: meter.price },
     ...(shipped !== undefined ? { ship: shipped } : {}),
   });
 
@@ -887,6 +894,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       : `           baseline is a shadow estimate (never sent); measured: harness run <task> --baseline, then harness tokens compare ${runId} <baselineRunId>`,
     `evidence   ${harnessRel(runDir)}/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}`,
     `           ${evidence.tokens}`,
+    `spend      ${spendLine(meter)}`,
     `worktree   ${wt.worktreeRoot}  branch ${branch}  (base ${wt.baseBranch} @ ${wt.baseSha.slice(0, 12)}; ${repoDir} untouched)`,
     ...formatHonesty(h),
     ...(shipped !== undefined ? [`ship       ${shipped.status}${shipped.commit !== undefined ? ` ${shipped.commit.slice(0, 12)}` : ''}${shipped.prUrl !== undefined ? ` ${shipped.prUrl}` : ''}${shipped.reasons.length > 0 ? `: ${shipped.reasons.join('; ')}` : ''}`] : []),

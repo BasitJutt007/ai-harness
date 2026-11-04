@@ -36,6 +36,7 @@ beforeAll(async () => {
   summary = await executeRun({
     taskFile: USERS_TASK,
     driver: 'openai',
+    model: 'gpt-5.6-luna',
     driverOptions: {},
     baseline: false,
     ship: false,
