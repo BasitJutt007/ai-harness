@@ -80,7 +80,7 @@ export default defineGate({
         const current = await ws.read(rel);
         if (current !== null && sha256(current) === initial) continue; // untouched scaffold file
       }
-      const policy = writePolicy(ctx.task, rel);
+      const policy = writePolicy(ctx.task, rel, ctx.stack);
       if (policy.allowed) inScope++;
       else violations.push(`${rel}: ${policy.reason}`);
     }

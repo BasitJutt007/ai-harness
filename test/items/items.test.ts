@@ -14,12 +14,12 @@ import {
   type LedgerEvent,
 } from '../../src/core/items.ts';
 
-export const COMPLETE = `# Guard the vendor export route
+export const COMPLETE = `# Guard the export route
 
-Problem: Vendors without a plan can download the full leads export; QA reproduced it on 3 Nov.
-Owner: web product team
+Problem: Customers without a plan can download the full export; QA reproduced it on a staging account.
+Owner: Example product team
 Stakeholder: Abdul Basit
-Repo: example-org/api-backend
+Repo: example-org/shop-api
 Base: harness-test
 Metric: unguarded export routes, harness-test HEAD before: ____ after: ____
 Measure: node metrics/unguarded-routes.mjs src/modules/leads

@@ -20,7 +20,7 @@ export default defineHook({
     for (const p of event.call.paths) {
       const r = toApiRel(ctx.workspace, p);
       // Invalid or out-of-policy paths are path-guard's business (it blocks them with the precise reason).
-      if (!r.ok || !writePolicy(ctx.task, r.rel).allowed || !isGovernedSource(r.rel)) continue;
+      if (!r.ok || !writePolicy(ctx.task, r.rel, ctx.stack).allowed || !isGovernedSource(r.rel)) continue;
       // Deleting a file this run created only returns to the run-start state: no red needed.
       if (event.call.preview?.get(p) === null && !ctx.state.initialHashes.has(r.rel)) continue;
       const lock = await lockState(ctx, r.rel);
