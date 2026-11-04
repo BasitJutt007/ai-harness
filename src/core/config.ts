@@ -14,6 +14,10 @@ function stripTrailingSep(p: string): string {
 /** Absolute path of the harness repository (two levels up from src/core). */
 export const HARNESS_ROOT: string = stripTrailingSep(fileURLToPath(new URL('../../', import.meta.url)));
 
+const PriceSchema = z
+  .object({ input: z.number().min(0), cachedInput: z.number().min(0), output: z.number().min(0), note: z.string().optional() })
+  .strict();
+
 const ConfigSchema = z
   .object({
     pluginDirs: z.array(z.string().min(1)).default(['plugins']),
@@ -39,6 +43,15 @@ const ConfigSchema = z
       .default({ maxReadLines: 160, maxListEntries: 200, maxSearchHits: 40 }),
     // Isolation of agent-written code (src/core/sandbox.ts). HARNESS_SANDBOX=off|auto overrides it.
     sandbox: z.enum(['auto', 'off']).default('auto'),
+    // Model allowlist and spend cap (src/core/spend.ts). Without it only the offline replay may run.
+    models: z
+      .object({
+        allow: z.array(z.string().min(1)).default(['scripted:*']),
+        prices: z.record(z.string().min(1), PriceSchema).default({ 'scripted:*': { input: 0, cachedInput: 0, output: 0 } }),
+        maxRunUsd: z.number().positive().default(2),
+      })
+      .strict()
+      .default({ allow: ['scripted:*'], prices: { 'scripted:*': { input: 0, cachedInput: 0, output: 0 } }, maxRunUsd: 2 }),
   })
   .strict();
 

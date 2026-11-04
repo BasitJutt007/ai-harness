@@ -487,6 +487,25 @@ export interface ExecOptions {
 /** Deterministic subprocess execution (provider keys are always stripped from the env). */
 export type Exec = (cmd: string, args: string[], opts: ExecOptions) => Promise<ExecResult>;
 
+/** USD per million tokens (an upper bound: the config names where each price comes from). */
+export interface ModelPrice {
+  input: number;
+  /** Input the provider reports as served from its cache. */
+  cachedInput: number;
+  output: number;
+  note?: string;
+}
+
+/** Which models a run may use and what it may spend (src/core/spend.ts). */
+export interface ModelPolicy {
+  /** Model ids, or prefixes ending in "*" (e.g. "scripted:*"); anything else is refused before the first turn. */
+  allow: string[];
+  /** Price per model id (or "*" prefix); an allowed model without one is refused (the cap could not be enforced). */
+  prices: Record<string, ModelPrice>;
+  /** USD cap per run: a request whose worst case would pass it is never sent. */
+  maxRunUsd: number;
+}
+
 export interface HarnessConfig {
   pluginDirs: string[];
   disabled: string[];
@@ -503,6 +522,8 @@ export interface HarnessConfig {
    * (recorded as UNPROVEN isolation in run evidence).
    */
   sandbox: 'auto' | 'off';
+  /** Model allowlist and spend cap. Default (no config): only the offline replay driver may run. */
+  models: ModelPolicy;
 }
 
 export interface TestRunReport {
