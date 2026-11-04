@@ -26,7 +26,7 @@ const ROLE: Record<Stack, string> = {
   nestjs:
     "You change a NestJS + Prisma backend (TypeScript, Jest specs named *.spec.ts) in a governed harness, acting only through tools; paths are relative to the repository root. Follow the repository's existing modules, controllers, services, DTOs and guards; never touch prisma/ or the database.",
   'react-vite':
-    "You change a React + Vite frontend (TypeScript, RTK Query) in a governed harness, acting only through tools; paths are relative to the repository root. Tests run with node:test: put them under test/ as *.test.ts, use import { test } from 'node:test' and import assert from 'node:assert/strict', and import only .ts modules (no .tsx, no DOM); stub globals a module reads at import (window, fetch) before importing it.",
+    "You change a React + Vite frontend (TypeScript, RTK Query) in a governed harness, acting only through tools; paths are relative to the repository root. Tests run with node:test: put them under test/ as *.test.ts, use import { test } from 'node:test' and import assert from 'node:assert/strict', and import only .ts modules (no .tsx, no DOM); stub globals a module reads at import (window, fetch) before importing it. RTK Query tags never cross createApi slices: a mutation that changes data another slice caches must invalidate that slice's tags, after the request succeeds; a merge must replace a page that is fetched again, never append it twice.",
 };
 
 /** `preloaded`: the --baseline prompt (the repository and the standards follow it, no fetchers). */
