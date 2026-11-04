@@ -774,6 +774,8 @@ interface RunnerChoice {
   kind: RunnerKind | 'unknown';
   name: string;
   evidence: string;
+  /** node:test: load tsx (extensionless relative imports, .tsx) even where node strips types itself. */
+  tsxLoader?: boolean;
 }
 
 function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: string[]): RunnerChoice {
@@ -811,7 +813,8 @@ function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: strin
   // change package.json and the lockfile (which no run may write), and the harness's vitest would load the app's
   // vite.config (which the sandbox refuses to let it bundle into node_modules). The team runs the tests with `node --test`.
   if (seen.vitest === 0 && deps['react'] !== undefined && deps['vite'] !== undefined) {
-    return { kind: 'node-test', name: 'node:test', evidence: "no runner declared: a React + Vite app gets node:test (no dependency to add, no Vite config to load)" };
+    // With tsx as the loader: Vite apps import extensionless relative paths, which Node's own type stripping cannot resolve.
+    return { kind: 'node-test', name: 'node:test', evidence: "no runner declared: a React + Vite app gets node:test with tsx (no dependency to add, no Vite config to load; run with npx tsx --test)", tsxLoader: true };
   }
   return { kind: 'vitest', name: 'vitest', evidence: seen.vitest > 0 ? 'test files import vitest' : 'no runner declared (harness default)' };
 }
@@ -826,7 +829,7 @@ function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | nu
     const nodeArgs = [...(parsed?.nodeArgs ?? [])];
     const needsTs = testFiles.some((f) => TS_SOURCE_RE.test(f)) || (parsed?.globs ?? []).some((g) => /ts/.test(g));
     const native = Boolean((process.features as { typescript?: unknown }).typescript);
-    if ((parsed?.tsx === true || (needsTs && !native)) && !nodeArgs.some((a) => a.includes('tsx'))) {
+    if ((parsed?.tsx === true || choice.tsxLoader === true || (needsTs && !native)) && !nodeArgs.some((a) => a.includes('tsx'))) {
       const loader = packageEntry(resolvePackage('tsx', apiRoot, { ...ctx, declared }));
       if (loader === null) {
         return { kind: 'node-test', name: 'node:test', supported: false, reason: 'node:test with TypeScript needs tsx (or a node with type stripping); neither is available', evidence: choice.evidence };
