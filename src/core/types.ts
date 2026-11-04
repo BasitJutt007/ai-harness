@@ -206,7 +206,7 @@ interface TaskCommon {
    * `maxTurns` absent: the task file named none, so the harness scales a default with the task's
    * size and may extend it while the gates make progress (loop.ts turnLimitFor). Present: a hard cap.
    */
-  limits: { maxTurns?: number | undefined; maxOutputTokens: number };
+  limits: { maxTurns?: number | undefined; maxOutputTokens: number; maxDiffLines?: number | undefined };
   /** Free-text description of the task, shown to the model verbatim. */
   brief?: string | undefined;
   /** Top-level task-file keys the harness has no slot for, carried to the model verbatim. */

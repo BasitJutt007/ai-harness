@@ -892,9 +892,11 @@ function limitsOf(v: unknown, warn: (s: string) => void): Obj | undefined {
       ? 'maxTurns'
       : ['maxoutputtokens', 'maxtokens', 'outputtokens', 'maxoutput'].includes(n)
         ? 'maxOutputTokens'
-        : undefined;
+        : ['maxdifflines', 'difflines', 'maxdiff'].includes(n)
+          ? 'maxDiffLines'
+          : undefined;
     if (isProviderKey(k, x)) continue; // reported as an error already
-    if (key === undefined) warn(`limits.${k}: ignored (known limits: maxTurns, maxOutputTokens)`);
+    if (key === undefined) warn(`limits.${k}: ignored (known limits: maxTurns, maxOutputTokens, maxDiffLines)`);
     else out[key] = numberOf(x) ?? x;
   }
   return out;

@@ -62,8 +62,10 @@ Keys are matched ignoring case, `-`, `_`, `.` and spaces. The canonical name is 
 | `template`, `scope`, `allowBreaking`, `limits` | `scaffold`; `allow_breaking` | defaults |
 | `specCoverage` | `spec_coverage` | absent (see below) |
 
-**Limits** are `maxTurns` (also `turns`, `maxSteps`) and `maxOutputTokens` (also `maxTokens`,
-default 16,000); any other key under `limits` is ignored with a note. A `maxTurns` in the task (or
+**Limits** are `maxTurns` (also `turns`, `maxSteps`), `maxOutputTokens` (also `maxTokens`,
+default 16,000) and `maxDiffLines` (also `diffLines`, `maxDiff`: the changed lines a brownfield change
+may have, default 400, enforced by the `diff-budget` gate); any other key under `limits` is ignored
+with a note. A `maxTurns` in the task (or
 `--max-turns`) is a hard cap. Without one the limit scales with the task: 40 turns, plus 20 per
 resource (a brief-only task or a change counts as one), plus 2 per behaviour, at most 150; when a run
 reaches it while the gates are making progress (the latest refused finish had fewer failing units
