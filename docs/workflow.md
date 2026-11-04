@@ -123,6 +123,10 @@ says so. Each contract is in `docs/contracts/<slug>.md`.
 | Problem statement before any edit ("understand first, I'll give the go-ahead") | hook | `plugins/hooks/problem-gate.ts` |
 | My yes, typed by me, after the proposal; the Stop holds without it | hook + gate | `plugins/hooks/contract-gate.ts`, `plugins/gates/stakeholder-yes.ts` |
 | Metric read after the merge, next to its before value, before an item closes | check | `src/core/close.ts` (`harness item close`) |
+| Mid-flight changes (a decision relayed while the code is half built) | hook | `plugins/hooks/problem-gate.ts`: a contract changed mid-run stops every edit until it is proposed again and approved |
+| Re-briefing the agent every session | context | `src/core/prompt.ts` (`taskBrief`): the approved contract opens every run's brief; `items/<slug>/ledger.jsonl` is the item's record |
+| Work that arrives without a ticket | check at ship | `src/core/ship-text.ts`: the contract's optional Ticket fills the template's ticket line; without one the PR says the approved contract is the ticket |
+| Review round-trips on large PRs (blocked PRs: median 487 changed lines, the rest 67) | gate | `plugins/gates/diff-budget.ts`: a brownfield change over 400 changed lines (or the task's `limits.maxDiffLines`) is refused |
 | 1. Routes without the access check they need | check | `plugins/checks/nest-route-guard.ts` |
 | 2. Backend changes the frontends don't match (removed or moved routes) | gate | `plugins/gates/route-lock.ts` |
 | 3. No test proves a change | hook + gate (01) | `plugins/hooks/observed-red.ts`, `plugins/gates/observed-red.ts`, `plugins/gates/tests-green.ts` |
