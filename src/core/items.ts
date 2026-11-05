@@ -49,8 +49,14 @@ export function itemsRoot(harnessRoot: string, env: NodeJS.ProcessEnv = process.
   return o !== undefined && o.length > 0 ? resolve(harnessRoot, o) : harnessRoot;
 }
 
+/** Why `slug` cannot name an item, or null (the command line checks it before reading anything). */
+export function slugProblem(slug: string): string | null {
+  return SLUG_RE.test(slug) ? null : `invalid item slug "${slug}": use lower-case letters, digits and dashes (2-63 characters)`;
+}
+
 export function itemPaths(harnessRoot: string, slug: string): ItemPaths {
-  if (!SLUG_RE.test(slug)) throw new Error(`invalid item slug "${slug}": use lower-case letters, digits and dashes (2-63 characters)`);
+  const bad = slugProblem(slug);
+  if (bad !== null) throw new Error(bad);
   const dir = join(harnessRoot, ITEMS_DIR, slug);
   return { slug, contract: join(harnessRoot, CONTRACTS_DIR, `${slug}.md`), dir, ledger: join(dir, 'ledger.jsonl') };
 }

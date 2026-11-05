@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
 import { main } from '../../src/core/cli.ts';
-import { cmdGate } from '../../src/core/item-cli.ts';
+import { cmdGate, cmdItem } from '../../src/core/item-cli.ts';
 import { appendLedger, appendShipped, itemPaths, parseContract, proposeItem, recordReply } from '../../src/core/items.ts';
 import { isMainModule } from '../../src/core/main-module.ts';
 import { contractFor, writeContract } from '../support/items.ts';
@@ -87,6 +87,51 @@ describe('harness gate', () => {
     const cli: string[] = [];
     expect(await main(['gate', 'outcome', SLUG, '--repo'], (l) => cli.push(l))).toBe(64);
     expect(cli.join('\n')).toBe(`--repo needs a value\n${usage}`);
+  });
+
+  it('an option given without a value (--ship, --dry-run, --json, --baseline, --strict-task) and an invalid slug are usage errors (64); without them the gate decides (the twin)', async () => {
+    const root = tmp();
+    writeContract(root, SLUG);
+    proposeItem(root, SLUG, { session: 's', before: null });
+    recordReply(root, SLUG, 'yes', 'tty', 's');
+    const usage = 'usage: harness gate problem-statement|human-yes <slug>, or harness gate outcome <slug> [--repo <dir>]';
+    for (const flag of ['ship', 'dry-run', 'json', 'baseline', 'strict-task']) {
+      const lines: string[] = [];
+      expect(await cmdGate({ positionals: ['human-yes', SLUG], flags: new Map(), bools: new Set([flag]) }, (l) => lines.push(l), { root, harnessRoot: root }), flag).toBe(64);
+      expect(lines.join('\n')).toBe(`unknown option --${flag}\n${usage}`);
+    }
+    expect((await gate(root, 'human-yes', SLUG)).code).toBe(0);
+    // a mistyped slug is not a verdict on an item: 64 before anything is read; a well-formed one gets its verdict
+    for (const bad of ['Users_API', 'a', '../x', '-x']) {
+      const r = await gate(root, 'human-yes', bad);
+      expect(r.code, bad).toBe(64);
+      expect(r.text).toBe(`invalid item slug "${bad}": use lower-case letters, digits and dashes (2-63 characters)\n${usage}`);
+    }
+    expect(await gate(root, 'human-yes', 'users-api')).toMatchObject({ code: 2, text: expect.stringMatching(/^REFUSE {2}human-yes {2}users-api: /) });
+    // through the real CLI: the parsed --json reaches harness gate as an option it refuses
+    const cli: string[] = [];
+    expect(await main(['gate', 'problem-statement', 'no-such-item', '--json'], (l) => cli.push(l))).toBe(64);
+    expect(cli.join('\n')).toBe(`unknown option --json\n${usage}`);
+    expect(await main(['gate', 'problem-statement', 'no-such-item'], () => undefined)).toBe(2);
+  });
+
+  it('harness item takes no option but --repo either, and refuses an invalid slug as a usage error (2); without them it answers (the twin)', async () => {
+    const root = tmp();
+    writeContract(root, SLUG);
+    const run = async (positionals: string[], bools?: Set<string>): Promise<{ code: number; text: string }> => {
+      const lines: string[] = [];
+      const code = await cmdItem({ positionals, flags: new Map(), ...(bools !== undefined ? { bools } : {}) }, (l) => lines.push(l), { root, harnessRoot: root });
+      return { code, text: lines.join('\n') };
+    };
+    for (const flag of ['ship', 'json', 'dry-run']) {
+      const r = await run(['status', SLUG], new Set([flag]));
+      expect(r.code, flag).toBe(2);
+      expect(r.text).toMatch(new RegExp(`^unknown option --${flag}: no item command takes a value from the command line`));
+    }
+    const bad = await run(['status', 'Gate_Item']);
+    expect(bad.code).toBe(2);
+    expect(bad.text).toMatch(/^invalid item slug "Gate_Item": use lower-case letters, digits and dashes \(2-63 characters\)\nusage: harness item /);
+    expect(await run(['status', SLUG])).toMatchObject({ code: 0, text: expect.stringMatching(/^gate-item\s+unproposed/) });
   });
 
   it('--repo is refused (64) for problem-statement and human-yes, where it does nothing; outcome takes it (the twin)', async () => {

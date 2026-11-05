@@ -19,7 +19,7 @@ import { createInterface } from 'node:readline';
 import { closeItem, ledgerFacts, preconditions } from './close.ts';
 import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
-import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, problemStatementVerdict, proposeItem, readLedger, recordReply, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
+import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, problemStatementVerdict, proposeItem, readLedger, recordReply, slugProblem, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
 import { provenanceText } from './provenance.ts';
 import { repoCommitlint } from './ship-text.ts';
@@ -31,6 +31,13 @@ type Out = (line: string) => void;
 export interface ItemArgs {
   positionals: string[];
   flags: Map<string, string[]>;
+  /** Options given without a value (--ship, --dry-run, --json, ...): no item or gate command takes one. */
+  bools?: ReadonlySet<string>;
+}
+
+/** The first option that is not `--repo` (a value option or one given without a value), or undefined. */
+function unknownOption(a: ItemArgs): string | undefined {
+  return [...a.flags.keys(), ...(a.bools ?? [])].find((k) => k !== 'repo');
 }
 
 /** Where the stakeholder's reply comes from. The real one reads process.stdin and says whether it is a terminal. */
@@ -209,10 +216,16 @@ export async function cmdItem(
     out(usage);
     return 2;
   }
-  // No option supplies a value, a yes or a close: anything but --repo is refused, never ignored.
-  const unknown = [...a.flags.keys()].find((k) => k !== 'repo');
+  // No option supplies a value, a yes or a close: anything but --repo (with or without a value) is refused, never ignored.
+  const unknown = unknownOption(a);
   if (unknown !== undefined) {
     out(`unknown option --${unknown}: no item command takes a value from the command line (the harness reads the metric and the reply itself)\n${usage}`);
+    return 2;
+  }
+  // A mistyped slug is a usage error, not a refusal of the item.
+  const badSlug = slug === undefined ? null : slugProblem(slug);
+  if (badSlug !== null) {
+    out(`${badSlug}\n${usage}`);
     return 2;
   }
   try {
@@ -393,15 +406,22 @@ export async function gateCheck(gate: GateName, root: string, slug: string, opts
 /**
  * `harness gate problem-statement|human-yes <slug>` and `harness gate outcome <slug> [--repo <dir>]`: one
  * gate's verdict on an item, as the run's hooks and the close command decide it. Prints `PASS` or `REFUSE`
- * with the reason; exit 0 on PASS, 2 on REFUSE, and GATE_USAGE_EXIT (64) on a usage error, so a script never
- * reads a mistyped command as a refusal. `--repo` is refused where it would do nothing (only the outcome gate
- * reads a clone). Read-only: nothing is proposed, recorded or closed.
+ * with the reason; exit 0 on PASS, 2 on REFUSE, and GATE_USAGE_EXIT (64) on a usage error (an unknown gate, a
+ * missing or invalid slug, any option but --repo, with or without a value), so a script never reads a mistyped
+ * command as a verdict. `--repo` is refused where it would do nothing (only the outcome gate reads a clone).
+ * Read-only: nothing is proposed, recorded or closed.
  */
 export async function cmdGate(a: ItemArgs, out: Out, opts: { exec?: Exec; root?: string; harnessRoot?: string; harnessMetrics?: boolean } = {}): Promise<number> {
   const [gate, slug, ...extra] = a.positionals;
-  const unknown = [...a.flags.keys()].find((k) => k !== 'repo');
+  const unknown = unknownOption(a);
   if (gate === undefined || slug === undefined || extra.length > 0 || unknown !== undefined || !(GATE_NAMES as readonly string[]).includes(gate)) {
     out(unknown !== undefined ? `unknown option --${unknown}\n${GATE_USAGE}` : GATE_USAGE);
+    return GATE_USAGE_EXIT;
+  }
+  // A mistyped slug is a usage error: a script must never read it as a verdict on an item.
+  const badSlug = slugProblem(slug);
+  if (badSlug !== null) {
+    out(`${badSlug}\n${GATE_USAGE}`);
     return GATE_USAGE_EXIT;
   }
   const repoArg = one(a, 'repo');
