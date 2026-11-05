@@ -18,6 +18,7 @@
  * behaviour of the harness's own template.
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import picomatch from 'picomatch';
@@ -722,6 +723,11 @@ export interface JestFacts {
   mapper: { state: 'absent' } | { state: 'static'; entries: Record<string, string | string[]> } | { state: 'unknown' };
   /** modulePaths or moduleDirectories is set (or cannot be read): bare imports may already resolve through them. */
   resolvesBare: boolean;
+  /**
+   * The config defines `projects` (or may: it cannot be read whole): each project has its own moduleNameMapper,
+   * which a --moduleNameMapper flag would replace in every project. Absent: no projects.
+   */
+  projects?: boolean;
 }
 
 const VITEST_DEFAULT_INCLUDE = ['**/*.{test,spec}.?(c|m)[jt]s?(x)'];
@@ -899,16 +905,27 @@ function jestFacts(opts: { exact: (k: string) => StaticOption }, rootDir: string
   // node_modules alone is jest's default: only another entry can resolve a baseUrl import.
   const extraDirs = dirs.known && Array.isArray(dirs.value) && dirs.value.every((d) => d === 'node_modules');
   const resolvesBare = !paths.known || paths.value !== undefined || !dirs.known || (dirs.value !== undefined && !extraDirs);
-  if (!root.known || (root.value !== undefined && typeof root.value !== 'string')) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
-  if (!mapper.known) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
-  if (mapper.value === undefined) return { rootDir, mapper: { state: 'absent' }, resolvesBare };
-  if (!isRecord(mapper.value)) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  // `projects` set (or not readable: it may be): each project keeps its own map, which no flag may replace.
+  const projectsOpt = opts.exact('projects');
+  const projects = !projectsOpt.known || projectsOpt.value !== undefined ? { projects: true } : {};
+  if (!root.known || (root.value !== undefined && typeof root.value !== 'string')) return { rootDir, mapper: { state: 'unknown' }, resolvesBare, ...projects };
+  if (!mapper.known) return { rootDir, mapper: { state: 'unknown' }, resolvesBare, ...projects };
+  if (mapper.value === undefined) return { rootDir, mapper: { state: 'absent' }, resolvesBare, ...projects };
+  if (!isRecord(mapper.value)) return { rootDir, mapper: { state: 'unknown' }, resolvesBare, ...projects };
   const entries: Record<string, string | string[]> = {};
   for (const [k, v] of Object.entries(mapper.value)) {
     if (typeof v === 'string' || (Array.isArray(v) && v.every((x) => typeof x === 'string'))) entries[k] = v as string | string[];
-    else return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+    else return { rootDir, mapper: { state: 'unknown' }, resolvesBare, ...projects };
   }
-  return { rootDir, mapper: { state: 'static', entries }, resolvesBare };
+  return { rootDir, mapper: { state: 'static', entries }, resolvesBare, ...projects };
+}
+
+/**
+ * Whether a bare `name` (and its subpaths) is a Node builtin (`fs`, `path`, `util`, ...). The builtins only
+ * reachable with the `node:` scheme (node:test, node:sqlite, node:sea) are not: a bare `test/x` is no builtin.
+ */
+function isBuiltinName(name: string): boolean {
+  return builtinModules.includes(name);
 }
 
 function escapeRe(s: string): string {
@@ -927,6 +944,9 @@ function escapeRe(s: string): string {
 export function jestPathMapper(apiRoot: string, resolution: Pick<ResolutionConfig, 'paths' | 'baseUrl'>, facts: JestFacts): { mapper: Record<string, string | string[]>; added: string[] } | { note: string } | null {
   if (resolution.paths.length === 0 && resolution.baseUrl === null) return null;
   if (facts.mapper.state === 'unknown') return { note: 'jest: its moduleNameMapper (or rootDir) is not static, so tsconfig paths/baseUrl are not added to it; imports through them may not resolve under jest' };
+  if (facts.projects === true) {
+    return { note: "jest: the config defines projects, each with its own moduleNameMapper, which a --moduleNameMapper flag would replace in every project; none is passed, so imports through tsconfig paths/baseUrl a project does not map may not resolve under jest" };
+  }
   const existing = facts.mapper.state === 'static' ? facts.mapper.entries : {};
   const keys = (): RegExp[] => [...Object.keys(existing), ...Object.keys(derived)].flatMap((k) => {
     try {
@@ -960,7 +980,8 @@ export function jestPathMapper(apiRoot: string, resolution: Pick<ResolutionConfi
       names = [];
     }
     for (const name of names) {
-      if (name === 'node_modules' || name.startsWith('.') || exists(join(apiRoot, 'node_modules', name))) continue;
+      // Never a Node builtin's name: `^fs/(.*)$` would capture fs/promises (path/posix, util/types, ...).
+      if (name === 'node_modules' || name.startsWith('.') || isBuiltinName(name) || exists(join(apiRoot, 'node_modules', name))) continue;
       if (covered(`${name}/x`)) continue;
       derived[`^${escapeRe(name)}/(.*)$`] = fromRoot(posix.join(resolution.baseUrl, name, '$1'));
     }

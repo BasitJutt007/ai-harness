@@ -48,6 +48,19 @@ describe('jestPathMapper', () => {
     expect(jestPathMapper(tmp.dir, NO_BASE, ABSENT)).toBeNull();
   });
 
+  it("baseUrl never maps a Node builtin's name (fs/promises, path/posix and util/types stay Node's); its twin, an ordinary directory, is mapped", () => {
+    const root = join(tmp.dir, 'builtins');
+    writeTree(root, { 'fs/x.ts': '', 'path/x.ts': '', 'util/x.ts': '', 'test/x.ts': '', 'utils/x.ts': '' });
+    const r = jestPathMapper(root, { paths: [], baseUrl: '.' }, ABSENT);
+    expect(r).toEqual({ mapper: { '^test/(.*)$': '<rootDir>/test/$1', '^utils/(.*)$': '<rootDir>/utils/$1' }, added: ['^test/(.*)$', '^utils/(.*)$'] });
+  });
+
+  it('a config with projects gets no flag (it would replace every project\'s own map), only a note; the twin without projects gets the flag', () => {
+    const paths = { paths: [{ pattern: '@app/*', targets: ['src/app/*'] }], baseUrl: null };
+    expect(jestPathMapper(tmp.dir, paths, { ...ABSENT, projects: true })).toEqual({ note: expect.stringMatching(/^jest: the config defines projects, each with its own moduleNameMapper/) });
+    expect(jestPathMapper(tmp.dir, paths, ABSENT)).toMatchObject({ added: ['^@app/(.*)$'] });
+  });
+
   it('a map the harness cannot read whole is left alone (a note); modulePaths/moduleDirectories leave baseUrl to jest', () => {
     expect(jestPathMapper(tmp.dir, { paths: [{ pattern: '@app/*', targets: ['src/app/*'] }], baseUrl: null }, { ...ABSENT, mapper: { state: 'unknown' } }))
       .toEqual({ note: expect.stringMatching(/moduleNameMapper \(or rootDir\) is not static/) });
@@ -83,6 +96,38 @@ describe('the profile and the jest command line', () => {
     };
     await runTargetTests({ root, exec: fake, harnessRoot: HARNESS_ROOT, logs, turn: 1, runner: p.runner, layout: p });
     expect(calls[0]).toContain('--moduleNameMapper={"^src/(.*)$":"<rootDir>/$1"}');
+  });
+
+  it('a jest config with projects (package.json "jest" or jest.config.js): no --moduleNameMapper on the command line, and the profile says why', async () => {
+    const files = {
+      ...FAKE_JEST,
+      'tsconfig.json': JSON.stringify({ compilerOptions: { baseUrl: './', module: 'commonjs' } }),
+      'src/modules/users.ts': 'export const users = [];\n',
+    };
+    const viaPackage = join(tmp.dir, 'projects-package');
+    writeTree(viaPackage, {
+      ...files,
+      'package.json': JSON.stringify({ name: 'api', scripts: { test: 'jest' }, devDependencies: { jest: '29.7.0' }, jest: { projects: [{ displayName: 'unit', rootDir: 'src', moduleNameMapper: { '^src/(.*)$': '<rootDir>/$1' } }] } }),
+    });
+    const viaConfig = join(tmp.dir, 'projects-config');
+    writeTree(viaConfig, {
+      ...files,
+      'package.json': JSON.stringify({ name: 'api', scripts: { test: 'jest' }, devDependencies: { jest: '29.7.0' } }),
+      'jest.config.js': "module.exports = { projects: [{ displayName: 'unit', rootDir: 'src' }, { displayName: 'e2e', rootDir: 'test' }] };\n",
+    });
+    for (const root of [viaPackage, viaConfig]) {
+      const p = await computeTargetProfile({ apiRoot: root, repoRoot: root, harnessRoot: HARNESS_ROOT });
+      expect(p.runner).toMatchObject({ kind: 'jest', supported: true });
+      expect(p.runner.moduleNameMapper, root).toBeUndefined();
+      expect(p.notes.join('\n')).toMatch(/jest: the config defines projects, each with its own moduleNameMapper/);
+      const calls: string[][] = [];
+      const fake: Exec = async (_cmd, args) => {
+        calls.push(args);
+        return { code: 1, stdout: '', stderr: '', durationMs: 1, timedOut: false };
+      };
+      await runTargetTests({ root, exec: fake, harnessRoot: HARNESS_ROOT, logs, turn: 1, runner: p.runner, layout: p });
+      expect(calls[0]?.some((a) => a.startsWith('--moduleNameMapper'))).toBe(false);
+    }
   });
 
   it('the twin: a jest.config.js computing its map (ts-jest pathsToModuleNameMapper) gets no flag, and the profile says why', async () => {
