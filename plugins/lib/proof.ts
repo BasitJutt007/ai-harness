@@ -7,7 +7,8 @@
  *              first, exactly as in file mode (the observed-red hook and gate);
  *   unproven   everything else the run changed: logic outside the source roots (a red only counts for a case
  *              that uses code under them), logic without a supported runner (or a component kind the
- *              runner cannot load), styles, markup, text and data. The edit is allowed, and the
+ *              runner cannot load), styles, markup, text and data, and test support that production code
+ *              imports (a helper is the proof only while tests alone use it). The edit is allowed, and the
  *              observed-red gate reports UNPROVEN naming each file ("no test proves <files>; verify by
  *              hand"), so a run with such an edit can never end "Work completed".
  *
@@ -18,8 +19,9 @@ import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, posix, relative, sep } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { activeLayout, isSourcePath, sourceRootsLabel } from '../../src/core/plugin-api.ts';
+import { activeLayout, codeGlobs, graphFiles, importSpecifiers, isCodePath, isSourcePath, isToolingConfig, resolveImport, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import type { RunContext } from '../../src/core/plugin-api.ts';
+import { scriptSource } from './dependencies.ts';
 import { isGovernedSource, isTestFile, isTestSupport } from './red.ts';
 
 export type ProofTier = { tier: 'red' } | { tier: 'unproven'; why: string };
@@ -141,8 +143,31 @@ async function changedByGit(ctx: RunContext): Promise<Set<string> | null> {
 }
 
 /**
+ * Which of `support` (test-support files) production code imports: support file -> the first importer, a code
+ * file that is not a test, not test support and not a tool's config. A file a test dir holds is test support
+ * by where it is; production code importing it makes it production code, whatever its folder is called.
+ */
+async function productionImporters(ctx: RunContext, support: ReadonlySet<string>): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const layout = activeLayout();
+  const files = graphFiles(await ctx.workspace.list(codeGlobs(layout)));
+  const existing = new Set([...files, ...support]);
+  for (const f of files) {
+    if (!isCodePath(f, layout) || isTestFile(f) || isTestSupport(f) || isToolingConfig(f)) continue;
+    const text = scriptSource(f, (await ctx.workspace.read(f)) ?? '');
+    const name = /\.(vue|svelte)$/.test(f) ? `${f}.ts` : f;
+    for (const spec of importSpecifiers(name, text)) {
+      const target = resolveImport(f, spec, existing, layout);
+      if (target !== null && support.has(target) && !out.has(target)) out.set(target, f);
+    }
+  }
+  return out;
+}
+
+/**
  * In place: every file the run changed since it started (run-start hashes; deleted files too) that no test
- * can prove: not a test or test support, and not red-tier logic. Sorted. File mode: none.
+ * can prove: not a test or test support, and not red-tier logic. Sorted. File mode: none. A changed test-support
+ * file that production code imports is named too: it is production code that no red can be asked of.
  *
  * Only the changed files are read (git's answer, changedByGit; every git-visible file only when git cannot
  * answer), each streamed and hashed as the run-start snapshot hashed it. A changed file that is binary or
@@ -155,8 +180,10 @@ export async function unprovenEdits(ctx: RunContext): Promise<UnprovenEdit[]> {
   const fromGit = await changedByGit(ctx);
   const candidates = fromGit ?? new Set([...(await ws.list(['**/*'])), ...ctx.state.initialHashes.keys()]);
   const out: UnprovenEdit[] = [];
+  // Changed test support, checked below for production importers (only when there is some: it reads the code).
+  const support = new Set<string>();
   for (const f of [...candidates].sort()) {
-    if (isTestFile(f) || isTestSupport(f)) continue;
+    if (isTestFile(f)) continue;
     // Never a hidden path (git-ignored, .git, .env*): the listing leaves them out, so git's answer must too.
     if (fromGit !== null && ws.hidden !== undefined && (await ws.hidden(f)) !== null) continue;
     let abs: string;
@@ -167,6 +194,12 @@ export async function unprovenEdits(ctx: RunContext): Promise<UnprovenEdit[]> {
     }
     const initial = ctx.state.initialHashes.get(f);
     const facts = await fileFacts(abs);
+    if (isTestSupport(f)) {
+      // The proof, not an edit to prove, unless production code imports it (decided below).
+      const changed = facts === null ? initial !== undefined : typeof facts === 'string' || facts.hash !== initial;
+      if (changed) support.add(f);
+      continue;
+    }
     if (facts === null) {
       // Gone: a change only when it existed at run start (deleted).
       if (initial !== undefined) {
@@ -189,7 +222,12 @@ export async function unprovenEdits(ctx: RunContext): Promise<UnprovenEdit[]> {
     const t = proofTier(ctx, f);
     if (t.tier === 'unproven') out.push({ file: f, why: t.why });
   }
-  return out;
+  if (support.size > 0) {
+    for (const [file, importer] of await productionImporters(ctx, support)) {
+      out.push({ file, why: `test support that production code imports (${importer}): no red can be asked of it, so no test proves it` });
+    }
+  }
+  return out.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
 }
 
 /** "a.css, b.md and 3 more": the files of an UNPROVEN summary line. */

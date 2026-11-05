@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import observedRedGate from '../../plugins/gates/observed-red.ts';
 import observedRedHook from '../../plugins/hooks/observed-red.ts';
-import { proofTier } from '../../plugins/lib/proof.ts';
+import { proofTier, unprovenEdits } from '../../plugins/lib/proof.ts';
 import { recordUnlocked } from '../../plugins/lib/red.ts';
 import writeFile from '../../plugins/tools/write_file.ts';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
@@ -79,12 +79,13 @@ const START = {
   'api/__tests__/fixtures.js': 'export const card = 1;\n',
 };
 
-/** An in-place harness over START whose src/money.ts went red -> green (and red again on revert). */
-async function provenSrcEdit(layout: TargetLayout) {
-  const h = await makeHarness({ label: 'web-support', task: brownfieldTask(), files: START });
+/** An in-place harness over START (plus `extra`) whose src/money.ts went red -> green (and red again on revert). */
+async function provenSrcEdit(layout: TargetLayout, extra: Record<string, string> = {}, money = 'export const cents = (n) => Math.round(n * 100);\n') {
+  const files = { ...START, ...extra };
+  const h = await makeHarness({ label: 'web-support', task: brownfieldTask(), files });
   dirs.push(h.dir);
   setActiveLayout(layout);
-  for (const [rel, content] of Object.entries(START)) h.ctx.state.initialHashes.set(rel, sha(content));
+  for (const [rel, content] of Object.entries(files)) h.ctx.state.initialHashes.set(rel, sha(content));
   const ctx: RunContext = { ...h.ctx, ...IN_PLACE, runner: SUPPORTED };
   const inner = h.services.runTests;
   ctx.services.runTests = async (files) => {
@@ -104,7 +105,7 @@ async function provenSrcEdit(layout: TargetLayout) {
   await ctx.services.runTests();
   h.outcomes.set('test/money.test.ts', 'pass');
   recordUnlocked(ctx.state, 'src/money.ts');
-  await h.ws.write('src/money.ts', 'export const cents = (n) => Math.round(n * 100);\n');
+  await h.ws.write('src/money.ts', money);
   return { ...h, ctx };
 }
 
@@ -143,5 +144,84 @@ describe('an edit to production JavaScript in a test dir never passes silently',
     expect(proofTier({ ...IN_PLACE, runner: SUPPORTED }, 'src/money.ts')).toEqual({ tier: 'red' });
     expect(proofTier({ ...IN_PLACE, runner: SUPPORTED }, 'api/charge.js')).toMatchObject({ tier: 'unproven', why: expect.stringMatching(/outside the source roots/) });
     expect(proofTier({ runner: SUPPORTED }, 'api/charge.js')).toEqual({ tier: 'red' });
+  });
+});
+
+/**
+ * The folder-name rule is narrow: integration/, spec/ and specs/ find tests (TEST_DIR_RE) but production code
+ * uses those names too (a payment provider integration, an API spec module), so in place they never make a file
+ * test support. A support file that production code imports is production code too: named, never the proof.
+ */
+describe('production JavaScript in a folder named like a test dir, and support that production imports', () => {
+  const INTEGRATION = {
+    ...MIXED,
+    'api/integration/charge.js': "import { cents } from '../../src/money.ts';\nexport const charge = (n) => ({ amount: cents(n) });\n",
+    'api/integration/charge.test.js': "import { expect, it } from 'vitest';\nimport { charge } from './charge.js';\nit('charge', () => expect(charge(1).amount).toBe(100));\n",
+    'api/spec/openapi.js': 'export const spec = { openapi: "3.1.0" };\n',
+  };
+
+  it('in place: api/integration/charge.js and api/spec/openapi.js are governed; __tests__/, e2e/, __mocks__/ and test/ helpers stay support (the twins)', async () => {
+    const root = join(tmp.dir, 'integration');
+    writeTree(root, { ...INTEGRATION, 'api/e2e/login.js': 'export const user = "a";\n' });
+    const p = await computeTargetProfile({ apiRoot: root, repoRoot: root, harnessRoot: HARNESS_ROOT, inPlace: true });
+    expect(p.testSupportRoots).toEqual(['api']);
+    for (const f of ['api/integration/charge.js', 'api/spec/openapi.js', 'api/specs/x.js']) {
+      expect(isTestSupportPath(f, p), f).toBe(false);
+      expect(isGovernedCodePath(f, p), f).toBe(true);
+    }
+    for (const f of ['api/__tests__/fixtures.js', 'api/e2e/login.js', 'api/integration/__mocks__/stripe.js', 'api/integration/test/helpers.js']) {
+      expect(isTestSupportPath(f, p), f).toBe(true);
+    }
+  });
+
+  it('file-mode twin: the 01 rule is unchanged (api/integration/helper.ts in a dedicated test dir is support)', async () => {
+    const root = join(tmp.dir, 'integration-file');
+    writeTree(root, { ...INTEGRATION, 'api/integration/helper.ts': 'export const two = 2;\n' });
+    const p = await computeTargetProfile({ apiRoot: root, repoRoot: root, harnessRoot: HARNESS_ROOT });
+    expect(p.testSupportRoots).toEqual(['api']);
+    expect(isTestSupportPath('api/integration/helper.ts', p)).toBe(true);
+  });
+
+  const EXTRA = { 'api/integration/charge.js': 'export const charge = (n) => n;\n' };
+
+  it('a proven src/ edit plus an api/integration/charge.js edit is UNPROVEN naming it, and the hook records it', async () => {
+    const h = await provenSrcEdit(WEB, EXTRA);
+    const v = await observedRedHook.run({ event: 'pre_tool', call: callInfo(writeFile, { path: 'api/integration/charge.js', content: 'export const charge = (n) => n * 2;\n' }) }, h.ctx);
+    expect(v).toMatchObject({ decision: 'record' });
+    await h.ws.write('api/integration/charge.js', 'export const charge = (n) => n * 2;\n');
+    expect(await unprovenEdits(h.ctx)).toEqual([{ file: 'api/integration/charge.js', why: expect.stringMatching(/logic outside the source roots/) }]);
+    const r = await observedRedGate.run(h.ctx, 'finish');
+    expect(r.status).toBe('unproven');
+    expect(r.summary).toMatch(/no test proves api\/integration\/charge\.js; verify by hand/);
+  });
+
+  it('the twin: the same proven src/ edit with an api/__tests__/ helper change passes', async () => {
+    const h = await provenSrcEdit(WEB, EXTRA);
+    await h.ws.write('api/__tests__/fixtures.js', 'export const card = 2;\n');
+    expect(await unprovenEdits(h.ctx)).toEqual([]);
+    expect(await observedRedGate.run(h.ctx, 'finish')).toMatchObject({ status: 'pass' });
+  });
+
+  const HELPER = { 'test/helpers/round.js': 'export const round = (n) => Math.round(n);\n' };
+
+  it('a changed test helper that production code imports is named UNPROVEN, with its importer', async () => {
+    const h = await provenSrcEdit(WEB, HELPER, "import { round } from '../test/helpers/round.js';\nexport const cents = (n) => round(n * 100);\n");
+    await h.ws.write('test/helpers/round.js', 'export const round = (n) => Math.floor(n);\n');
+    expect(await unprovenEdits(h.ctx)).toEqual([{ file: 'test/helpers/round.js', why: expect.stringMatching(/^test support that production code imports \(src\/money\.ts\)/) }]);
+    const r = await observedRedGate.run(h.ctx, 'finish');
+    expect(r.status).toBe('unproven');
+    expect(r.summary).toMatch(/no test proves test\/helpers\/round\.js/);
+  });
+
+  it('the twin: the same helper change, imported only by a test, is the proof and passes', async () => {
+    const h = await provenSrcEdit(WEB, { ...HELPER, 'test/money.test.ts': "import { cents } from '../src/money.ts';\nimport { round } from './helpers/round.js';\n" });
+    await h.ws.write('test/helpers/round.js', 'export const round = (n) => Math.floor(n);\n');
+    expect(await unprovenEdits(h.ctx)).toEqual([]);
+    expect(await observedRedGate.run(h.ctx, 'finish')).toMatchObject({ status: 'pass' });
+  });
+
+  it('an unchanged helper that production code imports is not named (only changes are)', async () => {
+    const h = await provenSrcEdit(WEB, HELPER, "import { round } from '../test/helpers/round.js';\nexport const cents = (n) => round(n * 100);\n");
+    expect(await unprovenEdits(h.ctx)).toEqual([]);
   });
 });

@@ -289,9 +289,17 @@ export function isTestPath(rel: string, layout: TargetLayout = active): boolean 
   return isScriptPath(rel, layout) && underAny(rel, layout.testSupportRoots) && matchesTestPattern(rel, layout);
 }
 
-/** Whether a directory of `rel` (not its file name) has a conventional test directory name (test/, __tests__/, e2e/, ...). */
+/**
+ * Directory names that hold only tests and their helpers, never production code: the in-place test-support
+ * rule (isTestSupportPath). Narrower than TEST_DIR_RE, which finds where tests live: `integration/`,
+ * `spec/` and `specs/` are also common names for production code (a payment provider integration, an API
+ * spec module), so a file there is test support only when another of its directories is one of these.
+ */
+const SUPPORT_DIR_RE = /^(tests?|__tests__|__mocks__|__integration__|e2e)$/i;
+
+/** Whether a directory of `rel` (not its file name) is one that holds only tests (test/, __tests__/, e2e/, ...: SUPPORT_DIR_RE). */
 export function inConventionalTestDir(rel: string): boolean {
-  return rel.split('/').slice(0, -1).some((seg) => TEST_DIR_RE.test(seg));
+  return rel.split('/').slice(0, -1).some((seg) => SUPPORT_DIR_RE.test(seg));
 }
 
 /**
@@ -300,8 +308,10 @@ export function inConventionalTestDir(rel: string): boolean {
  * In a web layout (an in-place run in any web repository) a dedicated test dir may be one learned only
  * because it lies outside the build (tsconfig include ["src"] and a runner glob 'api/**\/*.test.js' make
  * api/ one), and such a dir also holds production JavaScript the build never sees. There a file is test
- * support only when it sits under a conventionally named test directory (TEST_DIR_RE); any other file is
- * governed code that needs a red, or is named UNPROVEN (plugins/lib/proof.ts). File mode keeps the 01 rule.
+ * support only when it sits under a directory that holds only tests (SUPPORT_DIR_RE: test/, __tests__/,
+ * e2e/, ...; never integration/ or spec/, which production code also uses); any other file is governed code
+ * that needs a red, or is named UNPROVEN (plugins/lib/proof.ts). A support file that production code imports
+ * is named UNPROVEN too (unprovenEdits). File mode keeps the 01 rule.
  */
 export function isTestSupportPath(rel: string, layout: TargetLayout = active): boolean {
   if (!underAny(rel, layout.testSupportRoots) || isTestPath(rel, layout)) return false;
