@@ -38,14 +38,15 @@ repository ([below](#where-real-items-live)).
 
 ### Where real items live
 
-Real work items are no longer kept in the harness repository: the harness has to work on any web
-repository, and an item's contract, ledger and metric describe the repository it changes. The design
-([docs/design/interactive-session.md](docs/design/interactive-session.md)) keeps them in a
-per-repository state directory outside the harness; that is not built yet. Until it is,
-`HARNESS_ITEMS_ROOT=<dir>` points the item commands and runs at contracts and ledgers in a directory
-outside this repository (Measure scripts are still read from this repository's `metrics/`). The three
-items the harness proposed on 5 November 2026 (none was approved, so none ran) were moved to an
-archive outside the repository on 6 November 2026.
+Real work items are not kept in the harness repository: the harness has to work on any web repository,
+and an item's contract, ledger and metric describe the repository it changes. An interactive session
+(below) keeps them in that repository's state directory, `~/.sf-harness/repos/<id>/` (`SF_HARNESS_HOME`
+moves it): `docs/contracts/<slug>.md`, `items/<slug>/ledger.jsonl`, `metrics/<slug>.mjs`, and the
+session records. `harness item status|close <slug>` typed inside that repository finds them there, and
+`/ship` commits the item's records into the PR it opens. File mode reads `HARNESS_ITEMS_ROOT=<dir>`
+when set (contracts and ledgers in a directory outside this repository). The three items the harness
+proposed on 5 November 2026 (none was approved, so none ran) were moved to an archive outside the
+repository on 6 November 2026.
 
 ### The three gates
 
@@ -146,13 +147,53 @@ node bin/harness.mjs agnostic <openaiRunId> <claudeRunId>
 npm run setup          # npm install, then `harness doctor`: environment, plugin load, provider-leak scan, sandbox self-test
 ```
 
-Node ≥ 22, git, and `gh` (authenticated) for the PR step. Provider keys come only from the environment
-(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`); the repository holds no secrets. Agent-written code (its tests,
+Node ≥ 22, git, and `gh` (authenticated) for the PR step. Provider keys come from the environment
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), or from `~/.sf-harness/env.development` (`KEY=value` lines,
+`chmod 600`; `SF_HARNESS_ENV_FILE` names another file), which the launcher reads before any command
+without overriding a variable already set; `harness doctor` says which file supplied which key names.
+The repository holds no secrets. Agent-written code (its tests,
 its schemas, its app during probes) runs only inside the OS sandbox (`sandbox-exec` on macOS, `bwrap` on
 Linux): writes to a per-call temp dir, reads fenced to its own tree, an env allow-list without keys,
 loopback network. Without a working sandbox a run refuses to start.
 
-## Run it
+## Interactive session: `harness` in any repository
+
+```bash
+npm link                                   # once, in ai-harness: puts `harness` on the PATH
+cd ~/code/some-web-app && git switch -c fix/login-redirect
+harness                                    # or: harness chat --model claude-haiku-4-5-20251001
+```
+
+A banner, then `repo … branch … (writable) model … cap $2.00`. Type to chat: a greeting or a
+question gets a reply and touches nothing. Ask for a change and the agent reads the code, then calls
+`propose_contract`: the harness writes the contract (Repo and Base filled in, outside the repository),
+reads the metric's before value, and shows a PROPOSAL box. **The next line you type is your reply**:
+only a plain yes typed at this terminal approves it (a piped reply, a yes typed at any other time, or
+anything the model or a tool says never does). Then every write goes through the same hooks as file
+mode (red before the source edit, scope, secrets, branch guard), and when the agent calls `finish`
+the harness runs every required gate fresh and prints the verdict: `✔ Work completed: every gate is
+green` only when they are; otherwise `NOT DONE` or `UNPROVEN` with the reasons and what a human must
+verify. Nothing is committed until you type `/ship`.
+
+- **Default model:** the first non-pattern model on `harness.config.json` `models.allow` whose driver
+  has its key; `--driver`, `--model`, `--max-turns` (per message) and `/model <id>` choose another.
+  One spend cap per session.
+- **Read-only, never stuck:** on a protected branch (`main`, `development`, …), during a merge or
+  rebase, or with uncommitted changes, the session chats and reads, every edit is refused, and the
+  status line says the fix (`git switch -c <name>`, `git stash -u`). The harness never switches
+  branches, stashes, commits or pushes on its own. One session per checkout.
+- **Commands (yours only):** `/status`, `/diff`, `/cost`, `/gates` (every gate now, fresh), `/model`,
+  `/clear`, `/ship`, `/import <contract.md>`, `/help`, `/exit`. Ctrl-C cancels the agent's turn;
+  twice on an empty prompt, or Ctrl-D, ends the session.
+- **`/ship`:** only after a DONE verdict on the approved, unchanged contract, on a writable branch
+  that is not the contract's Base, with only the agent's changes in the tree: commits them with the
+  item's records on the current branch (the contract's Commit header, no attribution), pushes that
+  branch without force and opens the PR against Base. After the merge, `harness item close <slug>`
+  inside the repository reads the metric again.
+- **Try it without keys:** [fixtures/scripted/session-demo/](fixtures/scripted/session-demo) replays a
+  whole session (greeting, contract, red, fix, green, Work completed) with the scripted driver.
+
+## Run it (file mode)
 
 ```bash
 export OPENAI_API_KEY=…   ANTHROPIC_API_KEY=…
@@ -177,8 +218,8 @@ model evidence).
 
 ### Step by step: your own change on any repository
 
-The harness is not a chat: you describe the change in a file, one command runs it to a verdict, and
-one more opens the PR. Ctrl-C stops a run between steps and still writes its evidence. All commands
+In file mode the harness is not a chat: you describe the change in a file, one command runs it to a
+verdict, and one more opens the PR. Ctrl-C stops a run between steps and still writes its evidence. All commands
 run from the `ai-harness` folder.
 
 1. **Set up once:** `npm run setup` (above), and `gh auth login` if you want the PR step.

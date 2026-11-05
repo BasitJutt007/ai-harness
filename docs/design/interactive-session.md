@@ -120,8 +120,8 @@ gates  scope pass · observed-red pass · tests-green pass · secrets pass · di
 ## Shipping and closing
 
 - `/ship` (owner only) refuses unless the last verdict was DONE, the item is approved, the branch is
-  not protected and differs from Base. It commits the agent's changes plus the item's records
-  (`docs/contracts/<slug>.md`, `.harness/items/<slug>/ledger.jsonl`, `.harness/items/<slug>/run.json`
+  not protected and differs from Base, and the tree holds only the agent's changes. It commits them plus the item's records
+  (`docs/contracts/<slug>.md`, `.harness/items/<slug>/ledger.jsonl`, `.harness/items/<slug>/session.json`
   summary) on the current branch with the contract's Commit header and the ship-text body, pushes
   that branch (never force), and opens the PR against the contract's Base with the filled PR
   template.
@@ -171,3 +171,30 @@ Known limits: on Linux (bwrap) the `.git`/`.env*` masks are the entries found by
 each call, checked on the generated argv only (no bwrap on the development machine); on macOS the
 Seatbelt regexes are verified against the real `sandbox-exec`. The session lock treats any live pid as
 the holder (a reused pid keeps a stale lock until its file is removed by hand).
+
+Step 3 (the session) is in place: bare `harness` / `harness chat` runs it; file mode is unchanged
+(`propose_contract` is never offered there, and the loop options are opt-in).
+
+| Piece | Where |
+|---|---|
+| Entry, options, the terminal (readline: channel from stdin itself; lines typed while the agent works are dropped, never queued) | `src/session/main.ts`, `src/session/input.ts`, `src/core/cli.ts` (`isSessionCommand`) |
+| Provider keys from `SF_HARNESS_ENV_FILE`, else `~/.sf-harness/env.development`, else `~/.sf-harness/.env` (names the drivers read and `HARNESS_*` only; never overriding; names reported by `doctor`) | `src/core/env-file.ts`, `bin/harness.mjs`, `loadUserEnv` in `src/core/cli.ts` |
+| Default model: first allowlisted model whose driver serves it and starts; `/model` keeps one cap | `src/session/models.ts`, `DriverPlugin.serves` |
+| Session setup: state dir, lock, git-visibility workspace, confined root, writability, synthetic brownfield task (baseline standards), initial hashes; test baseline measured once, at approval | `src/session/session.ts` |
+| Loop: `skipShadowBaseline` (no per-message front-load), `yieldAfterTurn` (stop at a proposal) | `src/core/loop.ts` |
+| Contract in chat: `propose_contract` (session-only, effect control) → the harness writes, validates, reads the before value, proposes; `/import` | `plugins/tools/propose_contract.ts`, `src/session/contract.ts`, `RunContext.session` |
+| The reply: only the next line typed after the PROPOSAL box reaches `recordReply`, on the input's channel | `Session.reply` in `src/session/session.ts` |
+| Verdict: required finish gates fresh + checks + honesty; DONE also needs an approved item and a change | `src/session/verdict.ts` |
+| `/ship`: agent's files + item records on the current branch, push (no force), PR against Base | `src/session/ship.ts` (reuses `shipText`, `scanDiffForSecrets`, `NO_HOOKS`, `ghStatus` from `src/core/ship.ts`) |
+| `harness item <cmd> <slug>` inside the repository uses its state-dir items root | `repoItemRoot` in `src/core/item-cli.ts` |
+| UI: banner, status line, tool/hook/gate lines, proposal box, verdict block, spinner, NO_COLOR | `src/session/ui.ts`, `src/session/prompt.ts` (system prompt) |
+| Scripted end-to-end demo (real hooks and gates; DONE in a small React + Vite repo) | `fixtures/scripted/session-demo*`, `test/session/demo.test.ts` |
+
+Known limits of step 3: a contract with `Measure: none` and a `local:<name>` Repo are accepted by a
+minimal change in `items.ts` (the hardening branch makes them explicit and has close name the
+refusal; close already refuses such an item because it has no before reading). Ctrl-C does not cancel
+a fresh gate run, the test-baseline measurement or `/ship` (they finish first). `/clear` restarts turn
+numbering in the transcript (a `cleared` marker separates the two conversations). A session item's
+before value is read at `origin/<Base>` when it exists locally, else `<Base>`, else the session's start
+commit (no fetch). The session write policy for any web repo and the proof tiers (build step 4) are not
+part of this step: the existing scope and observed-red rules apply.

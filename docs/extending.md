@@ -235,6 +235,7 @@ interface ToolPlugin<I> {
   effect: 'read' | 'write' | 'exec' | 'control';   // hooks select on this
   fetcher?: boolean;            // fetches context (default: true for 'read' tools); --baseline runs withhold every fetcher
   availableIn?: ('greenfield' | 'brownfield')[];    // default: both
+  sessionOnly?: boolean;        // offered only in an interactive session (works through ctx.session); never in file mode
   paths?(input: I): string[];   // API-relative paths touched (REQUIRED for write tools)
   // Write tools: the exact content `path` will have after the call (null = no file), given its current
   // content. The loop computes it once and hands it to every hook (event.call.preview); the hooks that
@@ -469,6 +470,7 @@ interface DriverPlugin {
   name: string;           // the value of --driver
   description: string;
   create(opts: { model?: string; options: Record<string, string>; env: NodeJS.ProcessEnv; harnessRoot: string }): Driver;
+  serves?(model: string): boolean;   // the model ids this driver's provider serves: how a session picks it for an allowlisted model
 }
 interface Driver {
   readonly name: string;
