@@ -8,7 +8,9 @@
  *   - that DONE entry is written right before the commit, after every check that can still refuse (drift, the
  *     secret scan, nothing to commit), so a ship that refuses never leaves a DONE behind;
  *   - a ledger that cannot record that run, a contract text no longer approved, a closed item, an UNPROVEN target
- *     profile, or agent code that would run unconfined ships nothing.
+ *     profile, or agent code that would run unconfined ships nothing;
+ *   - a ship that stopped after its commit (no remote, a failed push or PR, a ledger that could not record the
+ *     ship) is finished by the next ship of the run, from where it stopped: nothing is committed twice.
  * Every refusal has its twin that ships. gh is faked; git and the remote are real (a local bare repository).
  */
 import { execFileSync } from 'node:child_process';
@@ -217,6 +219,22 @@ describe('a ship that refuses leaves no DONE run behind (it is recorded right be
     expect((await shipOnce(shipCtx(s))).status).toBe('shipped');
   });
 
+  it('a second ship of a run that already shipped: refused (already recorded), the ledger and the remote untouched', async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'DONE');
+    const gh = forge(s);
+    const first = await shipOnce(shipCtx(s, gh.exec));
+    expect(first.status).toBe('shipped');
+    const before = events(s.ledger);
+    const shippedSeq = readLedger(s.ledger).entries.length;
+    const again = await shipOnce(shipCtx(s, gh.exec));
+    expect(again.status).toBe('refused');
+    expect(again.reasons).toEqual([`nothing to commit under api: ${(first.commit ?? '').slice(0, 12)}, this run's ship commit, is already recorded as shipped (item ledger seq ${shippedSeq})`]);
+    expect(events(s.ledger)).toEqual(before);
+    expect(gh.creates()).toBe(1);
+    expect(await commitsOnBranch(s)).toBe('1');
+  });
+
   it('a ledger that cannot take the DONE run (it broke while the ship ran): refused, unstaged, nothing committed or pushed; on a sound ledger it ships', async () => {
     // A fault at the last step before the commit, independent of file modes (root ignores a read-only file): the
     // ledger's hash chain breaks while the secret scan reads the staged diff.
@@ -324,6 +342,94 @@ describe('a closed item ships nothing more (its approval covered the work that c
     const r = await shipOnce(second);
     expect(r.status, r.reasons.join('\n')).toBe('shipped');
     expect(events(s.ledger).slice(-2)).toMatchObject([{ type: 'run', runId: 'second-run', verdict: SHIP_DONE_VERDICT }, { type: 'shipped', runId: 'second-run' }]);
+  });
+});
+
+describe('a ship that stopped after its commit is finished by the next ship of the run (nothing is committed twice)', () => {
+  it('the ledger could not record the ship after the PR opened ("no, wait" typed during the push): committed with the PR; approved again, the next ship records that PR', async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'DONE');
+    const gh = forge(s);
+    gh.onCreate = () => void recordReply(s.item.root, SLUG, 'no, wait', 'tty', 'other-terminal');
+    const first = await shipOnce(shipCtx(s, gh.exec));
+    expect(first.status).toBe('committed');
+    expect(first.prUrl).toBe(PR);
+    expect(first.reasons.join('\n')).toMatch(new RegExp(`^opened ${PR.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}, but the item ledger could not record the ship \\(.*Test Stakeholder did not approve.*\\): harness item close refuses this item until it does; once the ledger can take it, harness ship ${RUN_ID} records this ship \\(nothing is committed twice\\)$`));
+    expect(events(s.ledger).some((e) => e.type === 'shipped')).toBe(false);
+    const close = itemStatus(s.item.root, SLUG);
+    expect(preconditions({ status: close, ...ledgerFacts(close) }).join('\n')).toMatch(/no stakeholder yes/);
+    // still refused while the "no" stands: nothing recorded, nothing pushed again
+    gh.onCreate = undefined;
+    const held = events(s.ledger);
+    expect((await shipOnce(shipCtx(s, gh.exec))).status).toBe('refused');
+    expect(events(s.ledger)).toEqual(held);
+    // the stakeholder approves again: the next ship finds the commit and the PR, and records them
+    recordReply(s.item.root, SLUG, 'yes, go ahead', 'tty', 's');
+    const r = await shipOnce(shipCtx(s, gh.exec));
+    expect(r.status, r.reasons.join('\n')).toBe('shipped');
+    expect(r).toMatchObject({ commit: first.commit, prUrl: PR });
+    expect(r.reasons).toEqual([`finished the ship of ${(first.commit ?? '').slice(0, 12)}, the commit an earlier ship of this run made before it stopped; every ship gate re-ran fresh and green on it now`]);
+    expect(await commitsOnBranch(s)).toBe('1');
+    expect(gh.creates()).toBe(1);
+    expect(events(s.ledger).slice(-2)).toMatchObject([{ type: 'run', runId: RUN_ID, verdict: SHIP_DONE_VERDICT }, { type: 'shipped', runId: RUN_ID, headSha: first.commit, prUrl: PR, branch: BRANCH }]);
+    const st = itemStatus(s.item.root, SLUG);
+    const facts = ledgerFacts(st);
+    if (facts.shipped === null) throw new Error('not shipped');
+    expect(shippedRunProblem(st, facts.shipped)).toBeNull();
+  });
+
+  it('no remote at the first ship (committed, not pushed): the next ship pushes, opens the PR and records it, on one commit', async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'DONE');
+    const gh = forge(s);
+    const first = await shipOnce(shipCtx(s, gh.exec), { remote: 'nosuch' });
+    expect(first).toMatchObject({ status: 'committed', reasons: [expect.stringMatching(/^no remote "nosuch": committed [0-9a-f]{12} on harness\/projects-change, not pushed$/)] });
+    expect(events(s.ledger).filter((e) => e.type === 'run')).toHaveLength(1);
+    const r = await shipOnce(shipCtx(s, gh.exec));
+    expect(r.status, r.reasons.join('\n')).toBe('shipped');
+    expect(r.commit).toBe(first.commit);
+    expect(await remoteBranch(s)).toContain(first.commit ?? 'x');
+    expect(await commitsOnBranch(s)).toBe('1');
+    expect(gh.creates()).toBe(1);
+    expect(events(s.ledger).slice(-2)).toMatchObject([{ type: 'run', runId: RUN_ID, verdict: 'DONE' }, { type: 'shipped', headSha: first.commit, prUrl: PR }]);
+    expect(events(s.ledger).filter((e) => e.type === 'run')).toHaveLength(1);
+  });
+
+  it('the PR gh shows for the branch has another head: committed, the ship not recorded, no second PR', async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'DONE');
+    const gh = forge(s);
+    gh.installed = false;
+    const first = await shipOnce(shipCtx(s, gh.exec));
+    expect(first.status).toBe('committed');
+    expect(first.reasons.join('\n')).toMatch(/gh CLI is not installed, so no PR was opened/);
+    gh.installed = true;
+    gh.prs.set(BRANCH, { base: 'main', state: 'OPEN', head: 'f'.repeat(40) });
+    const r = await shipOnce(shipCtx(s, gh.exec));
+    expect(r.status).toBe('committed');
+    expect(r.reasons.join('\n')).toMatch(new RegExp(`the PR for ${BRANCH} \\(\\S+\\) has head ffffffffffff, not ${(first.commit ?? '').slice(0, 12)}, the commit the gates just cleared: the ship is not recorded`));
+    expect(events(s.ledger).some((e) => e.type === 'shipped')).toBe(false);
+    expect(gh.creates()).toBe(0);
+    // the twin: the branch's PR has the shipped head
+    gh.prs.set(BRANCH, { base: 'main', state: 'OPEN' });
+    expect((await shipOnce(shipCtx(s, gh.exec))).status).toBe('shipped');
+  });
+
+  it("HEAD carries the ship's message but changes a path outside the API root (amended by hand): refused, nothing pushed", async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'DONE');
+    const first = await shipOnce(shipCtx(s), { remote: 'nosuch' });
+    expect(first.status).toBe('committed');
+    writeFiles(s.repo, { 'deploy.sh': 'echo outside the API root\n' });
+    await git(s.repo, 'add', 'deploy.sh');
+    await git(s.repo, 'commit', '-q', '--amend', '--no-edit'); // keeps the harness as author and the message
+    const amended = await git(s.repo, 'rev-parse', 'HEAD');
+    const before = events(s.ledger);
+    const r = await shipOnce(shipCtx(s));
+    expect(r.status).toBe('refused');
+    expect(r.reasons).toEqual([`nothing to commit under api; ${amended.slice(0, 12)} carries this run's ship message but changes paths outside the API root (deploy.sh): not a commit a ship makes`]);
+    expect(events(s.ledger)).toEqual(before);
+    expect(await remoteBranch(s)).toBe('');
   });
 });
 
