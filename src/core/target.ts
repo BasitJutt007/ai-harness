@@ -1540,7 +1540,7 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   } else if (stack === 'web') {
     // Said first, so the preflight lines show it: such a repository can never reach "Work completed" (fail closed).
     if (!webStandardsConfigured(apiRoot)) notes.unshift(WEB_NO_STANDARDS_NOTE);
-    notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, both blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
+    notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, plus its Vite build where it has one, each blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
     const server = FRAMEWORKS.includes(fwName) ? fwName : FRAMEWORKS.includes(declaredFwName) ? declaredFwName : null;
     if (server !== null) notes.push(`framework ${server} serves an API the harness extracts no routes from: contract changes are not locked; a human verifies them`);
   } else if (stack === 'nestjs') {

@@ -19,7 +19,7 @@ import { targetProfile } from '../../src/core/run.ts';
 import { computeTargetProfile, formatProfile, setActiveLayout, WEB_NO_STANDARDS_NOTE } from '../../src/core/target.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import { sessionSystemPrompt } from '../../src/session/prompt.ts';
-import type { BrownfieldTask, LogStore } from '../../src/core/types.ts';
+import type { BrownfieldTask, Exec, LogStore, Stack } from '../../src/core/types.ts';
 import { scratch, writeTree } from './_variants.ts';
 
 const tmp = scratch('generic-web');
@@ -140,11 +140,44 @@ describe('stack web: in place, any repository with a package.json', () => {
 });
 
 describe('the generic web checks', () => {
-  it('stack web runs web-typecheck and repo-lint, never another stack\'s rules', async () => {
+  it('stack web runs web-typecheck, repo-lint and web-build, never another stack\'s rules', async () => {
     const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
     const ids = selectChecks(reg.checks.map((r) => r.plugin), undefined, undefined, 'web').map((c) => c.id).sort();
-    expect(ids).toEqual(['repo-lint', 'web-typecheck']);
-    expect(selectChecks(reg.checks.map((r) => r.plugin), undefined, undefined, 'react-vite').map((c) => c.id)).not.toContain('web-typecheck');
+    expect(ids).toEqual(['repo-lint', 'web-build', 'web-typecheck']);
+    const reactVite = selectChecks(reg.checks.map((r) => r.plugin), undefined, undefined, 'react-vite').map((c) => c.id);
+    expect(reactVite).not.toContain('web-typecheck');
+    expect(reactVite).not.toContain('web-build');
+    expect(reactVite).toContain('vite-build');
+  });
+
+  it('web-build: a web repository with Vite installed and a vite config gets its confined vite build; without either it is n/a (the twins)', async () => {
+    const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
+    const checks = reg.checks.map((r) => r.plugin);
+    const calls: string[][] = [];
+    let code = 0;
+    const fake: Exec = async (_cmd, args) => {
+      calls.push(args);
+      return { code, stdout: '', stderr: code === 0 ? '' : 'error: [vite]: Rollup failed to resolve import "x"', durationMs: 1, timedOut: false };
+    };
+    const build = (root: string, stack: Stack = 'web') => runChecks({ root, checks, exec: fake, harnessRoot: HARNESS_ROOT, logs, stack, rules: [stack === 'web' ? 'web-build' : 'vite-build'] });
+    const app = { 'package.json': pkg({ dependencies: { vue: '3.5.0' }, devDependencies: { vite: '7.0.0' } }), 'node_modules/vite/bin/vite.js': '', 'src/main.js': 'export {};\n' };
+    const withConfig = join(tmp.dir, 'web-build-vite');
+    writeTree(withConfig, { ...app, 'vite.config.js': 'export default {};\n' });
+    expect((await build(withConfig)).rules).toEqual([expect.objectContaining({ rule: 'web-build', category: 'build', status: 'pass' })]);
+    expect(calls.at(-1)?.slice(1, 2)).toEqual(['build']);
+    code = 1;
+    expect((await build(withConfig)).rules).toEqual([expect.objectContaining({ rule: 'web-build', status: 'fail' })]);
+    code = 0;
+    const before = calls.length;
+    const noConfig = join(tmp.dir, 'web-build-no-config');
+    writeTree(noConfig, app);
+    expect((await build(noConfig)).rules).toEqual([expect.objectContaining({ rule: 'web-build', status: 'n/a' })]);
+    const noVite = join(tmp.dir, 'web-build-no-vite');
+    writeTree(noVite, { 'package.json': pkg({}), 'vite.config.js': 'export default {};\n', 'src/main.js': 'export {};\n' });
+    expect((await build(noVite)).rules).toEqual([expect.objectContaining({ rule: 'web-build', status: 'n/a' })]);
+    expect(calls.length).toBe(before);
+    // File mode (react-vite) is unchanged: its Vite missing is UNPROVEN, never n/a.
+    expect((await build(noVite, 'react-vite')).rules).toEqual([expect.objectContaining({ rule: 'vite-build', status: 'unproven' })]);
   });
 
   it('a JavaScript repository has no type check: n/a, never a pass', async () => {

@@ -1,7 +1,8 @@
 /**
  * vite-build (react-vite; standards): the production build the team deploys (`vite build`) succeeds on
  * the changed tree, before merge: where the build only runs in a deploy workflow, a broken build is
- * otherwise found after the merge.
+ * otherwise found after the merge. The generic web profile runs the same build as web-build (web-build.ts:
+ * any web repository with Vite installed and a vite config, n/a otherwise).
  *
  * The build runs the repository's vite.config (code), so it runs confined: no network, output to a temp
  * directory, nothing written into the target. UNPROVEN: no Vite in the repository, or a build that times out.
@@ -80,9 +81,26 @@ export function browserslistQueries(root: string, top?: string): string {
   }
 }
 
-async function run(ctx: CheckContext): Promise<CheckFinding[]> {
+/** Vite's own config file names (the repository root's). */
+export const VITE_CONFIGS = ['vite.config.js', 'vite.config.mjs', 'vite.config.cjs', 'vite.config.ts', 'vite.config.mts', 'vite.config.cts'];
+
+/** How the build check runs: vite-build (react-vite) or web-build (the generic web profile). */
+export interface ViteBuildOptions {
+  /** Rule id the findings carry. */
+  rule: string;
+  /**
+   * A repository without its own Vite installed or without a vite config builds nothing with Vite: nothing to
+   * check (no findings: n/a), not UNPROVEN. Off for vite-build, whose stack declares Vite (missing: UNPROVEN).
+   */
+  naWithoutVite: boolean;
+}
+
+/** The repository's `vite build`, confined (see the module comment). */
+export async function viteBuild(ctx: CheckContext, o: ViteBuildOptions): Promise<CheckFinding[]> {
+  const rule = o.rule;
   const vite = join(ctx.root, 'node_modules', 'vite', 'bin', 'vite.js');
-  if (!existsSync(vite)) return [{ rule: RULE, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: "the repository's Vite is not installed (node_modules/vite)" }];
+  if (o.naWithoutVite && (!existsSync(vite) || !VITE_CONFIGS.some((c) => existsSync(join(ctx.root, c))))) return [];
+  if (!existsSync(vite)) return [{ rule, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: "the repository's Vite is not installed (node_modules/vite)" }];
   const tmp = mkdtempSync(join(tmpdir(), 'vite-build-'));
   try {
     const out = join(tmp, 'dist');
@@ -95,11 +113,11 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
       env: { TMPDIR: tmp, CI: '1' },
       sandbox: { writable: [tmp], network: 'none', env: { BROWSERSLIST: browsers } },
     });
-    await ctx.logs.write('vite-build.txt', `$ BROWSERSLIST="${browsers}" vite build --outDir <tmp>  (exit ${String(r.code)})\n${r.stdout.trim()}\n${r.stderr.trim()}`);
-    if (r.timedOut) return [{ rule: RULE, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: 'vite build timed out' }];
-    if (r.code === 0) return [{ rule: RULE, file: PROJECT, status: 'pass', units: { passed: 1, total: 1 }, violations: [] }];
+    await ctx.logs.write(`${rule}.txt`, `$ BROWSERSLIST="${browsers}" vite build --outDir <tmp>  (exit ${String(r.code)})\n${r.stdout.trim()}\n${r.stderr.trim()}`);
+    if (r.timedOut) return [{ rule, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: 'vite build timed out' }];
+    if (r.code === 0) return [{ rule, file: PROJECT, status: 'pass', units: { passed: 1, total: 1 }, violations: [] }];
     const lines = (r.stderr || r.stdout).trim().split('\n').filter((l) => l.trim().length > 0).slice(-8);
-    return [{ rule: RULE, file: PROJECT, status: 'fail', units: { passed: 0, total: 1 }, violations: lines.map((l) => ({ location: `${PROJECT}:0:0`, message: l.trim() })) }];
+    return [{ rule, file: PROJECT, status: 'fail', units: { passed: 0, total: 1 }, violations: lines.map((l) => ({ location: `${PROJECT}:0:0`, message: l.trim() })) }];
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -112,5 +130,5 @@ export default defineCheck({
   description: 'The production build (vite build) succeeds on the changed tree.',
   unit: 'builds',
   doc: 'vite-build: `vite build` succeeds on the changed tree (output to a temp directory). Fix what it reports in your files.',
-  run,
+  run: (ctx) => viteBuild(ctx, { rule: RULE, naWithoutVite: false }),
 });
