@@ -8,7 +8,8 @@
  * on PATH. Then the outcome check's own preconditions hold, and after a person merges, `close` closes it.
  * The refusal twin: a run whose ledger entry cannot be written ships nothing (no commit, no push, no PR).
  */
-import { chmodSync } from 'node:fs';
+import { appendFileSync, chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { main } from '../../src/core/cli.ts';
@@ -22,6 +23,26 @@ import { approvedItem, bareOrigin, collector, fakeGhOnPath, git, SCRIPTS, tempRe
 const PR_URL = 'https://example.test/fixture/repo/pull/7';
 const SLUG = `ship-closes-${process.pid}`;
 const SLUG_RO = `ship-refused-${process.pid}`;
+
+/**
+ * Whether a read-only file refuses an append here. Root (a CI container, say) ignores file modes, so the
+ * read-only ledger below could not force the write failure: that case is then skipped, visibly, never passed.
+ * test/contract-ship/ship-ledger.test.ts covers ship's own refusal with a fault that does not depend on modes.
+ */
+const MODES_ENFORCED = ((): boolean => {
+  const dir = mkdtempSync(join(tmpdir(), 'modes-'));
+  const file = join(dir, 'probe');
+  try {
+    writeFileSync(file, '');
+    chmodSync(file, 0o444);
+    appendFileSync(file, 'x');
+    return false;
+  } catch {
+    return true;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
 
 let tmp: TempRepo;
 let gh: ReturnType<typeof fakeGhOnPath>;
@@ -84,7 +105,7 @@ describe('harness run --ship (real CLI, offline, fake gh)', () => {
   });
 
   // Runs before the merge below: a greenfield run refuses an output that already exists on the base branch.
-  it('refuses to ship a run whose ledger entry cannot be written: no commit, no push, no PR, no shipped entry', async () => {
+  it.skipIf(!MODES_ENFORCED)('refuses to ship a run whose ledger entry cannot be written: no commit, no push, no PR, no shipped entry (skipped where file modes are not enforced, as for root)', async () => {
     await approvedItem(tmp, SLUG_RO);
     const ledger = itemPaths(root, SLUG_RO).ledger;
     const before = readLedger(ledger).entries.length;
