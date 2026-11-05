@@ -8,49 +8,65 @@
  *
  * Every owner line is chat, sent to the model through the same governed loop as file mode (hooks on
  * every call; the gates decide). Three things are not chat:
- *   - a line starting with "/" is a command, typed by the owner only (the model has no tool for any);
- *   - the ONE line typed right after a proposal is shown is the reply to it: it goes to recordReply with
- *     the input's own channel ('tty' only when typed at a terminal), and only it can approve;
- *   - Ctrl-C cancels the running turn; Ctrl-C twice on an empty prompt, or Ctrl-D, ends the session.
+ *   - a one-line message starting with "/" is a command, typed by the owner only (the model has no tool
+ *     for any);
+ *   - the ONE message typed right after a proposal is shown is the reply to it (what was typed before
+ *     the box is cleared first): it goes to recordReply with the input's own channel ('tty' only when
+ *     typed at a terminal), and only it can approve. Only then is the Measure's before value read;
+ *   - Ctrl-C cancels the running turn; while the harness itself works (the gates, the test baseline,
+ *     the before reading, /ship, /import, /status, /diff) it says what it finishes first, and never
+ *     ends the process. Ctrl-C twice on an empty prompt, or Ctrl-D, ends the session.
  * Until a contract is approved every edit is refused (problem-gate, contract-gate: no item is bound).
- * When the model's finish is accepted, every required gate runs again, fresh, and the verdict comes from
- * them, never from the model's words. The session never commits or pushes; /ship does, when typed.
+ * When the model's finish is accepted, and at the end of any turn after which the tree differs from
+ * what the last verdict judged, every required gate runs again, fresh, and the verdict comes from them,
+ * never from the model's words; leaving with work no gate has judged says UNPROVEN and names it. A
+ * refusal the model cannot fix (the checkout, the branch, the sandbox, a missing tool) ends its turn.
+ * The session never commits or pushes; /ship does, when typed.
  */
-import { randomBytes } from 'node:crypto';
-import { realpathSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { userInfo } from 'node:os';
 import { basename, join } from 'node:path';
 import { selectChecks } from '../core/checks.ts';
 import { HARNESS_ROOT, loadConfig } from '../core/config.ts';
 import { exec as coreExec } from '../core/exec.ts';
 import { missingRequiredHooks } from '../core/hooks.ts';
+import { saveInitial } from '../core/initial.ts';
 import { inPlaceWritability, branchVerdict, type InPlaceVerdict } from '../core/inplace.ts';
 import { classifyReply, itemStatus, recordReply } from '../core/items.ts';
 import { runAgent, type AgentResult } from '../core/loop.ts';
 import { toolSpecs } from '../core/registry.ts';
-import { buildContext, JIT_MODE, loadRegistryOrThrow, preflight, snapshotHashes } from '../core/run.ts';
+import { buildContext, JIT_MODE, loadRegistryOrThrow, targetProfile } from '../core/run.ts';
 import { newRunState, RunStore, serializeState } from '../core/run-store.ts';
-import { isolationInfo, setConfinedRoot, setSandboxMode, type IsolationInfo } from '../core/sandbox.ts';
+import { isolationInfo, sandboxMode, setConfinedRoot, setSandboxMode, type IsolationInfo } from '../core/sandbox.ts';
 import { modelAllowed, modelPolicyVerdict, normalizeModel, SpendMeter, spendLine, usd } from '../core/spend.ts';
 import { acquireCheckoutLock, repoStateDir, type RepoStateDir } from '../core/state-home.ts';
-import { profileRecord, type TargetProfile } from '../core/target.ts';
+import { defaultScopeAllow, profileRecord, type TargetProfile } from '../core/target.ts';
 import { parseTask } from '../core/task.ts';
 import { describeTestBaseline, measureTestBaseline } from '../core/test-baseline.ts';
 import { TokenLedger } from '../core/tokens.ts';
 import type { TranscriptTurn } from '../core/context.ts';
-import type { Driver, Exec, HarnessConfig, Message, RegistryView, RunContext, RunEvent, Task, TestBaseline, ToolEffect, ToolResult, ToolSpec } from '../core/types.ts';
+import type { Driver, Exec, HarnessConfig, HookPlugin, Message, PluginRecord, RegistryView, RunContext, RunEvent, RunState, Task, TestBaseline, ToolEffect, ToolResult, ToolSpec, Workspace } from '../core/types.ts';
 import { createWorkspace, isEnvPath } from '../core/workspace.ts';
-import { proposeDrafted, proposeImported, type Proposal, type ProposalEnv } from './contract.ts';
+import { toApiRel } from '../../plugins/lib/path-policy.ts';
+import { personName, proposeDrafted, proposeImported, readBefore, tildePath, type Proposal, type ProposalEnv } from './contract.ts';
 import type { OwnerInput } from './input.ts';
 import { allowlistedModels, pickModel, type ModelRequest } from './models.ts';
 import { sessionOpening, sessionSystemPrompt } from './prompt.ts';
-import { changedPaths, sessionShip } from './ship.ts';
-import { colorEnabled, Ui, type Output } from './ui.ts';
-import { computeVerdict, verdictRecord, type SessionVerdict } from './verdict.ts';
+import { changedPaths, sessionShip, treeFingerprint } from './ship.ts';
+import { clip, colorEnabled, Ui, type Output } from './ui.ts';
+import { computeVerdict, fingerprintDiff, movedVerdict, verdictRecord, type SessionVerdict, type TreeFingerprint, type VerdictTrigger } from './verdict.ts';
 
 /** Turns the model may take for one owner message before the prompt comes back. */
 export const DEFAULT_TURNS_PER_MESSAGE = 40;
 /** A session's changed-lines budget (the diff-budget gate): generous, still reviewable. */
 export const SESSION_MAX_DIFF_LINES = 800;
+/** Hooks a session refuses to start without, on top of the required ones: path-guard keeps every write to its scope (never a git-ignored or .env* file). */
+export const SESSION_REQUIRED_HOOKS = ['path-guard'] as const;
+/** Hooks whose refusal the model cannot fix (the checkout or branch moved): its turn ends there. */
+const ENVIRONMENT_HOOKS: ReadonlySet<string> = new Set(['branch-guard']);
+/** How many earlier sessions keep their run-start copies (initial/); older copies are removed at startup. */
+export const KEEP_SESSION_COPIES = 5;
 
 export interface SessionDeps {
   /** Where the owner started (any directory inside the repository). */
@@ -70,6 +86,8 @@ export interface SessionDeps {
   measureBaseline?: (ctx: RunContext) => Promise<TestBaseline>;
   sessionId?: string;
   isolation?: IsolationInfo;
+  /** The OS user name (the Stakeholder when git has no user.name; default os.userInfo). */
+  osUser?: () => string;
 }
 
 export interface SessionResult {
@@ -84,6 +102,10 @@ interface Pending extends Proposal {
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 /** A session id: UTC date-time and 4 random hex digits (lower case, usable in a task id). */
@@ -109,6 +131,74 @@ export function sessionTask(sessionId: string): Task {
   );
 }
 
+/**
+ * The run-start hash of every git-visible file. Nothing is copied: a writable session starts from a
+ * clean tree, and the content a revert check needs is kept lazily, right before a file's first write
+ * (initialCopyHook).
+ */
+export async function startHashes(ws: Workspace, files: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const f of [...files].sort()) {
+    const content = await ws.read(f);
+    if (content !== null) out.set(f, sha256(content));
+  }
+  return out;
+}
+
+/**
+ * A session-only pre-write hook (it runs after every registered hook passed, so only for a write that
+ * happens): before a file's first write it keeps the file's run-start content under <runDir>/initial
+ * (what the observed-red gate's revert check reads), from the file itself while it still matches its
+ * run-start hash, else from the session's start commit. It never blocks; a content it cannot recover is
+ * simply missing, and the gate that needs it says UNPROVEN.
+ */
+export function initialCopyHook(o: { runDir: string; top: string; baseSha: string; exec: Exec; state: () => RunState }): PluginRecord<HookPlugin> {
+  return {
+    plugin: {
+      kind: 'hook',
+      name: 'session-initial-copy',
+      description: 'Keeps a file\'s run-start content before its first write in a session (the observed-red revert check reads it).',
+      events: ['pre_tool'],
+      effects: ['write'],
+      async run(event, ctx) {
+        if (event.event !== 'pre_tool') return { decision: 'pass' };
+        for (const p of event.call.paths) {
+          const r = toApiRel(ctx.workspace, p);
+          if (!r.ok) continue;
+          const hash = o.state().initialHashes.get(r.rel);
+          if (hash === undefined || existsSync(join(o.runDir, 'initial', hash))) continue;
+          let content = await ctx.workspace.read(r.rel).catch(() => null);
+          if (content === null || sha256(content) !== hash) {
+            const g = o.baseSha.length > 0 ? await o.exec('git', ['-C', o.top, 'cat-file', 'blob', `${o.baseSha}:${r.rel}`], { cwd: o.top, timeoutMs: 30_000 }) : null;
+            content = g !== null && g.code === 0 ? g.stdout : null;
+          }
+          if (content !== null && sha256(content) === hash) await saveInitial(o.runDir, new Map([[r.rel, content]]));
+        }
+        return { decision: 'pass' };
+      },
+    },
+    file: 'src/session/session.ts',
+    sha256: '0'.repeat(64),
+  };
+}
+
+/** Remove the run-start copies (initial/) of every session but the newest `keep` (and `current`). */
+export function pruneSessionCopies(sessionsDir: string, current: string, keep: number = KEEP_SESSION_COPIES): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(sessionsDir).filter((n) => n !== current && existsSync(join(sessionsDir, n, 'initial')));
+  } catch {
+    return [];
+  }
+  const byAge = names.map((n) => ({ n, t: statSync(join(sessionsDir, n)).mtimeMs })).sort((a, b) => b.t - a.t || (a.n < b.n ? 1 : -1));
+  const removed: string[] = [];
+  for (const { n } of byAge.slice(keep)) {
+    rmSync(join(sessionsDir, n, 'initial'), { recursive: true, force: true });
+    removed.push(n);
+  }
+  return removed;
+}
+
 export const HELP_LINES = [
   'Type to chat. The agent reads, explains and, after you approve its contract, changes this repository.',
   '  /status          branch, writability, item and stage, changed files, spend',
@@ -120,19 +210,27 @@ export const HELP_LINES = [
   '  /ship            commit, push and open the PR (only after a DONE verdict)',
   '  /import <file>   propose a contract you wrote (<slug>.md, its .mjs Measure next to it)',
   '  /exit            end the session (also Ctrl-D, or Ctrl-C twice on an empty prompt)',
-  'Ctrl-C cancels the agent\'s turn. After a proposal, the next line you type (other than a /command) is your',
-  'reply: only a plain yes typed at this terminal approves it.',
+  'Ctrl-C cancels the agent\'s turn. After a proposal, the next message you type (other than a /command) is',
+  'your reply: only a plain yes typed at this terminal approves it. Lines pasted together are one message.',
 ];
 
 class Session {
   private pending: Pending | null = null;
   private lastVerdict: SessionVerdict | null = null;
+  /** What the last verdict judged (at the start: the tree as the session found it). */
+  private lastJudged: TreeFingerprint = {};
   private readonly verdicts: Array<Record<string, unknown>> = [];
   private readonly ships: Array<Record<string, unknown>> = [];
   private history: TranscriptTurn[] = [];
   private first: Message;
   private turns = 0;
   private turnRunning = false;
+  /** Ctrl-C presses toward the exit (two on an empty prompt; one more after a busy Ctrl-C). */
+  private interrupts = 0;
+  /** A refusal the model cannot fix: its turn ends after the current tool turn. */
+  private stop: string | null = null;
+  /** Files no gate judged when the session ended. */
+  private unjudgedAtExit: string[] = [];
   /** Notes for the model, sent with the owner's next message. */
   private readonly harnessNotes: string[] = [];
 
@@ -163,12 +261,16 @@ class Session {
       env: NodeJS.ProcessEnv;
       startedAt: string;
       lockNote: string | null;
+      person: string;
+      confined: ProposalEnv['confined'];
+      startFingerprint: TreeFingerprint;
     },
     private driver: Driver,
     private meter: SpendMeter,
     private readonly ledger: TokenLedger,
   ) {
     this.first = this.opening();
+    this.lastJudged = s.startFingerprint;
   }
 
   // ───────────── wiring ─────────────
@@ -182,21 +284,64 @@ class Session {
   }
 
   private get proposalEnv(): ProposalEnv {
-    return { top: this.s.top, itemsRoot: this.s.stateDir.itemsRoot, sessionId: this.s.sid, harnessRoot: HARNESS_ROOT, exec: this.s.ctx.exec, baseSha: this.s.baseSha };
+    const s = this.s;
+    return { top: s.top, itemsRoot: s.stateDir.itemsRoot, sessionId: s.sid, harnessRoot: HARNESS_ROOT, exec: s.ctx.exec, person: s.person, confined: s.confined };
+  }
+
+  /**
+   * Run `fn` (something the harness does that must not be cut off: the gates, a measurement, /ship) with
+   * a Ctrl-C handler that says so. A Ctrl-C there counts as the first of the two that exit.
+   */
+  private async guarded<T>(what: string, fn: () => Promise<T>): Promise<T> {
+    const off = this.input.onInterrupt(() => {
+      this.interrupts = 1;
+      this.ui.note(`finishing ${what} first; Ctrl-C again after it ends to exit`);
+    });
+    try {
+      return await fn();
+    } finally {
+      off();
+    }
+  }
+
+  /** A refusal the model cannot fix: it is told to stop and report, and its turn ends after this tool turn. */
+  private stopTurn(tool: string, reason: string): ToolResult {
+    this.stop = reason;
+    return { ok: false, summary: `${tool} refused: ${reason}. This is not something you can fix: do not retry it. Stop, tell the owner what is wrong and what they can do, and end your turn.` };
+  }
+
+  /**
+   * Why a contract for `slug` would take over the bound item's work: the bound item is another one and
+   * the working tree holds changes that have not shipped (null: no such problem).
+   */
+  private async takeOverProblem(slug: string): Promise<string | null> {
+    const item = this.s.ctx.item;
+    if (item === undefined || item.slug === slug) return null;
+    const changed = (await changedPaths(this.s.ctx, this.s.top)) ?? null;
+    if (changed !== null && changed.length === 0) return null;
+    const what = changed === null ? 'the working tree could not be read' : `${changed.length} changed file(s): ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', ...' : ''}`;
+    return `item ${item.slug} is approved in this session and its changes have not shipped (${what}): a contract for "${slug}" would take that work over. The owner ships ${item.slug} first (/ship), or sets its changes aside, then "${slug}" can be proposed`;
   }
 
   /** The propose_contract tool's work (SessionPort.proposeContract): the harness writes and records it. */
   async proposeContract(input: unknown): Promise<ToolResult> {
     const w = this.s.writability;
-    if (!w.writable) return { ok: false, summary: `propose_contract refused: this session is read-only (${w.reason}; ${w.fix}). No edit can happen in it: tell the owner.` };
+    if (!w.writable) return this.stopTurn('propose_contract', `this session is read-only (${w.reason}; ${w.fix}): no contract can be proposed and no edit can happen in it`);
     if (this.pending !== null) return { ok: false, summary: `propose_contract refused: proposal ${this.pending.slug} already awaits the owner's reply. End your turn.` };
+    const slug = typeof input === 'object' && input !== null && typeof (input as { slug?: unknown }).slug === 'string' ? (input as { slug: string }).slug : '';
+    const taken = await this.takeOverProblem(slug);
+    if (taken !== null) return this.stopTurn('propose_contract', taken);
     const r = await proposeDrafted(input, this.proposalEnv);
-    if (!r.ok) return { ok: false, summary: `propose_contract refused: ${r.reason}. Fix it and call propose_contract again.` };
+    if (!r.ok) {
+      if (r.environment === true) return this.stopTurn('propose_contract', r.reason);
+      return { ok: false, summary: `propose_contract refused: ${r.reason}. Fix it and call propose_contract again.` };
+    }
     this.pending = { ...r.proposal, imported: false };
     this.s.ctx.emit({ kind: 'note', source: 'propose_contract', decision: 'record', message: `proposed ${r.proposal.slug} (ledger seq ${r.proposal.seq}, contract ${r.proposal.hash.slice(0, 12)}): awaiting the owner's typed reply`, data: { slug: r.proposal.slug, seq: r.proposal.seq, hash: r.proposal.hash } });
+    const told = r.proposal.toModel.length > 0 ? ` Note: ${r.proposal.toModel.join('; ')}.` : '';
     return {
       ok: true,
-      summary: `proposed ${r.proposal.slug} (contract ${r.proposal.hash.slice(0, 12)}): the owner has been shown it and must type their reply at the prompt. End your turn now and wait; call no more tools.`,
+      summary: `proposed ${r.proposal.slug} (contract ${r.proposal.hash.slice(0, 12)}): the owner has been shown it and must type their reply at the prompt.${told} End your turn now and wait; call no more tools.`,
       data: { slug: r.proposal.slug, seq: r.proposal.seq },
     };
   }
@@ -204,6 +349,7 @@ class Session {
   /** Every recorded event, live: one line on screen; a passing write makes the last verdict stale. */
   onEvent(e: RunEvent): void {
     if (e.kind === 'tool' && e.decision === 'pass' && this.effectOf(e.source) === 'write') this.lastVerdict = null;
+    if (e.kind === 'hook' && e.decision === 'block' && ENVIRONMENT_HOOKS.has(e.source)) this.stop ??= e.message.replace(new RegExp(`^${e.source}: `), '');
     if (e.kind === 'note' && e.source === 'propose_contract') return;
     this.ui.event(e);
     if (this.turnRunning && (e.kind === 'tool' || e.kind === 'hook')) this.ui.startSpinner('working');
@@ -217,22 +363,23 @@ class Session {
 
   async run(): Promise<void> {
     this.banner();
-    let interrupts = 0;
     for (;;) {
-      const prompt = this.pending !== null ? this.ui.paint('magenta', 'reply › ') : this.ui.paint('cyan', '› ');
-      const l = await this.input.read(prompt);
+      const approval = this.pending !== null;
+      const prompt = approval ? this.ui.paint('magenta', 'reply › ') : this.ui.paint('cyan', '› ');
+      const l = await this.input.read(prompt, { approval });
       if (l.kind === 'eof') break;
       if (l.kind === 'interrupt') {
-        interrupts += 1;
-        if (interrupts >= 2) break;
+        this.interrupts += 1;
+        if (this.interrupts >= 2) break;
         this.ui.note('(Ctrl-C again on an empty prompt to exit, or /exit)');
         continue;
       }
-      interrupts = 0;
+      this.interrupts = 0;
       const text = l.text.trim();
       if (text.length === 0) continue;
       if (this.input.channel === 'pipe') this.ui.line(this.ui.paint('dim', `${this.pending !== null ? 'reply › ' : '› '}${text}`));
-      if (text.startsWith('/')) {
+      // A command is one line; a pasted message that starts with "/" is chat.
+      if (text.startsWith('/') && !text.includes('\n')) {
         if ((await this.command(text)) === 'exit') break;
         continue;
       }
@@ -243,7 +390,7 @@ class Session {
       const notes = this.harnessNotes.splice(0);
       await this.turn(notes.length > 0 ? `${text}\n\n${notes.join('\n')}` : text);
     }
-    this.end();
+    await this.end();
   }
 
   private banner(): void {
@@ -254,15 +401,16 @@ class Session {
     if (s.profile === undefined) this.ui.warn(`UNPROVEN: ${s.profileError ?? 'no target profile'} (a verdict here can never be DONE)`);
     else for (const u of s.profile.unsupported) this.ui.warn(`UNPROVEN: ${u}`);
     if (s.isolation.mechanism === 'none') this.ui.warn('UNPROVEN: no sandbox confines agent code here (tests cannot run confined; a verdict can never be DONE)');
-    this.ui.note(`records ${s.store.runDir}  ·  /help for commands`);
+    this.ui.note(`records ${tildePath(s.store.runDir)}  ·  /help for commands`);
   }
 
-  /** One owner message through the governed loop. */
+  /** One owner message through the governed loop; a verdict after it when the tree changed. */
   private async turn(message: string): Promise<void> {
     const s = this.s;
     const controller = new AbortController();
     const off = this.input.onInterrupt(() => controller.abort());
     this.turnRunning = true;
+    this.stop = null;
     this.ui.startSpinner('thinking');
     let attempt = 1;
     let result: AgentResult;
@@ -285,7 +433,7 @@ class Session {
         yieldOnText: true,
         keepChat: true,
         skipShadowBaseline: true,
-        yieldAfterTurn: () => this.pending !== null,
+        yieldAfterTurn: () => this.pending !== null || this.stop !== null,
         onText: (delta, info) => {
           if (info.attempt !== attempt) {
             attempt = info.attempt;
@@ -303,11 +451,15 @@ class Session {
     this.turns += result.turns;
     s.store.writeJson('state.json', serializeState(s.ctx.state));
     if (this.pending !== null) this.showProposal(this.pending);
+    if (this.stop !== null) {
+      // The model was told in the tool result; the harness ends its turn and says it to the owner itself.
+      this.ui.warn(`⏹ the agent stopped: ${clip(this.stop, 400)} (it cannot fix this; you can)`);
+      this.harnessNotes.push(`[harness] Your last turn was ended by the harness: ${this.stop}. Nothing you can do with tools fixes this; do not retry it. Tell the owner what is wrong and what they can do.`);
+      this.stop = null;
+    }
     switch (result.status) {
       case 'yielded':
-        break;
       case 'done':
-        await this.verdict('finish');
         break;
       case 'aborted':
         this.ui.warn('⏹ interrupted: the turn was cancelled. Back to you.');
@@ -331,11 +483,29 @@ class Session {
         this.ui.error(`✗ the turn failed: ${result.error ?? 'unknown error'}`);
         break;
     }
+    // The gates judge every change: after an accepted finish, and after any turn that left the tree
+    // different from what the last verdict judged (the model's words are never the verdict).
+    if (result.status === 'done') await this.verdict('finish');
+    else if (await this.treeMoved()) await this.verdict('turn');
     this.writeRunJson('running');
   }
 
+  /** The changed paths and their content now, or null when git cannot tell. */
+  private async fingerprintNow(): Promise<{ changed: string[]; fingerprint: TreeFingerprint } | null> {
+    const changed = await changedPaths(this.s.ctx, this.s.top);
+    if (changed === null) return null;
+    const fingerprint = await treeFingerprint(this.s.ctx.exec, this.s.top, changed);
+    return fingerprint === null ? null : { changed, fingerprint };
+  }
+
+  /** Whether the tree differs from what the last verdict judged (unknown counts as different). */
+  private async treeMoved(): Promise<boolean> {
+    const now = await this.fingerprintNow();
+    return now === null || fingerprintDiff(this.lastJudged, now.fingerprint).length > 0;
+  }
+
   private showProposal(p: Pending): void {
-    this.ui.proposal(p.slug, p.text, p.notes);
+    this.ui.proposal(p.slug, p.text, p.notes, p.script);
   }
 
   /** The owner's reply to the proposal: the only line that reaches the ledger. */
@@ -354,6 +524,19 @@ class Session {
       this.applyContract(p);
       await this.ensureBaseline();
       note = `[harness] The owner's reply above was recorded in the item ledger and APPROVED contract ${p.slug} (${p.hash.slice(0, 12)}). Edits under it are allowed now; build exactly what it says.`;
+      const before = await this.guarded('the before reading', async () => {
+        this.ui.startSpinner('reading the before value (the Measure script, confined and offline)');
+        try {
+          return await readBefore(this.proposalEnv, p.slug);
+        } finally {
+          this.ui.stopSpinner();
+        }
+      });
+      if (before !== null) {
+        if (before.ok) this.ui.note(before.owner);
+        else this.ui.warn(`⚠ ${before.owner}`);
+        note += `\n[harness] ${before.model}.`;
+      }
     } else if (classifyReply(text).kind === 'no') {
       this.ui.warn(`✗ not approved: recorded as a decline. ${verdict.reason}`);
       note = `[harness] The owner's reply above did NOT approve contract ${p.slug}: it was recorded as a decline. Do not edit. Revise the contract as the owner asks and call propose_contract again.`;
@@ -366,52 +549,61 @@ class Session {
     await this.turn(`${text}\n\n${note}`);
   }
 
-  /** After approval: the task says what the contract says (ship text and gates read it). */
+  /** After approval: the task says what the contract says (ship text and gates read it), and so does the run's Base. */
   private applyContract(p: Pending): void {
     const task = this.s.ctx.task;
     const st = itemStatus(this.s.stateDir.itemsRoot, p.slug);
     const problem = (st.contract.parse?.fields.Problem ?? '').replace(/\s+/g, ' ').trim();
     if (task.kind === 'brownfield' && problem.length > 0) task.change = problem;
     task.title = (st.contract.parse?.fields.Commit ?? task.title).trim();
+    this.s.ctx.run.baseBranch = p.base;
   }
 
   /** The repository's own suite, measured once, before the first write (lazily: only once an item is approved). */
   private async ensureBaseline(): Promise<void> {
     const ctx = this.s.ctx;
     if (ctx.state.testBaseline !== undefined) return;
-    this.ui.startSpinner("measuring the repository's own tests once (the baseline tests-green compares against)");
-    try {
-      ctx.state.testBaseline = await this.s.measureBaseline(ctx);
-    } finally {
-      this.ui.stopSpinner();
-    }
+    await this.guarded("the repository's own tests (the baseline)", async () => {
+      this.ui.startSpinner("measuring the repository's own tests once (the baseline tests-green compares against)");
+      try {
+        ctx.state.testBaseline = await this.s.measureBaseline(ctx);
+      } finally {
+        this.ui.stopSpinner();
+      }
+    });
+    if (ctx.state.testBaseline === undefined) return;
     const line = describeTestBaseline(ctx.state.testBaseline);
     ctx.emit({ kind: 'note', source: 'tests', message: line });
     this.s.store.writeJson('state.json', serializeState(ctx.state));
   }
 
-  /** Every required gate, fresh, and the verdict from them. */
-  private async verdict(trigger: 'finish' | 'gates'): Promise<SessionVerdict> {
+  /** Every required gate, fresh, and the verdict from them (on what the tree held when they started). */
+  private async verdict(trigger: VerdictTrigger): Promise<SessionVerdict> {
     const s = this.s;
-    this.ui.quietGates = true;
-    const off = this.input.onInterrupt(() => this.ui.note('(the gates are running; they finish first)'));
-    this.ui.startSpinner('running every required gate, fresh');
-    let v: SessionVerdict;
-    try {
-      const changed = (await changedPaths(s.ctx, s.top)) ?? [];
-      const targetNotes = s.profile !== undefined ? s.profile.unsupported : [s.profileError ?? 'no target profile'];
-      v = await computeVerdict({ ctx: s.ctx, isolation: s.isolation, targetNotes, changed, trigger });
-    } finally {
-      off();
-      this.ui.stopSpinner();
-      this.ui.quietGates = false;
-    }
+    const v: SessionVerdict = await this.guarded('the gates', async () => {
+      this.ui.quietGates = true;
+      this.ui.startSpinner('running every required gate, fresh');
+      try {
+        const start = (await this.fingerprintNow()) ?? { changed: [], fingerprint: {} };
+        const targetNotes = s.profile !== undefined ? s.profile.unsupported : [s.profileError ?? 'no target profile'];
+        let out = await computeVerdict({ ctx: s.ctx, isolation: s.isolation, targetNotes, changed: start.changed, fingerprint: start.fingerprint, trigger });
+        const end = await this.fingerprintNow();
+        const moved = end === null ? ['(the working tree could not be read)'] : fingerprintDiff(start.fingerprint, end.fingerprint);
+        if (moved.length > 0) out = movedVerdict(out, moved);
+        return out;
+      } finally {
+        this.ui.stopSpinner();
+        this.ui.quietGates = false;
+      }
+    });
+    if (trigger === 'turn') this.ui.note('the turn changed the working tree: the gates judge it (the model\'s words never do)');
     this.ui.verdict(v);
     this.lastVerdict = v;
+    this.lastJudged = v.fingerprint;
     this.verdicts.push(verdictRecord(v));
     s.store.writeJson('gates.json', { phase: 'finish', trigger, ok: v.gatesOk, results: v.gates });
-    if (v.kind !== 'DONE' && trigger === 'finish') {
-      this.harnessNotes.push(`[harness] After your finish, the fresh run of every required gate says ${v.kind}: ${v.reasons.slice(0, 4).join('; ')}. The work is not complete; do not say it is.`);
+    if (v.kind !== 'DONE' && trigger !== 'gates') {
+      this.harnessNotes.push(`[harness] After your ${trigger === 'finish' ? 'finish' : 'turn'}, the fresh run of every required gate says ${v.kind}: ${v.reasons.slice(0, 4).join('; ')}. The work is not complete; do not say it is.`);
     }
     this.writeRunJson('running');
     return v;
@@ -429,10 +621,10 @@ class Session {
       case 'quit':
         return 'exit';
       case 'status':
-        await this.status();
+        await this.guarded('/status', () => this.status());
         return;
       case 'diff':
-        await this.diff();
+        await this.guarded('/diff', () => this.diff());
         return;
       case 'cost':
         this.cost();
@@ -447,10 +639,10 @@ class Session {
         this.clear();
         return;
       case 'ship':
-        await this.ship();
+        await this.guarded('/ship', () => this.ship());
         return;
       case 'import':
-        await this.importContract(args.join(' '));
+        await this.guarded('/import', () => this.importContract(args.join(' ')));
         return;
       default:
         this.ui.warn(`unknown command /${name} (/help lists them)`);
@@ -461,7 +653,7 @@ class Session {
     const s = this.s;
     const now = await branchVerdict(s.top, s.config, s.ctx.exec);
     const w = s.writability;
-    this.ui.line(`repo     ${s.repo} (${s.top})`);
+    this.ui.line(`repo     ${s.repo} (${tildePath(s.top)})`);
     this.ui.line(`branch   ${s.branch} ${w.writable ? '(writable)' : `(read-only: ${w.reason}; ${w.fix})`}${now.branch !== s.branch ? `  now on ${now.branch ?? 'a detached HEAD'}: writes are refused until you switch back` : ''}`);
     const item = s.ctx.item;
     if (item !== undefined) this.ui.line(`item     ${item.slug}  ${itemStatus(item.root, item.slug).stage}  (contract ${item.contractHash.slice(0, 12)})`);
@@ -471,7 +663,7 @@ class Session {
     this.ui.line(`changed  ${changed.length === 0 ? 'nothing' : `${changed.length} file(s): ${changed.slice(0, 8).join(', ')}${changed.length > 8 ? ', ...' : ''}`}`);
     this.ui.line(`verdict  ${this.lastVerdict === null ? 'none current' : `${this.lastVerdict.kind} (${this.lastVerdict.trigger}, ${this.lastVerdict.at})`}`);
     this.ui.line(`model    ${this.driver.model}  ·  spend ${usd(this.meter.spentUsd)} of ${usd(this.meter.capUsd)}  ·  turns ${this.turns}`);
-    this.ui.line(`records  ${s.store.runDir}`);
+    this.ui.line(`records  ${tildePath(s.store.runDir)}`);
   }
 
   private async diff(): Promise<void> {
@@ -553,7 +745,9 @@ class Session {
         top: s.top,
         sessionId: s.sid,
         lastVerdict: this.lastVerdict,
-        summary: { model: this.driver.model, spend: { spentUsd: Number(this.meter.spentUsd.toFixed(6)), capUsd: this.meter.capUsd }, sessionRecords: s.store.runDir },
+        stateRoot: s.stateDir.root,
+        // No absolute local path in what is committed: the records are named relative to the state directory.
+        summary: { model: this.driver.model, spend: { spentUsd: Number(this.meter.spentUsd.toFixed(6)), capUsd: this.meter.capUsd }, sessionRecords: `<state-dir>/sessions/${s.sid}` },
       });
     } finally {
       this.ui.stopSpinner();
@@ -568,6 +762,9 @@ class Session {
       for (const x of r.reasons) this.ui.line(`  ${x}`);
       if (r.status === 'shipped') this.ui.note('after the merge: harness item close <slug> (in this repository) reads the metric again');
       this.ui.note('start a new session for the next change: this one\'s gates compare against the commit it started from');
+      // What was committed is no longer a change: the next verdict starts from a clean tree.
+      const now = await this.fingerprintNow();
+      if (now !== null) this.lastJudged = now.fingerprint;
     }
     this.writeRunJson('running');
   }
@@ -584,6 +781,11 @@ class Session {
     }
     if (this.pending !== null) {
       this.ui.warn(`proposal ${this.pending.slug} is waiting for your reply: answer it first`);
+      return;
+    }
+    const taken = await this.takeOverProblem(basename(path).replace(/\.md$/i, ''));
+    if (taken !== null) {
+      this.ui.error(`✗ not proposed: ${taken}`);
       return;
     }
     this.ui.startSpinner('reading the contract and its metric');
@@ -607,16 +809,18 @@ class Session {
   writeRunJson(status: 'running' | 'ended'): void {
     const s = this.s;
     const item = s.ctx.item;
+    const st = item === undefined ? null : itemStatus(item.root, item.slug);
     s.store.writeJson('run.json', {
       kind: 'session',
       sessionId: s.sid,
       status,
       startedAt: s.startedAt,
-      ...(status === 'ended' ? { endedAt: new Date().toISOString() } : {}),
+      ...(status === 'ended' ? { endedAt: new Date().toISOString(), unjudgedAtExit: this.unjudgedAtExit } : {}),
       repoTop: s.top,
       repo: s.repo,
       branch: s.branch,
-      baseBranch: s.branch,
+      // The PR's target: the approved contract's Base (none before a contract), never the working branch.
+      baseBranch: st === null ? null : (st.contract.parse?.fields.Base ?? '').trim() || null,
       baseSha: s.baseSha,
       writable: s.writability.writable,
       ...(s.writability.writable ? {} : { readOnly: { reason: s.writability.reason, fix: s.writability.fix } }),
@@ -630,7 +834,7 @@ class Session {
       isolation: s.isolation,
       toolsOffered: s.tools.map((t) => t.name),
       turns: this.turns,
-      item: item === undefined ? null : { slug: item.slug, contractHash: item.contractHash, stage: itemStatus(item.root, item.slug).stage },
+      item: item === undefined || st === null ? null : { slug: item.slug, contractHash: item.contractHash, stage: st.stage },
       verdicts: this.verdicts,
       lastVerdict: this.lastVerdict === null ? null : this.lastVerdict.kind,
       ships: this.ships,
@@ -638,8 +842,15 @@ class Session {
     });
   }
 
-  private end(): void {
+  /** Leaving: work no gate judged is named (UNPROVEN), then the records are closed. */
+  private async end(): Promise<void> {
     const s = this.s;
+    const now = await this.guarded('closing the session', () => this.fingerprintNow());
+    this.unjudgedAtExit = now === null ? ['(the working tree could not be read)'] : now.changed.filter((p) => now.fingerprint[p] !== this.lastJudged[p]);
+    if (this.unjudgedAtExit.length > 0) {
+      const files = this.unjudgedAtExit;
+      this.ui.warn(`? UNPROVEN: no gate has judged ${files.slice(0, 8).join(', ')}${files.length > 8 ? `, ... (${files.length} files)` : ''}: this work is not complete. Run /gates in a new session before you ship it.`);
+    }
     s.store.writeJson('state.json', serializeState(s.ctx.state));
     try {
       this.ledger.write(s.stateDir.tokensDir);
@@ -647,8 +858,17 @@ class Session {
       // the token report is evidence, not a reason to fail the exit
     }
     this.writeRunJson('ended');
-    this.ui.note(`session ended. Records: ${s.store.runDir}`);
+    this.ui.note(`session ended. Records: ${tildePath(s.store.runDir)}`);
   }
+}
+
+/** Whether a Measure the model writes may run here: only where the sandbox confines it. */
+export function measureConfinement(isolation: IsolationInfo, env: NodeJS.ProcessEnv): ProposalEnv['confined'] {
+  if (isolation.mode === 'off' || sandboxMode(env) === 'off' || sandboxMode() === 'off') {
+    return { ok: false, why: 'the sandbox is off here (HARNESS_SANDBOX=off, or "sandbox": "off" in harness.config.json): turn it on, or propose without a Measure script (Measure: none)' };
+  }
+  if (isolation.mechanism === 'none') return { ok: false, why: `no sandbox works on this machine (${process.platform}): propose without a Measure script (Measure: none)` };
+  return { ok: true };
 }
 
 /** Start a session in the repository around `deps.cwd`; resolves when the owner exits. Exit code 2 = could not start. */
@@ -675,9 +895,12 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
     return { code: 2 };
   }
   for (const t of registry.tools) tools.set(t.plugin.name, t.plugin.effect);
-  const missing = missingRequiredHooks(registry.hooks, { inPlace: true });
+  const missing = [
+    ...missingRequiredHooks(registry.hooks, { inPlace: true }),
+    ...SESSION_REQUIRED_HOOKS.filter((h) => !registry.hooks.some((r) => r.plugin.name === h)),
+  ];
   if (missing.length > 0) {
-    ui.error(`harness: refused: required hook(s) ${missing.join(', ')} are not registered (disabled in harness.config.json or failed to load), so nothing would stop an edit without an approved contract or on another branch`);
+    ui.error(`harness: refused: required hook(s) ${missing.join(', ')} are not registered (disabled in harness.config.json or failed to load), so nothing would stop an edit without an approved contract, on another branch, or to a git-ignored or .env* file`);
     return { code: 2 };
   }
 
@@ -729,25 +952,39 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
     }
     const ws = createWorkspace(top, '.', { visibility: 'git' });
     const task = sessionTask(sid);
-    const target = await preflight(task, false, ws);
+    // The profile of the owner's checkout, in place: the generic web stack and JavaScript test dirs apply.
+    const target = await targetProfile(ws, { inPlace: true });
+    if (target.profile !== undefined && task.kind === 'brownfield') task.scope = { allow: defaultScopeAllow(target.profile), deny: task.scope.deny };
     const state = newRunState();
-    state.initialHashes = await snapshotHashes(ws, runDir);
     const files = await ws.list(['**/*']);
+    state.initialHashes = await startHashes(ws, files);
+    pruneSessionCopies(stateDir.sessionsDir, sid);
+    const startChanged = await changedPaths({ exec }, top);
+    const startFingerprint = (startChanged !== null ? await treeFingerprint(exec, top, startChanged) : null) ?? {};
     const isolation = deps.isolation ?? isolationInfo();
+    const person = await personName({ top, exec }, deps.osUser ?? (() => {
+      try {
+        return userInfo().username;
+      } catch {
+        return env['USER'] ?? '';
+      }
+    }));
     let session: Session | null = null;
     const port = {
       id: sid,
       proposeContract: (input: unknown): Promise<ToolResult> => (session === null ? Promise.resolve({ ok: false, summary: 'the session is not ready' }) : session.proposeContract(input)),
     };
     const ctx = buildContext({
-      run: { id: sid, driver: driver.name, model: driver.model, startedAt, harnessRoot: HARNESS_ROOT, runDir, branch, baseBranch: branch, baseSha },
+      // baseBranch: the PR's target is the approved contract's Base (set on approval), never the working branch.
+      run: { id: sid, driver: driver.name, model: driver.model, startedAt, harnessRoot: HARNESS_ROOT, runDir, branch, baseBranch: '', baseSha },
       task,
       ws,
       state,
       store,
       mode: JIT_MODE,
       config,
-      registry,
+      // The registered hooks, then the session's lazy run-start copy (only for a write every hook passed).
+      registry: { ...registry, hooks: [...registry.hooks, initialCopyHook({ runDir, top, baseSha, exec, state: () => state })] },
       exec,
       inPlace: { repoTop: top, branch },
       session: port,
@@ -758,7 +995,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
     const checks = selectChecks(registry.checks.map((r) => r.plugin), undefined, undefined, ctx.stack);
     const repo = basename(top);
     const runner = target.profile !== undefined ? (target.profile.runner.supported ? target.profile.runner.name : `none supported: ${target.profile.runner.reason ?? target.profile.runner.name}`) : 'unknown';
-    const system = sessionSystemPrompt({ repo, branch, writable: writability.writable, reason: writability.reason, stack: ctx.stack ?? 'unknown', runner, tools: offered, checks });
+    const system = sessionSystemPrompt({ repo, branch, writable: writability.writable, reason: writability.reason, stack: ctx.stack ?? 'unknown', runner, tools: offered, checks, checkOptions: config.checkOptions });
     const meter = new SpendMeter(config.models.maxRunUsd, policy.price, normalizeModel(driver.model));
     const ledger = new TokenLedger({ runId: sid, task: task.id, driver: driver.name, model: driver.model, counter: driver.tokenCounter, mode: 'jit' });
     ui.stopSpinner();
@@ -789,6 +1026,9 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
         env,
         startedAt,
         lockNote: lock.tookOver !== undefined ? `took over a stale session lock (pid ${lock.tookOver.pid} is gone)` : null,
+        person,
+        confined: measureConfinement(isolation, env),
+        startFingerprint,
       },
       driver,
       meter,

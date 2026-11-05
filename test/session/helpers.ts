@@ -56,6 +56,8 @@ export function webRepo(opts: { branch?: string; extra?: Record<string, string>;
     writeFileSync(join(repo, rel), content);
   }
   git(repo, 'init', '-q', '-b', 'main');
+  // The person at this terminal (a drafted contract's Stakeholder): set in the repository, never read from the machine.
+  git(repo, 'config', 'user.name', 'Ada Owner');
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'initial');
   git(repo, 'branch', 'development');
@@ -202,4 +204,18 @@ export function ledgerTypes(ran: Ran, slug: string): string[] {
 
 export function transcript(ran: Ran): unknown[] {
   return readFileSync(join(ran.dir, 'transcript.jsonl'), 'utf8').split('\n').filter((l) => l.length > 0).map((l) => JSON.parse(l) as unknown);
+}
+
+/** The core exec, except `git push` and `gh` (nothing leaves the machine); records what was asked. */
+export function fakeRemote(seen: string[]): Exec {
+  return async (cmd, args, opts) => {
+    seen.push([cmd, ...args].join(' '));
+    const ok = (stdout = '') => ({ code: 0, stdout, stderr: '', durationMs: 0, timedOut: false });
+    if (cmd === 'gh') {
+      if (args[0] === 'pr' && args[1] === 'create') return ok('https://github.com/acme/tiny-web/pull/7\n');
+      return ok('gh version test\n');
+    }
+    if (cmd === 'git' && args.includes('push')) return ok();
+    return coreExec(cmd, args, opts);
+  };
 }

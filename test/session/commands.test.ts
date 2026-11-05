@@ -8,11 +8,12 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { exec as coreExec } from '../../src/core/exec.ts';
 import { cmdItem } from '../../src/core/item-cli.ts';
 import { acquireCheckoutLock, repoStateDir } from '../../src/core/state-home.ts';
 import { ScriptedInput } from '../../src/session/input.ts';
 import { runSession } from '../../src/session/session.ts';
-import type { ModelResponse } from '../../src/core/types.ts';
+import type { Exec, ModelResponse } from '../../src/core/types.ts';
 import { calls, git, ledgerTypes, proposal, realRegistry, registryWithGates, runScripted, SessionDriver, TEST_BODY, text, transcript, webRepo, type WebRepo } from './helpers.ts';
 
 let r: WebRepo;
@@ -92,6 +93,47 @@ describe('Ctrl-C', () => {
     expect(ran.out).toContain('(Ctrl-C again on an empty prompt to exit, or /exit)');
     expect(ran.driver.used).toBe(1);
     expect(ran.input.prompts).toHaveLength(4);
+    expect(ran.runJson['status']).toBe('ended');
+  });
+
+  it('during /status, /diff, /gates, /import and /ship a handler hears it and says what finishes first; every command completes', async () => {
+    let armed = false;
+    let input: ScriptedInput | null = null;
+    const fired: boolean[] = [];
+    // The first git command a command runs plays a Ctrl-C (nothing listening would have ended the process).
+    const exec: Exec = (cmd, args, o) => {
+      if (armed && cmd === 'git') {
+        armed = false;
+        fired.push(input?.fireInterrupt() ?? false);
+      }
+      return coreExec(cmd, args, o);
+    };
+    const arm = (line: string) => (): string => {
+      armed = true;
+      return line;
+    };
+    input = new ScriptedInput(['fix it', 'yes', arm('/status'), arm('/diff'), arm('/gates'), arm('/ship'), arm('/import nowhere.md'), 'hello'], 'tty');
+    const ran = await runScripted(r, [calls(['propose_contract', proposal()]), calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]), text('written'), text('still here')], [], { input, exec, registry: await registryWithGates() });
+    expect(fired).toEqual([true, true, true, true, true]);
+    for (const what of ['/status', '/diff', 'the gates', '/ship', '/import']) expect(ran.out).toContain(`finishing ${what} first; Ctrl-C again after it ends to exit`);
+    expect(ran.out).toMatch(/item {5}greeting-name {2}approved/);
+    expect(ran.out).toContain(`new file ${TEST_FILE}`);
+    expect(ran.out).toMatch(/● committed [0-9a-f]{12} on fix\/greeting/);
+    expect(ran.out).toMatch(/✗ not proposed: no such file/);
+    expect(ran.out).toContain('still here');
+    expect(ran.runJson['status']).toBe('ended');
+  });
+
+  it('a Ctrl-C while the harness was busy counts as the first: one more on the empty prompt exits (twin of "once only warns")', async () => {
+    let input: ScriptedInput | null = null;
+    const busy: Exec = (cmd, args, o) => {
+      if (cmd === 'git' && args.includes('symbolic-ref') && input !== null && input.prompts.length === 1) input.fireInterrupt();
+      return coreExec(cmd, args, o);
+    };
+    input = new ScriptedInput(['/status', { interrupt: true }, 'never read'], 'tty');
+    const ran = await runScripted(r, [], [], { input, exec: busy });
+    expect(ran.out).toContain('finishing /status first; Ctrl-C again after it ends to exit');
+    expect(ran.input.prompts).toHaveLength(2);
     expect(ran.runJson['status']).toBe('ended');
   });
 });
