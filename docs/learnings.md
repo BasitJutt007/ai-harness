@@ -17,10 +17,9 @@ cannot, and nobody else read these contracts before they ran.
   baseline for this repo was "tsc: 0 errors". It was wrong.
 - **Lint that lints nothing.** Both frontends' ESLint configs match only `.js`/`.jsx`, so "0 problems"
   covered no TypeScript. `repo-lint` now reports such files as n/a, with the reason.
-- **Ten admin-only backend routes open to any vendor token**, live on development, staging and main.
-  Login creates an account for any email, so anyone with an inbox can call them. This became the
-  `admin-only-sweep` item (archived outside this repository since 6 November 2026). The live
-  environments need a hotfix through the normal process, outside the assignment.
+- **Backend routes meant for admins without the admin guard.** `nest-route-guard` found ten of them.
+  The details stay outside this repository (the item was archived on 6 November 2026), and the fix
+  goes through the team's normal process.
 - **A commitlint config that accepts "patch".** The vendor app's config switches every rule off. The
   harness probes for this and says so instead of reporting a pass.
 - **336 of 450 per-request `findMany` calls in the backend have no bound.** They are pre-existing, so
