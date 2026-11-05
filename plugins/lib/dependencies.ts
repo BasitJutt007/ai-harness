@@ -124,7 +124,25 @@ function requireSpecifiers(rel: string, text: string): string[] {
   return out;
 }
 
-/** Every module specifier of a TypeScript file. */
+/** Single-file components and pages whose imports live in `<script>` blocks (and, for .astro, a `---` frontmatter). */
+const COMPONENT_FILE = /\.(?:vue|svelte|astro)$/i;
+
+/**
+ * The script a file holds: a script file as it is; for a single-file component (.vue, .svelte) the
+ * content of every `<script ...>` block, and for an .astro page its `---` frontmatter as well. Parsing
+ * the whole component as TypeScript would miss imports behind its template, so a package import added
+ * in a component would go unchecked.
+ */
+export function scriptSource(rel: string, text: string): string {
+  if (!COMPONENT_FILE.test(rel)) return text;
+  const blocks = [...text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].map((m) => m[1] ?? '');
+  const front = /\.astro$/i.test(rel) ? /^\s*---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] : undefined;
+  return [...(front !== undefined ? [front] : []), ...blocks].join('\n;\n');
+}
+
+/** Every module specifier of a script file, or of the script blocks of a component (scriptSource). */
 export function moduleSpecifiers(rel: string, text: string): string[] {
-  return [...importSpecifiers(rel, text), ...requireSpecifiers(rel, text)];
+  const script = scriptSource(rel, text);
+  const name = COMPONENT_FILE.test(rel) ? `${rel}.ts` : rel;
+  return [...importSpecifiers(name, script), ...requireSpecifiers(name, script)];
 }

@@ -1,6 +1,7 @@
 /**
- * dependency-policy (pre, write of TypeScript): nothing can be installed during a run, so every
- * bare module specifier a write ADDS to a TypeScript file (import / export-from / import-equals /
+ * dependency-policy (pre, write of a script or component): nothing can be installed during a run, so every
+ * bare module specifier a write ADDS to a script (TypeScript, and in place JavaScript too) or to the
+ * `<script>` blocks of a .vue / .svelte / .astro component (import / export-from / import-equals /
  * dynamic import / require / vi.mock of a literal) must name
  *   - a Node builtin (`node:fs`, `fs`), or
  *   - a package the API's package.json declares (dependencies, devDependencies, peer or optional)
@@ -19,7 +20,11 @@ import type { DependencyView } from '../lib/dependencies.ts';
 import { toApiRel } from '../lib/path-policy.ts';
 import { postImage } from '../lib/post-image.ts';
 
-const TS_FILE = /\.(?:[cm]?ts|tsx)$/;
+/**
+ * Every file kind that can import a package. File mode can only write .ts/.tsx (path-guard), so the
+ * JavaScript and component kinds matter in place, where a session may write them.
+ */
+const SCRIPT_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/i;
 /** Packages named in the "available" list at most. */
 const MAX_LISTED = 12;
 
@@ -57,7 +62,7 @@ export default defineHook({
     let view: DependencyView | undefined;
     for (const p of call.paths) {
       const r = toApiRel(ctx.workspace, p);
-      if (!r.ok || !TS_FILE.test(r.rel)) continue; // path-guard reports bad paths; other files import nothing
+      if (!r.ok || !SCRIPT_FILE.test(r.rel)) continue; // path-guard reports bad paths; other files import nothing
       const img = postImage(call, p);
       if (!img.ok) return { decision: 'block', reason: `dependency-policy: ${img.reason}` };
       if (img.after === null) continue; // no file afterwards

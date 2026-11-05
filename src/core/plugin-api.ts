@@ -41,6 +41,9 @@ export type { ApprovalVerdict, ContractParse, ContractVerdict, ItemStatus, Ledge
 /** Every placeholder the context views render for content left out of the model's view (see context.ts). */
 export { ELISION_PLACEHOLDER } from './context.ts';
 
+/** Why a path of the owner's checkout is not git-visible (ignored, `.git`, `.env*`), or null (see workspace.ts). */
+export { gitHiddenReason } from './workspace.ts';
+
 /** Writing in the owner's checkout (a session): the branch checks the branch-guard hook repeats before every write (see inplace.ts). */
 export { branchVerdict, inPlaceWritability } from './inplace.ts';
 export type { InPlaceVerdict } from './inplace.ts';

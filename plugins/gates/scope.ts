@@ -10,7 +10,7 @@
  */
 import { defineGate } from '../../src/core/plugin-api.ts';
 import type { RunContext } from '../../src/core/plugin-api.ts';
-import { toApiRel, writePolicy } from '../lib/path-policy.ts';
+import { toApiRel, writePolicyFor } from '../lib/path-policy.ts';
 import { sha256 } from '../lib/red.ts';
 
 /** Parse `git status --porcelain=v1 -z` into repo-relative paths (both sides of renames). */
@@ -80,7 +80,8 @@ export default defineGate({
         const current = await ws.read(rel);
         if (current !== null && sha256(current) === initial) continue; // untouched scaffold file
       }
-      const policy = writePolicy(ctx.task, rel, ctx.stack);
+      // In place (a session) the scope is the git-visible tree minus the supply-chain deny list; file mode keeps the task scope.
+      const policy = writePolicyFor(ctx, rel);
       if (policy.allowed) inScope++;
       else violations.push(`${rel}: ${policy.reason}`);
     }
