@@ -17,6 +17,9 @@
  *   4. once the PR is open, appends the session's `run` entry (verdict DONE, the approved contract hash)
  *      and then the `shipped` entry to the item ledger: `harness item close` accepts a shipped entry only
  *      after a DONE run of the approved text (close.ts shippedRunProblem).
+ * A ship that committed but could not push or open the PR (status committed) returns what a retry needs
+ * (`retry`); /ship with it (`resume`) commits nothing again: on the same item, contract, branch and
+ * commit (HEAD exactly), it only pushes and opens the PR, then records run and shipped as above.
  * Nothing committed or sent carries an absolute local path: session.json, the commit message and the PR
  * body name the repository as ".", the state directory as "<state-dir>" and the home directory as "~".
  * Every command is an argv array (no shell). File-mode ship (src/core/ship.ts ship) is untouched.
@@ -47,6 +50,18 @@ export interface SessionShipOptions {
   stateRoot?: string;
   /** Remote to push to (default origin). */
   remote?: string;
+  /** Push and open the PR for the commit an earlier /ship made (its `retry`), committing nothing. */
+  resume?: ShipResume;
+}
+
+/** A commit /ship made for an item and could not push or open a PR for. */
+export interface ShipResume {
+  slug: string;
+  contractHash: string;
+  sha: string;
+  /** The PR title and body made when it was committed (no absolute local path in them). */
+  title: string;
+  body: string;
 }
 
 export interface SessionShipResult {
@@ -57,6 +72,8 @@ export interface SessionShipResult {
   reasons: string[];
   /** Every command run, in order, as printable argv lines. */
   commands: string[];
+  /** status committed: what /ship needs to push it and open the PR later. */
+  retry?: ShipResume;
 }
 
 /** Repository-relative paths with a change in the working tree (porcelain v1, -z; renames give both sides). */
@@ -148,12 +165,15 @@ export async function sessionShip(o: SessionShipOptions): Promise<SessionShipRes
   const git = (args: string[], record = true): Promise<ExecResult> => run('git', ['-C', top, ...args], record);
   const scrub = (text: string): string => scrubPaths(text, { top, stateRoot: o.stateRoot, harnessRoot: HARNESS_ROOT });
 
-  // 1. What the owner can ship: a DONE verdict on the approved, unchanged item, on the working branch.
+  // 1. What the owner can ship: a DONE verdict on the approved, unchanged item, on the working branch
+  //    (a retry of a commit /ship already made needs no new verdict: what it pushes was judged then).
   const item = ctx.item;
   if (item === undefined) return refuse('no approved contract is bound to this session: propose one, approve it, let the gates say DONE, then /ship');
   const v = o.lastVerdict;
-  if (v === null || v.kind !== 'DONE') return refuse(`the last verdict is ${v === null ? 'none yet' : v.kind}: /ship needs DONE (the agent's accepted finish, or /gates)`);
-  if (v.item?.contractHash !== item.contractHash) return refuse('the last DONE verdict was about another contract: run /gates for this one');
+  if (o.resume === undefined) {
+    if (v === null || v.kind !== 'DONE') return refuse(`the last verdict is ${v === null ? 'none yet' : v.kind}: /ship needs DONE (the agent's accepted finish, or /gates)`);
+    if (v.item?.contractHash !== item.contractHash) return refuse('the last DONE verdict was about another contract: run /gates for this one');
+  }
   const status = itemStatus(item.root, item.slug);
   if (!status.editable || status.contract.parse === null) return refuse(`item ${item.slug} is not approved (${status.stage}): ${status.lines.join(' | ')}`);
   if (status.contract.parse.hash !== item.contractHash) return refuse(`docs/contracts/${item.slug}.md changed after it was approved: propose it again`);
@@ -163,6 +183,39 @@ export async function sessionShip(o: SessionShipOptions): Promise<SessionShipRes
   if (bv.branch !== branch) return refuse(`HEAD is on ${bv.branch ?? 'another commit'}, not ${branch} where the session started: switch back (git switch ${branch})`);
   if (isProtectedBranch(branch, ctx.config.protectedBranches)) return refuse(`refusing to ship protected branch "${branch}"`);
   if (normalizeBranch(branch).toLowerCase() === normalizeBranch(base).toLowerCase()) return refuse(`the branch ${branch} is the contract's Base: cut a working branch (git switch -c <name>) for the PR`);
+
+  /** Push `sha` (HEAD of the branch), open the PR, then record the run and the shipped entry. */
+  const publish = async (sha: string, title: string, body: string): Promise<SessionShipResult> => {
+    const retry: ShipResume = { slug: item.slug, contractHash: item.contractHash, sha, title, body };
+    const committed = (reasons: string[]): SessionShipResult => ({ status: 'committed', branch, commit: sha, reasons, commands, retry });
+    // 7. Push the current branch only: explicit refspec, never force.
+    if ((await git(['remote', 'get-url', remote], false)).code !== 0) return committed([`no remote "${remote}": committed ${sha.slice(0, 12)} on ${branch}, not pushed`]);
+    const push = await git([...NO_HOOKS, 'push', '--no-force', '-u', remote, `refs/heads/${branch}:refs/heads/${branch}`]);
+    if (push.code !== 0) return committed([`push to ${remote} failed: ${firstLine(push)}`]);
+    // 8. The PR against the contract's Base.
+    const gh = await ghStatus((args) => run('gh', args, false));
+    if (!gh.ok) return committed([`pushed ${branch} to ${remote}; ${gh.why}, so no PR was opened`]);
+    const pr = await run('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body]);
+    if (pr.code !== 0) return committed([`pushed ${branch} to ${remote}; gh pr create failed: ${firstLine(pr)}`]);
+    const url = [...pr.stdout.matchAll(/https?:\/\/\S+/g)].map((m) => m[0]).pop();
+    // 9. The run that cleared it, then the shipped entry: close accepts a shipped line only after a DONE run of this text.
+    appendLedger(paths.ledger, { type: 'run', runId: o.sessionId, status: 'done', verdict: 'DONE', contractHash: item.contractHash });
+    appendLedger(paths.ledger, { type: 'shipped', runId: o.sessionId, branch, headSha: sha, base, prUrl: url ?? null });
+    return { status: 'shipped', branch, commit: sha, ...(url !== undefined ? { prUrl: url } : {}), reasons: url !== undefined ? [] : ['gh pr create succeeded but printed no URL'], commands };
+  };
+  const paths = itemPaths(item.root, item.slug);
+
+  // A retry: the commit /ship made for this item, still exactly HEAD; nothing is committed again.
+  if (o.resume !== undefined) {
+    const c = o.resume;
+    if (c.slug !== item.slug || c.contractHash !== item.contractHash) return refuse(`the commit /ship made was for ${c.slug} (contract ${c.contractHash.slice(0, 12)}), not the item bound now: nothing was pushed`);
+    const head = (await git(['rev-parse', '--verify', '-q', 'HEAD'], false)).stdout.trim();
+    if (head !== c.sha) {
+      return refuse(`HEAD is ${head.slice(0, 12) || 'unknown'}, not ${c.sha.slice(0, 12)}, the commit /ship made for ${item.slug}: nothing was pushed. Put ${branch} back on that commit, or push and open the PR yourself`);
+    }
+    return publish(c.sha, c.title, c.body);
+  }
+  if (v === null) return refuse('no verdict yet: /ship needs DONE');
 
   // 2. The tree holds the agent's work only, and is, byte for byte, the tree the verdict judged.
   const changed = await changedPaths(ctx, top);
@@ -189,7 +242,6 @@ export async function sessionShip(o: SessionShipOptions): Promise<SessionShipRes
 
   // 4. The item's records, copied into the repository (removed again if the ship stops before the commit).
   const rec = recordPaths(item.slug);
-  const paths = itemPaths(item.root, item.slug);
   const contractText = readFileSync(paths.contract, 'utf8');
   const repoContract = join(top, rec.contract);
   if (existsSync(repoContract) && readFileSync(repoContract, 'utf8') !== contractText) {
@@ -271,21 +323,6 @@ export async function sessionShip(o: SessionShipOptions): Promise<SessionShipRes
     return refuse(`git commit failed: ${firstLine(commit)}`);
   }
   const sha = (await git(['rev-parse', 'HEAD'], false)).stdout.trim();
-  const committed = (reasons: string[]): SessionShipResult => ({ status: 'committed', branch, commit: sha, reasons, commands });
-
-  // 7. Push the current branch only: explicit refspec, never force.
-  if ((await git(['remote', 'get-url', remote], false)).code !== 0) return committed([`no remote "${remote}": committed ${sha.slice(0, 12)} on ${branch}, not pushed`]);
-  const push = await git([...NO_HOOKS, 'push', '--no-force', '-u', remote, `refs/heads/${branch}:refs/heads/${branch}`]);
-  if (push.code !== 0) return committed([`push to ${remote} failed: ${firstLine(push)}`]);
-
-  // 8. The PR against the contract's Base.
-  const gh = await ghStatus((args) => run('gh', args, false));
-  if (!gh.ok) return committed([`pushed ${branch} to ${remote}; ${gh.why}, so no PR was opened`]);
-  const pr = await run('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', text.title, '--body', body]);
-  if (pr.code !== 0) return committed([`pushed ${branch} to ${remote}; gh pr create failed: ${firstLine(pr)}`]);
-  const url = [...pr.stdout.matchAll(/https?:\/\/\S+/g)].map((m) => m[0]).pop();
-  // 9. The run that cleared it, then the shipped entry: close accepts a shipped line only after a DONE run of this text.
-  appendLedger(paths.ledger, { type: 'run', runId: o.sessionId, status: 'done', verdict: 'DONE', contractHash: item.contractHash });
-  appendLedger(paths.ledger, { type: 'shipped', runId: o.sessionId, branch, headSha: sha, base, prUrl: url ?? null });
-  return { status: 'shipped', branch, commit: sha, ...(url !== undefined ? { prUrl: url } : {}), reasons: url !== undefined ? [] : ['gh pr create succeeded but printed no URL'], commands };
+  // 7-9. Push, the PR, the ledger (a failure there leaves the commit, and says how to retry).
+  return publish(sha, text.title, body);
 }

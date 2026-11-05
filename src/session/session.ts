@@ -16,7 +16,10 @@
  *   - Ctrl-C cancels the running turn; while the harness itself works (the gates, the test baseline,
  *     the before reading, /ship, /import, /status, /diff) it says what it finishes first, and never
  *     ends the process. Ctrl-C twice on an empty prompt, or Ctrl-D, ends the session.
- * Until a contract is approved every edit is refused (problem-gate, contract-gate: no item is bound).
+ * Until a contract is approved every edit is refused (problem-gate, contract-gate: no item is bound),
+ * and while a proposal awaits its reply nothing is written (session-pending-proposal). A contract for
+ * another item never takes over the bound item's unshipped work (changes in the tree, or a commit /ship
+ * made and could not push): it is refused when proposed, and a yes for it is not recorded.
  * When the model's finish is accepted, and at the end of any turn after which the tree differs from
  * what the last verdict judged, every required gate runs again, fresh, and the verdict comes from them,
  * never from the model's words; leaving with work no gate has judged says UNPROVEN and names it. A
@@ -53,7 +56,7 @@ import { personName, proposeDrafted, proposeImported, readBefore, tildePath, typ
 import type { OwnerInput } from './input.ts';
 import { allowlistedModels, pickModel, type ModelRequest } from './models.ts';
 import { sessionOpening, sessionSystemPrompt } from './prompt.ts';
-import { changedPaths, sessionShip, treeFingerprint } from './ship.ts';
+import { changedPaths, sessionShip, treeFingerprint, type ShipResume } from './ship.ts';
 import { clip, colorEnabled, Ui, type Output } from './ui.ts';
 import { computeVerdict, fingerprintDiff, movedVerdict, verdictRecord, type SessionVerdict, type TreeFingerprint, type VerdictTrigger } from './verdict.ts';
 
@@ -182,6 +185,31 @@ export function initialCopyHook(o: { runDir: string; top: string; baseSha: strin
   };
 }
 
+/**
+ * A session-only pre-write hook: while a proposal awaits the owner's reply, no write happens. Without
+ * it, a write in the same tool turn as a proposal for another item would land under the item still
+ * bound, and the owner's yes would then bind the new contract over that change.
+ */
+export function pendingProposalHook(pending: () => string | null): PluginRecord<HookPlugin> {
+  return {
+    plugin: {
+      kind: 'hook',
+      name: 'session-pending-proposal',
+      description: 'Refuses every write while a proposal awaits the owner\'s typed reply.',
+      events: ['pre_tool'],
+      effects: ['write'],
+      async run(event) {
+        if (event.event !== 'pre_tool') return { decision: 'pass' };
+        const slug = pending();
+        if (slug === null) return { decision: 'pass' };
+        return { decision: 'block', reason: `write refused: proposal ${slug} awaits the owner's reply, and nothing is written until they answer it. End your turn now and wait` };
+      },
+    },
+    file: 'src/session/session.ts',
+    sha256: '0'.repeat(64),
+  };
+}
+
 /** Remove the run-start copies (initial/) of every session but the newest `keep` (and `current`). */
 export function pruneSessionCopies(sessionsDir: string, current: string, keep: number = KEEP_SESSION_COPIES): string[] {
   let names: string[];
@@ -233,6 +261,8 @@ class Session {
   private unjudgedAtExit: string[] = [];
   /** Notes for the model, sent with the owner's next message. */
   private readonly harnessNotes: string[] = [];
+  /** A commit /ship made for the bound item and could not push or open a PR for (why, and what a retry needs). */
+  private committed: (ShipResume & { why: string }) | null = null;
 
   constructor(
     private readonly ui: Ui,
@@ -310,13 +340,29 @@ class Session {
     return { ok: false, summary: `${tool} refused: ${reason}. This is not something you can fix: do not retry it. Stop, tell the owner what is wrong and what they can do, and end your turn.` };
   }
 
+  /** The slug of the proposal awaiting the owner's reply (null: none). */
+  get pendingSlug(): string | null {
+    return this.pending?.slug ?? null;
+  }
+
   /**
-   * Why a contract for `slug` would take over the bound item's work: the bound item is another one and
-   * the working tree holds changes that have not shipped (null: no such problem).
+   * Why a contract for `slug` would take over the bound item's work (null: no such problem): the bound
+   * item is another one, and /ship committed it but could not push it or open its PR (that commit would
+   * go out in the new item's PR), or the working tree holds changes that have not shipped. Checked when
+   * a contract is proposed and again when the owner's yes would bind it.
    */
   private async takeOverProblem(slug: string): Promise<string | null> {
     const item = this.s.ctx.item;
     if (item === undefined || item.slug === slug) return null;
+    const c = this.committed;
+    if (c !== null && c.slug === item.slug) {
+      const onBranch = await this.s.ctx.exec('git', ['-C', this.s.top, 'merge-base', '--is-ancestor', c.sha, 'HEAD'], { cwd: this.s.top, timeoutMs: 30_000 });
+      if (onBranch.code === 0) {
+        return `item ${item.slug} was committed (${c.sha.slice(0, 12)}) but not shipped (${c.why}): a contract for "${slug}" would carry that commit into its own pull request. The owner runs /ship again once that is fixed (it pushes ${item.slug}'s commit and opens its PR, committing nothing new), then "${slug}" can be proposed`;
+      }
+      // The owner took that commit off the branch: what is left of it, if anything, is in the tree.
+      this.committed = null;
+    }
     const changed = (await changedPaths(this.s.ctx, this.s.top)) ?? null;
     if (changed !== null && changed.length === 0) return null;
     const what = changed === null ? 'the working tree could not be read' : `${changed.length} changed file(s): ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ', ...' : ''}`;
@@ -350,7 +396,8 @@ class Session {
   onEvent(e: RunEvent): void {
     if (e.kind === 'tool' && e.decision === 'pass' && this.effectOf(e.source) === 'write') this.lastVerdict = null;
     if (e.kind === 'hook' && e.decision === 'block' && ENVIRONMENT_HOOKS.has(e.source)) this.stop ??= e.message.replace(new RegExp(`^${e.source}: `), '');
-    if (e.kind === 'note' && e.source === 'propose_contract') return;
+    // Recorded for the evidence; the session prints these itself.
+    if (e.kind === 'note' && (e.source === 'propose_contract' || e.source === 'takeover')) return;
     this.ui.event(e);
     if (this.turnRunning && (e.kind === 'tool' || e.kind === 'hook')) this.ui.startSpinner('working');
   }
@@ -516,6 +563,18 @@ class Session {
     const p = this.pending;
     if (p === null) return;
     this.pending = null;
+    // A yes binds the new contract: checked again now, not only when it was proposed. The tree (or a
+    // commit /ship could not push) may hold the bound item's work by now; a yes is then not recorded at all.
+    if (classifyReply(text).kind === 'yes') {
+      const taken = await this.guarded('checking the working tree', () => this.takeOverProblem(p.slug));
+      if (taken !== null) {
+        this.ui.error(`✗ not approved: ${taken}. Your reply was not recorded, and ${p.slug} is not bound.`);
+        s.ctx.emit({ kind: 'note', source: 'takeover', decision: 'block', message: `the reply to proposal ${p.slug} was not recorded: ${taken}`, data: { slug: p.slug } });
+        this.harnessNotes.push(`[harness] The owner replied to proposal ${p.slug} ("${clip(text, 80)}"), and the harness did not record or bind it: ${taken}. Nothing you can do with tools fixes this; do not retry it. Tell the owner, and propose ${p.slug} again only after they say ${s.ctx.item?.slug ?? 'the bound item'} has shipped.`);
+        this.writeRunJson('running');
+        return;
+      }
+    }
     const root = s.stateDir.itemsRoot;
     const { entry, verdict } = recordReply(root, p.slug, text, this.input.channel, s.sid);
     const approved = verdict.ok && verdict.turn?.seq === entry.seq;
@@ -739,7 +798,11 @@ class Session {
   private async ship(): Promise<void> {
     const s = this.s;
     this.ledger.write(s.stateDir.tokensDir);
-    this.ui.startSpinner('shipping: the ship gates run fresh first');
+    // A commit an earlier /ship made for this item and could not push: this /ship pushes it, committing nothing.
+    const item = s.ctx.item;
+    const c = this.committed;
+    const resume = c !== null && item !== undefined && c.slug === item.slug && c.contractHash === item.contractHash ? { slug: c.slug, contractHash: c.contractHash, sha: c.sha, title: c.title, body: c.body } : undefined;
+    this.ui.startSpinner(resume !== undefined ? `pushing ${resume.sha.slice(0, 12)}, the commit the last /ship made, and opening its PR` : 'shipping: the ship gates run fresh first');
     let r: Awaited<ReturnType<typeof sessionShip>>;
     try {
       r = await sessionShip({
@@ -750,11 +813,15 @@ class Session {
         stateRoot: s.stateDir.root,
         // No absolute local path in what is committed: the records are named relative to the state directory.
         summary: { model: this.driver.model, spend: { spentUsd: Number(this.meter.spentUsd.toFixed(6)), capUsd: this.meter.capUsd }, sessionRecords: `<state-dir>/sessions/${s.sid}` },
+        ...(resume !== undefined ? { resume } : {}),
       });
     } finally {
       this.ui.stopSpinner();
     }
-    this.ships.push({ at: new Date().toISOString(), ...r });
+    if (r.status === 'shipped') this.committed = null;
+    else if (r.status === 'committed' && r.retry !== undefined) this.committed = { ...r.retry, why: r.reasons[0] ?? 'not pushed' };
+    const { retry: _retry, ...recorded } = r;
+    this.ships.push({ at: new Date().toISOString(), ...recorded });
     if (r.status === 'refused') {
       this.ui.error(`✗ ship refused: ${r.reasons[0] ?? ''}`);
       for (const x of r.reasons.slice(1, 12)) this.ui.line(`  ${x}`);
@@ -762,6 +829,7 @@ class Session {
       const head = r.status === 'shipped' ? this.ui.paint(['green', 'bold'], '✔ shipped') : this.ui.paint('yellow', '● committed');
       this.ui.line(`${head} ${r.commit?.slice(0, 12) ?? ''} on ${r.branch}${r.prUrl !== undefined ? `  ${r.prUrl}` : ''}`);
       for (const x of r.reasons) this.ui.line(`  ${x}`);
+      if (r.status === 'committed') this.ui.note('once that is fixed, /ship again pushes this commit and opens its PR (nothing is committed twice); until then no other item can be approved here');
       if (r.status === 'shipped') this.ui.note('after the merge: harness item close <slug> (in this repository) reads the metric again');
       this.ui.note('start a new session for the next change: this one\'s gates compare against the commit it started from');
       // What was committed is no longer a change: the next verdict starts from a clean tree.
@@ -985,8 +1053,9 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
       store,
       mode: JIT_MODE,
       config,
-      // The registered hooks, then the session's lazy run-start copy (only for a write every hook passed).
-      registry: { ...registry, hooks: [...registry.hooks, initialCopyHook({ runDir, top, baseSha, exec, state: () => state })] },
+      // The registered hooks, then no write while a proposal awaits its reply, then the session's lazy
+      // run-start copy (only for a write every hook passed).
+      registry: { ...registry, hooks: [...registry.hooks, pendingProposalHook(() => session?.pendingSlug ?? null), initialCopyHook({ runDir, top, baseSha, exec, state: () => state })] },
       exec,
       inPlace: { repoTop: top, branch },
       session: port,

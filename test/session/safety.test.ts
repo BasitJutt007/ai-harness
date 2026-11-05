@@ -125,6 +125,128 @@ describe('a second contract never takes over the bound item\'s work', () => {
     const ran = await runScripted(r, [calls(['propose_contract', proposal()]), text('Approved; nothing to change after all.'), calls(['propose_contract', footer]), text('ok')], ['fix the greeting', 'yes', 'then the footer'], { registry: await registryWithGates() });
     expect(ledgerTypes(ran, 'footer-text')).toEqual(['proposed']);
   });
+
+  it('no write while a proposal awaits its reply: a write in the same tool turn as a proposal for another item is refused, so that item\'s yes never binds over the bound item\'s change', async () => {
+    git(r.repo, 'remote', 'add', 'origin', 'git@github.com:acme/tiny-web.git');
+    const seen: string[] = [];
+    const ran = await runScripted(
+      r,
+      [
+        calls(['propose_contract', proposal()]),
+        // Right after greeting-name's approval (a clean tree): footer-text is proposed, and a write under greeting-name follows in the same turn.
+        calls(['propose_contract', footer], ['write_file', { path: TEST_FILE, content: TEST_BODY }]),
+        text('ok'),
+      ],
+      ['fix the greeting', 'yes', 'yes', '/ship'],
+      { registry: await registryWithGates(), exec: fakeRemote(seen) },
+    );
+    expect(ran.out).toMatch(/✗ BLOCKED by session-pending-proposal: write refused: proposal footer-text awaits the owner/);
+    expect(JSON.stringify(ran.driver.requests.map((q) => q.messages))).toContain("nothing is written until they answer it. End your turn now and wait");
+    expect(existsSync(join(r.repo, TEST_FILE))).toBe(false);
+    // footer-text was approved over a clean tree, so nothing of greeting-name's can ship under it.
+    expect(ledgerTypes(ran, 'footer-text')).toEqual(['proposed', 'human_turn', 'approved']);
+    expect(ran.out).toMatch(/✗ ship refused/);
+    expect(git(r.repo, 'log', '--oneline').split('\n')).toHaveLength(1);
+    expect(seen.some((c) => c.startsWith('gh pr create'))).toBe(false);
+  });
+
+  it('twin: once the owner has answered, the same write goes through', async () => {
+    const ran = await runScripted(
+      r,
+      [calls(['propose_contract', proposal()]), calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]), text('Test written.')],
+      ['fix the greeting', 'yes'],
+      { registry: await registryWithGates() },
+    );
+    expect(ran.out).not.toMatch(/session-pending-proposal/);
+    expect(readFileSync(join(r.repo, TEST_FILE), 'utf8')).toBe(TEST_BODY);
+  });
+
+  it('a yes is checked again when it would bind: the tree took changes after the proposal, so the reply is not recorded and the bound item stays', async () => {
+    const ran = await runScripted(
+      r,
+      [calls(['propose_contract', proposal()]), text('Approved; nothing to change yet.'), calls(['propose_contract', footer]), text('Proposed the footer.'), text('Understood.')],
+      [
+        'fix the greeting',
+        'yes',
+        'then the footer',
+        // Between the proposal and the reply, the tree changes (outside the agent: it may write nothing while the proposal waits).
+        () => {
+          writeFileSync(join(r.repo, TEST_FILE), TEST_BODY);
+          return 'yes';
+        },
+        'what happened?',
+      ],
+      { registry: await registryWithGates() },
+    );
+    expect(ran.out).toMatch(/✗ not approved: item greeting-name is approved in this session and its changes have not shipped \(1 changed file\(s\): test\/greeting-name\.test\.ts\).*Your reply was not recorded, and footer-text is not bound/s);
+    expect(ledgerTypes(ran, 'footer-text')).toEqual(['proposed']);
+    expect(ran.runJson['item']).toMatchObject({ slug: 'greeting-name' });
+    // The model hears it with the owner's next message, and that it cannot fix it.
+    const next = JSON.stringify(ran.driver.requests.at(-1)?.messages ?? []);
+    expect(next).toContain('the harness did not record or bind it');
+    expect(next).toContain('Nothing you can do with tools fixes this');
+  });
+
+  it('twin: the same yes over an unchanged tree binds the new item', async () => {
+    const ran = await runScripted(
+      r,
+      [calls(['propose_contract', proposal()]), text('Approved; nothing to change yet.'), calls(['propose_contract', footer]), text('Proposed the footer.'), text('Thanks.')],
+      ['fix the greeting', 'yes', 'then the footer', 'yes'],
+      { registry: await registryWithGates() },
+    );
+    expect(ledgerTypes(ran, 'footer-text')).toEqual(['proposed', 'human_turn', 'approved']);
+    expect(ran.runJson['item']).toMatchObject({ slug: 'footer-text' });
+  });
+
+  it('a commit /ship made and could not push holds the item: another slug is refused until /ship again pushes that same commit (nothing committed twice) and opens its PR; then it is allowed', async () => {
+    git(r.repo, 'remote', 'add', 'origin', 'git@github.com:acme/tiny-web.git');
+    const drafts = join(r.base, 'drafts');
+    mkdirSync(drafts, { recursive: true });
+    writeFileSync(join(drafts, 'footer-text.md'), '# footer-text\n');
+    let pushWorks = false;
+    const seen: string[] = [];
+    const remote = fakeRemote(seen);
+    const exec: typeof coreExec = async (cmd, args, opts) => {
+      if (cmd === 'git' && args.includes('push') && !pushWorks) return { code: 1, stdout: '', stderr: 'fatal: could not read from remote repository', durationMs: 0, timedOut: false };
+      return remote(cmd, args, opts);
+    };
+    const ran = await runScripted(
+      r,
+      [
+        calls(['propose_contract', proposal()]),
+        calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]),
+        calls(['finish', { summary: 'test added' }]),
+        calls(['propose_contract', footer]),
+        calls(['propose_contract', footer]),
+        text('ok'),
+      ],
+      [
+        'fix the greeting',
+        'yes',
+        '/ship',
+        'now the footer',
+        `/import ${join(drafts, 'footer-text.md')}`,
+        () => {
+          pushWorks = true;
+          return '/ship';
+        },
+        'now the footer, please',
+        'yes',
+      ],
+      { registry: await registryWithGates(), exec },
+    );
+    expect(ran.out).toMatch(/● committed [0-9a-f]{12} on fix\/greeting/);
+    expect(ran.out).toMatch(/⏹ the agent stopped: item greeting-name was committed \([0-9a-f]{12}\) but not shipped \(push to origin failed/);
+    expect(ran.out).toMatch(/✗ not proposed: item greeting-name was committed/);
+    // The retry pushed the one commit /ship made: no second commit, one PR.
+    expect(ran.out).toMatch(/✔ shipped [0-9a-f]{12} on fix\/greeting/);
+    expect(git(r.repo, 'log', '--oneline').split('\n')).toHaveLength(2);
+    expect(seen.filter((c) => c.startsWith('gh pr create'))).toHaveLength(1);
+    expect(ledgerTypes(ran, 'greeting-name')).toEqual(['proposed', 'human_turn', 'approved', 'run', 'shipped']);
+    // The twin, in the same session: once it shipped, the footer is proposed and approved.
+    expect(ledgerTypes(ran, 'footer-text')).toEqual(['proposed', 'human_turn', 'approved']);
+    expect(ran.runJson['item']).toMatchObject({ slug: 'footer-text' });
+  });
 });
 
 describe('a refusal the model cannot fix ends its turn', () => {

@@ -119,7 +119,8 @@ describe('Ctrl-C', () => {
     expect(ran.out).toMatch(/item {5}greeting-name {2}approved/);
     expect(ran.out).toContain(`new file ${TEST_FILE}`);
     expect(ran.out).toMatch(/● committed [0-9a-f]{12} on fix\/greeting/);
-    expect(ran.out).toMatch(/✗ not proposed: no such file/);
+    // /ship committed with no remote to push to: the item is held, so another slug is refused before its file is read.
+    expect(ran.out).toMatch(/✗ not proposed: item greeting-name was committed \([0-9a-f]{12}\) but not shipped \(no remote "origin"/);
     expect(ran.out).toContain('still here');
     expect(ran.runJson['status']).toBe('ended');
   });
