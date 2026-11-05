@@ -153,6 +153,12 @@ export interface DriverPlugin {
   name: string;
   description: string;
   create(opts: DriverCreateOptions): Driver;
+  /**
+   * Optional: whether this driver's provider serves `model` (a model id as harness.config.json
+   * models.allow names it). An interactive session uses it to pick the driver for an allowlisted
+   * model without the core naming any provider; a driver without it is never picked automatically.
+   */
+  serves?(model: string): boolean;
 }
 
 // ───────────────────────────────── Tasks ─────────────────────────────────
@@ -683,6 +689,18 @@ export interface ItemBinding {
   contractHash: string;
 }
 
+/**
+ * What an interactive session offers its session-only tools (ToolPlugin.sessionOnly). The tool is
+ * only the model-facing schema; the session does the work, so the harness (never the model) writes the
+ * contract, records the proposal and owns the owner's typed reply.
+ */
+export interface SessionPort {
+  /** The session id (ledger entries and run records name it). */
+  readonly id: string;
+  /** Record a contract the model drafted and show it to the owner (the propose_contract tool). */
+  proposeContract(input: unknown): Promise<ToolResult>;
+}
+
 /** Everything a plugin can reach during a run. */
 export interface RunContext {
   run: RunInfo;
@@ -693,6 +711,8 @@ export interface RunContext {
   stack?: Stack;
   /** Set when the run writes in the owner's checkout (see InPlaceRun); absent for a worktree run. */
   inPlace?: InPlaceRun;
+  /** Set in an interactive session (see SessionPort); absent in file mode, where session-only tools refuse. */
+  session?: SessionPort;
   workspace: Workspace;
   state: RunState;
   logs: LogStore;
@@ -743,6 +763,11 @@ export interface ToolPlugin<I = unknown> {
   fetcher?: boolean;
   /** Task kinds this tool is offered in. Default: all. */
   availableIn?: TaskKind[];
+  /**
+   * Offered only in an interactive session (toolSpecs with `session: true`), never in file mode, whose
+   * tool list stays exactly what it was. Such a tool works through RunContext.session.
+   */
+  sessionOnly?: boolean;
   /** API-relative paths the call will touch (used by hooks). */
   paths?(input: I): string[];
   /**

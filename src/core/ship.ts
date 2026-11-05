@@ -60,7 +60,7 @@ export const SHIP_ENV_PASS_THROUGH = ['SSH_AUTH_SOCK', 'GH_TOKEN', 'GITHUB_TOKEN
  * The gates, re-run fresh above, are the policy. (The agent can only write .ts
  * files under the API root, so it can never create or alter a hook itself.)
  */
-const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
+export const NO_HOOKS = ['-c', 'core.hooksPath=/dev/null'];
 
 /** Minimal key-like content scan (core cannot import plugins; the `secrets` gate does the full scan). */
 const SECRET_PATTERNS: Array<{ label: string; re: RegExp }> = [
@@ -195,8 +195,17 @@ function beforeValue(paths: ItemPaths, c: ContractParse): string | null {
   return c.metric?.before ?? null;
 }
 
+/**
+ * Where the PR evidence says the item's records are. File mode: the harness repository (the default).
+ * A session commits them into the PR itself, and says so.
+ */
+export interface ShipWhere {
+  /** The words after "Contract: `docs/contracts/<slug>.md` (hash …)". */
+  contract?: string;
+}
+
 /** The evidence section of the PR: approval, gates re-run at ship, standards, tokens, run directory. */
-export function prBody(ctx: RunContext, gates: GateOutcome): string {
+export function prBody(ctx: RunContext, gates: GateOutcome, where: ShipWhere = {}): string {
   const item = ctx.item;
   const lines = [
     '## Evidence',
@@ -207,7 +216,7 @@ export function prBody(ctx: RunContext, gates: GateOutcome): string {
   ];
   if (item !== undefined) {
     const paths = itemPaths(item.root, item.slug);
-    lines.push('', `Contract: \`docs/contracts/${item.slug}.md\` (hash ${item.contractHash.slice(0, 12)}) in the harness repository`, '', `Approval: ${approvalLine(paths, item.contractHash)}`);
+    lines.push('', `Contract: \`docs/contracts/${item.slug}.md\` (hash ${item.contractHash.slice(0, 12)}) ${where.contract ?? 'in the harness repository'}`, '', `Approval: ${approvalLine(paths, item.contractHash)}`);
   }
   lines.push(
     '',
@@ -239,7 +248,7 @@ export interface ShipText {
  * The commit message, PR title and PR body for a run, all from its item's approved contract, or the
  * reasons the ship is refused (habit 5: commits and PRs that say nothing).
  */
-export async function shipText(ctx: RunContext, gates: GateOutcome): Promise<ShipText | { refuse: string[] }> {
+export async function shipText(ctx: RunContext, gates: GateOutcome, where: ShipWhere = {}): Promise<ShipText | { refuse: string[] }> {
   const item: ItemBinding | undefined = ctx.item;
   if (item === undefined) return { refuse: ['this run is bound to no backlog item: there is no approved contract to take the commit message and the PR description from'] };
   const paths = itemPaths(item.root, item.slug);
@@ -268,7 +277,7 @@ export async function shipText(ctx: RunContext, gates: GateOutcome): Promise<Shi
     filled = defaultPrBody(fill);
     notes.push('PR body: the repository has no PR template, so the harness layout was used');
   }
-  return { message, title: header, body: `${filled}\n\n---\n\n${prBody(ctx, gates)}`, notes };
+  return { message, title: header, body: `${filled}\n\n---\n\n${prBody(ctx, gates, where)}`, notes };
 }
 
 export async function ship(opts: ShipOptions): Promise<ShipResult> {
@@ -401,7 +410,7 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
   };
 }
 
-async function ghStatus(gh: (args: string[]) => Promise<ExecResult>): Promise<{ ok: boolean; why: string }> {
+export async function ghStatus(gh: (args: string[]) => Promise<ExecResult>): Promise<{ ok: boolean; why: string }> {
   const version = await gh(['--version']);
   if (version.code !== 0) return { ok: false, why: 'gh CLI is not installed' };
   const auth = await gh(['auth', 'status']);

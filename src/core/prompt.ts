@@ -29,6 +29,11 @@ const ROLE: Record<Stack, string> = {
     "You change a React + Vite frontend (TypeScript) in a governed harness, acting only through tools; paths are relative to the repository root. Tests run with the repository's own runner; where it has none, with node:test: put them under test/ as *.test.ts, use import { test } from 'node:test' and import assert from 'node:assert/strict', and import only .ts modules (no .tsx, no DOM); stub globals a module reads at import (window, fetch) before importing it. With RTK Query, cache tags never cross createApi slices: a mutation that changes data another slice caches must invalidate that slice's tags, after the request succeeds; a merge must replace a page that is fetched again, never append it twice.",
 };
 
+/** The stack's role line (the first line of the system prompt); an interactive session reuses it. */
+export function stackRole(stack: Stack): string {
+  return ROLE[stack];
+}
+
 /** `preloaded`: the --baseline prompt (the repository and the standards follow it, no fetchers). */
 export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; preloaded?: boolean; stack?: Stack }): string {
   const have = new Set(opts.tools.map((t) => t.name));

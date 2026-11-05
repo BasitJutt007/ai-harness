@@ -65,12 +65,20 @@ export async function gitCommonDir(repoTop: string, run: Exec = coreExec): Promi
   return realpathSync(isAbsolute(out) ? out : resolve(repoTop, out));
 }
 
-/** The state directory of the checkout at `repoTop` (created, with its sub-directories). */
-export async function repoStateDir(repoTop: string, env: NodeJS.ProcessEnv = process.env, run: Exec = coreExec): Promise<RepoStateDir> {
+/**
+ * Where the state directory of the checkout at `repoTop` is, without creating anything: a read-only
+ * lookup (`harness item status` run inside a repository asks whether an item lives there).
+ */
+export async function repoStateLocation(repoTop: string, env: NodeJS.ProcessEnv = process.env, run: Exec = coreExec): Promise<RepoStateDir> {
   const top = realpathSync(repoTop);
   const id = repoStateId(await gitCommonDir(top, run), top);
   const root = join(stateHome(env), 'repos', id);
-  const dirs: RepoStateDir = { id, root, sessionsDir: join(root, 'sessions'), tokensDir: join(root, 'tokens'), itemsRoot: root, locksDir: join(root, 'locks') };
+  return { id, root, sessionsDir: join(root, 'sessions'), tokensDir: join(root, 'tokens'), itemsRoot: root, locksDir: join(root, 'locks') };
+}
+
+/** The state directory of the checkout at `repoTop` (created, with its sub-directories). */
+export async function repoStateDir(repoTop: string, env: NodeJS.ProcessEnv = process.env, run: Exec = coreExec): Promise<RepoStateDir> {
+  const dirs = await repoStateLocation(repoTop, env, run);
   for (const d of [dirs.sessionsDir, dirs.tokensDir, dirs.locksDir]) mkdirSync(d, { recursive: true });
   return dirs;
 }

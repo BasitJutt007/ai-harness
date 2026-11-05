@@ -121,4 +121,6 @@ export default defineDriver({
   name: DRIVER_NAME,
   description: 'Offline replay of a JSON script of tool calls (tests and key-less demos; never model evidence).',
   create: (opts) => createScriptedDriver(opts),
+  // A replay "model" is always scripted:<file>; it needs a script, so a session never picks it by default.
+  serves: (model) => model.startsWith('scripted:'),
 });

@@ -422,4 +422,6 @@ export default defineDriver({
   name: DRIVER_NAME,
   description: 'OpenAI Chat Completions with function tools (local o200k_base token counting).',
   create: (opts) => createOpenAIDriver(opts),
+  // The model families this provider serves: how a session picks this driver for an allowlisted model.
+  serves: (model) => /^(?:gpt-|chatgpt-|o\d)/.test(model),
 });
