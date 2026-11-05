@@ -102,6 +102,11 @@ export interface TestRunnerInfo {
    * none, so a component edit cannot be proven by a test (UNPROVEN in place, never a red it cannot get).
    */
   components?: string[];
+  /**
+   * jest: the moduleNameMapper the harness passes on its command line (jestPathMapper): the config's own
+   * entries plus tsconfig paths/baseUrl the config does not map. Absent: no flag (the config's map stands).
+   */
+  moduleNameMapper?: Record<string, string | string[]>;
 }
 
 /**
@@ -687,6 +692,18 @@ interface RunnerConfig {
   regex: string[];
   aliases: Array<{ find: string; replacement: string }>;
   notes: string[];
+  /** Jest only: what jestPathMapper needs to know of the repository's own config. */
+  jest?: JestFacts;
+}
+
+/** What the repository's jest config says about module resolution (readJestConfig). */
+export interface JestFacts {
+  /** jest's rootDir, API-relative ('.' by default). */
+  rootDir: string;
+  /** Its moduleNameMapper: absent, every entry statically known, or not readable (computed, spread, a helper call). */
+  mapper: { state: 'absent' } | { state: 'static'; entries: Record<string, string | string[]> } | { state: 'unknown' };
+  /** modulePaths or moduleDirectories is set (or cannot be read): bare imports may already resolve through them. */
+  resolvesBare: boolean;
 }
 
 const VITEST_DEFAULT_INCLUDE = ['**/*.{test,spec}.?(c|m)[jt]s?(x)'];
@@ -754,22 +771,47 @@ function readVitestConfig(apiRoot: string): RunnerConfig {
   return cfg;
 }
 
+/** A jest option exactly as the config states it, or unknown (the config computes it, or may set it from elsewhere). */
+type StaticOption = { known: true; value: unknown } | { known: false };
+
+/** A string or a list of strings exactly as written (the values a moduleNameMapper entry may hold). */
+function staticValue(e: ts.Expression): string | string[] | null {
+  return ts.isStringLiteralLike(e) ? e.text : stringList(e);
+}
+
 /** Jest options as plain data: package.json "jest", jest.config.json, or a static jest.config.* object. */
-function jestOptions(apiRoot: string, pkg: PackageJson | null): { file: string | null; get: (k: string) => unknown } | null {
+function jestOptions(apiRoot: string, pkg: PackageJson | null): { file: string | null; get: (k: string) => unknown; exact: (k: string) => StaticOption } | null {
   if (pkg !== null && isRecord(pkg.raw['jest'])) {
     const o = pkg.raw['jest'];
-    return { file: join(apiRoot, 'package.json'), get: (k) => o[k] };
+    return { file: join(apiRoot, 'package.json'), get: (k) => o[k], exact: (k) => ({ known: true, value: o[k] }) };
   }
   const file = firstExisting(apiRoot, JEST_CONFIGS);
   if (file === null) return null;
   if (file.endsWith('.json')) {
     const o = readJson(file);
-    return isRecord(o) ? { file, get: (k) => o[k] } : { file, get: () => undefined };
+    return isRecord(o) ? { file, get: (k) => o[k], exact: (k) => ({ known: true, value: o[k] }) } : { file, get: () => undefined, exact: () => ({ known: false }) };
   }
   const sf = parseScript(file);
   const obj = sf === null ? null : configObject(sf);
   return {
     file,
+    // A value is exact only when the whole config object is literal (no spread can add the key) and so is the value.
+    exact: (k) => {
+      if (obj === null || obj.properties.some((p) => !ts.isPropertyAssignment(p))) return { known: false };
+      const e = prop(obj, k);
+      if (e === undefined) return { known: true, value: undefined };
+      const v = staticValue(e);
+      if (v !== null) return { known: true, value: v };
+      if (!ts.isObjectLiteralExpression(e)) return { known: false };
+      const out: Record<string, string | string[]> = {};
+      for (const p of e.properties) {
+        const key = ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) ? p.name.text : null;
+        const value = ts.isPropertyAssignment(p) ? staticValue(p.initializer) : null;
+        if (key === null || value === null) return { known: false };
+        out[key] = value;
+      }
+      return { known: true, value: out };
+    },
     get: (k) => {
       const e = obj === null ? undefined : prop(obj, k);
       if (e === undefined) return undefined;
@@ -826,7 +868,87 @@ function readJestConfig(apiRoot: string, pkg: PackageJson | null): RunnerConfig 
       cfg.aliases.push({ find, replacement: withRoot(to.replace(/\/$/, '')) });
     }
   }
+  cfg.jest = jestFacts(opts, rootDir);
   return cfg;
+}
+
+/** The module-resolution facts of a jest config (JestFacts); a rootDir that is not literal makes the mapper unknown. */
+function jestFacts(opts: { exact: (k: string) => StaticOption }, rootDir: string): JestFacts {
+  const root = opts.exact('rootDir');
+  const mapper = opts.exact('moduleNameMapper');
+  const paths = opts.exact('modulePaths');
+  const dirs = opts.exact('moduleDirectories');
+  // node_modules alone is jest's default: only another entry can resolve a baseUrl import.
+  const extraDirs = dirs.known && Array.isArray(dirs.value) && dirs.value.every((d) => d === 'node_modules');
+  const resolvesBare = !paths.known || paths.value !== undefined || !dirs.known || (dirs.value !== undefined && !extraDirs);
+  if (!root.known || (root.value !== undefined && typeof root.value !== 'string')) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  if (!mapper.known) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  if (mapper.value === undefined) return { rootDir, mapper: { state: 'absent' }, resolvesBare };
+  if (!isRecord(mapper.value)) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  const entries: Record<string, string | string[]> = {};
+  for (const [k, v] of Object.entries(mapper.value)) {
+    if (typeof v === 'string' || (Array.isArray(v) && v.every((x) => typeof x === 'string'))) entries[k] = v as string | string[];
+    else return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  }
+  return { rootDir, mapper: { state: 'static', entries }, resolvesBare };
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The moduleNameMapper the harness passes on its jest command line (`--moduleNameMapper=<json>`) so imports
+ * through tsconfig `paths` and `baseUrl` (e.g. `src/modules/users` with baseUrl ".") resolve under jest as
+ * they do under tsc, when the repository's jest config maps none of them itself. The repository's config is
+ * never edited: the flag replaces the config's map, so its own entries are kept verbatim and the derived
+ * ones are added; a map the harness cannot read whole (computed, spread, a helper such as ts-jest's
+ * pathsToModuleNameMapper) is left alone (`note`). Targets are written against jest's own `<rootDir>`, so
+ * the flag works from any copy of the tree. null: nothing to add.
+ */
+export function jestPathMapper(apiRoot: string, resolution: Pick<ResolutionConfig, 'paths' | 'baseUrl'>, facts: JestFacts): { mapper: Record<string, string | string[]>; added: string[] } | { note: string } | null {
+  if (resolution.paths.length === 0 && resolution.baseUrl === null) return null;
+  if (facts.mapper.state === 'unknown') return { note: 'jest: its moduleNameMapper (or rootDir) is not static, so tsconfig paths/baseUrl are not added to it; imports through them may not resolve under jest' };
+  const existing = facts.mapper.state === 'static' ? facts.mapper.entries : {};
+  const keys = (): RegExp[] => [...Object.keys(existing), ...Object.keys(derived)].flatMap((k) => {
+    try {
+      return [new RegExp(k)];
+    } catch {
+      return [];
+    }
+  });
+  const covered = (spec: string): boolean => keys().some((r) => r.test(spec));
+  const fromRoot = (target: string): string => {
+    const rel = posix.relative(facts.rootDir === '.' ? '' : facts.rootDir, target === '.' ? '' : target);
+    return rel === '' ? '<rootDir>' : `<rootDir>/${rel}`;
+  };
+  const derived: Record<string, string | string[]> = {};
+  for (const p of resolution.paths) {
+    const star = p.pattern.indexOf('*');
+    const pre = star < 0 ? p.pattern : p.pattern.slice(0, star);
+    const post = star < 0 ? '' : p.pattern.slice(star + 1);
+    if (covered(star < 0 ? p.pattern : `${pre}x${post}`)) continue;
+    const key = star < 0 ? `^${escapeRe(p.pattern)}$` : `^${escapeRe(pre)}(.*)${escapeRe(post)}$`;
+    const values = p.targets.map((t) => fromRoot(star < 0 ? t : t.replace('*', '$1')));
+    if (values.length > 0) derived[key] = values.length === 1 ? values[0] ?? '' : values;
+  }
+  if (resolution.baseUrl !== null && !facts.resolvesBare) {
+    // baseUrl-relative imports name a top-level directory under baseUrl; never shadow an installed package.
+    const base = join(apiRoot, resolution.baseUrl);
+    let names: string[] = [];
+    try {
+      names = readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    } catch {
+      names = [];
+    }
+    for (const name of names) {
+      if (name === 'node_modules' || name.startsWith('.') || exists(join(apiRoot, 'node_modules', name))) continue;
+      if (covered(`${name}/x`)) continue;
+      derived[`^${escapeRe(name)}/(.*)$`] = fromRoot(posix.join(resolution.baseUrl, name, '$1'));
+    }
+  }
+  const added = Object.keys(derived);
+  return added.length === 0 ? null : { mapper: { ...existing, ...derived }, added };
 }
 
 const VALUE_FLAGS = new Set(['--import', '--require', '-r', '--loader', '--experimental-loader', '--test-reporter', '--test-reporter-destination',
@@ -1355,6 +1477,15 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
 
   const runner = runnerInfo(analysis.runner, apiRoot, pkg, ctx, analysis.testFiles);
   if (!runner.supported) unsupported.push(`${runner.reason ?? `unsupported test runner ${runner.name}`}: tests-green and observed red are UNPROVEN`);
+  const jestFactsOf = analysis.runnerConfig.jest;
+  if (runner.kind === 'jest' && runner.supported && jestFactsOf !== undefined) {
+    const mapped = jestPathMapper(apiRoot, layout.resolution, jestFactsOf);
+    if (mapped !== null && 'note' in mapped) notes.push(mapped.note);
+    else if (mapped !== null) {
+      runner.moduleNameMapper = mapped.mapper;
+      notes.push(`jest: tsconfig paths/baseUrl the jest config does not map are passed as --moduleNameMapper (${mapped.added.join(', ')}); the repository's config is not edited`);
+    }
+  }
 
   const zodPkg = dependencies['zod'] ?? resolvePackage('zod', apiRoot, ctx);
   const zodMajor = major(zodPkg.version);
@@ -1410,7 +1541,7 @@ export function profileRecord(p: TargetProfile): Record<string, unknown> {
   return {
     stack: p.stack,
     framework: p.framework,
-    runner: { kind: p.runner.kind, name: p.runner.name, supported: p.runner.supported, origin: p.runner.origin ?? null, bin: p.runner.bin ?? null, evidence: p.runner.evidence, ...(p.runner.reason !== undefined ? { reason: p.runner.reason } : {}) },
+    runner: { kind: p.runner.kind, name: p.runner.name, supported: p.runner.supported, origin: p.runner.origin ?? null, bin: p.runner.bin ?? null, evidence: p.runner.evidence, ...(p.runner.reason !== undefined ? { reason: p.runner.reason } : {}), ...(p.runner.moduleNameMapper !== undefined ? { moduleNameMapper: p.runner.moduleNameMapper } : {}) },
     sourceRoots: p.sourceRoots,
     testRoots: p.testRoots,
     testSupportRoots: p.testSupportRoots,

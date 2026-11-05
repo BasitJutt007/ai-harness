@@ -104,8 +104,10 @@ function invocation(runner: TestRunnerInfo | undefined, root: string, files: str
   if (kind === 'jest' && runner?.bin !== undefined) {
     // --runTestsByPath: the entries are paths, not regexes; jest's cache stays in the per-run temp dir.
     // A worker memory limit makes jest (29+) never run tests in band, i.e. never inside the process that holds fd 3.
+    // tsconfig paths/baseUrl the jest config does not map (TestRunnerInfo.moduleNameMapper), as one JSON flag.
+    const mapper = runner.moduleNameMapper !== undefined ? [`--moduleNameMapper=${JSON.stringify(runner.moduleNameMapper)}`] : [];
     const args = [runner.bin, '--ci', '--json', `--outputFile=${REPORT_CHANNEL}`, '--testLocationInResults', '--watchman=false',
-      '--maxWorkers=2', '--workerIdleMemoryLimit=4GB', `--cacheDirectory=${join(tmpDir, 'jest-cache')}`, ...filter,
+      '--maxWorkers=2', '--workerIdleMemoryLimit=4GB', `--cacheDirectory=${join(tmpDir, 'jest-cache')}`, ...mapper, ...filter,
       ...(files.length > 0 ? ['--runTestsByPath', ...files] : [])];
     return { cmd: process.execPath, args, label: 'jest' };
   }
