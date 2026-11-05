@@ -120,6 +120,46 @@ describe('orphans gate in an in-place web layout (JavaScript and components are 
     expect(r).toMatchObject({ status: 'pass', summary: '2 created files, all imported by a test or by existing code' });
   });
 
+  const pkg = (deps: Record<string, string>): string => JSON.stringify({ name: 'web', private: true, dependencies: deps });
+  const PAGE = 'export default function Page() { return null; }\n';
+
+  it('a new file a file-routed framework loads by convention is UNPROVEN ("verify by hand"), never an orphan', async () => {
+    const cases: Array<[Record<string, string>, string[]]> = [
+      [{ 'package.json': pkg({ next: '16.0.0' }) }, ['app/dashboard/page.tsx', 'src/app/api/users/route.ts', 'pages/about.jsx', 'app/layout.js']],
+      [{ 'package.json': pkg({ nuxt: '4.0.0' }) }, ['pages/index.vue', 'components/Badge.vue']],
+      [{ 'package.json': pkg({ '@sveltejs/kit': '2.0.0' }) }, ['src/routes/about/+page.svelte', 'src/routes/api/+server.ts']],
+      [{ 'package.json': pkg({ '@remix-run/react': '2.0.0' }) }, ['app/routes/users.tsx']],
+      [{ 'package.json': pkg({ astro: '5.0.0' }) }, ['src/pages/api/hello.ts']],
+      [{ 'package.json': pkg({}), 'apps/web/package.json': pkg({ next: '16.0.0' }) }, ['apps/web/app/page.tsx']],
+    ];
+    for (const [start, created] of cases) {
+      const r = await runWeb(Object.fromEntries(created.map((f) => [f, PAGE])), { ...VUE, ...start });
+      expect(r.status, `${created.join(', ')}: ${details(r)}`).toBe('unproven');
+      expect(r.summary).toBe(`${created.length} created file(s) loaded by the framework by convention; verify by hand`);
+      for (const f of created) expect(details(r)).toMatch(new RegExp(`${f.replace(/[.+$]/g, '\\$&')}: loaded by the framework by convention \\(.+\\); verify by hand`));
+      expect(r.humanMustVerify).toHaveLength(created.length);
+    }
+  });
+
+  it('the twins: without the framework declared it is an orphan; a test that imports it makes it used; a file outside the convention is an orphan', async () => {
+    const noFramework = await runWeb({ 'app/dashboard/page.tsx': PAGE }, { ...VUE, 'package.json': pkg({ react: '19.0.0' }) });
+    expect(noFramework.status).toBe('fail');
+    expect(details(noFramework)).toMatch(/app\/dashboard\/page\.tsx: created, but neither a test nor code that existed at run start imports it/);
+    const tested = await runWeb({ 'app/dashboard/page.tsx': PAGE, 'test/page.test.ts': "import Page from '../app/dashboard/page.tsx';\nexport const p = Page;\n" }, { ...VUE, 'package.json': pkg({ next: '16.0.0' }) });
+    expect(tested).toMatchObject({ status: 'pass' });
+    const mixed = await runWeb({ 'app/dashboard/page.tsx': PAGE, 'app/dashboard/scratch.ts': 'export const x = 1;\n', 'src/routes/about/helper.js': 'export {};\n' }, { ...VUE, 'package.json': pkg({ next: '16.0.0' }) });
+    expect(mixed.status).toBe('fail');
+    expect(details(mixed)).toMatch(/app\/dashboard\/scratch\.ts: created, but neither/);
+    expect(details(mixed)).toMatch(/src\/routes\/about\/helper\.js: created, but neither/);
+    expect(details(mixed)).toMatch(/unproven: app\/dashboard\/page\.tsx: loaded by the framework by convention \(Next\.js\)/);
+  });
+
+  it('file-mode twin: the same Next.js route is an orphan (no convention outside an in-place web layout)', async () => {
+    const r = await run({ 'app/api/users/route.ts': 'export const GET = (): null => null;\n' }, { 'package.json': pkg({ next: '16.0.0' }) });
+    expect(r.status).toBe('fail');
+    expect(details(r)).toMatch(/app\/api\/users\/route\.ts: created, but neither/);
+  });
+
   it('the twin: a new component and a new JavaScript module nothing imports are orphans', async () => {
     const r = await runWeb({ 'src/Unused.vue': '<template><i/></template>\n', 'src/lib/unused.js': 'export const x = 1;\n' });
     expect(r.status).toBe('fail');
