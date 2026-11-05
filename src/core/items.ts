@@ -353,6 +353,16 @@ export function fileModeMeasureProblem(parse: Pick<ContractParse, 'noMeasure'>, 
   return `${CONTRACTS_DIR}/${slug}.md says "Measure: none", but a run outside an interactive session needs a Measure (node metrics/<script>.mjs): without one the item's outcome can never be read, so it could never close`;
 }
 
+/**
+ * The problem-statement verdict where the work happens: the contract's own (contractVerdict), and for a run that
+ * is not in place (file mode) "Measure: none" refused (fileModeMeasureProblem), as problem-gate and bindItem
+ * refuse it. `harness gate problem-statement` and `harness item status` read it, so they can never disagree.
+ */
+export function problemStatementVerdict(contract: ContractVerdict, slug: string, opts: { fileMode: boolean }): { ok: boolean; reason: string } {
+  const noMeasure = opts.fileMode && contract.ok && contract.parse !== null ? fileModeMeasureProblem(contract.parse, slug) : null;
+  return noMeasure !== null ? { ok: false, reason: noMeasure } : { ok: contract.ok, reason: contract.reason };
+}
+
 function readOrNull(file: string): string | null {
   try {
     return readFileSync(file, 'utf8');
@@ -667,9 +677,15 @@ export interface ItemStatus {
   lines: string[];
 }
 
-export function itemStatus(root: string, slug: string): ItemStatus {
+/**
+ * The item's stage and one line per gate. `fileMode`: the item is read for a run that is not in place (the
+ * file-mode items root), so its problem-statement line is the verdict problem-gate and bindItem reach there
+ * (problemStatementVerdict); the stage and `editable` say what the contract and the ledger record, either way.
+ */
+export function itemStatus(root: string, slug: string, opts: { fileMode?: boolean } = {}): ItemStatus {
   const paths = itemPaths(root, slug);
   const contract = contractVerdict(paths);
+  const statement = problemStatementVerdict(contract, slug, { fileMode: opts.fileMode === true });
   const ledger = readLedger(paths.ledger);
   const approval = contract.parse !== null && contract.ok ? approvalVerdict(ledger, contract.parse.hash) : null;
   const has = (t: LedgerEvent['type']): boolean => ledger.entries.some((e) => e.event.type === t);
@@ -688,7 +704,7 @@ export function itemStatus(root: string, slug: string): ItemStatus {
   else stage = 'awaiting-yes';
   const editable = contract.ok && approval?.ok === true;
   const lines = [
-    `problem-statement  ${contract.ok ? 'pass' : 'REFUSE'}  ${contract.reason}`,
+    `problem-statement  ${statement.ok ? 'pass' : 'REFUSE'}  ${statement.reason}`,
     `human-yes          ${approval?.ok === true ? 'pass' : 'REFUSE'}  ${approval?.reason ?? 'needs a complete contract first'}`,
     // A yes typed before replies recorded their contract text stops counting: say why, and what to do.
     ...(approval !== null && !approval.ok && (approval.retype?.length ?? 0) > 0 ? [`                   ${retypeLine(slug)}`] : []),

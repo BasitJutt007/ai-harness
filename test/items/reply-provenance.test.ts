@@ -7,8 +7,10 @@
  *     is recorded and shown ("typed at a terminal inside an AI agent's shell"), never a refusal: a TTY
  *     proves a terminal, not a person (README, gates).
  * And "Measure: none": a complete contract without a metric script, for an interactive session (in place)
- * only: a file-mode run, its problem-gate and `harness gate problem-statement` refuse it, naming Measure.
+ * only: a file-mode run, its problem-gate, `harness gate problem-statement` and the problem-statement line of
+ * `harness item status` refuse it, naming Measure.
  */
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +21,7 @@ import { cmdGate, cmdItem } from '../../src/core/item-cli.ts';
 import { appendLedger, approvalVerdict, itemPaths, itemStatus, parseContract, proposeItem, readLedger, recordReply } from '../../src/core/items.ts';
 import { agentEnvPresent, provenanceText } from '../../src/core/provenance.ts';
 import { loadRegistry } from '../../src/core/registry.ts';
+import { repoStateLocation } from '../../src/core/state-home.ts';
 import { bindItem } from '../../src/core/run.ts';
 import type { RunContext } from '../../src/core/types.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
@@ -227,5 +230,38 @@ describe('"Measure: none": a complete contract without a metric script', () => {
     const out: string[] = [];
     expect(await cmdGate({ positionals: ['problem-statement', SLUG], flags: new Map() }, (l) => out.push(l), { root, harnessRoot: root })).toBe(2);
     expect(out.join('\n')).toMatch(new RegExp(`^REFUSE {2}problem-statement {2}${SLUG}: ${NAMED.source}`));
+  });
+
+  it('harness item status agrees with harness gate: a file-mode item refuses, naming Measure; a session item in its repository passes, and so does a file-mode item with a Measure (the twins)', async () => {
+    const statusLine = async (opts: Parameters<typeof cmdItem>[2]): Promise<{ lines: string[]; problem: string }> => {
+      const lines: string[] = [];
+      expect(await cmdItem({ positionals: ['status', SLUG], flags: new Map() }, (l) => lines.push(l), opts)).toBe(0);
+      return { lines, problem: lines.find((l) => l.startsWith('  problem-statement')) ?? '' };
+    };
+    // file mode: the status line is the verdict the gate, problem-gate and bindItem reach, word for word
+    const root = approvedNone();
+    const file = await statusLine({ root });
+    const gate: string[] = [];
+    expect(await cmdGate({ positionals: ['problem-statement', SLUG], flags: new Map() }, (l) => gate.push(l), { root, harnessRoot: root })).toBe(2);
+    expect(file.problem).toMatch(new RegExp(`^ {2}problem-statement {2}REFUSE {2}${NAMED.source}`));
+    expect(file.problem.replace(/^ {2}problem-statement {2}REFUSE {2}/, '')).toBe(gate.join('\n').replace(`REFUSE  problem-statement  ${SLUG}: `, ''));
+    // the stage still says what the ledger records (the stakeholder approved it)
+    expect(file.lines[0]).toMatch(/^reply-item\s+approved/);
+    // the twin: a file-mode item with a Measure passes both
+    const measured = tmp();
+    writeContract(measured, SLUG, CONTRACT);
+    expect((await statusLine({ root: measured })).problem).toBe(`  problem-statement  pass  docs/contracts/${SLUG}.md names every required field`);
+    // the twin: the same Measure: none contract as a session item, read inside its repository (in place, allowed)
+    const repo = tmp();
+    execFileSync('git', ['init', '-q', repo]);
+    const env: NodeJS.ProcessEnv = { ...process.env, SF_HARNESS_HOME: tmp() };
+    delete env['HARNESS_ITEMS_ROOT'];
+    const loc = await repoStateLocation(repo, env);
+    writeContract(loc.itemsRoot, SLUG, contractFor(SLUG, { Measure: 'none' }));
+    proposeItem(loc.itemsRoot, SLUG, { session: 's', before: null });
+    recordReply(loc.itemsRoot, SLUG, 'yes', 'tty', 's');
+    const session = await statusLine({ cwd: repo, env });
+    expect(session.lines[0]).toMatch(/^item reply-item: from this repository's session records/);
+    expect(session.problem).toBe(`  problem-statement  pass  docs/contracts/${SLUG}.md names every required field`);
   });
 });
