@@ -931,11 +931,13 @@ function jestFacts(opts: { exact: (k: string) => StaticOption }, rootDir: string
 }
 
 /**
- * Whether a bare `name` (and its subpaths) is a Node builtin (`fs`, `path`, `util`, ...). The builtins only
- * reachable with the `node:` scheme (node:test, node:sqlite, node:sea) are not: a bare `test/x` is no builtin.
+ * The builtin subpaths under a bare `name` (`fs` -> ['promises'], `path` -> ['posix', 'win32']): what a
+ * baseUrl mapping `^name/(.*)$` would capture from Node. Only the bare builtins count: those reachable only
+ * with the `node:` scheme (node:test/reporters) are never written bare. A directory named like a builtin
+ * without subpaths (`constants/`, `events/`, `http/`) captures nothing of Node's.
  */
-function isBuiltinName(name: string): boolean {
-  return builtinModules.includes(name);
+function builtinSubpaths(name: string): string[] {
+  return builtinModules.filter((m) => m.startsWith(`${name}/`)).map((m) => m.slice(name.length + 1)).sort();
 }
 
 function escapeRe(s: string): string {
@@ -990,10 +992,13 @@ export function jestPathMapper(apiRoot: string, resolution: Pick<ResolutionConfi
       names = [];
     }
     for (const name of names) {
-      // Never a Node builtin's name: `^fs/(.*)$` would capture fs/promises (path/posix, util/types, ...).
-      if (name === 'node_modules' || name.startsWith('.') || isBuiltinName(name) || exists(join(apiRoot, 'node_modules', name))) continue;
+      if (name === 'node_modules' || name.startsWith('.') || exists(join(apiRoot, 'node_modules', name))) continue;
       if (covered(`${name}/x`)) continue;
-      derived[`^${escapeRe(name)}/(.*)$`] = fromRoot(posix.join(resolution.baseUrl, name, '$1'));
+      // Never a Node builtin's subpath: `^fs/(.*)$` would capture fs/promises, so the key excludes exactly those
+      // (path/posix, util/types, ...); src/fs/x and src/constants/x are still mapped.
+      const builtin = builtinSubpaths(name);
+      const not = builtin.length > 0 ? `(?!(?:${builtin.map(escapeRe).join('|')})$)` : '';
+      derived[`^${escapeRe(name)}/${not}(.*)$`] = fromRoot(posix.join(resolution.baseUrl, name, '$1'));
     }
   }
   const added = Object.keys(derived);

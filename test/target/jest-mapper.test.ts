@@ -48,11 +48,33 @@ describe('jestPathMapper', () => {
     expect(jestPathMapper(tmp.dir, NO_BASE, ABSENT)).toBeNull();
   });
 
-  it("baseUrl never maps a Node builtin's name (fs/promises, path/posix and util/types stay Node's); its twin, an ordinary directory, is mapped", () => {
+  it("baseUrl never captures a Node builtin's subpath (fs/promises, path/posix and util/types stay Node's), yet maps the app's own fs/, path/ and util/ modules", () => {
     const root = join(tmp.dir, 'builtins');
     writeTree(root, { 'fs/x.ts': '', 'path/x.ts': '', 'util/x.ts': '', 'test/x.ts': '', 'utils/x.ts': '' });
     const r = jestPathMapper(root, { paths: [], baseUrl: '.' }, ABSENT);
-    expect(r).toEqual({ mapper: { '^test/(.*)$': '<rootDir>/test/$1', '^utils/(.*)$': '<rootDir>/utils/$1' }, added: ['^test/(.*)$', '^utils/(.*)$'] });
+    expect(r).toEqual({
+      mapper: {
+        '^fs/(?!(?:promises)$)(.*)$': '<rootDir>/fs/$1',
+        '^path/(?!(?:posix|win32)$)(.*)$': '<rootDir>/path/$1',
+        '^test/(.*)$': '<rootDir>/test/$1',
+        '^util/(?!(?:types)$)(.*)$': '<rootDir>/util/$1',
+        '^utils/(.*)$': '<rootDir>/utils/$1',
+      },
+      added: ['^fs/(?!(?:promises)$)(.*)$', '^path/(?!(?:posix|win32)$)(.*)$', '^test/(.*)$', '^util/(?!(?:types)$)(.*)$', '^utils/(.*)$'],
+    });
+    const keys = Object.keys(r !== null && 'mapper' in r ? r.mapper : {}).map((k) => new RegExp(k));
+    const captured = (spec: string): boolean => keys.some((k) => k.test(spec));
+    // Node's own subpaths are never captured (jest resolves them as core modules only when no key matches)...
+    for (const spec of ['fs/promises', 'path/posix', 'path/win32', 'util/types']) expect(captured(spec), spec).toBe(false);
+    // ...and the app's own modules under those folders still resolve (the twins).
+    for (const spec of ['fs/x', 'path/x', 'util/x', 'fs/promises-helper', 'fs/promises/x']) expect(captured(spec), spec).toBe(true);
+  });
+
+  it('a folder named like a builtin without subpaths (constants/, domain/, events/, http/, url/) is mapped as before', () => {
+    const root = join(tmp.dir, 'builtin-names');
+    writeTree(root, { 'src/constants/roles.ts': '', 'src/domain/user.ts': '', 'src/events/bus.ts': '', 'src/http/client.ts': '', 'src/url/parse.ts': '', 'src/services/x.ts': '' });
+    const r = jestPathMapper(root, { paths: [], baseUrl: 'src' }, ABSENT);
+    expect(r !== null && 'mapper' in r ? Object.keys(r.mapper) : []).toEqual(['^constants/(.*)$', '^domain/(.*)$', '^events/(.*)$', '^http/(.*)$', '^services/(.*)$', '^url/(.*)$']);
   });
 
   it('a config with projects gets no flag (it would replace every project\'s own map), only a note; the twin without projects gets the flag', () => {
