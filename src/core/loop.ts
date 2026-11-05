@@ -662,8 +662,10 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const shownBefore = ctx.mode.compactHistory ? Math.max(0, keep - 1) : Number.POSITIVE_INFINITY;
   // Session use: the caller's history is THE transcript (appended to in place); file mode starts empty.
   const turns: TranscriptTurn[] = opts.history ?? [];
-  // Turn numbers continue from the history; `i` below counts this call's turns (what the limit caps).
-  const base = turns[turns.length - 1]?.turn ?? 0;
+  // Turn numbers continue from the history; `i` below counts this call's turns (what the limit caps). A
+  // call that failed numbered a turn (state.turn, events, logs) without adding it to the history, so the
+  // next call continues after whichever is later: a turn number is never used twice.
+  const base = Math.max(turns[turns.length - 1]?.turn ?? 0, ctx.state.turn);
   const keepChat = opts.keepChat ?? opts.history !== undefined;
   const viewOpts = (o: JitViewOptions): JitViewOptions => (keepChat ? { ...o, keepChat: true } : o);
   let idle = 0;
@@ -716,13 +718,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   };
 
   try {
-    // The owner's next message joins the conversation before anything is sent (and is kept if the request fails).
+    // The owner's next message joins the conversation before anything is sent (and is kept if the request
+    // fails). It is recorded in transcript.jsonl FIRST: a message the record lacks never reaches the model.
     if (opts.message !== undefined) {
       const part: TextPart = { type: 'text', text: opts.message };
       const last = turns[turns.length - 1];
+      store.appendTranscript({ turn: last?.turn ?? 0, user: [part] });
       if (last === undefined) first.parts.push(part);
       else last.results = last.results === null ? { role: 'user', parts: [part] } : { role: last.results.role, parts: [...last.results.parts, part] };
-      store.appendTranscript({ turn: last?.turn ?? 0, user: [part] });
     }
     for (let i = 1; i <= limit; i += 1) {
       const turn = base + i;
@@ -785,8 +788,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         else if (baselineMode) {
           failure = `context overflow: the --baseline request (the repository front-loaded, every raw return, no compaction by definition) does not fit the model's context window: ${e.message}`;
         } else {
-          // Shrink once: keep 1 recent turn, fold the rest into the digest, working set as skeletons only.
-          const smaller = jitView(first, turns, 1, true, viewOpts({ writeTools, workingSetFullChars: 0 }));
+          // Shrink once: keep 1 recent turn, fold the rest into the digest, working set as skeletons only, and
+          // (keepChat) folded prose cut to its first line: a long conversation must shrink too.
+          const smaller = jitView(first, turns, 1, true, viewOpts({ writeTools, workingSetFullChars: 0, proseFirstLine: true }));
           if (messageChars(smaller) >= messageChars(actualReq.messages)) {
             failure = `context overflow with nothing left to drop (1 recent turn, no working-set file text): ${e.message}`;
           } else {

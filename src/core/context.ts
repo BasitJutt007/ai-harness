@@ -165,6 +165,18 @@ export function proseLine(turn: number, who: 'assistant' | 'user', text: string)
   return [`t${turn} ${who}: ${head}`, ...rest.map((l) => `  ${l}`)].join('\n');
 }
 
+/**
+ * A prose digest entry cut to its first line (capped at MAX_STUB_CHARS), saying how much was cut: what
+ * an overflow shrink keeps of a folded turn's prose, so a long conversation can always be made smaller.
+ */
+export function proseHeadLine(turn: number, who: 'assistant' | 'user', text: string): string {
+  const lines = text.replace(/\r\n?/g, '\n').trim().split('\n');
+  const head = (lines[0] ?? '').trim();
+  const capped = head.length > MAX_STUB_CHARS ? `${head.slice(0, MAX_STUB_CHARS)}…` : head;
+  const more = lines.length - 1;
+  return `t${turn} ${who}: ${capped}${more > 0 ? ` [+${more} more line${more === 1 ? '' : 's'}]` : ''}`;
+}
+
 /** Options of digestTurn. */
 export interface DigestOptions {
   /**
@@ -173,17 +185,20 @@ export interface DigestOptions {
    * dropped with its turn, as in file mode.
    */
   keepChat?: boolean;
+  /** With keepChat: each prose entry cut to its first line (proseHeadLine). For an overflow shrink only. */
+  proseFirstLine?: boolean;
 }
 
 /** Digest lines for one turn: deterministic, depends on that turn only. */
 export function digestTurn(t: TranscriptTurn, opts: DigestOptions = {}): string[] {
   const keepChat = opts.keepChat === true;
+  const prose = opts.proseFirstLine === true ? proseHeadLine : proseLine;
   const results = new Map<string, string>();
   for (const p of t.results?.parts ?? []) if (p.type === 'tool_result') results.set(p.callId, p.content);
   const lines: string[] = [];
   let calls = 0;
   for (const p of t.assistant.parts) {
-    if (keepChat && p.type === 'text' && p.text.trim().length > 0) lines.push(proseLine(t.turn, 'assistant', p.text));
+    if (keepChat && p.type === 'text' && p.text.trim().length > 0) lines.push(prose(t.turn, 'assistant', p.text));
     if (p.type !== 'tool_call') continue;
     calls += 1;
     const input = digestInput(p.input);
@@ -191,7 +206,7 @@ export function digestTurn(t: TranscriptTurn, opts: DigestOptions = {}): string[
     lines.push(`t${t.turn} ${p.name}${input === '' ? '' : ` ${input}`} -> ${result === undefined ? '(no result)' : headline(result)}`);
   }
   if (calls === 0 && lines.length === 0) lines.push(`t${t.turn} (no tool call)`);
-  if (keepChat) for (const p of t.results?.parts ?? []) if (p.type === 'text' && p.text.trim().length > 0) lines.push(proseLine(t.turn, 'user', p.text));
+  if (keepChat) for (const p of t.results?.parts ?? []) if (p.type === 'text' && p.text.trim().length > 0) lines.push(prose(t.turn, 'user', p.text));
   return lines;
 }
 
@@ -352,6 +367,12 @@ export interface JitViewOptions {
    * in the digest, in order (digestTurn keepChat). The digest stays append-only. Default false (file mode).
    */
   keepChat?: boolean;
+  /**
+   * With keepChat, for a context-overflow shrink only: each folded prose entry is cut to its first line
+   * (proseHeadLine), so a long conversation still shrinks. Never set on an ordinary request: it changes
+   * the digest's prefix, which only a request that would not fit anyway may do.
+   */
+  proseFirstLine?: boolean;
 }
 
 export function jitView(
@@ -371,7 +392,7 @@ export function jitView(
   }
   const cutoff = Math.max(0, turns.length - Math.max(0, keepRecentTurns));
   const keepChat = opts.keepChat === true;
-  const digest = turns.slice(0, cutoff).flatMap((t) => digestTurn(t, { keepChat }));
+  const digest = turns.slice(0, cutoff).flatMap((t) => digestTurn(t, { keepChat, ...(opts.proseFirstLine === true ? { proseFirstLine: true } : {}) }));
   const extra: Part[] = [];
   // The digest comes first and only grows at its end; the working set follows it.
   if (digest.length > 0) extra.push({ type: 'text', text: [keepChat ? DIGEST_HEADER_CHAT : DIGEST_HEADER, ...digest].join('\n') });
