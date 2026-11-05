@@ -91,15 +91,34 @@ describe('inPlaceWritePolicy: web source and text kinds anywhere, the supply cha
     expect(inPlaceWritePolicy(task, 'src/i18n/en.json', src)).toMatchObject({ allowed: true });
     // A tsconfig `files` entry names a root-level file exactly: that file is source.
     expect(inPlaceWritePolicy(task, 'server.js', { sourceRoots: ['src', 'server.js'] })).toMatchObject({ allowed: true });
-    // '.' (no tsconfig): every directory is source, the root-level files are still the repository's tooling.
+    // '.' (no tsconfig): every directory is source, and so is the app's root-level entry (app.js, server.js,
+    // index.js); the repository's root-level tooling and data are not.
     const all = { sourceRoots: ['.'] };
     expect(inPlaceWritePolicy(task, 'lib/charge.js', all)).toMatchObject({ allowed: true });
     expect(inPlaceWritePolicy(task, 'locales/en.json', all)).toMatchObject({ allowed: true });
-    expect(inPlaceWritePolicy(task, 'index.js', all)).toMatchObject({ allowed: false });
+    for (const f of ['index.js', 'app.js', 'server.js', 'main.mjs']) expect(inPlaceWritePolicy(task, f, all), f).toMatchObject({ allowed: true });
+    for (const f of ['wdio.conf.js', 'protractor.conf.cjs', 'gatsby-node.js', 'gatsby-config.mjs', 'brunch-config.js', 'ember-cli-build.js', 'Jakefile.js', 'babel.config.js', 'jest.setup.js']) {
+      expect(inPlaceWritePolicy(task, f, all), f).toMatchObject({ allowed: false, reason: expect.stringMatching(/harness-owned in place/) });
+    }
     expect(inPlaceWritePolicy(task, 'settings.yml', all)).toMatchObject({ allowed: false });
     // Markup, styles and text are not data: writable anywhere.
     expect(inPlaceWritePolicy(task, 'index.html', src)).toMatchObject({ allowed: true });
     expect(inPlaceWritePolicy(task, 'README.md', src)).toMatchObject({ allowed: true });
+  });
+
+  it('tool and deploy names are configs beside a package.json or outside the source roots; source modules that share the name are writable (the twins)', () => {
+    const src = { sourceRoots: ['src'], scriptFiles: Object.assign(new Map<string, string>(), { packageDirs: new Set(['', 'packages/web']), incomplete: null }) };
+    for (const f of ['rollup.mjs', 'esbuild.js', 'serverless.ts', 'railway.json', 'wrangler.toml', 'app.json', 'firebase.json', 'packages/web/esbuild.mjs', 'packages/web/app.json', 'tools/rollup.js', 'deploy/serverless.yml']) {
+      expect(inPlaceWritePolicy(task, f, src), f).toMatchObject({ allowed: false, reason: expect.stringMatching(/harness-owned in place \(supply chain: .* tool or deploy config/) });
+    }
+    for (const f of ['src/lib/rollup.ts', 'src/railway.ts', 'src/esbuild.ts', 'src/serverless.ts', 'src/i18n/app.json', 'src/config/firebase.json', 'src/workers/wrangler.ts']) {
+      expect(inPlaceWritePolicy(task, f, src), f).toMatchObject({ allowed: true });
+    }
+    // Dockerfiles at any depth, never a component whose name starts with Dockerfile; k8s/ and helm/ manifests, not their source modules.
+    for (const f of ['Dockerfile', 'services/api/Dockerfile.dev', 'api.Dockerfile', 'k8s/deploy.yaml', 'src/k8s/pods.yaml', 'helm/values.yml', 'infra/helm/chart/values.json']) {
+      expect(inPlaceWritePolicy(task, f, src).allowed, f).toBe(false);
+    }
+    for (const f of ['src/components/DockerfilePreview.tsx', 'src/k8s/pods.ts', 'src/helm/chart.ts']) expect(inPlaceWritePolicy(task, f, src).allowed, f).toBe(true);
   });
 
   it('file-mode twin: the 01 policy is unchanged (TypeScript inside the task scope only)', () => {

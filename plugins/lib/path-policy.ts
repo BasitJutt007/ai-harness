@@ -13,7 +13,7 @@ import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
-import { activeLayout, gitHiddenReason, templateManifest } from '../../src/core/plugin-api.ts';
+import { activeLayout, gitHiddenReason, isToolingConfig, templateManifest, underAny } from '../../src/core/plugin-api.ts';
 import type { RunContext, Stack, Task, Workspace } from '../../src/core/plugin-api.ts';
 
 /** Files nobody but the harness may write, in any task kind (API-relative globs, matched case-insensitively). */
@@ -143,8 +143,8 @@ export const INPLACE_WRITABLE_EXTS = [
  * (`*.config.*`, tsconfig/jsconfig, task runners and build scripts), workspace manifests, deploy configs,
  * dot-files and dot-directories (.env*, .github, .husky, .npmrc, ...), CI and git-hook definitions, the
  * database schema and its migrations, dependencies and build output. inPlaceWritePolicy adds what a name
- * alone cannot say: every file a package.json script names, root-level scripts and data or configuration
- * outside the source roots.
+ * alone cannot say: every file a package.json script names, the tool and deploy names of PACKAGE_LEVEL_DENY
+ * where such a file lives, root-level scripts and data or configuration outside the source roots.
  *
  * It is a list of names and rules, not a trace of what tools load: a module a config file imports (a plugin
  * file vite.config.ts imports from ./build/) is executed by that tool, yet writable unless a rule here or in
@@ -157,12 +157,12 @@ export const INPLACE_DENY = [
   '**/package.yaml', '**/package.json5', '**/rush.json', '**/pnpm-workspace.y?(a)ml', '**/lerna.json', '**/nx.json', '**/turbo.json',
   '**/deno.json', '**/deno.jsonc', '**/bunfig.toml', '**/angular.json', '**/project.json', '**/workspace.json', '**/renovate.json',
   // tool and build configuration, task runners and build scripts
-  '**/*.config.*', '**/tsconfig*', '**/jsconfig*', '**/Taskfile*', '**/Makefile', '**/GNUmakefile', '**/*.mk', '**/justfile',
-  '**/gulpfile.*', '**/Gruntfile.*', '**/karma.conf.*', '**/webpack.*.?(c|m)[jt]s', '**/rollup.*', '**/esbuild.*', '**/nodemon.json',
-  // deploy configuration
-  '**/firebase.json', '**/amplify.y?(a)ml', '**/render.y?(a)ml', '**/heroku.y?(a)ml', '**/app.json', '**/wrangler.*', '**/railway.*',
-  '**/serverless.*', '**/vercel.json', '**/now.json', '**/netlify.toml', '**/fly.toml', '**/Procfile', '**/Procfile.*', '**/Dockerfile*',
-  '**/*.Dockerfile', '**/docker-compose*', '**/compose.y?(a)ml', '**/k8s/**', '**/helm/**', '**/.github/**',
+  '**/*.config.*', '**/tsconfig*', '**/jsconfig*', '**/Taskfile', '**/Taskfile.*', '**/Makefile', '**/GNUmakefile', '**/*.mk', '**/justfile',
+  '**/gulpfile.*', '**/Gruntfile.*', '**/karma.conf.*', '**/webpack.*.?(c|m)[jt]s', '**/nodemon.json',
+  // deploy configuration (Dockerfile, Dockerfile.dev, api.Dockerfile; never a DockerfilePreview.tsx component)
+  '**/amplify.y?(a)ml', '**/render.y?(a)ml', '**/heroku.y?(a)ml', '**/vercel.json', '**/now.json', '**/netlify.toml', '**/fly.toml',
+  '**/Procfile', '**/Procfile.*', '**/Dockerfile', '**/Dockerfile.*', '**/*.Dockerfile', '**/docker-compose*', '**/compose.y?(a)ml',
+  '**/k8s/**/*.{yml,yaml,json}', '**/helm/**/*.{yml,yaml,json}', '**/.github/**',
   // CI (.gitlab-ci.yml, .circleci, .travis.yml, ... are dot-entries too)
   '**/azure-pipelines*', '**/bitbucket-pipelines*', '**/appveyor*', '**/cloudbuild*', '**/codemagic*', '**/buildspec*', '**/Jenkinsfile*',
   // git hooks and their managers
@@ -173,6 +173,21 @@ export const INPLACE_DENY = [
   // dependencies and build output
   '**/build/**', '**/out/**', '**/coverage/**', '**/storybook-static/**', '**/*.min.js', '**/*.min.css',
 ];
+
+/**
+ * Tool and deploy configs whose names source modules share (src/lib/rollup.ts is a data roll-up, src/railway.ts
+ * railway-oriented helpers, src/i18n/app.json a translation): denied where the tool reads them, beside a
+ * package.json (the API root, or a package of the tree) or anywhere outside the source roots, and writable as
+ * source under a source root. Basename globs, matched case-insensitively.
+ */
+export const PACKAGE_LEVEL_DENY = ['rollup.*', 'esbuild.*', 'railway.*', 'serverless.*', 'wrangler.*', 'app.json', 'firebase.json'];
+
+/**
+ * Root-level tooling a source root of '.' (a repository without a tsconfig.json) must not make writable: config
+ * files by another name than *.config.* (wdio.conf.js, gatsby-config.js), framework build hooks (gatsby-node.js,
+ * ember-cli-build.js) and task runners. The app's own root-level entry (app.js, server.js, index.js) is source.
+ */
+const ROOT_TOOLING = ['*.conf.*', '*-config.*', 'gatsby-*', 'ember-cli-build.*', 'Jakefile*', 'Brocfile*'];
 
 // ───────────────────────────── files package.json scripts name ─────────────────────────────
 
@@ -537,12 +552,23 @@ export function inPlaceWritePolicy(task: Task, rel: string, facts: InPlaceFacts 
   }
   const script = facts.scriptFiles?.get(rel.toLowerCase());
   if (script !== undefined) return owned(`named by ${script}, so the package manager runs it with the owner's credentials`);
+  const roots = facts.sourceRoots ?? activeLayout().sourceRoots;
+  const dir = path.posix.dirname(rel);
+  const base = path.posix.basename(rel);
+  // A tool or deploy name beside a package.json, or outside the source roots, is that tool's config.
+  if (matcher(PACKAGE_LEVEL_DENY, true)(base)) {
+    const packageDir = dir === '.' || facts.scriptFiles?.packageDirs?.has(dir) === true;
+    if (packageDir || !underAny(rel, roots)) return owned(`${base} beside a package.json or outside the source roots (${rootsLabel(roots)}) is a tool or deploy config`);
+  }
   if (!inPlaceWritableKind(rel)) {
     return { allowed: false, reason: `${rel} is not a web source or text file; in place only ${INPLACE_WRITABLE_EXTS.join(' ')} files may be written` };
   }
-  const roots = facts.sourceRoots ?? activeLayout().sourceRoots;
   if (!rel.includes('/') && /\.[cm]?js$/i.test(rel) && !underSourceRoot(rel, roots)) {
-    return owned(`a root-level script outside the source roots (${rootsLabel(roots)}): tooling the repository's tools load, not source`);
+    // A source root of '.' (no tsconfig.json) makes the app's own root-level entry source, never its tooling.
+    const tooling = isToolingConfig(rel) || matcher(ROOT_TOOLING, true)(rel);
+    if (!roots.includes('.') || tooling) {
+      return owned(`a root-level script outside the source roots (${rootsLabel(roots)}): tooling the repository's tools load, not source`);
+    }
   }
   if (/\.(json|ya?ml)$/i.test(rel) && !underSourceRoot(rel, roots)) {
     return owned(`data or configuration outside the source roots (${rootsLabel(roots)}): in place a .json, .yml or .yaml file is writable only under them`);
