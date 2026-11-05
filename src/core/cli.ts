@@ -368,7 +368,8 @@ export function mirrorApi(root: string): string {
   return dest;
 }
 
-async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
+/** `harness check`. `load` (a test seam) gives the config and registry; default the harness's own (loadAll). */
+export async function cmdCheck(p: ParsedArgs, out: Out, load: () => Promise<{ config: HarnessConfig; registry: RegistryView }> = loadAll): Promise<number> {
   const bad = unknownFlags(p, ['api', 'rule', 'category', 'json']);
   if (bad !== null) {
     out(bad);
@@ -376,7 +377,7 @@ async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
   }
   const root = apiDir(p, out);
   if (root === null) return 2;
-  const { config, registry } = await loadAll();
+  const { config, registry } = await load();
   for (const e of registry.errors) out(`plugin error  ${e.file}: ${e.error}`);
   const rules = many(p, 'rule');
   const categories = many(p, 'category');
