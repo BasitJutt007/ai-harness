@@ -12,7 +12,7 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
-import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS, writesInPlace, type RunPlacement } from './hooks.ts';
+import { missingRequiredHooks, REQUIRED_HOOKS, REQUIRED_INPLACE_HOOKS, writesInPlace, type RunPlacement } from './hooks.ts';
 import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
 import { targetRepoProblem } from './item-cli.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
@@ -105,6 +105,14 @@ function harnessRel(abs: string): string {
 
 // ───────────────────────────── context construction ─────────────────────────────
 
+/** What nothing would stop without these missing required hooks (each kind names its own consequence). */
+function unguardedBy(missing: readonly string[]): string {
+  const out: string[] = [];
+  if (missing.some((m) => (REQUIRED_HOOKS as readonly string[]).includes(m))) out.push('an edit without a contract or a stakeholder yes');
+  if (missing.some((m) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(m))) out.push('a write on a branch other than the working branch the session started on');
+  return out.join(', or ');
+}
+
 export function buildContext(opts: {
   run: RunContext['run'];
   task: Task;
@@ -138,9 +146,11 @@ export function buildContext(opts: {
   if (opts.ws.visibility === 'git' && opts.inPlace === undefined) {
     throw new Error('refused: the workspace is the owner\'s checkout (git visibility) but the run carries no in-place record (the top and the branch it started on), so branch-guard could not re-check a write');
   }
+  // In place, every required hook is required: the item hooks (no edit without a contract and a typed yes) and
+  // branch-guard. A session binds its item later, never through bindItem, so this is where the check stands.
   if (writesInPlace({ ...(opts.inPlace !== undefined ? { inPlace: opts.inPlace } : {}), workspace: opts.ws })) {
-    const missing = missingRequiredHooks(opts.registry.hooks, { inPlace: true }).filter((h) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(h));
-    if (missing.length > 0) throw new Error(`refused: an in-place run needs the ${missing.join(', ')} hook (disabled in harness.config.json or failed to load): nothing would re-check the branch before a write`);
+    const missing = missingRequiredHooks(opts.registry.hooks, { inPlace: true });
+    if (missing.length > 0) throw new Error(`refused: an in-place run needs the ${missing.join(', ')} hook(s) (disabled in harness.config.json or failed to load): nothing would stop ${unguardedBy(missing)}`);
   }
   const run = opts.exec ?? exec;
   // In place (a session in any web repository) the layout is a web layout; idempotent when the caller
