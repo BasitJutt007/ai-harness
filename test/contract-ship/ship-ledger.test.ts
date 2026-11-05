@@ -5,7 +5,7 @@
  *   - a run whose own entry is DONE (executeRun writes it before calling ship) gets no second one;
  *   - a run whose entry is NOT DONE (it stopped part-way) gets a DONE entry from the ship, once every ship gate
  *     re-ran fresh and green with agent code confined and a supported target profile;
- *   - a ledger that cannot record that run, a contract text no longer approved, an UNPROVEN target profile, or
+ *   - a ledger that cannot record that run, a contract text no longer approved, a closed item, an UNPROVEN target profile, or
  *     agent code that would run unconfined ships nothing: refused before anything is staged.
  * Every refusal has its twin that ships. gh is faked; git and the remote are real (a local bare repository).
  */
@@ -232,6 +232,49 @@ describe('ship refuses, before anything is staged, what close could never accept
   });
 });
 
+describe('a closed item ships nothing more (its approval covered the work that closed it)', () => {
+  /** What closeItem appends once a person merged and the metric was read at the merge commit. */
+  function close(s: Setup): number {
+    const reading = (sha: string, value: number): MetricReading => ({ value, sha, ref: 'origin/main', command: 'node metrics/fixture-zero.mjs', scriptSha256: 'c'.repeat(64), stdoutSha256: 'd'.repeat(64), excerpt: String(value), confinement: 'sandbox-exec' });
+    appendLedger(s.ledger, { type: 'metric', phase: 'after', reading: reading('a'.repeat(40), 0) });
+    return appendLedger(s.ledger, { type: 'closed', before: reading('e'.repeat(40), 3), after: reading('a'.repeat(40), 0), prUrl: PR, mergeSha: 'a'.repeat(40), mergedBy: 'a-person', closeRunId: 'x' }).seq;
+  }
+  /** A second run of the item on its own branch (started before the close, its worktree kept). */
+  async function secondRun(s: Setup, name: string): Promise<ReturnType<typeof shipCtx>> {
+    await git(s.repo, 'checkout', '-q', 'main');
+    await git(s.repo, 'checkout', '-q', '-b', `harness/${name}`);
+    writeFiles(s.repo, { 'api/src/app.ts': `export const v = '${name}';\n` });
+    return shipCtx(s, fakeGh(), { branch: `harness/${name}`, runId: name });
+  }
+
+  it('a second run shipped after the close: refused (dry run too), nothing recorded after `closed`, nothing pushed', async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'DONE');
+    expect((await shipOnce(shipCtx(s))).status).toBe('shipped');
+    const closedSeq = close(s);
+    expect(itemStatus(s.item.root, SLUG).stage).toBe('closed');
+    const second = await secondRun(s, 'second-run');
+    for (const dryRun of [true, false]) {
+      const r = await shipOnce(second, { dryRun });
+      expect(r.status, String(dryRun)).toBe('refused');
+      expect(r.reasons).toEqual([`nothing ships: item "${SLUG}" is closed (ledger seq ${closedSeq}): its approval covered the work that closed it; new work needs a new item (harness item new <slug>)`]);
+    }
+    expect(readLedger(s.ledger).entries.at(-1)?.seq).toBe(closedSeq);
+    expect(await remoteBranch(s, 'harness/second-run')).toBe('');
+    expect(await git(s.repo, 'rev-parse', 'HEAD')).toBe(await git(s.repo, 'rev-parse', 'main'));
+  });
+
+  it('the twin: the same second run shipped while the item is open goes through (DONE run, then shipped)', async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'DONE');
+    expect((await shipOnce(shipCtx(s))).status).toBe('shipped');
+    const second = await secondRun(s, 'second-run');
+    const r = await shipOnce(second);
+    expect(r.status, r.reasons.join('\n')).toBe('shipped');
+    expect(events(s.ledger).slice(-2)).toMatchObject([{ type: 'run', runId: 'second-run', verdict: SHIP_DONE_VERDICT }, { type: 'shipped', runId: 'second-run' }]);
+  });
+});
+
 // ───────────────────────────── the writer itself ─────────────────────────────
 
 const dirs: string[] = [];
@@ -270,6 +313,18 @@ describe('appendShipped: the only writer of shipped writes only what close accep
       expect(events(ledger)).toEqual(before);
     });
   }
+
+  it('refuses, writing nothing: a closed item (the same ship before the close is written)', () => {
+    const open = approvedLedger();
+    appendShipped(open.ledger, done, shippedRecord);
+    expect(events(open.ledger).at(-1)).toMatchObject({ type: 'shipped' });
+    const { ledger } = approvedLedger();
+    const closed = appendLedger(ledger, { type: 'closed', before: reading, after: { ...reading, value: 0, sha: 'a'.repeat(40) }, prUrl: shippedRecord.prUrl, mergeSha: 'a'.repeat(40), mergedBy: 'a-person', closeRunId: 'x' });
+    const before = events(ledger);
+    expect(() => appendShipped(ledger, done, shippedRecord)).toThrow(`no ship of run r1 can be recorded: item "${SLUG}" is closed (ledger seq ${closed.seq}): its approval covered the work that closed it; new work needs a new item (harness item new <slug>)`);
+    expect(() => recordDoneRun(ledger, done)).toThrow(/is closed/);
+    expect(events(ledger)).toEqual(before);
+  });
 
   it('refuses a broken ledger (it approves nothing), writing nothing', () => {
     const { ledger } = approvedLedger();

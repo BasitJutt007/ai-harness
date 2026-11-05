@@ -12,10 +12,12 @@
  *                      a bot merger by gh's is_bot or its login, a before reading not taken before the
  *                      merge, a shipped line with no DONE run of the approved text behind it, a reading
  *                      from an unconfined Measure, a contract with no Measure
+ *   ship record        every ship the one writer of `shipped` must refuse, writing nothing: a run not DONE,
+ *                      another contract text, another run, a withdrawn yes, a closed item, a broken ledger
  *
  *   npm run audit:mutations
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -309,4 +311,55 @@ describe('audit: the outcome check closes only on a reading taken after a person
     expect(v.ok).toBe(false);
     expect(v.reasons.join('; ')).toMatch(/no stakeholder yes/);
   });
+});
+
+// ───────────────────────────── the ship record ─────────────────────────────
+
+/**
+ * The one writer of `shipped` (items.ts appendShipped, called by ship) writes it only where the outcome check could
+ * accept it: right after a DONE run of the run that shipped, under the approved contract text, on an item that is
+ * not closed. Each mutation is a ship the writer must refuse, writing nothing (the ledger stays byte for byte).
+ */
+const SHIP_RUN = { runId: 'r1', status: 'ship', verdict: 'DONE (harness ship: every ship gate re-ran fresh and green)', contractHash: parseContract(COMPLETE).hash };
+const SHIP_RECORD = { runId: 'r1', branch: 'harness/r1', headSha: HEAD, base: 'main', prUrl: 'https://example.test/pull/1' };
+const SHIP_MUTATIONS: Array<{ name: string; run?: Partial<typeof SHIP_RUN>; shipped?: Partial<typeof SHIP_RECORD>; before?: (root: string) => void; why: RegExp }> = [
+  { name: 'the run did not end DONE', run: { verdict: 'NOT DONE (final gates not green)' }, why: /did not end DONE/ },
+  { name: 'the run worked under another contract text', run: { contractHash: '0'.repeat(64) }, why: /not approved: the contract changed after it was proposed/ },
+  { name: 'the ship names another run', shipped: { runId: 'r0' }, why: /a ship of run r0 cannot stand on the record of run r1/ },
+  { name: 'the stakeholder said no after the yes', before: (root) => void recordReply(root, SLUG, 'no, wait', 'tty', 's'), why: /not approved: Test Stakeholder did not approve/ },
+  {
+    name: 'the item is closed (its approval covered the work that closed it)',
+    before: (root) => void appendLedger(itemPaths(root, SLUG).ledger, { type: 'closed', before: reading('e'.repeat(40), { value: 3 }), after: reading(MERGE, { value: 0 }), prUrl: SHIP_RECORD.prUrl, mergeSha: MERGE, mergedBy: 'a-person', closeRunId: 'x' }),
+    why: /item "audit-item" is closed \(ledger seq \d+\): its approval covered the work that closed it; new work needs a new item/,
+  },
+  { name: 'the ledger is broken', before: (root) => appendFileSync(itemPaths(root, SLUG).ledger, `${JSON.stringify({ seq: 99, at: 'x', prev: 'x', hash: 'x', event: { type: 'approved' } })}\n`), why: /the item ledger is broken/ },
+];
+
+describe('audit: the ship record is written only where the outcome check could accept it, and nothing otherwise', () => {
+  function approved(): string {
+    const root = tmp();
+    writeContract(root, SLUG, COMPLETE);
+    proposeItem(root, SLUG, { session: 's', before: reading('e'.repeat(40), { value: 3 }) });
+    recordReply(root, SLUG, 'yes', 'tty', 's');
+    return root;
+  }
+  const ledgerText = (root: string): string => readFileSync(itemPaths(root, SLUG).ledger, 'utf8');
+
+  it('a DONE run of the approved text on an open item: the run, then shipped, which the outcome check accepts (the baseline)', () => {
+    const root = approved();
+    const entry = appendShipped(itemPaths(root, SLUG).ledger, SHIP_RUN, SHIP_RECORD);
+    if (entry.event.type !== 'shipped') throw new Error('fixture');
+    const status = itemStatus(root, SLUG);
+    expect(outcomeVerdict({ ...closable(), status, shipped: { entry, event: entry.event } })).toEqual({ ok: true, reasons: [] });
+  });
+
+  for (const m of SHIP_MUTATIONS) {
+    it(`refuses, writing nothing: ${m.name}`, () => {
+      const root = approved();
+      m.before?.(root);
+      const before = ledgerText(root);
+      expect(() => appendShipped(itemPaths(root, SLUG).ledger, { ...SHIP_RUN, ...m.run }, { ...SHIP_RECORD, ...m.shipped })).toThrow(m.why);
+      expect(ledgerText(root)).toBe(before);
+    });
+  }
 });

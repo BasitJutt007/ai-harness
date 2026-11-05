@@ -20,7 +20,7 @@
  */
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { operatorProvenance, provenanceText, type OperatorProvenance } from './provenance.ts';
 import { commitHeaderProblems } from './ship-text.ts';
 
@@ -608,16 +608,30 @@ function isDoneRunOf(e: LedgerEntry, run: LedgerRun): boolean {
 }
 
 /**
+ * Why no new work may happen under this item, or null: it is closed. An approval covers the work it was given
+ * for, once; the outcome of that work is recorded, so another run, or another ship, needs a new item. One
+ * wording for every place that refuses it (bindItem, ship, the ledger writer), so they can never disagree.
+ */
+export function closedItemProblem(ledger: Ledger, slug: string): string | null {
+  const closed = ledger.entries.find((e) => e.event.type === 'closed');
+  if (closed === undefined) return null;
+  return `item "${slug}" is closed (ledger seq ${closed.seq}): its approval covered the work that closed it; new work needs a new item (harness item new <slug>)`;
+}
+
+/**
  * The DONE run a ship stands on, as the ledger's latest entry: the entry already there when the latest entry
  * is a DONE run of this run id under this contract text, else this `run` record appended now. Throws, writing
- * nothing, for a run that did not end DONE or a contract text the ledger does not approve (a broken ledger
- * approves nothing): what it records is exactly what the outcome check accepts (close.ts shippedRunProblem).
+ * nothing, for a run that did not end DONE, a contract text the ledger does not approve (a broken ledger
+ * approves nothing) or a closed item: what it records is exactly what the outcome check accepts (close.ts
+ * shippedRunProblem), for an item whose outcome is not recorded yet.
  */
 export function recordDoneRun(file: string, run: LedgerRun, now: () => Date = () => new Date()): LedgerEntry {
   if (!isDoneVerdict(run.verdict)) throw new Error(`run ${run.runId} did not end DONE (${run.verdict}): no ship stands on it`);
   const ledger = readLedger(file);
   const approval = approvalVerdict(ledger, run.contractHash);
   if (!approval.ok) throw new Error(`run ${run.runId} worked under contract text ${run.contractHash.slice(0, 12)}, which is not approved: ${approval.reason}`);
+  const closed = closedItemProblem(ledger, basename(dirname(file)));
+  if (closed !== null) throw new Error(`no ship of run ${run.runId} can be recorded: ${closed}`);
   const latest = ledger.entries.at(-1);
   if (latest !== undefined && isDoneRunOf(latest, run)) return latest;
   return appendLedger(file, { type: 'run', ...run }, now);
