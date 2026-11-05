@@ -141,18 +141,22 @@ describe("operator provenance: recorded and shown, never a refusal", () => {
     expect(() => loadConfig(root)).toThrow(/agentEnvMarkers/);
   });
 
-  it("a yes typed inside an AI agent's shell approves and says so; at a plain terminal it says only that (the twin)", () => {
+  it("a yes typed inside an AI agent's shell approves and says so; at a plain terminal it says what no markers cannot prove (the twin)", () => {
     const inAgent = proposed();
     const r = recordReply(inAgent, SLUG, 'yes', 'tty', 's', () => new Date(), { agentEnv: ['CLAUDECODE'] });
     expect(r.verdict.ok).toBe(true);
     expect(r.verdict.reason).toMatch(/approved proposal seq 1 in a typed turn \(seq 2\): typed at a terminal inside an AI agent's shell \(CLAUDECODE\)$/);
     expect(lastTurn(inAgent)).toMatchObject({ channel: 'tty', agentEnv: ['CLAUDECODE'] });
     const plain = proposed();
-    expect(recordReply(plain, SLUG, 'yes', 'tty', 's', () => new Date(), { agentEnv: [] }).verdict.reason).toMatch(/\(seq 2\): typed at a terminal$/);
+    expect(recordReply(plain, SLUG, 'yes', 'tty', 's', () => new Date(), { agentEnv: [] }).verdict.reason).toMatch(/\(seq 2\): typed at a terminal \(no agent-shell markers were set, which proves nothing: .*\)$/);
   });
 
-  it('provenanceText words each case', () => {
-    expect(provenanceText('tty', [])).toBe('typed at a terminal');
+  it('provenanceText words each case; with no markers it states both limits of what markers prove', () => {
+    const none = provenanceText('tty', []);
+    expect(none).toBe("typed at a terminal (no agent-shell markers were set, which proves nothing: an agent can unset them; and a person's own yes typed in a terminal that inherits agent markers is recorded as typed inside an agent's shell)");
+    // the two limits, each named: no markers proves nothing; a person's yes in an inheriting terminal reads as an agent's
+    expect(none).toMatch(/proves nothing: an agent can unset them/);
+    expect(none).toMatch(/a person's own yes typed in a terminal that inherits agent markers is recorded as typed inside an agent's shell/);
     expect(provenanceText('tty', ['AI_AGENT', 'CODEX_HOME'])).toBe("typed at a terminal inside an AI agent's shell (AI_AGENT, CODEX_HOME)");
     expect(provenanceText('pipe', [])).toBe('piped in (not typed at a terminal)');
     expect(provenanceText('tty', undefined)).toBe('typed at a terminal (agent markers not recorded)');

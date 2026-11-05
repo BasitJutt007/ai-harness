@@ -71,7 +71,10 @@ anything typed there acts with their authority); it records the truth instead. E
 `items/<slug>/ledger.jsonl` carries its channel and the names (never the values) of the agent-shell
 environment markers present when it was typed (`agentEnvMarkers` in `harness.config.json`), and item
 status, the approval message and the human-yes verdict say "typed at a terminal inside an AI agent's
-shell (...)" when there were any. A reviewer reads exactly what was proven.
+shell (...)" when there were any. The markers prove neither way. No markers proves nothing: an agent can
+unset them before it types. And a person's own yes, typed in a terminal that inherits an agent's markers
+(one opened from inside an agent's session), is recorded as typed inside an agent's shell. The no-marker
+wording says both. A reviewer reads exactly what was recorded, not who typed it.
 
 The item lifecycle, each step a command:
 
