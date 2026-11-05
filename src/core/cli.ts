@@ -578,10 +578,10 @@ async function cmdShip(p: ParsedArgs, out: Out): Promise<number> {
     out(bad ?? 'ship needs <runId>');
     return 2;
   }
-  const { ctx, registry } = await openRun(runId);
+  const { ctx, registry, targetNotes } = await openRun(runId);
   const { ship } = await import('./ship.ts');
   const remote = one(p, 'remote');
-  const r = await ship({ ctx, registry, dryRun: p.bools.has('dry-run'), ...(remote !== undefined ? { remote } : {}) });
+  const r = await ship({ ctx, registry, targetNotes, dryRun: p.bools.has('dry-run'), ...(remote !== undefined ? { remote } : {}) });
   out(`ship  ${r.status}  branch ${r.branch}${r.commit !== undefined ? `  commit ${r.commit}` : ''}${r.prUrl !== undefined ? `  ${r.prUrl}` : ''}`);
   // A dry run shows the gates it just re-ran fresh (phase ship) before the plan, so the plan is never read without them.
   if (r.status === 'dry-run' && r.gates !== undefined) {

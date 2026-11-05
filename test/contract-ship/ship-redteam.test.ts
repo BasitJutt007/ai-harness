@@ -63,7 +63,7 @@ describe('ship: branch names', () => {
     const s = await setup();
     for (const branch of ['Main', 'MAIN', 'refs/heads/main', 'heads/main', 'release/1', 'release/1/hotfix', 'HEAD', 'master', 'refs/heads/feature']) {
       const ctx = ctxFor(s, { branch });
-      const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+      const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
       expect(r.status, branch).toBe('refused');
       // Refused by name, before anything else is looked at (not merely because HEAD differs).
       expect(r.reasons[0], branch).toMatch(/protected branch|invalid branch name/);
@@ -75,7 +75,7 @@ describe('ship: branch names', () => {
     const s = await setup('feature/x');
     for (const baseBranch of ['feature/x', 'Feature/X', 'refs/heads/feature/x']) {
       const ctx = ctxFor(s, { branch: 'feature/x', baseBranch });
-      const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+      const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
       expect(r.status, baseBranch).toBe('refused');
       expect(r.reasons[0]).toContain('is the base branch');
     }
@@ -86,7 +86,7 @@ describe('ship: branch names', () => {
     const s = await setup();
     await git(s.repo, 'checkout', '-q', '--detach');
     const ctx = ctxFor(s, { branch: s.branch });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons[0]).toContain('not the run branch');
   });
@@ -99,7 +99,7 @@ describe('ship: the committed tree is the tree the gates proved', () => {
       readFileSync(join(s.repo, 'api/src/app.ts'), 'utf8').includes('BAD') ? { status: 'fail', summary: 'bad content' } : { status: 'pass', summary: 'ok' });
     writeFileSync(join(s.repo, 'api/src/app.ts'), 'export const v = "BAD";\n'); // after "finish"
     const ctx = ctxFor(s, { branch: s.branch, gates: [contentGate] });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons.join('\n')).toContain('bad content');
     await untouched(s);
@@ -113,7 +113,7 @@ describe('ship: the committed tree is the tree the gates proved', () => {
       return { status: 'pass', summary: 'looked fine' };
     });
     const ctx = ctxFor(s, { branch: s.branch, gates: [racing] });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons[0]).toContain('changed while the ship gates were running');
     await untouched(s);
@@ -134,7 +134,7 @@ describe('ship: pushing can never damage the remote or run repository code', () 
     const theirs = await git(other, 'rev-parse', 'HEAD');
 
     const ctx = ctxFor(s, { branch: s.branch });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('committed');
     expect(r.reasons[0]).toContain('push to origin failed');
     expect(await git(s.dir, 'ls-remote', s.remote, `refs/heads/${s.branch}`)).toContain(theirs);
@@ -152,7 +152,7 @@ describe('ship: pushing can never damage the remote or run repository code', () 
     }
     await git(s.repo, 'config', 'core.hooksPath', '.githooks');
     const ctx = ctxFor(s, { branch: s.branch });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('shipped');
     expect(existsSync(marker)).toBe(false);
   });
@@ -161,7 +161,7 @@ describe('ship: pushing can never damage the remote or run repository code', () 
     const s = await setup();
     const calls: string[][] = [];
     const ctx = ctxFor(s, { branch: s.branch, baseBranch: 'HEAD', exec: fakeGh(calls) });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('committed');
     expect(r.reasons[0]).toContain('detached HEAD');
     expect(calls.some((a) => a[0] === 'pr')).toBe(false);
@@ -171,7 +171,7 @@ describe('ship: pushing can never damage the remote or run repository code', () 
     const s = await setup();
     writeFileSync(join(s.repo, 'api/src/app.ts'), `export const t = "github_pat_${'A1'.repeat(20)}";\n`);
     const ctx = ctxFor(s, { branch: s.branch });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons.join('\n')).toContain('GitHub token');
     await untouched(s);

@@ -215,6 +215,14 @@ export async function targetProfile(ws: Workspace, opts: { inPlace?: boolean } =
 }
 
 /**
+ * What the target profile cannot support (its `unsupported` parts), or why there is no profile: each one keeps a
+ * run from DONE (runUnprovenItems), and so a ship from recording one (ship.ts doneRunRecord). Empty = none.
+ */
+export function targetUnproven(target: { profile?: TargetProfile; error?: string }): string[] {
+  return target.profile !== undefined ? [...target.profile.unsupported] : [target.error ?? 'no profile'];
+}
+
+/**
  * Preflight: the target profile of the API in the worktree. A brownfield task that does not declare its
  * write scope (LoadedTask.declaresScope: decided by the task front end, whatever the file's format or key
  * spelling) gets the profile's roots as its allow list instead of the schema default (the template's
@@ -879,11 +887,8 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // What the run itself could not establish blocks DONE like an UNPROVEN gate: agent code ran unconfined
   // (isolation off or unavailable), the target profile has unsupported parts (or none), or the post-loop
   // standards report could not be produced.
-  const runUnproven = runUnprovenItems({
-    isolation,
-    targetNotes: target.profile !== undefined ? target.profile.unsupported : [target.error ?? 'no profile'],
-    checksCrashed: !abortedRun && report === null,
-  });
+  const targetNotes = targetUnproven(target);
+  const runUnproven = runUnprovenItems({ isolation, targetNotes, checksCrashed: !abortedRun && report === null });
   // The gates, not the model, decide: a loop that ran out of turns (or stalled) without calling finish
   // is still DONE when the fresh final gate run is green, labelled so.
   const gatesDecided = !abortedRun && (status === 'max_turns' || status === 'stalled') && final.ok && final.results.length > 0 && runUnproven.length === 0;
@@ -911,7 +916,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     } else if (ok) {
       try {
         const { ship } = await import('./ship.ts');
-        shipped = await ship({ ctx, registry, dryRun: false, ...(opts.remote !== undefined ? { remote: opts.remote } : {}) });
+        shipped = await ship({ ctx, registry, targetNotes, dryRun: false, ...(opts.remote !== undefined ? { remote: opts.remote } : {}) });
       } catch (e) {
         shipped = { status: 'refused', branch, reasons: [`ship crashed: ${errMsg(e)}`] };
       }
@@ -923,8 +928,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const notes = abortedRun
     ? [final.results.length > 0 || report !== null ? 'run stopped by signal after the loop ended: the remaining post-loop steps did not run' : 'gates and checks: not run because the run was aborted']
     : [];
-  const targetNotes = target.profile !== undefined ? target.profile.unsupported.map((u) => `target: ${u}`) : [`target: ${target.error ?? 'no profile'}`];
-  const h = honesty(task, final.results, report, [...notes, ...targetNotes]);
+  const h = honesty(task, final.results, report, [...notes, ...targetNotes.map((u) => `target: ${u}`)]);
   if (gatesDecided) h.humanMustVerify.unshift(`the model did not call finish (loop ended ${status}); DONE rests on the fresh final gate run alone`);
   const iso = isolationHonesty(isolation);
   (iso.proven ? h.proven : h.unproven).push(iso.line);
@@ -1046,7 +1050,7 @@ const RecordedItem = z.object({ slug: z.string(), contractHash: z.string() });
 export async function openRun(
   ref: string,
   opts: { runsDir?: string; tokensDir?: string; exec?: Exec } = {},
-): Promise<{ ctx: RunContext; registry: RegistryView; store: RunStore; record: RunRecord }> {
+): Promise<{ ctx: RunContext; registry: RegistryView; store: RunStore; record: RunRecord; targetNotes: string[] }> {
   const dirs = evidenceDirs(loadConfig(HARNESS_ROOT), HARNESS_ROOT, { runsDir: opts.runsDir, tokensDir: opts.tokensDir });
   const config = withEvidenceDirs(loadConfig(HARNESS_ROOT), dirs);
   setSandboxMode(config.sandbox);
@@ -1092,7 +1096,7 @@ export async function openRun(
     ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
     ...(target.profile !== undefined ? { profile: target.profile } : {}),
   });
-  return { ctx, registry, store, record };
+  return { ctx, registry, store, record, targetNotes: targetUnproven(target) };
 }
 
 /** A run id (under runsDir) or a path to a run directory / its run.json → absolute run directory. */

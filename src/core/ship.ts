@@ -18,8 +18,8 @@
  * DONE `run` entry of this run under the approved contract text, because the outcome check (close.ts)
  * closes an item only on a ship that stands on such a run. A run that stopped part-way (its own ledger
  * entry says NOT DONE) gets that entry here, once every ship gate re-ran fresh and green on its tree with
- * agent code confined (UNPROVEN isolation is never DONE). It is recorded before anything is staged, and a
- * ledger that cannot record it, or a contract text no longer approved, ships nothing.
+ * agent code confined and a supported target profile (UNPROVEN is never DONE). It is recorded before anything
+ * is staged, and a ledger that cannot record it, or a contract text no longer approved, ships nothing.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs';
@@ -49,6 +49,12 @@ export interface ShipOptions {
   ctx: RunContext;
   registry: RegistryView;
   dryRun: boolean;
+  /**
+   * What the run's target profile cannot support, or why there is none (run.ts targetUnproven): a run is never
+   * DONE while any is left, so neither is a ship of it (nothing is recorded, nothing ships). Required: both
+   * callers know the profile (executeRun from preflight, `harness ship` from openRun).
+   */
+  targetNotes: readonly string[];
   /** Remote to push to (default "origin"). */
   remote?: string;
 }
@@ -335,7 +341,7 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
   if ('refuse' in text) return refuse(...text.refuse);
 
   // 4. The DONE run this ship stands on (what close needs before the shipped entry), or why there is none.
-  const done = doneRunRecord(ctx);
+  const done = doneRunRecord(ctx, opts.targetNotes);
   if ('refuse' in done) return refuse(...done.refuse);
 
   // 5. Plan.
@@ -435,14 +441,16 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
 
 /**
  * The DONE `run` record a ship of this run writes before staging, or why it cannot: every ship gate just
- * re-ran fresh and green, so the run is DONE under the approved contract text, unless agent code ran
- * unconfined (isolation off or unavailable: UNPROVEN, never DONE) or that text is no longer approved.
+ * re-ran fresh and green, so the run is DONE under the approved contract text, unless what keeps a run itself
+ * from DONE holds here too (agent code ran unconfined: isolation off or unavailable; the target profile has parts
+ * the harness does not support, or there is none: UNPROVEN is never DONE) or that text is no longer approved.
  */
-export function doneRunRecord(ctx: RunContext): { ledger: string; run: LedgerRun } | { refuse: string[] } {
+export function doneRunRecord(ctx: RunContext, targetNotes: readonly string[]): { ledger: string; run: LedgerRun } | { refuse: string[] } {
   const item = ctx.item;
   if (item === undefined) return { refuse: ['this run is bound to no backlog item: there is no item ledger to record the ship in'] };
   const iso = isolationHonesty(isolationInfo());
   if (!iso.proven) return { refuse: [`the ship gates ran agent code without a working sandbox (${iso.line}): UNPROVEN is never DONE, so no DONE run can be recorded and nothing ships`] };
+  if (targetNotes.length > 0) return { refuse: [`the target profile is UNPROVEN (${targetNotes.join('; ')}): a run is never DONE on it, so no DONE run can be recorded and nothing ships`] };
   const ledger = itemPaths(item.root, item.slug).ledger;
   const approval = approvalVerdict(readLedger(ledger), item.contractHash);
   if (!approval.ok) return { refuse: [`the contract text this run worked under (${item.contractHash.slice(0, 12)}) is not approved now: ${approval.reason}`] };
