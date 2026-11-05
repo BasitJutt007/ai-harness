@@ -14,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { scrubPaths } from '../../src/session/ship.ts';
 import { WORK_COMPLETED } from '../../src/session/ui.ts';
 import { calls, fakeRemote, gate, git, ledgerTypes, proposal, registryWithGates, runScripted, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
 
@@ -199,6 +200,22 @@ describe('/ship', () => {
     const ran = await runScripted(r, approveWriteFinish({ base: 'fix/greeting' }), ['fix the greeting', 'yes', '/ship'], { registry: await registryWithGates() });
     expect(ran.out).toContain(WORK_COMPLETED);
     expect(ran.out).toMatch(/✗ ship refused: the branch fix\/greeting is the contract's Base/);
+  });
+
+  it('scrubPaths replaces a root only where it is a path of its own: a checkout at /app leaves "src/app/page.tsx" alone', () => {
+    const roots = { top: '/app', stateRoot: '/home/dev/.sf-harness/repos/x', harnessRoot: '/opt/harness', home: '/home/dev' };
+    const json = JSON.stringify({ changed: ['src/app/page.tsx', 'app/routes.ts'], fingerprint: { 'src/app/page.tsx': 'abc' }, top: '/app', other: '/application/x', file: '/app/src/app/page.tsx' });
+    const out = scrubPaths(json, roots);
+    expect(out).toContain('"changed":["src/app/page.tsx","app/routes.ts"]');
+    expect(out).toContain('"fingerprint":{"src/app/page.tsx":"abc"}');
+    expect(out).toContain('"/application/x"');
+    expect(out).toContain('"top":"."');
+    expect(out).toContain('"file":"./src/app/page.tsx"');
+    // A root nested in another (the state directory under home) is named by the longer one; a replacement is never matched again.
+    expect(scrubPaths('records: /home/dev/.sf-harness/repos/x/sessions/s1; notes: /home/dev/notes and /home/dev.', roots)).toBe('records: <state-dir>/sessions/s1; notes: ~/notes and ~.');
+    expect(scrubPaths('kept: /home/dev/.sf-harness/repos/xy and /home/devices', roots)).toBe('kept: ~/.sf-harness/repos/xy and /home/devices');
+    // The twin: every absolute root itself is still scrubbed.
+    for (const p of ['/app', '/home/dev/.sf-harness/repos/x', '/opt/harness', '/home/dev']) expect(scrubPaths(`at ${p}/y`, roots)).not.toContain(p);
   });
 
   it('without a remote it commits and says it did not push (status committed, never faked)', async () => {

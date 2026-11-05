@@ -134,7 +134,11 @@ export function recordPaths(slug: string): { contract: string; ledger: string; s
 
 /**
  * `text` without the absolute local paths a session knows: the repository top becomes ".", the state
- * directory "<state-dir>", the harness checkout "<harness>", the home directory "~" (longest first).
+ * directory "<state-dir>", the harness checkout "<harness>", the home directory "~". A root is replaced
+ * only where it stands as a path of its own: not preceded by a path character, and followed by "/", the
+ * end, or anything that cannot continue a path name (a "." only when nothing path-like follows it). So
+ * a checkout at /app leaves "src/app/page.tsx" and "/application" alone. One pass, longest root first,
+ * so a replacement is never matched again.
  */
 export function scrubPaths(text: string, roots: { top: string; stateRoot?: string | undefined; harnessRoot?: string | undefined; home?: string | undefined }): string {
   const pairs: Array<[string, string]> = [
@@ -143,9 +147,12 @@ export function scrubPaths(text: string, roots: { top: string; stateRoot?: strin
     ...(roots.harnessRoot !== undefined ? [[roots.harnessRoot, '<harness>'] as [string, string]] : []),
     [roots.home ?? homedir(), '~'],
   ];
-  let out = text;
-  for (const [from, to] of pairs.filter(([f]) => f.length > 1).sort((a, b) => b[0].length - a[0].length)) out = out.split(from).join(to);
-  return out;
+  const usable = pairs.map(([f, t]): [string, string] => [f.replace(/\/+$/, ''), t]).filter(([f]) => f.length > 1).sort((a, b) => b[0].length - a[0].length);
+  if (usable.length === 0) return text;
+  const to = new Map(usable);
+  const alternatives = usable.map(([f]) => f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const root = new RegExp(`(?<![\\w./-])(?:${alternatives})(?![\\w-]|\\.[\\w.-])`, 'g');
+  return text.replace(root, (m) => to.get(m) ?? m);
 }
 
 function firstLine(r: ExecResult): string {
