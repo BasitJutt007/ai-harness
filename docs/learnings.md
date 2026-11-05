@@ -19,7 +19,7 @@ cannot, and nobody else read these contracts before they ran.
   covered no TypeScript. `repo-lint` now reports such files as n/a, with the reason.
 - **Ten admin-only backend routes open to any vendor token**, live on development, staging and main.
   Login creates an account for any email, so anyone with an inbox can call them. This became the
-  `admin-only-sweep` item. The live environments need a hotfix through the normal process, outside
+  `admin-only-sweep` item (archived outside this repository since 6 November 2026). The live environments need a hotfix through the normal process, outside
   the assignment.
 - **A commitlint config that accepts "patch".** The vendor app's config switches every rule off. The
   harness probes for this and says so instead of reporting a pass.

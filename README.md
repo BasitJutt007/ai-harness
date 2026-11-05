@@ -28,17 +28,22 @@ gates, and runs items from my own backlog through them.
 | Deliverable | Where |
 |---|---|
 | How I work, mapped gate by gate | [docs/workflow.md](docs/workflow.md) |
-| Three backlog items | contracts in [docs/contracts/](docs/contracts), the harness's records in [items/](items) (`ledger.jsonl`: proposal, typed yes, metric readings, runs, ship, close), metric scripts in [metrics/](metrics), runs in [runs/](runs) |
+| Backlog items | one contract per item in [docs/contracts/](docs/contracts), the harness's records in [items/](items) (`ledger.jsonl`: proposal, typed yes, metric readings, runs, ship, close), metric scripts in [metrics/](metrics), runs in [runs/](runs). This repository holds only the two 01 demo items (`users-api`, `projects-change`); see [Where real items live](#where-real-items-live) |
 | Learnings note | [docs/learnings.md](docs/learnings.md) |
 | Setup | `npm run setup` (below); the repository holds no secrets |
 
-| Item | Repository | Metric (read by the harness) | Before | After | State |
-|---|---|---|---|---|---|
-| [admin-only-sweep](docs/contracts/admin-only-sweep.md) | vp-business-backend | admin-only routes open to vendor tokens | 10 | not read yet | proposed; awaiting the typed yes |
-| [members-list-stale-after-add](docs/contracts/members-list-stale-after-add.md) | VendorPortal-Admin | Members lists left stale after a member mutation (failed checks of 3) | 1 | not read yet | proposed; awaiting the typed yes |
-| [signals-paged-merge-dedupe](docs/contracts/signals-paged-merge-dedupe.md) | VendorPortal-React | duplicate rows after a refresh at page 2 | 50 | not read yet | proposed; awaiting the typed yes |
-
 `node bin/harness.mjs item status` prints each item's stage from its ledger.
+
+### Where real items live
+
+Real work items are no longer kept in the harness repository: the harness has to work on any web
+repository, and an item's contract, ledger and metric describe the repository it changes. The design
+([docs/design/interactive-session.md](docs/design/interactive-session.md)) keeps them in a
+per-repository state directory outside the harness; that is not built yet. Until it is,
+`HARNESS_ITEMS_ROOT=<dir>` points the item commands and runs at contracts and ledgers in a directory
+outside this repository (Measure scripts are still read from this repository's `metrics/`). The three
+items the harness proposed on 5 November 2026 (none was approved, so none ran) were moved to an
+archive outside the repository on 6 November 2026.
 
 ### The three gates
 
@@ -265,9 +270,9 @@ src/core/        the engine: loop, hook bus, gate runner, context and compaction
 plugins/         drivers/ (claude, openai, scripted)   tools/ (15)   hooks/ (11)   gates/ (11)   checks/ (9)
 templates/       the greenfield scaffold (express-zod)
 samples/         the brownfield sample API (existing-api)
-tasks/           the two 01 task files and the three 02 item task files
+tasks/           the two 01 task files
 governed/        the two governed APIs
-docs/contracts/  one contract per item; items/ the harness's ledger per item; metrics/ the Measure scripts
+docs/contracts/  one contract per demo item; items/ the harness's ledger per item; metrics/ the Measure script
 runs/ tokens/    run evidence and token reports
 ```
 

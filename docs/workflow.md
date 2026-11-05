@@ -99,8 +99,11 @@ The mistakes I have made more than once. Each one has a check or a rule in the l
 
 Found by mining the three repositories for real defects in code I own, then adversarially verified:
 each defect was reproduced at `harness-test`, its metric script was attacked with lazy fixes that
-must not move it, and the hardened script is what `metrics/` holds. The before values were read by
-the harness at `origin/harness-test` when it proposed each contract.
+must not move it, and the hardened script is what `metrics/` held. The before values were read by
+the harness at `origin/harness-test` when it proposed each contract. Since 6 November 2026 the three
+items (task, contract, ledger and metric script) are no longer in this repository: they are archived
+outside it, and real work items are kept per repository outside the harness
+([design/interactive-session.md](design/interactive-session.md)).
 
 - `admin-only-sweep` — owner: Vendor Portal backend (me) — metric: admin-only routes open to vendor
   tokens, harness-test HEAD (before 10)
@@ -111,8 +114,8 @@ the harness at `origin/harness-test` when it proposed each contract.
   HEAD (before 50)
 
 I am the stakeholder for all three. The team lead is on vacation, so the yes is mine, typed at a
-terminal after the harness proposed each contract (`items/<slug>/ledger.jsonl`); the learnings note
-says so. Each contract is in `docs/contracts/<slug>.md`.
+terminal after the harness proposed each contract (recorded in the item's `items/<slug>/ledger.jsonl`,
+now archived with it); the learnings note says so. Each contract was in `docs/contracts/<slug>.md`.
 
 ## Gate by gate
 
