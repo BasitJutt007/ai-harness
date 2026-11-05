@@ -419,7 +419,8 @@ export const WEB_NOTHING_CHECKED = "the repository's type check and lint had not
 /**
  * Stack web: a result means something only when the repository's own type check or lint was counted (not n/a).
  * Without one, the gate stays UNPROVEN and says why: the repository configures neither (no tsconfig.json, no
- * ESLint config: its profile notes say up front that "Work completed" cannot be reached), or what it configures
+ * ESLint config: its profile lists that as unsupported, so the session banner says up front that "Work
+ * completed" cannot be reached), or what it configures
  * had nothing to check in this change. A failure stays a failure.
  */
 function webStandardsProven(ctx: RunContext, report: CheckReport, r: GateResult): GateResult {

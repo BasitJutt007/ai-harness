@@ -16,7 +16,7 @@ import { runChecks, selectChecks } from '../../src/core/checks.ts';
 import { requiredGates } from '../../src/core/gates.ts';
 import { loadRegistry } from '../../src/core/registry.ts';
 import { targetProfile } from '../../src/core/run.ts';
-import { computeTargetProfile, formatProfile, setActiveLayout, WEB_NO_STANDARDS_NOTE } from '../../src/core/target.ts';
+import { computeTargetProfile, formatProfile, setActiveLayout, WEB_NO_STANDARDS_NOTE, webServerNote } from '../../src/core/target.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import { sessionSystemPrompt } from '../../src/session/prompt.ts';
 import type { BrownfieldTask, Exec, LogStore, Stack } from '../../src/core/types.ts';
@@ -30,6 +30,7 @@ afterAll(() => {
 const logs: LogStore = { write: async (name) => join(tmp.dir, `${name}.log`) };
 const profile = (root: string, inPlace: boolean) => computeTargetProfile({ apiRoot: root, repoRoot: root, harnessRoot: HARNESS_ROOT, inPlace });
 const pkg = (extra: Record<string, unknown>): string => JSON.stringify({ name: 'web-app', private: true, type: 'module', ...extra });
+const BROWNFIELD = { kind: 'brownfield' } as BrownfieldTask;
 
 const VUE_APP = {
   'package.json': pkg({ scripts: { test: 'vitest run' }, dependencies: { vue: '3.5.0' }, devDependencies: { vite: '7.0.0', vitest: '5.0.3', '@vitejs/plugin-vue': '6.0.0' } }),
@@ -38,9 +39,9 @@ const VUE_APP = {
 };
 
 describe('stack web: in place, any repository with a package.json', () => {
-  it('a Vue + Vite app is profiled (framework vue, nothing unsupported; vitest can load .vue); file mode keeps it unknown (the twin)', async () => {
+  it('a Vue + Vite app with ESLint is profiled (framework vue, nothing unsupported; vitest can load .vue); file mode keeps it unknown (the twin)', async () => {
     const root = join(tmp.dir, 'vue');
-    writeTree(root, VUE_APP);
+    writeTree(root, { ...VUE_APP, 'eslint.config.js': 'export default [];\n' });
     const web = await profile(root, true);
     expect(web.stack).toBe('web');
     expect(web.framework).toMatchObject({ name: 'vue', supported: true });
@@ -52,12 +53,25 @@ describe('stack web: in place, any repository with a package.json', () => {
     expect(file.unsupported.join('\n')).toMatch(/framework .*: no stack profile .* applies/);
   });
 
-  it('a server framework without route extraction is named: its contract changes are not locked', async () => {
+  it('a server framework without route extraction is unsupported (shown before the first turn, carried by every verdict); a frontend twin is not', async () => {
     const root = join(tmp.dir, 'fastify');
-    writeTree(root, { 'package.json': pkg({ dependencies: { fastify: '5.0.0' } }), 'src/server.js': 'export {};\n' });
+    writeTree(root, { 'package.json': pkg({ dependencies: { fastify: '5.0.0' } }), 'src/server.js': 'export {};\n', 'eslint.config.js': 'export default [];\n' });
     const web = await profile(root, true);
     expect(web).toMatchObject({ stack: 'web', framework: { name: 'fastify' } });
-    expect(web.notes.join('\n')).toMatch(/framework fastify serves an API the harness extracts no routes from: contract changes are not locked/);
+    expect(web.unsupported).toEqual([webServerNote('fastify')]);
+    expect(web.unsupported[0]).toMatch(/framework fastify serves an API the harness extracts no routes from: contract changes are not locked, so "Work completed" cannot be reached here/);
+    expect(formatProfile(web).join('\n')).toContain(`UNPROVEN: ${webServerNote('fastify')}`);
+    const front = join(tmp.dir, 'lit-front');
+    writeTree(front, { 'package.json': pkg({ dependencies: { lit: '3.0.0' } }), 'src/main.js': 'export {};\n', 'eslint.config.js': 'export default [];\n' });
+    expect((await profile(front, true)).unsupported).toEqual([]);
+  });
+
+  it('a file-routed framework is named for its API routes in the notes (a change to one is named UNPROVEN), not unsupported', async () => {
+    const root = join(tmp.dir, 'next-app');
+    writeTree(root, { 'package.json': pkg({ dependencies: { next: '15.0.0', react: '19.0.0' } }), 'app/page.jsx': 'export default () => null;\n', 'eslint.config.js': 'export default [];\n' });
+    const web = await profile(root, true);
+    expect(web).toMatchObject({ stack: 'web', framework: { name: 'next' }, unsupported: [] });
+    expect(web.notes.join('\n')).toMatch(/framework next serves API routes by file convention .* a change to one is named UNPROVEN/);
   });
 
   it('no package.json: still unknown in place (nothing says it is a web repository)', async () => {
@@ -85,14 +99,22 @@ describe('stack web: in place, any repository with a package.json', () => {
     'src/App.jsx': 'export const App = () => <p>hi</p>;\n',
   };
 
-  it('a JavaScript Express repository in place gets web (framework express, routes named as not locked); file mode keeps express (the twin)', async () => {
-    const root = join(tmp.dir, 'js-express');
-    writeTree(root, JS_EXPRESS);
-    const web = await profile(root, true);
-    expect(web).toMatchObject({ stack: 'web', framework: { name: 'express', supported: true } });
-    expect(web.notes.join('\n')).toMatch(/JavaScript only \(no tsconfig\.json, no TypeScript sources\): the express profile's TypeScript rules do not apply/);
-    expect(web.notes.join('\n')).toMatch(/framework express serves an API the harness extracts no routes from: contract changes are not locked/);
-    expect((await profile(root, false)).stack).toBe('express');
+  it('a JavaScript Express repository in place gets web, its unlocked routes unsupported (never "Work completed"); file mode keeps express and its contract lock (the twin)', async () => {
+    for (const [name, extra] of [['js-express', {}], ['js-express-eslint', { 'eslint.config.js': 'export default [];\n' }]] as const) {
+      const root = join(tmp.dir, name);
+      writeTree(root, { ...JS_EXPRESS, ...extra });
+      const web = await profile(root, true);
+      expect(web, name).toMatchObject({ stack: 'web', framework: { name: 'express', supported: true } });
+      expect(web.notes.join('\n')).toMatch(/JavaScript only \(no tsconfig\.json, no TypeScript sources\): the express profile's TypeScript rules do not apply/);
+      expect(web.unsupported, name).toContain(webServerNote('express'));
+      // The preflight lines show every unsupported part (the notes only the first three).
+      expect(formatProfile(web).join('\n')).toContain(`UNPROVEN: ${webServerNote('express')}`);
+      expect(requiredGates(BROWNFIELD, 'finish', web.stack)).not.toContain('contract-lock');
+      const fileMode = await profile(root, false);
+      expect(fileMode.stack).toBe('express');
+      expect(fileMode.unsupported).not.toContain(webServerNote('express'));
+      expect(requiredGates(BROWNFIELD, 'finish', fileMode.stack)).toContain('contract-lock');
+    }
   });
 
   it('a JavaScript React + Vite repository in place gets web (framework react); file mode keeps react-vite (the twin)', async () => {
@@ -206,17 +228,18 @@ describe('the generic web checks', () => {
     expect(fileMode.rules).toEqual([expect.objectContaining({ rule: 'repo-typecheck', status: 'unproven' })]);
   });
 
-  it('the profile says up front that "Work completed" cannot be reached without a linter or tsconfig; the twins with one do not', async () => {
+  it('the profile lists "Work completed cannot be reached" without a linter or tsconfig as unsupported (the banner shows it); the twins with one do not', async () => {
     const bare = join(tmp.dir, 'web-no-standards');
     writeTree(bare, { 'package.json': pkg({ dependencies: { vue: '3.5.0' } }), 'src/main.js': 'export {};\n' });
     const p = await profile(bare, true);
     expect(p.stack).toBe('web');
-    expect(p.notes[0]).toBe(WEB_NO_STANDARDS_NOTE);
-    expect(formatProfile(p).join('\n')).toContain('"Work completed" cannot be reached in this repository until a linter or a tsconfig.json exists');
+    expect(p.unsupported).toEqual([WEB_NO_STANDARDS_NOTE]);
+    expect(p.notes).not.toContain(WEB_NO_STANDARDS_NOTE);
+    expect(formatProfile(p).join('\n')).toContain('UNPROVEN: "Work completed" cannot be reached in this repository until a linter or a tsconfig.json exists');
     for (const [name, extra] of [['web-eslint', { 'eslint.config.js': 'export default [];\n' }], ['web-tsconfig', { 'tsconfig.json': '{}' }]] as const) {
       const root = join(tmp.dir, name);
       writeTree(root, { 'package.json': pkg({ dependencies: { vue: '3.5.0' } }), 'src/main.js': 'export {};\n', ...extra });
-      expect((await profile(root, true)).notes, name).not.toContain(WEB_NO_STANDARDS_NOTE);
+      expect((await profile(root, true)).unsupported, name).toEqual([]);
     }
   });
 

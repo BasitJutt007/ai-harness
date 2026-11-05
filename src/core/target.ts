@@ -1488,8 +1488,24 @@ export function webStandardsConfigured(root: string): boolean {
   return existsSync(join(root, 'tsconfig.json')) || ESLINT_CONFIGS.some((c) => existsSync(join(root, c)));
 }
 
-/** The profile note of a generic web repository without a tsconfig.json or an ESLint config (webStandardsConfigured). */
+/**
+ * The unsupported part of a generic web repository without a tsconfig.json or an ESLint config
+ * (webStandardsConfigured): shown in the session banner before the first turn, and carried by every verdict.
+ */
 export const WEB_NO_STANDARDS_NOTE = '"Work completed" cannot be reached in this repository until a linter or a tsconfig.json exists: it configures no type check or lint the harness can run, so the standards gate stays UNPROVEN and a human must verify standards';
+
+/**
+ * The unsupported part of a generic web repository built on a server framework (express, fastify, ...): its
+ * routes can be mounted anywhere, so no rule can tell whether a change touched the API, and no route lock runs
+ * on stack web. Fail closed: every verdict in such a repository is UNPROVEN, as it was when the express profile's
+ * contract lock found no TypeScript routes to read.
+ */
+export function webServerNote(server: string): string {
+  return `framework ${server} serves an API the harness extracts no routes from: contract changes are not locked, so "Work completed" cannot be reached here and a human verifies the API`;
+}
+
+/** Frontend frameworks that also serve API routes chosen by where a file is (plugins/lib/conventions.ts names those files). */
+const FILE_ROUTED_FRAMEWORKS = ['next', 'nuxt', '@sveltejs/kit', 'astro', '@remix-run/react', '@remix-run/dev', '@react-router/dev', '@solidjs/start', 'gatsby'];
 
 /** The framework a generic web repository is built on, for the profile line: a frontend first, then a server, else "none". */
 function webFramework(deps: Record<string, string>, server: string): string {
@@ -1548,11 +1564,14 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   if (!framework.supported) {
     unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: no stack profile (express, nestjs, react-vite) applies, so route extraction, the standards and the contract lock report UNPROVEN`);
   } else if (stack === 'web') {
-    // Said first, so the preflight lines show it: such a repository can never reach "Work completed" (fail closed).
-    if (!webStandardsConfigured(apiRoot)) notes.unshift(WEB_NO_STANDARDS_NOTE);
+    // What keeps every verdict here from DONE is `unsupported`, not a note: the session banner shows each
+    // unsupported part before the first turn and the verdict carries it, while notes reach only run.json.
+    if (!webStandardsConfigured(apiRoot)) unsupported.push(WEB_NO_STANDARDS_NOTE);
     notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, plus its Vite build where it has one, each blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
     const server = FRAMEWORKS.includes(fwName) ? fwName : FRAMEWORKS.includes(declaredFwName) ? declaredFwName : null;
-    if (server !== null) notes.push(`framework ${server} serves an API the harness extracts no routes from: contract changes are not locked; a human verifies them`);
+    if (server !== null) unsupported.push(webServerNote(server));
+    const routed = FILE_ROUTED_FRAMEWORKS.find((f) => deps[f] !== undefined);
+    if (routed !== undefined) notes.push(`framework ${routed} serves API routes by file convention (route handlers, server routes, endpoints): the harness locks none of them, so a change to one is named UNPROVEN (a human verifies its contract)`);
   } else if (stack === 'nestjs') {
     notes.push("stack nestjs: standards are the repository's own (tsc with its tsconfig, its ESLint and Prettier on changed files) plus nest-route-guard; the Nest route lock compares controller routes (method and path), not DTO shapes");
   } else if (stack === 'react-vite') {
