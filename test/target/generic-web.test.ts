@@ -6,7 +6,7 @@
  * react-scripts, Angular, ...) are named as unsupported with why, never replaced by the harness's vitest.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, symlinkSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
@@ -321,6 +321,68 @@ describe('the generic web checks', () => {
     expect(bad.findings.find((f) => f.file === 'src/a.ts')?.violations[0]?.message).toMatch(/^TS2322:/);
     const good = await check('ts-good', 'export const a: number = 1;\n');
     expect(good.rules[0]).toMatchObject({ rule: 'web-typecheck', status: 'pass' });
+  });
+
+  it('web-typecheck counts only for a change its program covers: a src/x.js without allowJs is n/a; a .ts change (or a deleted .ts) is checked (the twins)', async () => {
+    const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
+    const checks = reg.checks.map((r) => r.plugin);
+    const git = (root: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@localhost', '-c', 'commit.gpgsign=false', ...args], { cwd: root, encoding: 'utf8' });
+    let tscRuns = 0;
+    // git answers for real; the type check itself is faked (counted), the question is whether it counts at all.
+    const counting: Exec = async (cmd, args, o) => {
+      if (cmd === 'git') return exec(cmd, args, o);
+      tscRuns += 1;
+      return { code: 0, stdout: '', stderr: '', durationMs: 1, timedOut: false };
+    };
+    const repo = (name: string): string => {
+      const root = join(tmp.dir, name);
+      writeTree(root, {
+        'package.json': pkg({ devDependencies: { typescript: '6.0.3' } }),
+        'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, noEmit: true }, include: ['src'] }),
+        'src/a.ts': 'export const a = 1;\n',
+        'src/b.ts': 'export const b = 2;\n',
+        'src/x.js': 'export const x = 1;\n',
+        '.gitignore': 'node_modules\n',
+      });
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      symlinkSync(join(HARNESS_ROOT, 'node_modules', 'typescript'), join(root, 'node_modules', 'typescript'), 'dir');
+      git(root, 'init', '-q');
+      git(root, 'add', '-A');
+      git(root, 'commit', '-q', '-m', 'base');
+      return root;
+    };
+    const written = new Map<string, string>();
+    const capture: LogStore = { write: async (name, content) => (written.set(name, content), name) };
+    const run = (root: string, withBase = true) => runChecks({
+      root, checks, exec: counting, harnessRoot: HARNESS_ROOT, logs: capture, stack: 'web', rules: ['web-typecheck'],
+      ...(withBase ? { base: { repoRoot: root, rootRel: '', sha: git(root, 'rev-parse', 'HEAD').trim() } } : {}),
+    });
+
+    const js = repo('tc-js-change');
+    writeTree(js, { 'src/x.js': 'export const x = 2;\n', 'src/a.css': 'a{}\n' });
+    const na = await run(js);
+    expect(na.rules).toEqual([expect.objectContaining({ rule: 'web-typecheck', status: 'n/a' })]);
+    expect(na.findings).toEqual([]);
+    expect(written.get('web-typecheck.txt')).toMatch(/^n\/a: its tsconfig covers none of the files this run changed \(src\/a\.css, src\/x\.js\); the type check was not run/);
+    expect(tscRuns).toBe(0);
+
+    const tsChange = repo('tc-ts-change');
+    writeTree(tsChange, { 'src/a.ts': 'export const a = 3;\n' });
+    expect((await run(tsChange)).rules).toEqual([expect.objectContaining({ rule: 'web-typecheck', status: 'pass' })]);
+    expect(tscRuns).toBe(1);
+
+    const deleted = repo('tc-ts-deleted');
+    rmSync(join(deleted, 'src/b.ts'));
+    expect((await run(deleted)).rules).toEqual([expect.objectContaining({ rule: 'web-typecheck', status: 'pass' })]);
+    expect(tscRuns).toBe(2);
+
+    // Without a base commit (a stand-alone `harness check`) the whole program is checked, as before.
+    expect((await run(js, false)).rules).toEqual([expect.objectContaining({ rule: 'web-typecheck', status: 'pass' })]);
+    expect(tscRuns).toBe(3);
+    // File mode's repo-typecheck (a standards rule over the whole API) is unchanged: the same JS-only change runs it.
+    const fileMode = await runChecks({ root: js, checks, exec: counting, harnessRoot: HARNESS_ROOT, logs: capture, stack: 'react-vite', rules: ['repo-typecheck'], base: { repoRoot: js, rootRel: '', sha: git(js, 'rev-parse', 'HEAD').trim() } });
+    expect(fileMode.rules).toEqual([expect.objectContaining({ rule: 'repo-typecheck', status: 'pass' })]);
+    expect(tscRuns).toBe(4);
   });
 });
 

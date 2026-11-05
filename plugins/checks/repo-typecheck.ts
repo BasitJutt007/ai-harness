@@ -16,6 +16,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
+import { changedSinceBase } from '../lib/changed-files.ts';
 
 const RULE = 'repo-typecheck';
 const PROJECT = '(project)';
@@ -72,6 +73,41 @@ export interface TypecheckOptions {
    * their tools). A tsconfig.json without the TypeScript to run it stays UNPROVEN.
    */
   naWithoutTypeScript: boolean;
+  /**
+   * Count only for a change the type check looks at: when no file the run changed is in a project's program
+   * (a src/x.js without allowJs, a .css), the check examined nothing of the change, so it is n/a ("its
+   * tsconfig covers none of the files this run changed"), never a pass that stands for the change. Off for
+   * repo-typecheck (file mode's standards rule over the whole API, unchanged). Without a base commit (a
+   * stand-alone `harness check`) the whole program is checked as before.
+   */
+  onlyWhenChangeCovered?: boolean;
+}
+
+/** Script kinds a TypeScript program reads (JavaScript only with allowJs). */
+const TS_KINDS = /\.(ts|tsx|mts|cts)$/;
+const JS_KINDS = /\.(js|jsx|mjs|cjs)$/;
+
+/**
+ * Which of `changed` (API-relative) the projects' programs cover: a file in a program's file list, or a deleted
+ * file of a kind the program reads under one of its include directories (its removal changes the program).
+ */
+function coveredChanges(root: string, projects: Project[], changed: string[]): string[] {
+  const covered = new Set<string>();
+  const inputs: Array<{ dirs: Array<{ dir: string; recursive: boolean }>; allowJs: boolean }> = [];
+  for (const p of projects) {
+    const parsed = ts.getParsedCommandLineOfConfigFile(p.config, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined });
+    if (parsed === undefined) continue;
+    for (const f of parsed.fileNames) covered.add(toPosix(relative(root, f)));
+    const dirs = Object.entries(parsed.wildcardDirectories ?? {}).map(([dir, flags]) => ({ dir, recursive: (flags & ts.WatchDirectoryFlags.Recursive) !== 0 }));
+    inputs.push({ dirs, allowJs: parsed.options.allowJs === true });
+  }
+  return changed.filter((rel) => {
+    if (covered.has(rel)) return true;
+    if (existsSync(join(root, rel))) return false;
+    const abs = resolve(root, rel);
+    return inputs.some((i) => (TS_KINDS.test(rel) || (i.allowJs && JS_KINDS.test(rel)))
+      && i.dirs.some((d) => (d.recursive ? abs.startsWith(`${resolve(d.dir)}${sep}`) : dirname(abs) === resolve(d.dir))));
+  });
 }
 
 /** The repository's own type check as findings (see the module comment). */
@@ -85,6 +121,16 @@ export async function repoTypecheck(ctx: CheckContext, o: TypecheckOptions): Pro
   if (!existsSync(tsc)) return skip('the repository has no TypeScript of its own (node_modules/typescript): its type check cannot be run');
   const { projects, problem } = projectsOf(ctx.root);
   if (problem !== undefined) return skip(problem);
+  if (o.onlyWhenChangeCovered === true) {
+    const changed = await changedSinceBase(ctx);
+    if (changed !== null && coveredChanges(ctx.root, projects, changed).length === 0) {
+      // No findings: n/a for an `errors` rule (the report's own rule); why goes to the check's log.
+      const shown = [...changed].sort();
+      const why = shown.length === 0 ? 'the run changed no file' : `its tsconfig covers none of the files this run changed (${shown.slice(0, 3).join(', ')}${shown.length > 3 ? ', ...' : ''})`;
+      await ctx.logs.write(`${rule}.txt`, `n/a: ${why}; the type check was not run`);
+      return [];
+    }
+  }
   const tmp = mkdtempSync(join(tmpdir(), 'repo-typecheck-'));
   const byFile = new Map<string, Violation[]>();
   const project: Violation[] = [];

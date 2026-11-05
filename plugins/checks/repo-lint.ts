@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { defineCheck, ESLINT_CONFIGS } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
+import { changedSinceBase } from '../lib/changed-files.ts';
 
 const RULE = 'repo-lint';
 const PROJECT = '(project)';
@@ -37,17 +38,10 @@ function toPosix(p: string): string {
   return sep === '/' ? p : p.split(sep).join('/');
 }
 
-/** API-relative files this run changed (or added) since the base commit; null = cannot tell. */
+/** API-relative lintable files this run changed (or added) since the base commit; null = cannot tell. */
 async function changedFiles(ctx: CheckContext): Promise<string[] | null> {
-  const base = ctx.base;
-  if (base === undefined) return null;
-  const prefix = base.rootRel === '' || base.rootRel === '.' ? '' : `${base.rootRel.replace(/\/+$/, '')}/`;
-  const diff = await ctx.exec('git', ['-C', base.repoRoot, 'diff', '--name-only', base.sha, '--', prefix || '.'], { cwd: base.repoRoot });
-  const untracked = await ctx.exec('git', ['-C', base.repoRoot, 'ls-files', '--others', '--exclude-standard', '--', prefix || '.'], { cwd: base.repoRoot });
-  if (diff.code !== 0 || untracked.code !== 0) return null;
-  return [...new Set([...diff.stdout.split('\n'), ...untracked.stdout.split('\n')].map((l) => l.trim()).filter((l) => l.length > 0))]
-    .map((p) => (prefix !== '' && p.startsWith(prefix) ? p.slice(prefix.length) : p))
-    .filter((p) => LINTABLE.test(p) && existsSync(join(ctx.root, p)));
+  const changed = await changedSinceBase(ctx);
+  return changed === null ? null : changed.filter((p) => LINTABLE.test(p) && existsSync(join(ctx.root, p)));
 }
 
 async function run(ctx: CheckContext): Promise<CheckFinding[]> {

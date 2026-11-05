@@ -8,8 +8,10 @@
  * blocks only what a run introduces (the standards gate compares with the base commit) instead of making
  * the owner fix the whole repository first. A repository without a tsconfig.json configures no type check:
  * nothing to check (n/a), never a pass, decided on the tsconfig.json alone (a JavaScript repository often has
- * a TypeScript package installed for its tools). UNPROVEN: a tsconfig without the TypeScript to run it, a
- * config the checker cannot read, a timeout, or a failure without diagnostics. When every rule of the web
+ * a TypeScript package installed for its tools). It counts only for a change it looks at: when no file the
+ * run changed is in the program (a src/x.js without allowJs, a stylesheet), it is n/a, so a whole-project
+ * pass never stands for a change no standard examined. UNPROVEN: a tsconfig without the TypeScript to run it,
+ * a config the checker cannot read, a timeout, or a failure without diagnostics. When every rule of the web
  * profile is n/a the standards gate stays UNPROVEN (a human verifies standards).
  */
 import { defineCheck } from '../../src/core/plugin-api.ts';
@@ -28,5 +30,5 @@ export default defineCheck({
   description: "The repository's own type check (tsc or vue-tsc, its tsconfig) reports nothing new; n/a without a tsconfig.json.",
   unit: 'errors',
   doc: DOC,
-  run: (ctx) => repoTypecheck(ctx, { rule: RULE, confined: true, vueTsc: true, naWithoutTypeScript: true }),
+  run: (ctx) => repoTypecheck(ctx, { rule: RULE, confined: true, vueTsc: true, naWithoutTypeScript: true, onlyWhenChangeCovered: true }),
 });
