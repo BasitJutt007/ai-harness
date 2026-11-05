@@ -9,10 +9,11 @@
  * same canonical path, so a policy decision and the actual write can never refer
  * to different files (`SRC/x.ts`, `test/link.ts -> ../src/x.ts`, ...).
  */
-import { realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
-import { gitHiddenReason, templateManifest } from '../../src/core/plugin-api.ts';
+import { activeLayout, gitHiddenReason, templateManifest } from '../../src/core/plugin-api.ts';
 import type { RunContext, Stack, Task, Workspace } from '../../src/core/plugin-api.ts';
 
 /** Files nobody but the harness may write, in any task kind (API-relative globs, matched case-insensitively). */
@@ -135,28 +136,174 @@ export const INPLACE_WRITABLE_EXTS = [
 ] as const;
 
 /**
- * The supply-chain deny list of an in-place run: absolute (no task scope can re-open it), matched
- * case-insensitively at any depth. It keeps everything the build, the package manager, CI or git runs
- * out of the agent's reach, because in the owner's checkout those run with the owner's credentials:
- * dependency manifests and every lockfile, tool and build configs (`*.config.*`, tsconfig/jsconfig,
- * workspace and deploy configs), dot-files and dot-directories (.env*, .github, .husky, .npmrc, ...),
- * CI and git-hook definitions, the database schema and its migrations, dependencies and build output.
+ * The supply-chain deny list of an in-place run, matched case-insensitively at any depth. No task scope
+ * re-opens it (a task's deny list only narrows the in-place scope further). It keeps what the build, the
+ * package manager, CI, a deploy or git runs out of the agent's reach, because in the owner's checkout those
+ * run with the owner's credentials: dependency manifests and every lockfile, tool and build configs
+ * (`*.config.*`, tsconfig/jsconfig, task runners and build scripts), workspace manifests, deploy configs,
+ * dot-files and dot-directories (.env*, .github, .husky, .npmrc, ...), CI and git-hook definitions, the
+ * database schema and its migrations, dependencies and build output. inPlaceWritePolicy adds what a name
+ * alone cannot say: every file a package.json script names, root-level scripts and data or configuration
+ * outside the source roots.
+ *
+ * It is a list of names and rules, not a trace of what tools load: a module a config file imports (a plugin
+ * file vite.config.ts imports from ./build/) is executed by that tool, yet writable unless a rule here or in
+ * inPlaceWritePolicy matches it.
  */
 export const INPLACE_DENY = [
   ...BUILTIN_DENY,
-  // dependency manifests and lockfiles (package.json is in BUILTIN_DENY)
+  // dependency and workspace manifests and lockfiles (package.json is in BUILTIN_DENY)
   '**/npm-shrinkwrap.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/bun.lock', '**/bun.lockb', '**/deno.lock', '**/*.lock', '**/*-lock.json', '**/*-lock.yaml',
-  // tool, build, workspace and deploy configuration
-  '**/*.config.*', '**/tsconfig*', '**/jsconfig*', '**/pnpm-workspace.y?(a)ml', '**/lerna.json', '**/nx.json', '**/turbo.json',
-  '**/angular.json', '**/project.json', '**/workspace.json', '**/vercel.json', '**/now.json', '**/renovate.json',
-  // CI and git hooks (.github, .gitlab-ci.yml, .circleci, .husky, .travis.yml, ... are dot-entries)
+  '**/package.yaml', '**/package.json5', '**/rush.json', '**/pnpm-workspace.y?(a)ml', '**/lerna.json', '**/nx.json', '**/turbo.json',
+  '**/deno.json', '**/deno.jsonc', '**/bunfig.toml', '**/angular.json', '**/project.json', '**/workspace.json', '**/renovate.json',
+  // tool and build configuration, task runners and build scripts
+  '**/*.config.*', '**/tsconfig*', '**/jsconfig*', '**/Taskfile*', '**/Makefile', '**/GNUmakefile', '**/*.mk', '**/justfile',
+  '**/gulpfile.*', '**/Gruntfile.*', '**/karma.conf.*', '**/webpack.*.?(c|m)[jt]s', '**/rollup.*', '**/esbuild.*', '**/nodemon.json',
+  // deploy configuration
+  '**/firebase.json', '**/amplify.y?(a)ml', '**/render.y?(a)ml', '**/heroku.y?(a)ml', '**/app.json', '**/wrangler.*', '**/railway.*',
+  '**/serverless.*', '**/vercel.json', '**/now.json', '**/netlify.toml', '**/fly.toml', '**/Procfile', '**/Procfile.*', '**/Dockerfile*',
+  '**/*.Dockerfile', '**/docker-compose*', '**/compose.y?(a)ml', '**/k8s/**', '**/helm/**', '**/.github/**',
+  // CI (.gitlab-ci.yml, .circleci, .travis.yml, ... are dot-entries too)
   '**/azure-pipelines*', '**/bitbucket-pipelines*', '**/appveyor*', '**/cloudbuild*', '**/codemagic*', '**/buildspec*', '**/Jenkinsfile*',
-  '**/docker-compose*', '**/compose.y?(a)ml', '**/lefthook*', '**/githooks/**', '**/git-hooks/**',
+  // git hooks and their managers
+  '**/.husky/**', '**/simple-git-hooks.*', '**/.simple-git-hooks.*', '**/lefthook*', '**/.lefthook*', '**/.lintstagedrc*',
+  '**/lint-staged.config.*', '**/githooks/**', '**/git-hooks/**',
   // database schema and migrations
   '**/prisma/**', '**/*.prisma', '**/migrations/**',
   // dependencies and build output
   '**/build/**', '**/out/**', '**/coverage/**', '**/storybook-static/**', '**/*.min.js', '**/*.min.css',
 ];
+
+// ───────────────────────────── files package.json scripts name ─────────────────────────────
+
+/** Directories never searched for package.json files (dependencies, build output, git). */
+const MANIFEST_SKIP = new Set(['node_modules', 'dist', 'build', 'out', 'coverage', 'storybook-static', 'bower_components']);
+const MANIFEST_MAX_DEPTH = 6;
+const MANIFEST_MAX_DIRS = 5000;
+
+/**
+ * The file paths a package.json script string names, as written: every token that ends in a file extension
+ * (`node scripts/build.mjs`, `--config=webpack.prod.js`, `NODE_OPTIONS='--require ./hook.cjs'`), never a
+ * glob, a URL, a variable or a bare word (`vite build`, `src`). Directories and globs are not files a script
+ * names: `vitest run src` names no file.
+ */
+export function scriptFileTokens(script: string): string[] {
+  const out: string[] = [];
+  for (const raw of script.split(/\s+|&&|\|\||[;|&<>()]/)) {
+    let t = raw.trim().replace(/^['"`]+|['"`]+$/g, '');
+    if (t.startsWith('-')) {
+      const eq = t.indexOf('=');
+      if (eq < 0) continue;
+      t = t.slice(eq + 1);
+    } else if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) {
+      t = t.slice(t.indexOf('=') + 1);
+    }
+    t = t.replace(/^['"`]+|['"`]+$/g, '');
+    if (t === '' || t.includes('://') || /[*?{}[\]$]/.test(t)) continue;
+    if (!/\.[A-Za-z][A-Za-z0-9]*$/.test(path.posix.basename(t))) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+/** package.json files under `root` (API-relative POSIX dirs), a bounded walk that skips dependencies, build output and dot-dirs. */
+function manifestDirs(root: string): string[] {
+  const out: string[] = [];
+  let seen = 0;
+  const walk = (rel: string, depth: number): void => {
+    if (depth > MANIFEST_MAX_DEPTH || seen >= MANIFEST_MAX_DIRS) return;
+    seen += 1;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(rel === '' ? root : path.join(root, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    if (entries.some((e) => e.isFile() && e.name === 'package.json')) out.push(rel);
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith('.') || MANIFEST_SKIP.has(e.name)) continue;
+      walk(rel === '' ? e.name : `${rel}/${e.name}`, depth + 1);
+    }
+  };
+  walk('', 0);
+  return out;
+}
+
+interface ScriptFiles {
+  /** Lower-cased API-relative path -> where it is named ("package.json scripts.build"). */
+  named: Map<string, string>;
+  /** The package.json files read, with the stamp (mtime and size) they had. */
+  stamps: Array<{ file: string; stamp: string }>;
+}
+
+const scriptFilesCache = new Map<string, ScriptFiles>();
+
+function stampOf(file: string): string {
+  try {
+    const st = statSync(file);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return 'missing';
+  }
+}
+
+/**
+ * Every file a package.json script names, under `root` (every package.json of the tree, each script's paths
+ * resolved against its own directory), lower-cased API-relative path -> where it is named. Cached per root
+ * while the package.json files it read keep their stamp (no run can write a package.json).
+ */
+export function packageScriptFiles(root: string): ReadonlyMap<string, string> {
+  const cached = scriptFilesCache.get(root);
+  if (cached !== undefined && cached.stamps.every((s) => stampOf(s.file) === s.stamp)) return cached.named;
+  const named = new Map<string, string>();
+  const stamps: ScriptFiles['stamps'] = [];
+  for (const dir of manifestDirs(root)) {
+    const file = path.join(root, dir, 'package.json');
+    stamps.push({ file, stamp: stampOf(file) });
+    let pkg: unknown;
+    try {
+      pkg = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      continue;
+    }
+    const scripts: unknown = typeof pkg === 'object' && pkg !== null ? Reflect.get(pkg, 'scripts') : undefined;
+    if (typeof scripts !== 'object' || scripts === null) continue;
+    for (const [name, script] of Object.entries(scripts)) {
+      if (typeof script !== 'string') continue;
+      for (const token of scriptFileTokens(script)) {
+        if (path.posix.isAbsolute(token) || /^[A-Za-z]:[\\/]/.test(token)) continue;
+        const rel = path.posix.normalize(path.posix.join(dir === '' ? '.' : dir, token.replace(/\\/g, '/'))).replace(/^(\.\/)+/, '');
+        if (rel === '..' || rel.startsWith('../') || rel === '.') continue;
+        const key = rel.toLowerCase();
+        if (!named.has(key)) named.set(key, `${dir === '' ? '' : `${dir}/`}package.json scripts.${name}`);
+      }
+    }
+  }
+  scriptFilesCache.set(root, { named, stamps });
+  return named;
+}
+
+/** What inPlaceWritePolicy needs beyond the path: the source roots and the files package.json scripts name. */
+export interface InPlaceFacts {
+  /** The API's source roots (TargetLayout.sourceRoots); default: the active layout's. */
+  sourceRoots?: readonly string[];
+  /** packageScriptFiles of the API root; default: none known (a caller without a workspace). */
+  scriptFiles?: ReadonlyMap<string, string>;
+}
+
+/**
+ * Whether `rel` lies under a source root. A root-level file is under one only when a source root names it
+ * exactly (a tsconfig `files` entry): '.' (no tsconfig) makes every directory a source root, but never the
+ * repository's root-level files, which are its configuration and tooling.
+ */
+function underSourceRoot(rel: string, roots: readonly string[]): boolean {
+  if (!rel.includes('/')) return roots.includes(rel);
+  return roots.some((r) => r === '.' || rel === r || rel.startsWith(`${r}/`));
+}
+
+function rootsLabel(roots: readonly string[]): string {
+  return roots.length === 0 ? 'none' : roots.map((r) => (r === '.' ? 'every directory' : `${r}/`)).join(', ');
+}
 
 /** The extension a write targets, lower-cased (`.d.ts` reads as `.ts`; the deny list owns declarations). */
 function extOf(rel: string): string {
@@ -174,15 +321,22 @@ export function inPlaceWritableKind(rel: string): boolean {
  * the scope of a session is the checkout itself. Git visibility is not decided here (it needs git):
  * path-guard asks gitHidden() before every write, and the scope gate refuses ignored writes at finish.
  */
-export function inPlaceWritePolicy(task: Task, rel: string): PolicyDecision {
+export function inPlaceWritePolicy(task: Task, rel: string, facts: InPlaceFacts = {}): PolicyDecision {
+  const owned = (why: string): PolicyDecision => ({ allowed: false, reason: `${rel} is harness-owned in place (supply chain: ${why})` });
   if (matcher(INPLACE_DENY, true)(rel)) {
-    return {
-      allowed: false,
-      reason: `${rel} is harness-owned in place (supply chain: dependency manifests, lockfiles, tool/build/CI configs, git hooks, dot-files, .env*, prisma/ and migrations, node_modules, build output)`,
-    };
+    return owned('dependency and workspace manifests, lockfiles, tool/build/deploy/CI configs, task runners, git hooks, dot-files, .env*, prisma/ and migrations, node_modules, build output');
   }
+  const script = facts.scriptFiles?.get(rel.toLowerCase());
+  if (script !== undefined) return owned(`named by ${script}, so the package manager runs it with the owner's credentials`);
   if (!inPlaceWritableKind(rel)) {
     return { allowed: false, reason: `${rel} is not a web source or text file; in place only ${INPLACE_WRITABLE_EXTS.join(' ')} files may be written` };
+  }
+  const roots = facts.sourceRoots ?? activeLayout().sourceRoots;
+  if (!rel.includes('/') && /\.[cm]?js$/i.test(rel) && !underSourceRoot(rel, roots)) {
+    return owned(`a root-level script outside the source roots (${rootsLabel(roots)}): tooling the repository's tools load, not source`);
+  }
+  if (/\.(json|ya?ml)$/i.test(rel) && !underSourceRoot(rel, roots)) {
+    return owned(`data or configuration outside the source roots (${rootsLabel(roots)}): in place a .json, .yml or .yaml file is writable only under them`);
   }
   if (task.kind === 'brownfield' && matcher(task.scope.deny, true)(rel)) {
     return { allowed: false, reason: `${rel} matches the task scope deny list (${task.scope.deny.join(', ')})` };
@@ -191,11 +345,16 @@ export function inPlaceWritePolicy(task: Task, rel: string): PolicyDecision {
 }
 
 /**
- * The write policy of the run `ctx` describes: in place (ctx.inPlace, a session) inPlaceWritePolicy,
- * otherwise (file mode, a worktree run) the 01 policy, unchanged.
+ * The write policy of the run `ctx` describes: in place (ctx.inPlace, a session) inPlaceWritePolicy with the
+ * run's source roots and the files the API's package.json scripts name, otherwise (file mode, a worktree run)
+ * the 01 policy, unchanged.
  */
-export function writePolicyFor(ctx: Pick<RunContext, 'task' | 'stack' | 'inPlace'>, rel: string): PolicyDecision {
-  return ctx.inPlace !== undefined ? inPlaceWritePolicy(ctx.task, rel) : writePolicy(ctx.task, rel, ctx.stack);
+export function writePolicyFor(ctx: Pick<RunContext, 'task' | 'stack' | 'inPlace'> & { workspace?: Pick<Workspace, 'root'> }, rel: string): PolicyDecision {
+  if (ctx.inPlace === undefined) return writePolicy(ctx.task, rel, ctx.stack);
+  return inPlaceWritePolicy(ctx.task, rel, {
+    sourceRoots: activeLayout().sourceRoots,
+    ...(ctx.workspace !== undefined ? { scriptFiles: packageScriptFiles(ctx.workspace.root) } : {}),
+  });
 }
 
 /**

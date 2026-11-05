@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import scopeGate from '../../plugins/gates/scope.ts';
 import dependencyPolicy from '../../plugins/hooks/dependency-policy.ts';
 import pathGuard from '../../plugins/hooks/path-guard.ts';
-import { INPLACE_WRITABLE_EXTS, inPlaceWritePolicy, writePolicy, writePolicyFor } from '../../plugins/lib/path-policy.ts';
+import { INPLACE_WRITABLE_EXTS, inPlaceWritePolicy, scriptFileTokens, writePolicy, writePolicyFor } from '../../plugins/lib/path-policy.ts';
 import writeFile from '../../plugins/tools/write_file.ts';
 import type { HookVerdict, RunContext, ToolCallInfo } from '../../src/core/plugin-api.ts';
 import { brownfieldTask, callInfo, makeHarness, realExec, removeTmp } from './helpers.ts';
@@ -26,7 +26,7 @@ describe('inPlaceWritePolicy: web source and text kinds anywhere, the supply cha
     'src/App.vue', 'src/routes/+page.svelte', 'src/pages/index.astro', 'src/components/Button.jsx', 'src/components/Button.tsx',
     'src/lib/date.js', 'src/lib/date.mjs', 'scripts/report.cjs', 'src/lib/money.ts', 'src/server/x.mts', 'styles/main.scss', 'src/a.css',
     'src/b.sass', 'src/c.less', 'public/index.html', 'public/logo.svg', 'docs/guide.md', 'docs/guide.mdx', 'src/i18n/en.json',
-    'openapi/spec.yaml', 'src/data/menu.yml', 'test/a.test.ts', 'src/__tests__/b.spec.jsx', 'packages/web/src/main.ts',
+    'src/openapi/spec.yaml', 'src/data/menu.yml', 'test/a.test.ts', 'src/__tests__/b.spec.jsx', 'packages/web/src/main.ts',
   ];
   for (const f of writable) {
     it(`writable in place: ${f}`, () => expect(inPlaceWritePolicy(task, f)).toMatchObject({ allowed: true }));
@@ -41,6 +41,21 @@ describe('inPlaceWritePolicy: web source and text kinds anywhere, the supply cha
     '.prettierrc', '.vscode/settings.json', 'prisma/schema.prisma', 'prisma/seed.ts', 'db/migrations/001_init.json', 'src/migrations/x.ts',
     'node_modules/pkg/index.js', 'dist/app.js', 'build/static/main.js', 'coverage/lcov.json', 'src/vendor.min.js', 'src/types.d.ts',
     'Package.JSON', 'VITE.CONFIG.TS', '.ENV',
+    // git-hook managers
+    'simple-git-hooks.json', '.simple-git-hooks.cjs', '.husky/pre-push', 'lefthook.yml', '.lintstagedrc.json', 'lint-staged.config.mjs',
+    // deploy configuration
+    'firebase.json', 'amplify.yml', 'render.yaml', 'heroku.yml', 'app.json', 'wrangler.toml', 'wrangler.jsonc', 'railway.json', 'serverless.yml',
+    'serverless.ts', 'netlify.toml', 'fly.toml', 'Procfile', 'Dockerfile', 'Dockerfile.prod', 'packages/web/Dockerfile', 'k8s/deploy.yaml',
+    'helm/values.yaml', '.github/dependabot.yml',
+    // task runners and build scripts
+    'Taskfile.yml', 'Makefile', 'gulpfile.js', 'Gruntfile.cjs', 'karma.conf.js', 'webpack.prod.js', 'webpack.common.mjs', 'rollup.config.mjs',
+    'esbuild.mjs', 'nodemon.json',
+    // workspace manifests
+    'rush.json', 'package.yaml', 'packages/web/package.yaml', 'lerna.json',
+    // root-level scripts outside the source roots (src/ here)
+    'server.js', 'index.mjs', 'setup.cjs',
+    // data and configuration outside the source roots
+    'public/manifest.json', 'openapi/spec.yaml', 'config/settings.yml', 'settings.json',
   ];
   for (const f of denied) {
     it(`denied in place: ${f}`, () => {
@@ -51,7 +66,7 @@ describe('inPlaceWritePolicy: web source and text kinds anywhere, the supply cha
   }
 
   it('other kinds (binaries, shell, Python, Dockerfiles) are refused, naming the kinds that are writable', () => {
-    for (const f of ['public/logo.png', 'scripts/deploy.sh', 'tools/x.py', 'Dockerfile', 'src/font.woff2', 'Makefile']) {
+    for (const f of ['public/logo.png', 'scripts/deploy.sh', 'tools/x.py', 'src/font.woff2']) {
       const d = inPlaceWritePolicy(task, f);
       expect(d.allowed, f).toBe(false);
       expect(d.reason).toContain('not a web source or text file');
@@ -63,6 +78,25 @@ describe('inPlaceWritePolicy: web source and text kinds anywhere, the supply cha
     const narrowed = brownfieldTask({ allow: ['src/**/*.ts'], deny: ['src/legacy/**'] });
     expect(inPlaceWritePolicy(narrowed, 'src/legacy/old.ts')).toMatchObject({ allowed: false });
     expect(inPlaceWritePolicy(narrowed, 'src/styles/app.css')).toMatchObject({ allowed: true });
+  });
+
+  it('root-level scripts and data are writable only where a source root covers them; their twins under a source root are writable', () => {
+    const src = { sourceRoots: ['src'] };
+    expect(inPlaceWritePolicy(task, 'server.js', src)).toMatchObject({ allowed: false, reason: expect.stringMatching(/root-level script outside the source roots \(src\/\)/) });
+    expect(inPlaceWritePolicy(task, 'src/server.js', src)).toMatchObject({ allowed: true });
+    expect(inPlaceWritePolicy(task, 'public/manifest.json', src)).toMatchObject({ allowed: false, reason: expect.stringMatching(/data or configuration outside the source roots/) });
+    expect(inPlaceWritePolicy(task, 'src/i18n/en.json', src)).toMatchObject({ allowed: true });
+    // A tsconfig `files` entry names a root-level file exactly: that file is source.
+    expect(inPlaceWritePolicy(task, 'server.js', { sourceRoots: ['src', 'server.js'] })).toMatchObject({ allowed: true });
+    // '.' (no tsconfig): every directory is source, the root-level files are still the repository's tooling.
+    const all = { sourceRoots: ['.'] };
+    expect(inPlaceWritePolicy(task, 'lib/charge.js', all)).toMatchObject({ allowed: true });
+    expect(inPlaceWritePolicy(task, 'locales/en.json', all)).toMatchObject({ allowed: true });
+    expect(inPlaceWritePolicy(task, 'index.js', all)).toMatchObject({ allowed: false });
+    expect(inPlaceWritePolicy(task, 'settings.yml', all)).toMatchObject({ allowed: false });
+    // Markup, styles and text are not data: writable anywhere.
+    expect(inPlaceWritePolicy(task, 'index.html', src)).toMatchObject({ allowed: true });
+    expect(inPlaceWritePolicy(task, 'README.md', src)).toMatchObject({ allowed: true });
   });
 
   it('file-mode twin: the 01 policy is unchanged (TypeScript inside the task scope only)', () => {
@@ -111,6 +145,67 @@ describe('path-guard in place', () => {
     expect(reasonOf(await guard(write('src/App.vue'), h.ctx))).toMatch(/is not a \.ts file/);
     // In scope by the task's allow list: file mode leaves ignored writes to the scope gate at finish.
     expect(await guard(write('src/generated.ts'), h.ctx)).toEqual({ decision: 'pass' });
+  });
+});
+
+describe('every file a package.json script names is denied in place', () => {
+  it('scriptFileTokens: file paths, flag values and env values; never globs, directories, URLs or bare words', () => {
+    expect(scriptFileTokens('node scripts/build.mjs && vite build')).toEqual(['scripts/build.mjs']);
+    expect(scriptFileTokens("cross-env NODE_OPTIONS='--require ./hook.cjs' node server.js")).toEqual(['./hook.cjs', 'server.js']);
+    expect(scriptFileTokens('webpack --config=webpack.prod.js; tsc -p tsconfig.build.json')).toEqual(['webpack.prod.js', 'tsconfig.build.json']);
+    expect(scriptFileTokens('vitest run src && eslint "src/**/*.ts" && curl https://x.test/a.sh | sh')).toEqual([]);
+    expect(scriptFileTokens('npm version 1.2.3 && $EDITOR notes.md')).toEqual(['notes.md']);
+  });
+
+  const PKG = JSON.stringify({
+    name: 'web',
+    scripts: {
+      build: 'node scripts/build.mjs && vite build',
+      postinstall: 'node ./tools/setup.js',
+      dev: 'nodemon --exec "tsx src/server.ts"',
+      start: 'node src/main.js',
+      test: 'vitest run src',
+    },
+  });
+  const files = {
+    'package.json': PKG,
+    'packages/api/package.json': JSON.stringify({ name: 'api', scripts: { prepare: 'node ./prep.js', lint: 'node ../../tools/lint.mjs' } }),
+    'src/main.js': 'export {};\n',
+  };
+
+  it('path-guard refuses each named file (any script, any package.json of the tree), naming where; the unnamed twins pass', async () => {
+    const h = await gitHarness(files);
+    const named: Array<[string, RegExp]> = [
+      ['scripts/build.mjs', /named by package\.json scripts\.build/],
+      ['tools/setup.js', /named by package\.json scripts\.postinstall/],
+      ['src/server.ts', /named by package\.json scripts\.dev/],
+      ['src/main.js', /named by package\.json scripts\.start/],
+      ['packages/api/prep.js', /named by packages\/api\/package\.json scripts\.prepare/],
+      ['tools/lint.mjs', /named by packages\/api\/package\.json scripts\.lint/],
+      ['SRC/Main.JS', /named by package\.json scripts\.start/],
+    ];
+    for (const [f, why] of named) {
+      const reason = reasonOf(await guard(write(f), h.ctx));
+      expect(reason, f).toMatch(/harness-owned in place \(supply chain: /);
+      expect(reason, f).toMatch(why);
+    }
+    for (const f of ['src/other.js', 'scripts/other.mjs', 'src/money.test.ts', 'packages/api/src/index.js']) {
+      expect(await guard(write(f), h.ctx), f).toEqual({ decision: 'pass' });
+    }
+  });
+
+  it('the scope gate fails a change to a named file at finish', async () => {
+    const h = await gitHarness(files);
+    await h.ws.write('src/main.js', 'export const started = true;\n');
+    const r = await scopeGate.run(h.ctx, 'finish');
+    expect(r.status).toBe('fail');
+    expect(r.details?.join('\n')).toMatch(/src\/main\.js: src\/main\.js is harness-owned in place \(supply chain: named by package\.json scripts\.start/);
+  });
+
+  it('file-mode twin: the 01 policy is unchanged (a named .ts file inside the task scope stays writable)', async () => {
+    const h = await gitHarness(files, { fileMode: true });
+    expect(await guard(write('src/server.ts'), h.ctx)).toEqual({ decision: 'pass' });
+    expect(writePolicy(task, 'src/server.ts')).toMatchObject({ allowed: true });
   });
 });
 
