@@ -104,12 +104,13 @@ describe('dependency-policy: what the API has is allowed', () => {
     expect(reasonOf(await run(write('src/x.ts', "import { q } from 'srcx/nothing';\nexport const x = q;\n"), h.ctx))).toContain('package srcx is not installed');
   });
 
-  it('specifiers the file already had are left alone; non-TypeScript files are not judged', async () => {
+  it('specifiers the file already had are left alone; files that cannot import are not judged', async () => {
     const legacy = "import legacy from 'legacy-not-installed';\nexport const a = legacy;\nexport const b = 1;\n";
     const h = await harness({ 'src/legacy.ts': legacy });
     const edit = callInfo(editFile, { path: 'src/legacy.ts', find: 'b = 1', replace: 'b = 2' }, h.ctx.workspace);
     expect((await run(edit, h.ctx)).decision).toBe('pass');
-    expect((await run(write('docs/x.md', "import x from 'whatever';\n"), h.ctx)).decision).toBe('pass');
+    // Text, styles and data import nothing (a Markdown page can: Docusaurus compiles it as MDX, see inplace-policy).
+    for (const f of ['docs/x.txt', 'src/a.css', 'src/data.json']) expect((await run(write(f, "import x from 'whatever';\n"), h.ctx)).decision, f).toBe('pass');
   });
 
   it('a write tool without preview() is refused for TypeScript files (fail closed)', async () => {

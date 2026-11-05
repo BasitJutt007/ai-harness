@@ -288,4 +288,30 @@ describe('dependency-policy covers what a session can write: JavaScript and comp
     expect(moduleSpecifiers('index.html', html)).toEqual(['e']);
     expect(scriptSource('src/a.ts', 'import g from "g";')).toBe('import g from "g";');
   });
+
+  it('MDX: an import right after the frontmatter or a heading is ESM; the frontmatter, fenced code and prose are not (the twins)', () => {
+    expect(moduleSpecifiers('docs/a.mdx', "---\ntitle: Pricing\nimport: 'not-code'\n---\nimport Chart from 'chart'\n\n# Pricing\n")).toEqual(['chart']);
+    expect(moduleSpecifiers('docs/b.mdx', "---\ntitle: Pricing\n---\n\nimport Chart from 'chart'\n")).toEqual(['chart']);
+    expect(moduleSpecifiers('docs/c.mdx', "# Pricing\nimport Chart from 'chart'\n")).toEqual(['chart']);
+    expect(moduleSpecifiers('docs/d.mdx', "---\nimport: 'x'\n---\n# Pricing\n\nThe page says import Chart from 'chart' in a sentence.\n\n```js\nimport c from 'c';\n```\n")).toEqual([]);
+  });
+
+  it('Markdown pages: MDX-style ESM and <script setup> blocks are read; fenced examples and prose are not (the twins)', () => {
+    const page = "# Team\n\nimport Card from 'card-lib'\n\n<script setup>\nimport { useData } from 'vitepress'\n</script>\n\n```vue\n<script setup>\nimport x from 'example-only'\n</script>\n```\n\nSay import y from 'prose' in text.\n";
+    expect([...new Set(moduleSpecifiers('docs/team.md', page))]).toEqual(['card-lib', 'vitepress']);
+    expect(moduleSpecifiers('README.md', '# Readme\n\n```js\nimport z from "z";\n```\n')).toEqual([]);
+  });
+
+  it('the hook refuses an undeclared import in a .md page and after a tight frontmatter in .mdx; the declared twins pass', async () => {
+    const h = await gitHarness({ 'package.json': PKG, 'node_modules/zod/package.json': '{"name":"zod","version":"4.6.5"}' });
+    const tight = "---\ntitle: Pricing\n---\nimport Chart from 'chart-not-here'\n\n<Chart />\n";
+    const md = "# Team\n\n<script setup>\nimport { useData } from 'some-new-package'\n</script>\n";
+    for (const [file, content, pkg] of [['docs/b.mdx', tight, 'chart-not-here'], ['docs/team.md', md, 'some-new-package']] as const) {
+      expect(reasonOf(await dependencyPolicy.run({ event: 'pre_tool', call: write(file, content) }, h.ctx)), file).toMatch(new RegExp(`imports "${pkg}": package ${pkg} is not installed`));
+    }
+    const okMd = "# Team\n\n<script setup>\nimport { z } from 'zod'\n</script>\n";
+    expect(await dependencyPolicy.run({ event: 'pre_tool', call: write('docs/ok.md', okMd) }, h.ctx)).toEqual({ decision: 'pass' });
+    expect(await dependencyPolicy.run({ event: 'pre_tool', call: write('docs/ok2.mdx', "---\ntitle: x\n---\nimport { z } from 'zod'\n") }, h.ctx)).toEqual({ decision: 'pass' });
+    expect(await dependencyPolicy.run({ event: 'pre_tool', call: write('README.md', '# Readme\n\nSee the docs.\n') }, h.ctx)).toEqual({ decision: 'pass' });
+  });
 });
