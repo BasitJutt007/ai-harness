@@ -306,7 +306,11 @@ describe('the prompt follows the stack and carries the approved contract', () =>
     const nest = systemPrompt({ task, checks: [], tools: [], stack: 'nestjs' });
     expect(nest).toMatch(/^You change a NestJS \+ Prisma backend/);
     expect(nest).not.toMatch(/Express 5/);
-    expect(systemPrompt({ task, checks: [], tools: [], stack: 'react-vite' })).toMatch(/node:test: put them under test\//);
+    const react = systemPrompt({ task, checks: [], tools: [], stack: 'react-vite' });
+    // The repository's runner first; node:test only where it has none. RTK Query rules only where it is used.
+    expect(react).toMatch(/Tests run with the repository's own runner; where it has none, with node:test: put them under test\//);
+    expect(react).toMatch(/With RTK Query, cache tags never cross createApi slices: .*a merge must replace a page that is fetched again, never append it twice\.$/m);
+    expect(nest).toMatch(/never touch prisma\/ or the database/);
     expect(systemPrompt({ task, checks: [], tools: [] })).toMatch(/^You implement TypeScript REST APIs \(Express 5/);
     expect(nest).toMatch(/any edit before the item's contract is complete and approved/);
     const parse = parseContract('Problem: Lists go stale.\nOwner: o\nStakeholder: S\nRepo: a/b\nBase: main\nMetric: m, w before: ____ after: ____\nMeasure: node metrics/m.mjs\nScenario: WHEN a THEN b\nNot included: c\n');

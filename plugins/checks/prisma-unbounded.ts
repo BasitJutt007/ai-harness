@@ -3,7 +3,7 @@
  * every matching row, so a list endpoint becomes a full table scan per request as the table grows.
  *
  * The habit it encodes (docs/workflow.md, What breaks 4): unbounded queries (findMany with no take,
- * in-memory filters over growing tables, a full scan per request) flagged in review on 5 backend PRs.
+ * in-memory filters over growing tables, a full scan per request) flagged in review more than once.
  *
  * Bounded: an explicit `take` in the call's argument, or a `where` on `id` (equality or `in`: at most
  * as many rows as ids given). Everything else is a violation, including a call whose bound the check
@@ -25,7 +25,7 @@ const DOC = `prisma-unbounded: every findMany is bounded.
   { where: { id } } or { where: { id: { in: ids } } }.
 - Write take in the call itself: a take inside a variable or a spread cannot be seen.
 Example:
-  this.prisma.notification.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: limit, skip: offset })`;
+  this.prisma.order.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: limit, skip: offset })`;
 
 function nameOf(p: ts.ObjectLiteralElementLike): string | null {
   if (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p) || ts.isMethodDeclaration(p)) {

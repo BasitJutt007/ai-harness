@@ -314,7 +314,7 @@ export function linkDependencies(srcTop: string, apiRel: string, destTop: string
 }
 
 /**
- * Prisma clients a target imports but does not commit (assignment 02, NestJS + Prisma): every
+ * Prisma clients a target imports but does not commit (a NestJS + Prisma target): every
  * `generator ... { output = "..." }` in the repository's Prisma schema files, resolved against the schema
  * file, kept when it lies inside the repository, exists in the source checkout and is not tracked
  * (`tracked` answers that, e.g. from `git ls-files`). The result is repository-relative.
@@ -847,9 +847,9 @@ function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: strin
   }
   if (seen.node > seen.vitest && seen.node >= seen.jest) return { kind: 'node-test', name: 'node:test', evidence: 'test files import node:test' };
   if (seen.jest > seen.vitest) return { kind: 'jest', name: 'jest', evidence: 'test files use jest APIs' };
-  // A React + Vite app with no runner at all (assignment 02): node:test, Node's own runner. Adding a runner would
-  // change package.json and the lockfile (which no run may write), and the harness's vitest would load the app's
-  // vite.config (which the sandbox refuses to let it bundle into node_modules). The team runs the tests with `node --test`.
+  // A React + Vite app with no runner at all: node:test, Node's own runner. Adding a runner would change
+  // package.json and the lockfile (which no run may write), and the harness's vitest would load the app's
+  // vite.config (which the sandbox refuses to let it bundle into node_modules); `node --test` needs neither.
   if (seen.vitest === 0 && deps['react'] !== undefined && deps['vite'] !== undefined) {
     // With tsx as the loader: Vite apps import extensionless relative paths, which Node's own type stripping cannot resolve.
     return { kind: 'node-test', name: 'node:test', evidence: "no runner declared: a React + Vite app gets node:test with tsx (no dependency to add, no Vite config to load; run with npx tsx --test)", tsxLoader: true };

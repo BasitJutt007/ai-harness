@@ -3,10 +3,10 @@
  * under the API root against the base commit (added plus deleted; a new file counts whole) stay
  * within the task's `limits.maxDiffLines`, 400 by default.
  *
- * The habit it encodes (docs/workflow.md, Where I lose time 2): review round-trips on large PRs. The
- * backend PRs of mine that drew blocking reviews have a median of 487 changed lines, the rest 67. A
- * run over the budget is refused: split the item, or raise limits.maxDiffLines in the task file on
- * purpose (the agent cannot write task files).
+ * The habit it encodes (docs/workflow.md, Where I lose time 2): review round-trips on large PRs. PRs
+ * that draw blocking reviews are several times larger than the ones that do not. A run over the
+ * budget is refused: split the item, or raise limits.maxDiffLines in the task file on purpose (the
+ * agent cannot write task files).
  *
  * Greenfield is exempt: a new API is all new lines. UNPROVEN: git cannot say what changed.
  */

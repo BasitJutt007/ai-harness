@@ -1,8 +1,8 @@
 /**
  * Commit and PR text from the approved contract, never from the agent (habit 5 in docs/workflow.md:
- * commits and PRs that say nothing: 22 content-free subjects such as `patch` and `fix: comment fixes`,
- * 58 numbered checkpoints, a commitlint hook commented out since my first commit, and 95.8% of my
- * backend PR bodies empty or the untouched template).
+ * commits and PRs that say nothing: content-free subjects such as `patch` and `fix: comment fixes`,
+ * numbered checkpoints, a commitlint hook that never runs, and PR bodies left empty or as the
+ * untouched template).
  *
  *   commitHeaderProblems  the contract's `Commit:` line is a Conventional Commits header with a known
  *                         type, at most 100 characters, whose subject names what changes: never a

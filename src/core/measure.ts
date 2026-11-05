@@ -42,7 +42,7 @@ export interface ReadMetricOptions {
   harnessRoot: string;
   /** The target repository clone (its refs and node_modules are used, its working tree never). */
   repoDir: string;
-  /** What to read at: a commit sha or a ref such as origin/harness-test. */
+  /** What to read at: a commit sha or a ref such as origin/main. */
   ref: string;
   measure: MeasureSpec;
   exec?: Exec;
