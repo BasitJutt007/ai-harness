@@ -203,10 +203,26 @@ policy, and every widening has its file-mode twin in the tests.
 | vite-build gets the repository's browserslist config as `BROWSERSLIST` (`SandboxPolicy.env`) | `plugins/checks/vite-build.ts`, `src/core/types.ts` |
 | orphans traces imports through JavaScript and component scripts in a web layout | `plugins/gates/orphans.ts` |
 
-Still open for step 4: the session must compute its profile with `targetProfile(ws, { inPlace: true })`
-(buildContext applies the web layout either way, but the generic `web` stack and JavaScript test dirs come
-from that call); a `build` script other than Vite is not run; a `format_file` tool needs a core service for
-a governed write (a tool's `preview()` has no context to run the repository's prettier).
+Any-web-repo policy review fixes (in place only; each refusal has its allowed twin and file mode its own):
+
+| Piece | Where |
+|---|---|
+| A file under a test dir learned only from the build's edge (api/ outside tsconfig include) is test support only under a conventional test dir name; logic outside the source roots is proof tier UNPROVEN | `isTestSupportPath` in `src/core/target.ts`, `proofTier` in `plugins/lib/proof.ts` |
+| Deny list widened: files any package.json script names, git-hook managers, deploy configs, task runners and build scripts, workspace manifests; root-level .js/.cjs/.mjs and .json/.yml/.yaml outside the source roots refused | `INPLACE_DENY`, `packageScriptFiles`, `inPlaceWritePolicy` in `plugins/lib/path-policy.ts` |
+| A JavaScript-only repository (no tsconfig.json, no TypeScript sources) gets stack web, its framework named; the session's profile is computed in place (git-visibility workspace) | `computeTargetProfile` in `src/core/target.ts`, `targetProfile` in `src/core/run.ts` |
+| web-typecheck is n/a on the absence of tsconfig.json alone; stack web without a counted type check or lint is UNPROVEN ("this repository configures no type check or lint the harness can run; a human must verify standards"), said up front in the profile notes | `plugins/checks/repo-typecheck.ts`, `plugins/gates/standards.ts`, `WEB_NO_STANDARDS_NOTE` in `src/core/target.ts` |
+| A new file a file-routed framework loads by convention (Next.js, Nuxt, SvelteKit, Remix, Astro, Gatsby, SolidStart) is UNPROVEN, never an orphan, unless a test imports it | `FRAMEWORK_CONVENTIONS` in `plugins/gates/orphans.ts` |
+| `import.meta.env` is defined under Node's own type stripping ('module-typescript') too | `src/core/import-meta-env-hooks.mjs` |
+| jest: no `--moduleNameMapper` for a config with projects (a profile note instead); baseUrl never maps a Node builtin's name | `jestPathMapper` in `src/core/target.ts` |
+| Package imports checked in .mdx ESM blocks and .html inline module scripts | `scriptSource` in `plugins/lib/dependencies.ts`, `plugins/hooks/dependency-policy.ts` |
+| web-build: the confined Vite build for stack web (Vite installed and a vite config, n/a otherwise; blocks only what a run introduces) | `plugins/checks/web-build.ts`, `viteBuild` in `plugins/checks/vite-build.ts` |
+| The observed-red gate reads only the changed files (git's answer against the base); a changed binary or huge file is named, not read | `unprovenEdits` in `plugins/lib/proof.ts` |
+
+Still open for step 4: a `build` script other than Vite is not run; a `format_file` tool needs a core service for
+a governed write (a tool's `preview()` has no context to run the repository's prettier); the deny list is a list
+of names and rules, so a module a tool's config imports (a plugin file vite.config.ts loads) stays writable
+unless a rule matches it; the session system prompt's "off limits" line does not yet list the files package.json
+scripts name or the data and root-level scripts outside the source roots (the hooks refuse them with the reason).
 
 Known limits: on Linux (bwrap) the `.git`/`.env*` masks are the entries found by a bounded walk at
 each call (every `.git` at any depth, node_modules not walked), checked on the generated argv only (no
