@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { agnosticDiff, main, parseArgs, providerVocabulary, scanForLeaks } from '../../src/core/cli.ts';
+import { agnosticDiff, isSessionCommand, main, parseArgs, providerVocabulary, scanForLeaks } from '../../src/core/cli.ts';
 import { compactTree, fieldLine, frontLoad, systemPrompt, taskBrief } from '../../src/core/prompt.ts';
 import type { BrownfieldTask, CheckPlugin, ToolSpec } from '../../src/core/types.ts';
 import { GREENFIELD } from './fakes.ts';
@@ -134,9 +134,11 @@ describe('cli', () => {
     expect(parseArgs(['--driver'])).toEqual({ error: '--driver needs a value' });
   });
 
-  it('usage and unknown commands exit 2; help exits 0', async () => {
+  it('usage and unknown commands exit 2; help exits 0; no command is an interactive session', async () => {
+    // Bare `harness` starts a session on the current repository (never run from a test: it reads stdin).
+    expect(isSessionCommand([])).toBe(true);
     const lines: string[] = [];
-    expect(await main([], (l) => lines.push(l))).toBe(2);
+    expect(await main(['--help'], (l) => lines.push(l))).toBe(0);
     expect(lines.join('\n')).toMatch(/usage: harness/);
     expect(await main(['bogus'], () => undefined)).toBe(2);
     expect(await main(['help'], () => undefined)).toBe(0);

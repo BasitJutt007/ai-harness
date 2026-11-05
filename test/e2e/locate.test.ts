@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { main } from '../../src/core/cli.ts';
+import { isSessionCommand, main } from '../../src/core/cli.ts';
 import { executeRun, locateApi, scaffold } from '../../src/core/run.ts';
 import { loadTask } from '../../src/core/task.ts';
 import type { BrownfieldTask, GreenfieldTask } from '../../src/core/types.ts';
@@ -103,7 +103,7 @@ describe('setup refusals leave nothing behind', () => {
     expect(await main(['run', 'missing.task.yaml', '--driver', 'scripted'], collector().out)).toBe(2);
     expect(await main(['run', USERS_TASK, '--driver', 'scripted', '--bogus', 'x'], collector().out)).toBe(2);
     expect(await main(['run', USERS_TASK, '--driver', 'scripted', '--remote', 'origin'], collector().out)).toBe(2);
-    expect(await main([], collector().out)).toBe(2);
+    expect(isSessionCommand([])).toBe(true); // bare `harness` is an interactive session (never started from a test)
     expect(await main(['help'], collector().out)).toBe(0);
     expect(git(tmp.repo, ['worktree', 'list']).split('\n')).toHaveLength(1);
   });
