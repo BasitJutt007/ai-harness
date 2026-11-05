@@ -18,12 +18,15 @@
  * declares the framework, is UNPROVEN ("loaded by the framework by convention; verify by hand"), never an
  * orphan and never green, unless a test imports it. File mode keeps its TypeScript graph.
  */
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import picomatch from 'picomatch';
 import ts from 'typescript';
 import { activeLayout, codeGlobs, defineGate, fileCheckOptions, graphFiles, importGraph, importSpecifiers, isTestFile, isTestSupport, isWebLayout } from '../../src/core/plugin-api.ts';
+import { conventionFramework } from '../lib/conventions.ts';
+import type { ManifestCache } from '../lib/conventions.ts';
 import { dependencyView, scriptSource } from '../lib/dependencies.ts';
+
+/** The conventions live in plugins/lib/conventions.ts (the in-place proof tiers use them too). */
+export { conventionFramework, FRAMEWORK_CONVENTIONS } from '../lib/conventions.ts';
 
 /** The name an import of `p` ends with: its basename without extension (the folder name for an index file). */
 function stem(p: string): string {
@@ -43,64 +46,6 @@ function reach(starts: string[], edges: ReadonlyMap<string, readonly string[]>):
     }
   }
   return seen;
-}
-
-/**
- * What file-routed frameworks load by where a file is (globs relative to the package that declares the
- * framework), keyed by the dependencies that declare it.
- */
-export const FRAMEWORK_CONVENTIONS: ReadonlyArray<{ framework: string; deps: readonly string[]; globs: readonly string[] }> = [
-  {
-    framework: 'Next.js',
-    deps: ['next'],
-    globs: [
-      '?(src/)app/**/{page,layout,route,loading,error,not-found,template,default,global-error}.{js,jsx,ts,tsx,mjs}',
-      '?(src/)pages/**', '?(src/)middleware.{js,ts}', '?(src/)instrumentation.{js,ts}',
-    ],
-  },
-  { framework: 'Nuxt', deps: ['nuxt'], globs: ['?(app/){pages,components,layouts,composables,utils,middleware,plugins}/**', 'server/**'] },
-  { framework: 'SvelteKit', deps: ['@sveltejs/kit'], globs: ['src/routes/**/+*.{svelte,js,ts}', 'src/hooks.{server,client}.{js,ts}', 'src/params/**'] },
-  { framework: 'Remix', deps: ['@remix-run/react', '@remix-run/dev', '@react-router/dev'], globs: ['app/routes/**', 'app/root.{js,jsx,ts,tsx}', 'app/entry.{client,server}.{js,jsx,ts,tsx}'] },
-  { framework: 'Astro', deps: ['astro'], globs: ['src/pages/**', 'src/middleware.{js,ts}'] },
-  { framework: 'Gatsby', deps: ['gatsby'], globs: ['src/pages/**', 'src/templates/**'] },
-  { framework: 'SolidStart', deps: ['@solidjs/start'], globs: ['src/routes/**'] },
-];
-
-const conventionMatchers = FRAMEWORK_CONVENTIONS.map((c) => ({ ...c, match: picomatch([...c.globs], { dot: true }) }));
-
-/** Declared dependency names of the package.json in `dir` (absolute), or null when it has none. */
-function declaredDeps(dir: string): Set<string> | null {
-  let pkg: unknown;
-  try {
-    pkg = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
-  } catch {
-    return null;
-  }
-  const out = new Set<string>();
-  if (typeof pkg !== 'object' || pkg === null) return out;
-  for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
-    const deps: unknown = Reflect.get(pkg, field);
-    if (typeof deps === 'object' && deps !== null) for (const name of Object.keys(deps)) out.add(name);
-  }
-  return out;
-}
-
-/**
- * The framework that loads `rel` (API-relative) by convention, or null: the nearest package.json above it
- * (up to the API root) declares a file-routed framework and `rel` lies where that framework looks.
- */
-export function conventionFramework(root: string, rel: string, cache = new Map<string, Set<string> | null>()): string | null {
-  const parts = rel.split('/').slice(0, -1);
-  for (let i = parts.length; i >= 0; i -= 1) {
-    const dirRel = parts.slice(0, i).join('/');
-    const dir = dirRel === '' ? root : path.join(root, dirRel);
-    if (!cache.has(dir)) cache.set(dir, declaredDeps(dir));
-    const deps = cache.get(dir);
-    if (deps === null || deps === undefined) continue;
-    const inPackage = dirRel === '' ? rel : rel.slice(dirRel.length + 1);
-    return conventionMatchers.find((c) => c.deps.some((d) => deps.has(d)) && c.match(inPackage))?.framework ?? null;
-  }
-  return null;
 }
 
 export default defineGate({
@@ -145,7 +90,7 @@ export default defineGate({
     const orphans: string[] = [];
     const unsure: string[] = [];
     const conventional: string[] = [];
-    const manifests = new Map<string, Set<string> | null>();
+    const manifests: ManifestCache = new Map();
     for (const f of created) {
       if (fromTests.has(f) || (!isTestSupport(f) && fromExisting.has(f))) continue;
       // In place, a file-routed framework loads it by where it is: nothing imports it, yet it is no leftover.

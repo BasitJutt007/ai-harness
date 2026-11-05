@@ -12,6 +12,10 @@
  *              observed-red gate reports UNPROVEN naming each file ("no test proves <files>; verify by
  *              hand"), so a run with such an edit can never end "Work completed".
  *
+ * An API route a file-routed framework serves by where the file is (a Next.js route handler, Nuxt server/, a
+ * SvelteKit +server.ts, ...: plugins/lib/conventions.ts) is named too, even when a red proves its behaviour:
+ * no route lock reads it, so its contract (what clients may call) is a human's to verify.
+ *
  * File mode has one tier (red): every governed file needs its red, as in 01.
  */
 import { createHash } from 'node:crypto';
@@ -21,6 +25,8 @@ import { isAbsolute, posix, relative, sep } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { activeLayout, codeGlobs, graphFiles, importSpecifiers, isCodePath, isSourcePath, isToolingConfig, resolveImport, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import type { RunContext } from '../../src/core/plugin-api.ts';
+import { apiRouteFramework } from './conventions.ts';
+import type { ManifestCache } from './conventions.ts';
 import { scriptSource } from './dependencies.ts';
 import { isGovernedSource, isTestFile, isTestSupport } from './red.ts';
 
@@ -182,6 +188,14 @@ export async function unprovenEdits(ctx: RunContext): Promise<UnprovenEdit[]> {
   const out: UnprovenEdit[] = [];
   // Changed test support, checked below for production importers (only when there is some: it reads the code).
   const support = new Set<string>();
+  const manifests: ManifestCache = new Map();
+  /** Why a changed (or deleted) non-test file is unproven, or null when a red can prove it. */
+  const unproven = (f: string): string | null => {
+    const route = apiRouteFramework(ws.root, f, manifests);
+    if (route !== null) return `an API route ${route} serves by where the file is: no route lock reads it, so its contract is a human's to verify`;
+    const t = proofTier(ctx, f);
+    return t.tier === 'unproven' ? t.why : null;
+  };
   for (const f of [...candidates].sort()) {
     if (isTestFile(f)) continue;
     // Never a hidden path (git-ignored, .git, .env*): the listing leaves them out, so git's answer must too.
@@ -202,10 +216,8 @@ export async function unprovenEdits(ctx: RunContext): Promise<UnprovenEdit[]> {
     }
     if (facts === null) {
       // Gone: a change only when it existed at run start (deleted).
-      if (initial !== undefined) {
-        const t = proofTier(ctx, f);
-        if (t.tier === 'unproven') out.push({ file: f, why: t.why });
-      }
+      const why = initial !== undefined ? unproven(f) : null;
+      if (why !== null) out.push({ file: f, why });
       continue;
     }
     if (typeof facts === 'string') {
@@ -219,8 +231,8 @@ export async function unprovenEdits(ctx: RunContext): Promise<UnprovenEdit[]> {
       out.push({ file: f, why: `${what}, not read: no test can observe it` });
       continue;
     }
-    const t = proofTier(ctx, f);
-    if (t.tier === 'unproven') out.push({ file: f, why: t.why });
+    const why = unproven(f);
+    if (why !== null) out.push({ file: f, why });
   }
   if (support.size > 0) {
     for (const [file, importer] of await productionImporters(ctx, support)) {
