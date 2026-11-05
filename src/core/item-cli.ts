@@ -114,9 +114,25 @@ async function askReply(root: string, slug: string, reader: ReplyReader, out: Ou
   return 1;
 }
 
-export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReader; exec?: Exec; root?: string; harnessRoot?: string } = {}): Promise<number> {
+export async function cmdItem(
+  a: ItemArgs,
+  out: Out,
+  opts: {
+    reader?: ReplyReader;
+    exec?: Exec;
+    root?: string;
+    harnessRoot?: string;
+    /**
+     * Whether a Measure script may come from the harness's metrics/ when the items root lacks it. Default:
+     * only for the file-mode items root (no `root` given: the harness's, or HARNESS_ITEMS_ROOT standing in
+     * for it); an items root of its own never borrows a script.
+     */
+    harnessMetrics?: boolean;
+  } = {},
+): Promise<number> {
   const harnessRoot = opts.harnessRoot ?? HARNESS_ROOT;
   const root = opts.root ?? itemsRoot(harnessRoot);
+  const harnessMetrics = opts.harnessMetrics ?? opts.root === undefined;
   const run = opts.exec ?? coreExec;
   const reader = opts.reader ?? terminalReader();
   const session = randomUUID().slice(0, 8);
@@ -190,7 +206,7 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
           for (const d of lint.details) out(`  ${d}`);
           return 1;
         }
-        const before = await readMetric({ harnessRoot, itemsRoot: root, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug });
+        const before = await readMetric({ harnessRoot, itemsRoot: root, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug, harnessMetrics });
         if (!before.ok) {
           out(`refused: the before value could not be read: ${before.reason}`);
           return 1;
@@ -220,7 +236,7 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
           out('refused: --repo <dir> is needed (the after value is read by running the Measure command at the merge commit)');
           return 2;
         }
-        const r = await closeItem({ root, harnessRoot, slug, repoDir: resolve(repoArg), exec: run });
+        const r = await closeItem({ root, harnessRoot, slug, repoDir: resolve(repoArg), exec: run, harnessMetrics });
         for (const l of r.lines) out(l);
         if (r.ok) out(`closed ${slug}: before and after are in ${CONTRACTS_DIR}/${slug}.md and items/${slug}/ledger.jsonl`);
         else out(`not closed: ${slug} stays open`);

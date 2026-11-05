@@ -135,6 +135,8 @@ export interface CloseOptions {
   slug: string;
   /** The target repository clone (its origin is the contract's Repo). */
   repoDir: string;
+  /** The file-mode CLI only: the Measure script may also come from the harness's metrics/ (ReadMetricOptions.harnessMetrics). */
+  harnessMetrics?: boolean;
   exec?: Exec;
   now?: () => Date;
 }
@@ -176,7 +178,7 @@ export async function closeItem(opts: CloseOptions): Promise<CloseResult> {
 
   const measure = status.contract.parse?.measure ?? null;
   if (measure === null) return finish();
-  facts.after = await readMetric({ harnessRoot: opts.harnessRoot, itemsRoot: opts.root, repoDir: opts.repoDir, ref: mergeSha, measure, exec: run, label: opts.slug });
+  facts.after = await readMetric({ harnessRoot: opts.harnessRoot, itemsRoot: opts.root, repoDir: opts.repoDir, ref: mergeSha, measure, exec: run, label: opts.slug, ...(opts.harnessMetrics === true ? { harnessMetrics: true } : {}) });
   const result = finish();
   if (!result.ok || facts.after.ok !== true || facts.before === null) return result;
 

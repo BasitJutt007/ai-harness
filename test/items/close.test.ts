@@ -47,7 +47,8 @@ beforeEach(() => {
   git(repo, 'remote', 'add', 'origin', origin);
   git(repo, 'push', '-q', 'origin', 'main');
   mkdirSync(join(harness, 'metrics'), { recursive: true });
-  writeFileSync(join(harness, 'metrics', 'fixture-count.mjs'), COUNT_SCRIPT);
+  mkdirSync(join(root, 'metrics'), { recursive: true });
+  writeFileSync(join(root, 'metrics', 'fixture-count.mjs'), COUNT_SCRIPT);
 });
 afterEach(() => rmSync(base, { recursive: true, force: true }));
 
@@ -58,7 +59,7 @@ async function approved(): Promise<void> {
   writeContract(root, SLUG, CONTRACT);
   const m = parseContract(CONTRACT).measure;
   if (m === null) throw new Error('no measure');
-  const before = await readMetric({ harnessRoot: harness, repoDir: repo, ref: 'origin/main', measure: m, label: SLUG });
+  const before = await readMetric({ harnessRoot: harness, itemsRoot: root, repoDir: repo, ref: 'origin/main', measure: m, label: SLUG });
   if (!before.ok) throw new Error(before.reason);
   proposeItem(root, SLUG, { session: 's', before: before.reading });
   recordReply(root, SLUG, 'yes, approved', 'tty', 's');
@@ -141,17 +142,33 @@ describe('skip 3: close an item without reading the metric', () => {
     await approved();
     const head = shipped();
     const m = merged();
-    writeFileSync(join(harness, 'metrics', 'fixture-count.mjs'), "process.exit(3);\n");
+    writeFileSync(join(root, 'metrics', 'fixture-count.mjs'), "process.exit(3);\n");
     const r = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: ghReturning({ state: 'MERGED', mergedAt: 'x', mergedBy: { login: 'AbdulBasit' }, mergeCommit: { oid: m }, headRefOid: head }) });
     expect(r.reasons.join(' ')).toMatch(/could not be read after the merge: Measure exited 3/);
     stillOpen();
+  });
+
+  it("never borrows the harness's Measure script for an items root of its own; the file-mode CLI may (opt-in)", async () => {
+    await approved();
+    const head = shipped();
+    const m = merged();
+    // The script moves out of the item's own root into the harness's metrics/.
+    rmSync(join(root, 'metrics', 'fixture-count.mjs'));
+    writeFileSync(join(harness, 'metrics', 'fixture-count.mjs'), COUNT_SCRIPT);
+    const gh = ghReturning({ state: 'MERGED', mergedAt: 'x', mergedBy: { login: 'AbdulBasit' }, mergeCommit: { oid: m }, headRefOid: head });
+    const r = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: gh });
+    expect(r.reasons.join(' ')).toMatch(new RegExp(`Measure script metrics/fixture-count\\.mjs does not exist in metrics/ under the items root \\(${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
+    stillOpen();
+    // the twin: the file-mode CLI's opt-in finds it in the harness
+    const ok = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: gh, harnessMetrics: true });
+    expect(ok.reasons).toEqual([]);
   });
 
   it('refuses when the Measure script changed between the before and the after reading', async () => {
     await approved();
     const head = shipped();
     const m = merged();
-    writeFileSync(join(harness, 'metrics', 'fixture-count.mjs'), `${COUNT_SCRIPT}// edited\n`);
+    writeFileSync(join(root, 'metrics', 'fixture-count.mjs'), `${COUNT_SCRIPT}// edited\n`);
     const r = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: ghReturning({ state: 'MERGED', mergedAt: 'x', mergedBy: { login: 'AbdulBasit' }, mergeCommit: { oid: m }, headRefOid: head }) });
     expect(r.reasons.join(' ')).toMatch(/Measure script changed since the before reading/);
     stillOpen();

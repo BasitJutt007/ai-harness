@@ -6,7 +6,8 @@
  * - The commit gets its own detached worktree under .harness/measure/, with the clone's node_modules
  *   linked in, so the reading sees exactly that commit's files and nothing of a working tree.
  * - The script lives in metrics/ under the items root (measureScriptPath): the harness root in file
- *   mode, a session's state directory in a session. No model tool can write either (path-guard confines
+ *   mode, a session's state directory in a session; only the file-mode CLI may also fall back to the
+ *   harness's metrics/ (harnessMetrics). No model tool can write either (path-guard confines
  *   model writes to the run's workspace). It runs confined (no network, writes only to its own temp
  *   directory), from a copy in that temp directory because the sandbox never lets confined code read
  *   the harness root; the reading records the script's sha256, so a before and an after taken with
@@ -46,6 +47,13 @@ export interface ReadMetricOptions {
    * Default: the harness root (file mode, where the two are the same directory).
    */
   itemsRoot?: string;
+  /**
+   * Also look in the harness's own metrics/ when the items root has no such script. Opt-in, for the
+   * file-mode CLI only (its items root is the harness's, or a stand-in for it): an items root of its
+   * own (a session's state directory) never borrows a script it does not hold, so a metric can only
+   * be read with the script that root's contract was approved next to.
+   */
+  harnessMetrics?: boolean;
   /** The target repository clone (its refs and node_modules are used, its working tree never). */
   repoDir: string;
   /** What to read at: a commit sha or a ref such as origin/main. */
@@ -75,8 +83,13 @@ export function measureScriptPath(script: string, roots: readonly string[]): { o
 
 export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult> {
   const run = opts.exec ?? coreExec;
-  const found = measureScriptPath(opts.measure.script, [opts.itemsRoot ?? opts.harnessRoot, opts.harnessRoot]);
-  if (!found.ok) return { ok: false, reason: found.reason };
+  const own = opts.itemsRoot ?? opts.harnessRoot;
+  const found = measureScriptPath(opts.measure.script, opts.harnessMetrics === true ? [own, opts.harnessRoot] : [own, own]);
+  if (!found.ok) {
+    // One root that is not the harness: say which (measureScriptPath's single-root wording names the harness).
+    const alone = opts.harnessMetrics !== true && resolve(own) !== resolve(opts.harnessRoot);
+    return { ok: false, reason: alone && !/outside metrics/.test(found.reason) ? `Measure script ${opts.measure.script} does not exist in metrics/ under the items root (${own})` : found.reason };
+  }
   const script = found.path;
 
   const rev = await run('git', ['-C', opts.repoDir, 'rev-parse', '--verify', `${opts.ref}^{commit}`], { cwd: opts.repoDir });
