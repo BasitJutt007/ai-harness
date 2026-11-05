@@ -12,7 +12,7 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
-import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS } from './hooks.ts';
+import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS, writesInPlace, type RunPlacement } from './hooks.ts';
 import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
@@ -123,10 +123,21 @@ export function buildContext(opts: {
    * and events.jsonl). A listener that throws never stops the run and never loses the record.
    */
   onEvent?: (event: RunEvent) => void;
-  /** Set when the run writes in the owner's checkout instead of a worktree (the branch-guard hook re-checks it). */
+  /**
+   * Set when the run writes in the owner's checkout instead of a worktree (the branch-guard hook re-checks
+   * it). Required with a git-visibility workspace (only a workspace over the owner's checkout is one).
+   */
   inPlace?: InPlaceRun;
 }): RunContext {
   const { state, store } = opts;
+  // Fail closed: an in-place run without its record (or without branch-guard) would write unchecked.
+  if (opts.ws.visibility === 'git' && opts.inPlace === undefined) {
+    throw new Error('refused: the workspace is the owner\'s checkout (git visibility) but the run carries no in-place record (the top and the branch it started on), so branch-guard could not re-check a write');
+  }
+  if (writesInPlace({ ...(opts.inPlace !== undefined ? { inPlace: opts.inPlace } : {}), workspace: opts.ws })) {
+    const missing = missingRequiredHooks(opts.registry.hooks, { inPlace: true }).filter((h) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(h));
+    if (missing.length > 0) throw new Error(`refused: an in-place run needs the ${missing.join(', ')} hook (disabled in harness.config.json or failed to load): nothing would re-check the branch before a write`);
+  }
   const run = opts.exec ?? exec;
   const services = createServices({
     ws: opts.ws,
@@ -500,11 +511,12 @@ export interface ExecuteRunOptions {
 
 /**
  * The item a run is bound to, checked before the first model turn: the required item hooks are
- * registered, the contract names every field, and its text is approved in a typed turn. Throws the
- * refusal (no worktree, no tokens) naming what is missing.
+ * registered (plus branch-guard when the run writes in place, read from `where`: the run's context or
+ * what it will be built from), the contract names every field, and its text is approved in a typed
+ * turn. Throws the refusal (no worktree, no tokens) naming what is missing.
  */
-export function bindItem(slug: string, registry: RegistryView, root: string = itemsRoot(HARNESS_ROOT), opts: { inPlace?: boolean } = {}): ItemBinding {
-  const missing = missingRequiredHooks(registry.hooks, opts);
+export function bindItem(slug: string, registry: RegistryView, root: string = itemsRoot(HARNESS_ROOT), where: RunPlacement = {}): ItemBinding {
+  const missing = missingRequiredHooks(registry.hooks, { inPlace: writesInPlace(where) });
   if (missing.length > 0) {
     // An in-place run also needs the branch guard; say what each missing hook would have stopped.
     const branch = missing.some((m) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(m)) ? ', or a write on a branch other than the working branch the session started on' : '';

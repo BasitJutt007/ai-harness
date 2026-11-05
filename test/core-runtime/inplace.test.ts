@@ -18,7 +18,9 @@ import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS } from '../../src/core/hoo
 import { branchVerdict, inPlaceWritability } from '../../src/core/inplace.ts';
 import { proposeItem, recordReply } from '../../src/core/items.ts';
 import { loadRegistry } from '../../src/core/registry.ts';
-import { bindItem } from '../../src/core/run.ts';
+import { bindItem, buildContext } from '../../src/core/run.ts';
+import { newRunState, RunStore } from '../../src/core/run-store.ts';
+import { createWorkspace } from '../../src/core/workspace.ts';
 import type { Exec, HookPlugin, PluginRecord, RegistryView, RunContext, ToolCallInfo } from '../../src/core/types.ts';
 import { writeContract } from '../support/items.ts';
 import { CONFIG, fakeCtx } from '../core-loop/fakes.ts';
@@ -179,6 +181,15 @@ describe('branch-guard hook', () => {
     expect(await run(ctx())).toEqual({ decision: 'pass' });
   });
 
+  it('a run over the owner\'s checkout (git-visibility workspace) with no in-place record is refused, not waved through', async () => {
+    const c = { ...ctx(), workspace: createWorkspace(repo, '.', { visibility: 'git' }) };
+    const v = await run(c);
+    expect(v.decision).toBe('block');
+    if (v.decision === 'block') expect(v.reason).toMatch(/reads the owner's checkout \(a git-visibility workspace\) but carries no record of the branch it started on/);
+    // the twin: the same workspace with its in-place record, on the working branch, passes
+    expect(await run({ ...c, inPlace: { repoTop: repo, branch: 'fix/login' } })).toEqual({ decision: 'pass' });
+  });
+
   it('is registered from plugins/hooks and runs on write-effect pre_tool calls only', async () => {
     const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
     const h = reg.hooks.find((r) => r.plugin.name === 'branch-guard');
@@ -199,15 +210,35 @@ describe('required hooks of an in-place run', () => {
     expect(missingRequiredHooks([...itemHooks, rec(branchGuard)], { inPlace: true })).toEqual([]);
   });
 
-  it('bindItem refuses an in-place run whose registry lacks branch-guard, before the first model turn', () => {
+  it('bindItem refuses an in-place run whose registry lacks branch-guard, before the first model turn; in place is read from the context', () => {
     const root = join(base, 'items');
     writeContract(root, 'guard-export');
     proposeItem(root, 'guard-export', { session: 's', before: null });
     recordReply(root, 'guard-export', 'yes', 'tty', 's');
     const itemOnly = { hooks: [rec(problemGate), rec(contractGate)] } as unknown as RegistryView;
-    expect(() => bindItem('guard-export', itemOnly, root, { inPlace: true })).toThrow(/required hook\(s\) branch-guard not registered .* or a write on a branch other than the working branch/);
+    const inPlace = { repoTop: repo, branch: 'fix/login' };
+    const gitWs = createWorkspace(repo, '.', { visibility: 'git' });
+    // Either sign of an in-place run is enough: its record, or a workspace over the owner's checkout.
+    expect(() => bindItem('guard-export', itemOnly, root, { inPlace })).toThrow(/required hook\(s\) branch-guard not registered .* or a write on a branch other than the working branch/);
+    expect(() => bindItem('guard-export', itemOnly, root, { workspace: gitWs })).toThrow(/branch-guard not registered/);
     expect(bindItem('guard-export', itemOnly, root)).toMatchObject({ slug: 'guard-export' });
+    expect(bindItem('guard-export', itemOnly, root, { workspace: createWorkspace(repo, '.') })).toMatchObject({ slug: 'guard-export' });
     const all = { hooks: [rec(problemGate), rec(contractGate), rec(branchGuard)] } as unknown as RegistryView;
-    expect(bindItem('guard-export', all, root, { inPlace: true })).toMatchObject({ slug: 'guard-export' });
+    expect(bindItem('guard-export', all, root, { inPlace, workspace: gitWs })).toMatchObject({ slug: 'guard-export' });
+  });
+
+  it('buildContext refuses an in-place workspace without its record, or without branch-guard; the complete twin builds', () => {
+    const base0 = fakeCtx().ctx;
+    const store = new RunStore(join(base, 'run'), base);
+    const all = { ...base0.registry, hooks: [rec(problemGate), rec(contractGate), rec(branchGuard)] };
+    const build = (o: { ws: ReturnType<typeof createWorkspace>; inPlace?: RunContext['inPlace']; registry?: RegistryView }) =>
+      buildContext({ run: base0.run, task: base0.task, ws: o.ws, state: newRunState(), store, mode: base0.mode, config: CONFIG, registry: o.registry ?? all, ...(o.inPlace !== undefined ? { inPlace: o.inPlace } : {}) });
+    const gitWs = createWorkspace(repo, '.', { visibility: 'git' });
+    const inPlace = { repoTop: repo, branch: 'fix/login' };
+    expect(() => build({ ws: gitWs })).toThrow(/git visibility\) but the run carries no in-place record/);
+    expect(() => build({ ws: gitWs, inPlace, registry: { ...all, hooks: [rec(problemGate), rec(contractGate)] } })).toThrow(/needs the branch-guard hook/);
+    expect(build({ ws: gitWs, inPlace }).inPlace).toEqual(inPlace);
+    // file-mode twin: a worktree workspace builds without either
+    expect(build({ ws: createWorkspace(repo, '.'), registry: { ...all, hooks: [] } }).inPlace).toBeUndefined();
   });
 });

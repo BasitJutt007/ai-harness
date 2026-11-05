@@ -8,8 +8,11 @@
  *   - HEAD is detached, unborn, or on a protected branch.
  * The harness never switches branches or stashes to make a write possible: the owner does.
  *
- * A worktree run (file mode: no RunContext.inPlace) has its own branch in its own worktree; there the
- * guard has nothing to check and passes. A git query that fails is a refusal (branchVerdict).
+ * A worktree run (file mode: no RunContext.inPlace, a workspace with every file visible) has its own
+ * branch in its own worktree; there the guard has nothing to check and passes. A run whose workspace
+ * is a git-visibility one (only a workspace over the owner's checkout is) but that carries no in-place
+ * record is refused: whether it is in place is read from the workspace, never from a missing field.
+ * A git query that fails is a refusal (branchVerdict).
  */
 import { branchVerdict, defineHook } from '../../src/core/plugin-api.ts';
 
@@ -20,10 +23,15 @@ export default defineHook({
   effects: ['write'],
   async run(event, ctx) {
     if (event.event !== 'pre_tool') return { decision: 'pass' };
-    const inPlace = ctx.inPlace;
-    if (inPlace === undefined) return { decision: 'pass' }; // a worktree run: n/a
-    const v = await branchVerdict(inPlace.repoTop, ctx.config, ctx.exec);
     const tail = 'The harness never switches branches or stashes on its own; nothing was written.';
+    const inPlace = ctx.inPlace;
+    if (inPlace === undefined) {
+      if (ctx.workspace.visibility === 'git') {
+        return { decision: 'block', reason: `branch-guard: write refused: this run reads the owner's checkout (a git-visibility workspace) but carries no record of the branch it started on, so the branch cannot be re-checked. ${tail}` };
+      }
+      return { decision: 'pass' }; // a worktree run: n/a
+    }
+    const v = await branchVerdict(inPlace.repoTop, ctx.config, ctx.exec);
     if (!v.writable) return { decision: 'block', reason: `branch-guard: write refused: ${v.reason}. Fix: ${v.fix}. ${tail}` };
     if (v.branch !== inPlace.branch) {
       return {
