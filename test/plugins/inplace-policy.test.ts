@@ -5,6 +5,8 @@
  * that keeps the 01 policy.
  */
 import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import scopeGate from '../../plugins/gates/scope.ts';
 import dependencyPolicy from '../../plugins/hooks/dependency-policy.ts';
@@ -103,7 +105,7 @@ describe('inPlaceWritePolicy: web source and text kinds anywhere, the supply cha
   it('file-mode twin: the 01 policy is unchanged (TypeScript inside the task scope only)', () => {
     for (const f of ['src/App.vue', 'src/lib/date.js', 'src/a.css', 'docs/guide.md', 'src/i18n/en.json']) expect(writePolicy(task, f).allowed, f).toBe(false);
     expect(writePolicy(task, 'src/lib/money.ts').allowed).toBe(true);
-    const fileMode = { task, stack: 'express' as const };
+    const fileMode = { task, stack: 'express' as const, workspace: { root: join(tmpdir(), 'inplace-policy-no-such-dir') } };
     expect(writePolicyFor(fileMode, 'src/a.css').allowed).toBe(false);
     expect(writePolicyFor({ ...fileMode, inPlace: { repoTop: '/x', branch: 'feat/x' } }, 'src/a.css').allowed).toBe(true);
   });

@@ -178,60 +178,253 @@ export const INPLACE_DENY = [
 
 /** Directories never searched for package.json files (dependencies, build output, git). */
 const MANIFEST_SKIP = new Set(['node_modules', 'dist', 'build', 'out', 'coverage', 'storybook-static', 'bower_components']);
-const MANIFEST_MAX_DEPTH = 6;
-const MANIFEST_MAX_DIRS = 5000;
+/**
+ * How many directories the package.json search reads at most. Symbolic links are never followed, so the walk
+ * is finite without a depth limit; this only stops a pathological tree, and a search it stops makes the
+ * script files unknown, so nothing is writable in place (fail closed), never a partial list taken as whole.
+ */
+export const MANIFEST_MAX_DIRS = 100_000;
+
+/** Extensions Node and its TypeScript runners try for a module path written without one (`node scripts/setup`). */
+const MODULE_EXTS = ['.js', '.cjs', '.mjs', '.ts', '.mts', '.cts', '.jsx', '.tsx', '.json'];
+/** Commands whose first positional argument is a module file they run (`node setup` runs ./setup.js). */
+const RUNNERS = new Set(['node', 'nodejs', 'tsx', 'ts-node', 'ts-node-esm', 'ts-node-script', 'ts-node-dev', 'tsnd', 'babel-node', 'nodemon', 'node-dev',
+  'bun', 'deno', 'vite-node', 'esno', 'esr', 'jiti', 'sucrase-node', 'swc-node', 'zx']);
+/** Shells: their first positional argument is a file they run as written. */
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'source', '.']);
+/** Words a runner takes before its file (`tsx watch x`, `bun run x`, `deno run x`). */
+const RUNNER_SUBCOMMANDS = new Set(['run', 'watch']);
+/** Flags whose next word is a module the runner loads before the entry (`node -r ./hook`). */
+const MODULE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader']);
+/** Runner flags whose next word is their value, never the entry file (node, tsx, ts-node, ...). */
+const VALUE_FLAGS = new Set([...MODULE_FLAGS, '-C', '--conditions', '--env-file', '--env-file-if-exists', '--input-type', '--title', '--inspect-port',
+  '--watch-path', '--test-reporter', '--test-reporter-destination', '--test-name-pattern', '--test-skip-pattern', '--test-concurrency', '--test-timeout',
+  '--test-shard', '--tsconfig', '-P', '--project', '-O', '--compilerOptions', '--compiler', '--cwd', '--dir']);
+/** nodemon's own value flags (its -e is --ext; node's --watch takes none). */
+const NODEMON_VALUE_FLAGS = new Set(['--watch', '-w', '--ignore', '-i', '--ext', '-e', '--delay', '-d', '--signal', '-s', '--exec', '-x', '--config']);
+/** Runner flags after which no entry file follows: the code is inline (node -e), or the arguments are test files and directories (node --test). */
+const NO_ENTRY_FLAGS = new Set(['-e', '--eval', '-p', '--print', '--test']);
+
+/** One shell word, or an operator that separates commands. */
+type ShellToken = { word: string } | { op: string };
 
 /**
- * The file paths a package.json script string names, as written: every token that ends in a file extension
- * (`node scripts/build.mjs`, `--config=webpack.prod.js`, `NODE_OPTIONS='--require ./hook.cjs'`), never a
- * glob, a URL, a variable or a bare word (`vite build`, `src`). Directories and globs are not files a script
- * names: `vitest run src` names no file.
+ * A package.json script split as a POSIX shell would (enough of one): words with their quotes removed (a
+ * quoted value with spaces stays one word: `NODE_OPTIONS='--require ./hook.cjs'`), and the operators that
+ * separate commands (`&&`, `||`, `;`, `|`, `&`, `(`, `)`); redirections end a word.
  */
-export function scriptFileTokens(script: string): string[] {
-  const out: string[] = [];
-  for (const raw of script.split(/\s+|&&|\|\||[;|&<>()]/)) {
-    let t = raw.trim().replace(/^['"`]+|['"`]+$/g, '');
-    if (t.startsWith('-')) {
-      const eq = t.indexOf('=');
-      if (eq < 0) continue;
-      t = t.slice(eq + 1);
-    } else if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) {
-      t = t.slice(t.indexOf('=') + 1);
+function shellTokens(script: string): ShellToken[] {
+  const out: ShellToken[] = [];
+  let word = '';
+  let quoted = false;
+  const flush = (): void => {
+    if (word !== '' || quoted) out.push({ word });
+    word = '';
+    quoted = false;
+  };
+  for (let i = 0; i < script.length; i += 1) {
+    const c = script[i] ?? '';
+    if (c === "'" || c === '"' || c === '`') {
+      const end = script.indexOf(c, i + 1);
+      word += end < 0 ? script.slice(i + 1) : script.slice(i + 1, end);
+      quoted = true;
+      i = end < 0 ? script.length : end;
+    } else if (c === '\\' && i + 1 < script.length) {
+      word += script[i + 1] ?? '';
+      i += 1;
+    } else if (/\s/.test(c)) {
+      flush();
+    } else if ('&|;()<>'.includes(c)) {
+      flush();
+      const two = script.slice(i, i + 2);
+      const op = two === '&&' || two === '||' ? two : c;
+      i += op.length - 1;
+      if (c !== '<' && c !== '>') out.push({ op });
+    } else {
+      word += c;
     }
-    t = t.replace(/^['"`]+|['"`]+$/g, '');
-    if (t === '' || t.includes('://') || /[*?{}[\]$]/.test(t)) continue;
-    if (!/\.[A-Za-z][A-Za-z0-9]*$/.test(path.posix.basename(t))) continue;
-    out.push(t);
   }
+  flush();
   return out;
 }
 
-/** package.json files under `root` (API-relative POSIX dirs), a bounded walk that skips dependencies, build output and dot-dirs. */
-function manifestDirs(root: string): string[] {
+/** A word that can be a literal file path: no variable, glob or URL. */
+function literal(w: string): boolean {
+  return w !== '' && !w.includes('://') && !/[*?{}[\]$~]/.test(w);
+}
+
+/** Whether a word ends in a file extension (`build.mjs`, `webpack.prod.js`; not `1.2.3`). */
+function hasExtension(w: string): boolean {
+  return /\.[A-Za-z][A-Za-z0-9]*$/.test(path.posix.basename(w));
+}
+
+/** The files a module path written without an extension can be: itself, with each MODULE_EXTS, and as a directory's index. */
+function moduleCandidates(p: string): string[] {
+  const base = p.replace(/\/+$/, '');
+  if (base === '' || base === '.' || base === './') return MODULE_EXTS.map((e) => `index${e}`);
+  return [base, ...MODULE_EXTS.map((e) => base + e), ...MODULE_EXTS.map((e) => `${base}/index${e}`)];
+}
+
+/**
+ * The files a package.json script runs or names, relative to the package's directory: every word that ends
+ * in a file extension (`node scripts/build.mjs`, `--config=webpack.prod.js`, `NODE_OPTIONS='--require
+ * ./hook.cjs'`); the module a runner (node, tsx, ts-node, nodemon, ...) runs or preloads even without an
+ * extension (`node scripts/setup` names scripts/setup.js and its siblings by extension, scripts/setup/index.js
+ * and so on; `node .` the package's `main`); the file a shell or a path-like command runs (`./bin/www`). A
+ * `cd dir &&` before a command resolves what follows against dir. Never a glob, a URL, a variable, a
+ * directory or a bare word (`vite build`, `vitest run src` name no file).
+ */
+export function scriptFileTokens(script: string, main?: string): string[] {
+  const out: string[] = [];
+  /** Where the current command runs, relative to the package ('' = the package; null = unknown after `cd $X`). */
+  let cwd: string | null = '';
+  const saved: Array<string | null> = [];
+  const at = (p: string): string => (cwd === null || cwd === '' ? p : path.posix.join(cwd, p));
+  const exact = (p: string): void => {
+    if (literal(p)) out.push(at(p));
+  };
+  const module = (p: string): void => {
+    if (!literal(p)) return;
+    if (hasExtension(p)) {
+      out.push(at(p));
+      return;
+    }
+    // `node .` runs the package's main (and index.js without one).
+    if (/^\.\/?$/.test(p) && main !== undefined && main !== '.' && main !== './') module(main);
+    for (const c of moduleCandidates(p)) out.push(at(c));
+  };
+  const assignment = /^[A-Za-z_][A-Za-z0-9_]*=/;
+  /** A quoted word with spaces is a command of its own (`nodemon --exec "tsx src/server.ts"`, `sh -c "node x.js"`, `concurrently "node a.js" ...`). */
+  const nested = (w: string): boolean => {
+    if (!/\s/.test(w.trim())) return false;
+    for (const t of scriptFileTokens(w, main)) out.push(at(t));
+    return true;
+  };
+
+  /**
+   * The arguments of one command. `runner`: the runner or shell it is (its first plain argument is the file it
+   * runs), 'options' for the words of an environment value (flags only), null for any other command.
+   */
+  const args = (words: readonly string[], runner: string | null): void => {
+    let entry = runner !== null && runner !== 'options';
+    for (let i = 0; i < words.length; i += 1) {
+      const w = words[i] ?? '';
+      if (w.startsWith('-')) {
+        const eq = w.indexOf('=');
+        const flag = eq < 0 ? w : w.slice(0, eq);
+        const nodemon = runner === 'nodemon';
+        if (runner !== null && !nodemon && NO_ENTRY_FLAGS.has(flag)) entry = false;
+        let value: string | undefined = eq < 0 ? undefined : w.slice(eq + 1);
+        const takesValue = VALUE_FLAGS.has(flag) || (nodemon && NODEMON_VALUE_FLAGS.has(flag));
+        if (value === undefined && runner !== null && takesValue && i + 1 < words.length) {
+          i += 1;
+          value = words[i];
+        }
+        if (value === undefined || nested(value)) continue;
+        // A preloaded module is a local file only when written as a relative path (`-r dotenv/config` is a package).
+        if (MODULE_FLAGS.has(flag) && /^\.\.?\//.test(value)) module(value);
+        else if (hasExtension(value)) exact(value);
+        continue;
+      }
+      if (nested(w)) continue;
+      if (entry && runner !== null && RUNNER_SUBCOMMANDS.has(w)) continue;
+      if (entry) {
+        entry = false;
+        if (runner !== null && SHELLS.has(runner)) exact(w);
+        else module(w);
+        continue;
+      }
+      if (hasExtension(w)) exact(w);
+    }
+  };
+  /** An environment assignment's value: one file name, or node options (NODE_OPTIONS='--require ./hook.cjs'). */
+  const env = (w: string): void => {
+    const parts = w.slice(w.indexOf('=') + 1).split(/\s+/).filter((p) => p !== '');
+    if (parts.some((p) => p.startsWith('-'))) args(parts, 'options');
+    else if (parts.length === 1 && hasExtension(parts[0] ?? '')) exact(parts[0] ?? '');
+  };
+
+  const command = (words: readonly string[]): void => {
+    let i = 0;
+    for (; i < words.length && assignment.test(words[i] ?? ''); i += 1) env(words[i] ?? '');
+    const head = words[i];
+    if (head === undefined) return;
+    if (head === 'cd') {
+      const to = words[i + 1];
+      cwd = to === undefined || cwd === null || !literal(to) || path.posix.isAbsolute(to) ? null : path.posix.normalize(path.posix.join(cwd, to)).replace(/^\.$/, '');
+      return;
+    }
+    // A command written as a path runs that file (./bin/www, scripts/deploy.sh).
+    if (head.includes('/')) exact(head);
+    // A wrapper runs the command after it (npx tsx x, cross-env A=b node x, pnpm exec ts-node x): look through it.
+    const r = words.findIndex((w, k) => k >= i && (RUNNERS.has(path.posix.basename(w)) || SHELLS.has(w)));
+    if (r < 0) {
+      args(words.slice(i + 1), null);
+      return;
+    }
+    for (const w of words.slice(i + 1, r)) {
+      if (assignment.test(w)) env(w);
+      else if (!w.startsWith('-') && !nested(w) && hasExtension(w)) exact(w);
+    }
+    const runner = words[r] ?? '';
+    args(words.slice(r + 1), SHELLS.has(runner) ? runner : path.posix.basename(runner));
+  };
+
+  let words: string[] = [];
+  for (const t of shellTokens(script)) {
+    if ('word' in t) {
+      words.push(t.word);
+      continue;
+    }
+    command(words);
+    words = [];
+    // A subshell's cd ends with it: `(cd web && vite build) && node x.js` runs x.js where the script started.
+    if (t.op === '(') saved.push(cwd);
+    else if (t.op === ')') cwd = saved.pop() ?? '';
+  }
+  command(words);
+  return [...new Set(out)];
+}
+
+/** package.json files under `root` (API-relative POSIX dirs) and whether the search stopped early (why), skipping dependencies, build output and dot-dirs. */
+function manifestDirs(root: string, maxDirs: number): { dirs: string[]; incomplete: string | null } {
   const out: string[] = [];
   let seen = 0;
-  const walk = (rel: string, depth: number): void => {
-    if (depth > MANIFEST_MAX_DEPTH || seen >= MANIFEST_MAX_DIRS) return;
+  let stopped = false;
+  const queue: string[] = [''];
+  for (let rel = queue.shift(); rel !== undefined; rel = queue.shift()) {
+    if (seen >= maxDirs) {
+      stopped = true;
+      break;
+    }
     seen += 1;
     let entries: Dirent[];
     try {
       entries = readdirSync(rel === '' ? root : path.join(root, rel), { withFileTypes: true });
     } catch {
-      return;
+      continue;
     }
     if (entries.some((e) => e.isFile() && e.name === 'package.json')) out.push(rel);
     for (const e of entries) {
       if (!e.isDirectory() || e.name.startsWith('.') || MANIFEST_SKIP.has(e.name)) continue;
-      walk(rel === '' ? e.name : `${rel}/${e.name}`, depth + 1);
+      queue.push(rel === '' ? e.name : `${rel}/${e.name}`);
     }
-  };
-  walk('', 0);
-  return out;
+  }
+  return { dirs: out, incomplete: stopped ? `the search for package.json files stopped after ${maxDirs} directories` : null };
+}
+
+/**
+ * The files package.json scripts name (lower-cased API-relative path -> where it is named), with the
+ * directories that hold a package.json ('' for the API root) and why the list is incomplete (null: it is
+ * whole). An incomplete list refuses every in-place write: what an unread package.json runs is unknown.
+ */
+export interface ScriptFileMap extends ReadonlyMap<string, string> {
+  readonly packageDirs: ReadonlySet<string>;
+  readonly incomplete: string | null;
 }
 
 interface ScriptFiles {
-  /** Lower-cased API-relative path -> where it is named ("package.json scripts.build"). */
-  named: Map<string, string>;
+  named: ScriptFileMap;
   /** The package.json files read, with the stamp (mtime and size) they had. */
   stamps: Array<{ file: string; stamp: string }>;
 }
@@ -249,15 +442,20 @@ function stampOf(file: string): string {
 
 /**
  * Every file a package.json script names, under `root` (every package.json of the tree, each script's paths
- * resolved against its own directory), lower-cased API-relative path -> where it is named. Cached per root
- * while the package.json files it read keep their stamp (no run can write a package.json).
+ * resolved against its own directory, after any `cd` in the script; scriptFileTokens), lower-cased
+ * API-relative path -> where it is named; with the package directories and, when the search for package.json
+ * files stopped at `maxDirs` directories, why the list is incomplete. Cached per root while the package.json
+ * files it read keep their stamp (no run can write a package.json).
  */
-export function packageScriptFiles(root: string): ReadonlyMap<string, string> {
-  const cached = scriptFilesCache.get(root);
+export function packageScriptFiles(root: string, opts: { maxDirs?: number } = {}): ScriptFileMap {
+  const maxDirs = opts.maxDirs ?? MANIFEST_MAX_DIRS;
+  const key = `${maxDirs}\u0000${root}`;
+  const cached = scriptFilesCache.get(key);
   if (cached !== undefined && cached.stamps.every((s) => stampOf(s.file) === s.stamp)) return cached.named;
   const named = new Map<string, string>();
   const stamps: ScriptFiles['stamps'] = [];
-  for (const dir of manifestDirs(root)) {
+  const search = manifestDirs(root, maxDirs);
+  for (const dir of search.dirs) {
     const file = path.join(root, dir, 'package.json');
     stamps.push({ file, stamp: stampOf(file) });
     let pkg: unknown;
@@ -266,29 +464,36 @@ export function packageScriptFiles(root: string): ReadonlyMap<string, string> {
     } catch {
       continue;
     }
-    const scripts: unknown = typeof pkg === 'object' && pkg !== null ? Reflect.get(pkg, 'scripts') : undefined;
+    const field = (k: string): unknown => (typeof pkg === 'object' && pkg !== null ? Reflect.get(pkg, k) : undefined);
+    const scripts = field('scripts');
+    const main = field('main');
     if (typeof scripts !== 'object' || scripts === null) continue;
     for (const [name, script] of Object.entries(scripts)) {
       if (typeof script !== 'string') continue;
-      for (const token of scriptFileTokens(script)) {
+      for (const token of scriptFileTokens(script, typeof main === 'string' ? main : undefined)) {
         if (path.posix.isAbsolute(token) || /^[A-Za-z]:[\\/]/.test(token)) continue;
         const rel = path.posix.normalize(path.posix.join(dir === '' ? '.' : dir, token.replace(/\\/g, '/'))).replace(/^(\.\/)+/, '');
         if (rel === '..' || rel.startsWith('../') || rel === '.') continue;
-        const key = rel.toLowerCase();
-        if (!named.has(key)) named.set(key, `${dir === '' ? '' : `${dir}/`}package.json scripts.${name}`);
+        const lower = rel.toLowerCase();
+        if (!named.has(lower)) named.set(lower, `${dir === '' ? '' : `${dir}/`}package.json scripts.${name}`);
       }
     }
   }
-  scriptFilesCache.set(root, { named, stamps });
-  return named;
+  const map: ScriptFileMap = Object.assign(named, { packageDirs: new Set(search.dirs), incomplete: search.incomplete });
+  scriptFilesCache.set(key, { named: map, stamps });
+  return map;
 }
 
 /** What inPlaceWritePolicy needs beyond the path: the source roots and the files package.json scripts name. */
 export interface InPlaceFacts {
   /** The API's source roots (TargetLayout.sourceRoots); default: the active layout's. */
   sourceRoots?: readonly string[];
-  /** packageScriptFiles of the API root; default: none known (a caller without a workspace). */
-  scriptFiles?: ReadonlyMap<string, string>;
+  /**
+   * packageScriptFiles of the API root (a plain map: those files, the API root its only package); default:
+   * none known. Its `incomplete` refuses every write; its `packageDirs` anchor the tool and deploy names
+   * PACKAGE_LEVEL_DENY lists.
+   */
+  scriptFiles?: ReadonlyMap<string, string> & Partial<Pick<ScriptFileMap, 'packageDirs' | 'incomplete'>>;
 }
 
 /**
@@ -326,6 +531,10 @@ export function inPlaceWritePolicy(task: Task, rel: string, facts: InPlaceFacts 
   if (matcher(INPLACE_DENY, true)(rel)) {
     return owned('dependency and workspace manifests, lockfiles, tool/build/deploy/CI configs, task runners, git hooks, dot-files, .env*, prisma/ and migrations, node_modules, build output');
   }
+  const incomplete = facts.scriptFiles?.incomplete;
+  if (incomplete !== undefined && incomplete !== null) {
+    return owned(`${incomplete}, so which files package.json scripts run is unknown and nothing is writable in place`);
+  }
   const script = facts.scriptFiles?.get(rel.toLowerCase());
   if (script !== undefined) return owned(`named by ${script}, so the package manager runs it with the owner's credentials`);
   if (!inPlaceWritableKind(rel)) {
@@ -347,14 +556,12 @@ export function inPlaceWritePolicy(task: Task, rel: string, facts: InPlaceFacts 
 /**
  * The write policy of the run `ctx` describes: in place (ctx.inPlace, a session) inPlaceWritePolicy with the
  * run's source roots and the files the API's package.json scripts name, otherwise (file mode, a worktree run)
- * the 01 policy, unchanged.
+ * the 01 policy, unchanged. The workspace is required: without its root the script files are unknown, and an
+ * in-place policy that silently lost them would let the agent write what `npm install` runs.
  */
-export function writePolicyFor(ctx: Pick<RunContext, 'task' | 'stack' | 'inPlace'> & { workspace?: Pick<Workspace, 'root'> }, rel: string): PolicyDecision {
+export function writePolicyFor(ctx: Pick<RunContext, 'task' | 'stack' | 'inPlace'> & { workspace: Pick<Workspace, 'root'> }, rel: string): PolicyDecision {
   if (ctx.inPlace === undefined) return writePolicy(ctx.task, rel, ctx.stack);
-  return inPlaceWritePolicy(ctx.task, rel, {
-    sourceRoots: activeLayout().sourceRoots,
-    ...(ctx.workspace !== undefined ? { scriptFiles: packageScriptFiles(ctx.workspace.root) } : {}),
-  });
+  return inPlaceWritePolicy(ctx.task, rel, { sourceRoots: activeLayout().sourceRoots, scriptFiles: packageScriptFiles(ctx.workspace.root) });
 }
 
 /**
