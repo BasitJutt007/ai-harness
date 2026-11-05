@@ -109,6 +109,9 @@ export interface TestRunnerInfo {
  *   express     the 01 stack: route extraction, zod-boundary, rest-conventions, problem+json, contract lock;
  *   nestjs      NestJS + Jest: the repository's own tsc/ESLint/Prettier, nest-route-guard, the Nest route lock;
  *   react-vite  React + Vite: the repository's own tsc and ESLint, the Vite build; no served API to lock;
+ *   web         in place only (a session in any other web repository with a package.json): the generic web
+ *               profile, i.e. the repository's own type check and ESLint on what the run changed and its
+ *               test runner when supported; no stack-specific standards and no API lock (named as such);
  *   unknown     none of these: every stack-specific gate is UNPROVEN (never another stack's rules).
  */
 export type { Stack } from './types.ts';
@@ -868,26 +871,68 @@ export function parseNodeTestScript(script: string): { globs: string[]; nodeArgs
 
 const OTHER_RUNNERS = ['mocha', 'ava', 'tap', 'jasmine', 'uvu', 'karma', 'playwright test', 'cypress'];
 
+/**
+ * Runners behind a tool's own command: the tool supplies the configuration (transforms, module mappers,
+ * environments), so the harness running the bare runner would test something else. Named, with why, so the
+ * profile can say which runner it is and that it is unsupported, never fall back to the harness's vitest.
+ */
+const BUN_REASON = "unsupported test runner bun test (bun's own runner and module loader; the harness runs vitest, jest and node:test)";
+const WRAPPED_RUNNERS: Array<{ re: RegExp; name: string; reason: string }> = [
+  { re: /(^|[\s/])bun\s+(run\s+)?test\b/, name: 'bun test', reason: BUN_REASON },
+  { re: /(^|[\s/])(react-scripts|craco|react-app-rewired)\s+test\b/, name: 'react-scripts test', reason: "unsupported test runner react-scripts test (Create React App's jest with its own Babel, CSS and environment configuration, which the harness cannot reproduce)" },
+  { re: /(^|[\s/])ng\s+test\b/, name: 'ng test', reason: "unsupported test runner ng test (the Angular CLI's test builder: Karma/Jasmine or its jest builder with Angular's configuration)" },
+  { re: /(^|[\s/])nx\s+(run\s+\S+:test|test|affected\b.*test)\b/, name: 'nx test', reason: "unsupported test runner nx test (Nx's executor supplies the runner configuration)" },
+  { re: /(^|[\s/])vue-cli-service\s+test/, name: 'vue-cli-service test', reason: "unsupported test runner vue-cli-service test (Vue CLI's test plugin supplies the runner configuration)" },
+  { re: /(^|[\s/])ember\s+test\b/, name: 'ember test', reason: 'unsupported test runner ember test (Ember CLI with QUnit/Testem)' },
+];
+
+/** Dependencies that mean a tool's own runner when no test script or runner config names one. */
+const WRAPPED_DEPENDENCIES: Array<{ dep: string; runner: string }> = [
+  { dep: 'react-scripts', runner: 'react-scripts test' },
+  { dep: '@angular/cli', runner: 'ng test' },
+  { dep: '@angular-devkit/build-angular', runner: 'ng test' },
+  { dep: '@vue/cli-service', runner: 'vue-cli-service test' },
+  { dep: 'bun-types', runner: 'bun test' },
+  { dep: '@types/bun', runner: 'bun test' },
+];
+
 interface RunnerChoice {
   kind: RunnerKind | 'unknown';
   name: string;
   evidence: string;
   /** node:test: load tsx (extensionless relative imports, .tsx) even where node strips types itself. */
   tsxLoader?: boolean;
+  /** kind 'unknown': why the runner is unsupported, when more can be said than its name. */
+  reason?: string;
+}
+
+/** A React + Vite app (react and vite declared): its tests need tsx to load extensionless imports and .tsx. */
+function isReactVite(deps: Record<string, string>): boolean {
+  return deps['react'] !== undefined && deps['vite'] !== undefined;
 }
 
 function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: string[]): RunnerChoice {
   const script = pkg?.scripts['test'] ?? '';
-  if (/\bvitest\b/.test(script)) return { kind: 'vitest', name: 'vitest', evidence: `package.json scripts.test: ${script}` };
-  if (/\bjest\b/.test(script)) return { kind: 'jest', name: 'jest', evidence: `package.json scripts.test: ${script}` };
-  if (parseNodeTestScript(script) !== null) return { kind: 'node-test', name: 'node:test', evidence: `package.json scripts.test: ${script}` };
+  const fromScript = `package.json scripts.test: ${script}`;
+  const deps = pkg?.deps ?? {};
+  // A tool's own test command first: `react-scripts test` runs jest, but with configuration only the tool has.
+  const wrapped = WRAPPED_RUNNERS.find((w) => w.re.test(script));
+  if (wrapped !== undefined) return { kind: 'unknown', name: wrapped.name, evidence: fromScript, reason: wrapped.reason };
+  if (/\bvitest\b/.test(script)) return { kind: 'vitest', name: 'vitest', evidence: fromScript };
+  if (/\bjest\b/.test(script)) return { kind: 'jest', name: 'jest', evidence: fromScript };
+  if (parseNodeTestScript(script) !== null) return { kind: 'node-test', name: 'node:test', evidence: fromScript };
   const other = OTHER_RUNNERS.find((r) => new RegExp(`(^|[\\s/])${r}\\b`).test(script));
-  if (other !== undefined) return { kind: 'unknown', name: other, evidence: `package.json scripts.test: ${script}` };
+  if (other !== undefined) return { kind: 'unknown', name: other, evidence: fromScript };
   const vitestCfg = firstExisting(apiRoot, VITEST_CONFIGS.filter((f) => f.startsWith('vitest')));
   if (vitestCfg !== null) return { kind: 'vitest', name: 'vitest', evidence: posix.basename(vitestCfg) };
   const jestCfg = firstExisting(apiRoot, JEST_CONFIGS);
   if (jestCfg !== null || (pkg !== null && isRecord(pkg.raw['jest']))) return { kind: 'jest', name: 'jest', evidence: jestCfg !== null ? posix.basename(jestCfg) : 'package.json "jest"' };
-  const deps = pkg?.deps ?? {};
+  // A tool that brings its own runner, declared without a test script or runner of its own naming another.
+  const wrappedDep = WRAPPED_DEPENDENCIES.find((w) => deps[w.dep] !== undefined);
+  if (wrappedDep !== undefined && deps['vitest'] === undefined && deps['jest'] === undefined) {
+    const w = WRAPPED_RUNNERS.find((x) => x.name === wrappedDep.runner);
+    return { kind: 'unknown', name: wrappedDep.runner, evidence: `${wrappedDep.dep} dependency`, ...(w !== undefined ? { reason: w.reason } : {}) };
+  }
   if (deps['vitest'] !== undefined) return { kind: 'vitest', name: 'vitest', evidence: 'vitest dependency' };
   if (deps['jest'] !== undefined || deps['ts-jest'] !== undefined) return { kind: 'jest', name: 'jest', evidence: 'jest dependency' };
   const otherDep = OTHER_RUNNERS.find((r) => deps[r] !== undefined);
@@ -901,16 +946,19 @@ function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: strin
     } catch {
       continue;
     }
+    if (/from\s+['"]bun:test['"]/.test(text)) return { kind: 'unknown', name: 'bun test', evidence: `${f} imports bun:test`, reason: BUN_REASON };
     if (/from\s+['"]vitest['"]/.test(text)) seen.vitest += 1;
     else if (/from\s+['"]node:test['"]|require\(['"]node:test['"]\)/.test(text)) seen.node += 1;
     else if (/from\s+['"]@jest\/globals['"]|\bjest\.(fn|mock|spyOn)\(/.test(text)) seen.jest += 1;
   }
-  if (seen.node > seen.vitest && seen.node >= seen.jest) return { kind: 'node-test', name: 'node:test', evidence: 'test files import node:test' };
+  // A React + Vite tree keeps tsx: re-detection (ship reopens a run) sees the node:test files the agent wrote there,
+  // which import extensionless paths exactly as when the run started without a runner.
+  if (seen.node > seen.vitest && seen.node >= seen.jest) return { kind: 'node-test', name: 'node:test', evidence: 'test files import node:test', ...(isReactVite(deps) ? { tsxLoader: true } : {}) };
   if (seen.jest > seen.vitest) return { kind: 'jest', name: 'jest', evidence: 'test files use jest APIs' };
   // A React + Vite app with no runner at all: node:test, Node's own runner. Adding a runner would change
   // package.json and the lockfile (which no run may write), and the harness's vitest would load the app's
   // vite.config (which the sandbox refuses to let it bundle into node_modules); `node --test` needs neither.
-  if (seen.vitest === 0 && deps['react'] !== undefined && deps['vite'] !== undefined) {
+  if (seen.vitest === 0 && isReactVite(deps)) {
     // With tsx as the loader: Vite apps import extensionless relative paths, which Node's own type stripping cannot resolve.
     return { kind: 'node-test', name: 'node:test', evidence: "no runner declared: a React + Vite app gets node:test with tsx (no dependency to add, no Vite config to load; run with npx tsx --test)", tsxLoader: true };
   }
@@ -920,7 +968,7 @@ function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: strin
 function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | null, ctx: { repoRoot?: string; harnessRoot: string }, testFiles: string[]): TestRunnerInfo {
   const declared = pkg?.deps ?? {};
   if (choice.kind === 'unknown') {
-    return { kind: 'unknown', name: choice.name, supported: false, reason: `unsupported test runner ${choice.name} (supported: vitest, jest, node:test)`, evidence: choice.evidence };
+    return { kind: 'unknown', name: choice.name, supported: false, reason: choice.reason ?? `unsupported test runner ${choice.name} (supported: vitest, jest, node:test)`, evidence: choice.evidence };
   }
   if (choice.kind === 'node-test') {
     const parsed = parseNodeTestScript(pkg?.scripts['test'] ?? '');
@@ -1245,6 +1293,13 @@ export async function targetLayout(apiRoot: string): Promise<TargetLayout> {
 // ───────────────────────────── profile ─────────────────────────────
 
 const FRAMEWORKS = ['express', 'fastify', '@nestjs/core', 'hono', 'koa', '@hapi/hapi', 'restify', 'polka', 'elysia', 'h3'];
+/** Frontend and meta frameworks the generic web profile names (most specific first). */
+const WEB_FRAMEWORKS = ['next', 'nuxt', '@sveltejs/kit', 'astro', '@remix-run/react', '@angular/core', 'vue', 'svelte', 'solid-js', 'preact', 'lit', 'react'];
+
+/** The framework a generic web repository is built on, for the profile line: a frontend first, then a server, else "none". */
+function webFramework(deps: Record<string, string>, server: string): string {
+  return WEB_FRAMEWORKS.find((f) => deps[f] !== undefined) ?? (server !== 'unknown' ? server : 'none');
+}
 /** Dependencies whose resolution run.json records. */
 export const TRACKED_DEPENDENCIES = ['express', 'zod', 'vitest', 'typescript', 'tsx', 'supertest'];
 
@@ -1274,18 +1329,24 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   const pick = (list: string[]): string | undefined => (list.includes('express') ? 'express' : list[0]);
   const declaredFwName = pick(declaredFw) ?? pick(importedFw) ?? 'unknown';
   const deps = pkg?.deps ?? {};
-  const stack: Stack = deps['@nestjs/core'] !== undefined
+  const known: Stack = deps['@nestjs/core'] !== undefined
     ? 'nestjs'
     : declaredFwName === 'express'
       ? 'express'
       : deps['react'] !== undefined && deps['vite'] !== undefined
         ? 'react-vite'
         : 'unknown';
-  const fwName = stack === 'nestjs' ? '@nestjs/core' : stack === 'react-vite' ? 'react' : declaredFwName;
-  const fwPkg = fwName === 'unknown' ? null : resolvePackage(fwName, apiRoot, ctx);
+  // In place (a session) any other repository with a package.json gets the generic web profile instead of
+  // an UNPROVEN run; file mode keeps 'unknown' (its 01 policy never loosens).
+  const stack: Stack = known === 'unknown' && opts.inPlace === true && pkg !== null ? 'web' : known;
+  const fwName = stack === 'nestjs' ? '@nestjs/core' : stack === 'react-vite' ? 'react' : stack === 'web' ? webFramework(deps, declaredFwName) : declaredFwName;
+  const fwPkg = fwName === 'unknown' || fwName === 'none' ? null : resolvePackage(fwName, apiRoot, ctx);
   const framework = { name: fwName, version: fwPkg?.version ?? null, supported: stack !== 'unknown' };
   if (!framework.supported) {
     unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: no stack profile (express, nestjs, react-vite) applies, so route extraction, the standards and the contract lock report UNPROVEN`);
+  } else if (stack === 'web') {
+    notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, both blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
+    if (FRAMEWORKS.includes(fwName)) notes.push(`framework ${fwName} serves an API the harness extracts no routes from: contract changes are not locked; a human verifies them`);
   } else if (stack === 'nestjs') {
     notes.push("stack nestjs: standards are the repository's own (tsc with its tsconfig, its ESLint and Prettier on changed files) plus nest-route-guard; the Nest route lock compares controller routes (method and path), not DTO shapes");
   } else if (stack === 'react-vite') {

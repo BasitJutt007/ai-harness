@@ -1,5 +1,5 @@
 /**
- * repo-lint (nestjs, react-vite; lint): the repository's OWN ESLint, with its own config, on the files
+ * repo-lint (nestjs, react-vite, web; lint): the repository's OWN ESLint, with its own config, on the files
  * a run changed (every source file for a stand-alone `harness check`). Lint findings are repository
  * standards, so like any non-standards rule they block only what a run introduces (the standards gate
  * compares with the base commit).
@@ -22,7 +22,7 @@ import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugi
 const RULE = 'repo-lint';
 const PROJECT = '(project)';
 const CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc', '.eslintrc.yml', '.eslintrc.yaml'];
-const LINTABLE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+const LINTABLE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|svelte|astro)$/;
 const IGNORED = /^File ignored/;
 
 const DOC = `repo-lint: the repository's own ESLint config reports no new problem in the files you changed.
@@ -99,7 +99,7 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
 
 export default defineCheck({
   id: RULE,
-  stacks: ['nestjs', 'react-vite'],
+  stacks: ['nestjs', 'react-vite', 'web'],
   category: 'lint',
   description: "The repository's own ESLint reports nothing new in the changed files; a file its config does not cover is n/a, never linted.",
   unit: 'files',

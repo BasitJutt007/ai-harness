@@ -925,7 +925,7 @@ export interface CheckContext {
  * The target's stack (src/core/target.ts computes it from package.json): which checks and gates
  * apply. A plugin that declares `stacks` runs only on those; one that declares none runs on all.
  */
-export type Stack = 'express' | 'nestjs' | 'react-vite' | 'unknown';
+export type Stack = 'express' | 'nestjs' | 'react-vite' | 'web' | 'unknown';
 
 export interface CheckPlugin {
   kind: 'check';
