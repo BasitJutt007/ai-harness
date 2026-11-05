@@ -1,8 +1,9 @@
 # Session demo (scripted, no model, no keys)
 
 `../session-demo.json` replays a whole interactive session: a greeting, reading, a contract proposed
-in chat, a failing test, the fix, the green suite and `finish`. The gates decide the verdict. Run it
-in a throwaway web repository with the files in `repo/`:
+in chat (its Measure script shown in full and run for the before value only after your typed yes), a
+failing test, the fix, the green suite and `finish`. The gates decide the verdict. Run it in a
+throwaway web repository with the files in `repo/`:
 
 ```sh
 demo=$(mktemp -d) && cp -R fixtures/scripted/session-demo/repo/. "$demo"

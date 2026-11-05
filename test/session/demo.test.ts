@@ -102,7 +102,8 @@ describe.skipIf(detectMechanism() === 'none' && isolationInfo().mode === 'auto')
     expect(ledger.slice(0, 4)).toEqual(['proposed', 'human_turn', 'approved', 'metric']);
     const sent = JSON.stringify(requests.map((q) => q.messages));
     expect(sent).toContain('the harness read the before value after the approval and recorded it in the item ledger');
-    expect(sent).toContain('the Stakeholder you sent (\\"the owner at this terminal\\") was ignored');
+    // The model never names who approves: the harness does (the demo sends no Stakeholder).
+    expect(sent).not.toContain('the Stakeholder you sent');
     for (const printed of ['{"metric":"greeting test files","value":1}', '{\\"metric\\":\\"greeting test files\\",\\"value\\":1}']) expect(sent).not.toContain(printed);
   });
 
