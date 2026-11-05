@@ -20,7 +20,8 @@
  */
 import path from 'node:path';
 import ts from 'typescript';
-import { activeLayout, defineHook, resolveImport, sourceRootsLabel, underAny } from '../../src/core/plugin-api.ts';
+import { activeLayout, codeGlobs, defineHook, resolveImport, scriptKindOf, sourceRootsLabel, underAny } from '../../src/core/plugin-api.ts';
+import { scriptSource } from '../lib/dependencies.ts';
 import { toApiRel } from '../lib/path-policy.ts';
 import { postImage } from '../lib/post-image.ts';
 import { isGovernedSource, isTestFile, isTestSupport } from '../lib/red.ts';
@@ -145,7 +146,10 @@ export function testEnvironmentReads(sf: ts.SourceFile): Spec[] {
  * need an existing target, e.g. baseUrl, resolve against it).
  */
 export function boundaryViolations(rel: string, content: string, existing: ReadonlySet<string> = new Set()): BoundaryViolation[] {
-  const sf = ts.createSourceFile(rel, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  // A component (.vue / .svelte, governed in an in-place web layout) is judged on its <script> blocks;
+  // a script is parsed in its own mode (JSX in .tsx/.jsx/.js), so a template never reads as code.
+  const component = /\.(vue|svelte)$/.test(rel);
+  const sf = ts.createSourceFile(rel, scriptSource(rel, content), ts.ScriptTarget.Latest, true, component ? ts.ScriptKind.TS : scriptKindOf(rel));
   const roots = activeLayout().sourceRoots;
   const inSrc = underAny(rel, roots);
   const out: BoundaryViolation[] = [];
@@ -235,7 +239,7 @@ export default defineHook({
       if (!img.ok) return { decision: 'block', reason: `source-boundary: ${img.reason}` };
       if (img.after === null) continue; // no file afterwards
       const before = await ctx.workspace.read(r.rel);
-      files ??= new Set(await ctx.workspace.list(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx']));
+      files ??= new Set(await ctx.workspace.list(codeGlobs(activeLayout())));
       const violations = newBoundaryViolations(r.rel, before, img.after, files);
       if (violations.length === 0) continue;
       return {

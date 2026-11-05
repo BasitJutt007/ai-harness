@@ -85,14 +85,15 @@ export function gatesOk(results: GateResult[]): boolean {
 /**
  * The harness's own gates every task needs at `phase`; a greenfield task needs spec-coverage unless it opted out.
  * The API lock a brownfield change needs follows the stack: contract-lock (Express), route-lock (NestJS); a
- * react-vite target serves no API, so it needs neither. An unknown stack needs contract-lock, which cannot
- * prove it: UNPROVEN, never DONE.
+ * react-vite target serves no API, so it needs neither. The generic web profile (stack web, in place only)
+ * has no API lock: its profile names that, and a human verifies contract changes. An unknown stack needs
+ * contract-lock, which cannot prove it: UNPROVEN, never DONE.
  */
 export function requiredGates(task: Task, phase: GatePhase, stack?: Stack): string[] {
   const out = ['stakeholder-yes', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards'];
   if (task.kind === 'brownfield') {
     if (stack === 'nestjs') out.push('route-lock');
-    else if (stack !== 'react-vite') out.push('contract-lock');
+    else if (stack !== 'react-vite' && stack !== 'web') out.push('contract-lock');
   } else if (!specCoverageOptedOut(task)) out.push('spec-coverage');
   if (phase === 'ship') out.push('secrets');
   return out;

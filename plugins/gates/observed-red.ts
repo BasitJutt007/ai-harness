@@ -30,10 +30,16 @@
  * governed file that existed at run start and is gone now counts as changed (deleted); an inverted case
  * (`it.fails` / `test.failing`) is never red or green; and a missing-module red only counts for a new file when
  * the case asserts a VALUE from source, not only its presence (toBeDefined, toBeTruthy, typeof ...).
+ *
+ * In place (a session in any web repository) every changed file no test can prove (plugins/lib/proof.ts:
+ * styles, markup, text and data, or logic without a supported runner) is named and makes the gate UNPROVEN
+ * ("no test proves <files>; verify by hand"), never green; the red -> green proof covers the rest. File mode
+ * has no such files: every changed governed file needs its proof.
  */
 import ts from 'typescript';
-import { defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
-import type { DifferentialRun, TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
+import { activeLayout, codeGlobs, defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
+import type { DifferentialRun, GateResult, RunContext, TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
+import { unprovenEdits, unprovenLine, type UnprovenEdit } from '../lib/proof.ts';
 import { isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
 
 /** What is missing for one covering test, from least to most progress (the gate reports the most advanced one). */
@@ -141,175 +147,205 @@ export function contextReads(fileName: string, text: string): string[] {
   return [...found].sort();
 }
 
+/** redGreen's answer when every change is an UNPROVEN-tier edit: nothing for a red to prove (never a verdict of its own). */
+const NOTHING_TO_PROVE: GateResult = { status: 'n/a', summary: 'no logic change a test can prove' };
+
+/**
+ * The gate's verdict with the in-place edits no test can prove folded in: any such edit makes a pass
+ * UNPROVEN, naming the files ("no test proves <files>; verify by hand"), and joins the details of a
+ * failure. No such edit: the red -> green verdict unchanged (always, in file mode).
+ */
+export function withUnprovenEdits(r: GateResult, edits: readonly UnprovenEdit[]): GateResult {
+  if (edits.length === 0) return r;
+  const lines = edits.map((e) => `${e.file}: ${e.why}`);
+  const human = edits.map((e) => `${e.file}: no test proves this change (${e.why}); verify it by hand`);
+  if (r.status === 'n/a') return { status: 'unproven', summary: unprovenLine(edits), details: lines, humanMustVerify: human, failing: edits.length };
+  if (r.status === 'pass') return { status: 'unproven', summary: `${r.summary}; but ${unprovenLine(edits)}`, details: lines, humanMustVerify: human, failing: edits.length };
+  return { ...r, details: [...(r.details ?? []), ...lines.map((l) => `unproven: ${l}`)], humanMustVerify: [...(r.humanMustVerify ?? []), ...human] };
+}
+
 export default defineGate({
   name: 'observed-red',
   description: 'Every changed source file has a covering test case seen red by the harness runner that now passes and fails again with the original source.',
   phases: ['finish', 'ship'],
   async run(ctx) {
-    const earlier = ctx.state.tests.slice();
-    const reds = earlier.filter((o) => o.validRed);
-    let changed: string[];
-    let deleted: Set<string>;
-    let map: TestMap;
+    // In place, edits no test can prove (plugins/lib/proof.ts) are named, never proven and never silently passed.
+    let edits: UnprovenEdit[];
     try {
-      const files = await ctx.workspace.list(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx']);
-      const changedSet = new Set<string>();
-      deleted = new Set<string>();
-      for (const f of files.filter(isGovernedSource)) {
-        const content = await ctx.workspace.read(f);
-        if (content !== null && sha256(content) !== ctx.state.initialHashes.get(f)) changedSet.add(f);
-      }
-      // A governed file that existed at run start and is gone now changed too (deleted).
-      for (const f of ctx.state.initialHashes.keys()) {
-        if (!isGovernedSource(f) || changedSet.has(f) || (await ctx.workspace.read(f)) !== null) continue;
-        changedSet.add(f);
-        deleted.add(f);
-      }
-      changed = [...changedSet].sort();
-      map = await ctx.services.testMap();
+      edits = await unprovenEdits(ctx);
     } catch (e) {
       return { status: 'unproven', summary: `could not inspect changes: ${e instanceof Error ? e.message : String(e)}` };
     }
-    if (reds.length === 0) {
-      return {
-        status: 'fail',
-        summary: 'no observed red in this run',
-        details: [`Write ${suggestedTest('<name>.ts')} (a test the API's runner collects) for the behaviour, run it with run_tests and see it fail before changing source.`],
-      };
-    }
-    if (changed.length === 0) {
-      return {
-        status: 'unproven',
-        summary: 'no source change to prove: no governed source file changed in this run',
-        details: ['A red -> green proof needs a source change; a run that only edits tests (or nothing) proves no behaviour.'],
-      };
-    }
-    let report: TestRunReport;
-    try {
-      report = await ctx.services.runTests();
-    } catch (e) {
-      return { status: 'unproven', summary: `test runner failed: ${e instanceof Error ? e.message : String(e)}` };
-    }
-    const fresh = new Map(report.observations.map((o) => [o.file, o]));
-    const unlocked = unlockedSources(ctx.state);
-    const problems: string[] = [];
-    const candidates = new Map<string, RedCase[]>();
-    /** Changed files proven by an unchanged case, and those proven only by an edited one (differential proof). */
-    const unchangedProofs = new Set<string>();
-    const editedProofs = new Set<string>();
-    for (const f of changed) {
-      if (!unlocked.has(f)) {
-        problems.push(deleted.has(f)
-          ? `${f}: deleted without passing the observed-red hook (it existed at run start; no write tool removed it)`
-          : `${f}: changed without passing the observed-red hook (not written by a write tool, e.g. modified by test code)`);
-        continue;
-      }
-      const tests = map.testsFor(f);
-      if (tests.length === 0) {
-        problems.push(`${f}: no covering test`);
-        continue;
-      }
-      const existed = ctx.state.initialHashes.has(f);
-      const gaps = tests.map((t) => ({ t, e: evidence(t, earlier, fresh.get(t), existed) }));
-      const greens = gaps.flatMap((g) => ('greens' in g.e ? g.e.greens : []));
-      if (greens.length > 0) {
-        candidates.set(f, greens);
-        continue;
-      }
-      const rank = (e: Evidence): number => ('missing' in e ? RANK.indexOf(e.missing) : RANK.length);
-      const best = gaps.reduce((a, b) => (rank(b.e) > rank(a.e) ? b : a));
-      problems.push(`${f}: ${best.t}: ${'missing' in best.e ? `${best.e.missing}${best.e.detail}` : 'never red'}`);
-    }
-    if (candidates.size > 0) {
-      // An edited case whose test file reads its environment, path, clock or randomness is not provable by
-      // differential execution alone: drop it (and say why when nothing else is left for the file).
-      const reads = new Map<string, string[]>();
-      for (const test of new Set([...candidates.values()].flat().filter((c) => c.edited === true).map((c) => c.test))) {
-        reads.set(test, contextReads(test, (await ctx.workspace.read(test)) ?? ''));
-      }
-      const contextBound = (c: RedCase): string[] => (c.edited === true ? reads.get(c.test) ?? [] : []);
-      for (const [f, greens] of candidates) {
-        const kept = greens.filter((c) => contextBound(c).length === 0);
-        if (kept.length > 0) {
-          candidates.set(f, kept);
-          continue;
-        }
-        candidates.delete(f);
-        const c = greens[0];
-        if (c === undefined) continue;
-        problems.push(`${f}: ${c.test}: "${c.name}" was edited after its red and its test file reads ${contextBound(c).join(', ')}: an edited case is accepted through the revert check only when its outcome cannot depend on where, when or how it runs`);
-      }
-    }
-    /** Changed files whose own revert flips none of their accepted cases: not proven (never green). */
-    const unproven: string[] = [];
-    if (problems.length === 0 && candidates.size > 0) {
-      // Revert check, one changed file at a time: in two equivalent fresh copies F's cases must pass with the
-      // current source and fail with F ALONE back at its run-start content. Only F's candidate tests run.
-      for (const [f, greens] of candidates) {
-        const files = [...new Set(greens.map((c) => c.test))].sort();
-        let diff: DifferentialRun;
-        try {
-          diff = await ctx.services.runTestsReverted(files, [f]);
-        } catch (e) {
-          return { status: 'unproven', summary: `revert check could not run for ${f}: ${e instanceof Error ? e.message : String(e)}` };
-        }
-        const cur = new Map(diff.current.observations.map((o) => [o.file, o]));
-        const rev = new Map(diff.reverted.observations.map((o) => [o.file, o]));
-        const proven = greens.filter((c) => flipsWithSource(cur.get(c.test), rev.get(c.test), c));
-        if (proven.length > 0) {
-          (proven.some((c) => c.edited !== true) ? unchangedProofs : editedProofs).add(f);
-          continue;
-        }
-        const c = greens[0];
-        if (c === undefined) continue;
-        if (!passesIn(cur.get(c.test), c)) {
-          problems.push(`${f}: ${c.test}: "${c.name}" does not pass in a fresh copy with the current source (revert check): its pass depends on where or how it runs, not on the source`);
-          continue;
-        }
-        if (changed.length === 1) {
-          // The file alone IS the whole change: its case passing with the run-start source proves the red did not depend on it.
-          problems.push(
-            c.edited === true
-              ? `${f}: ${c.test}: "${c.name}" was edited after its red and its current body also passes with the run-start source (revert check): the edit, not the source change, makes it pass`
-              : `${f}: ${c.test}: "${c.name}" also passes with the run-start source (revert check): its red did not depend on the source change`,
-          );
-          continue;
-        }
-        // Several files changed: this one alone flips nothing (it may only work together with the others): not proven.
-        unproven.push(
-          c.edited === true
-            ? `${f}: ${c.test}: "${c.name}" was edited after its red and its current body also passes with ${f} at its run-start content (revert check): the edit, not ${f}'s change, makes it pass`
-            : `${f}: ${c.test}: "${c.name}" also passes with ${f} alone at its run-start content (revert check): no accepted case depends on ${f}'s own change`,
-        );
-      }
-    }
-    if (problems.length > 0) {
-      return {
-        status: 'fail',
-        summary: `${problems.length + unproven.length} of ${changed.length} changed source files lack a red -> green test case`,
-        details: [
-          ...problems,
-          ...unproven.map((u) => `unproven: ${u}`),
-          'Each changed file needs a covering case that was seen failing and now passes, and that fails again with that file alone at its original content (a case edited after its red counts only through that revert check).',
-        ],
-        logPath: report.logPath,
-      };
-    }
-    if (unproven.length > 0) {
-      const files = unproven.map((u) => u.slice(0, u.indexOf(': ')));
-      return {
-        status: 'unproven',
-        summary: `${unproven.length} of ${changed.length} changed source files not proven by their own revert: ${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}`,
-        details: [
-          ...unproven,
-          'Each changed file must be proven on its own: some case that went red -> green must fail again when that file ALONE is back at its original content. A change no case depends on (e.g. a refactor) needs a case that observes it, or must be left out.',
-        ],
-        logPath: report.logPath,
-      };
-    }
-    return {
-      status: 'pass',
-      summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)`,
-    };
+    return withUnprovenEdits(await redGreen(ctx, new Set(edits.map((e) => e.file))), edits);
   },
 });
+
+/** The red -> green proof over every changed governed file except `unprovable` (see the module comment). */
+async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promise<GateResult> {
+  const earlier = ctx.state.tests.slice();
+  const reds = earlier.filter((o) => o.validRed);
+  let changed: string[];
+  let deleted: Set<string>;
+  let map: TestMap;
+  try {
+    const files = await ctx.workspace.list(codeGlobs(activeLayout()));
+    const changedSet = new Set<string>();
+    deleted = new Set<string>();
+    for (const f of files.filter(isGovernedSource)) {
+      const content = await ctx.workspace.read(f);
+      if (content !== null && sha256(content) !== ctx.state.initialHashes.get(f)) changedSet.add(f);
+    }
+    // A governed file that existed at run start and is gone now changed too (deleted).
+    for (const f of ctx.state.initialHashes.keys()) {
+      if (!isGovernedSource(f) || changedSet.has(f) || (await ctx.workspace.read(f)) !== null) continue;
+      changedSet.add(f);
+      deleted.add(f);
+    }
+    changed = [...changedSet].filter((f) => !unprovable.has(f)).sort();
+    map = await ctx.services.testMap();
+  } catch (e) {
+    return { status: 'unproven', summary: `could not inspect changes: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (changed.length === 0 && unprovable.size > 0) return NOTHING_TO_PROVE;
+  if (reds.length === 0) {
+    return {
+      status: 'fail',
+      summary: 'no observed red in this run',
+      details: [`Write ${suggestedTest('<name>.ts')} (a test the API's runner collects) for the behaviour, run it with run_tests and see it fail before changing source.`],
+    };
+  }
+  if (changed.length === 0) {
+    return {
+      status: 'unproven',
+      summary: 'no source change to prove: no governed source file changed in this run',
+      details: ['A red -> green proof needs a source change; a run that only edits tests (or nothing) proves no behaviour.'],
+    };
+  }
+  let report: TestRunReport;
+  try {
+    report = await ctx.services.runTests();
+  } catch (e) {
+    return { status: 'unproven', summary: `test runner failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const fresh = new Map(report.observations.map((o) => [o.file, o]));
+  const unlocked = unlockedSources(ctx.state);
+  const problems: string[] = [];
+  const candidates = new Map<string, RedCase[]>();
+  /** Changed files proven by an unchanged case, and those proven only by an edited one (differential proof). */
+  const unchangedProofs = new Set<string>();
+  const editedProofs = new Set<string>();
+  for (const f of changed) {
+    if (!unlocked.has(f)) {
+      problems.push(deleted.has(f)
+        ? `${f}: deleted without passing the observed-red hook (it existed at run start; no write tool removed it)`
+        : `${f}: changed without passing the observed-red hook (not written by a write tool, e.g. modified by test code)`);
+      continue;
+    }
+    const tests = map.testsFor(f);
+    if (tests.length === 0) {
+      problems.push(`${f}: no covering test`);
+      continue;
+    }
+    const existed = ctx.state.initialHashes.has(f);
+    const gaps = tests.map((t) => ({ t, e: evidence(t, earlier, fresh.get(t), existed) }));
+    const greens = gaps.flatMap((g) => ('greens' in g.e ? g.e.greens : []));
+    if (greens.length > 0) {
+      candidates.set(f, greens);
+      continue;
+    }
+    const rank = (e: Evidence): number => ('missing' in e ? RANK.indexOf(e.missing) : RANK.length);
+    const best = gaps.reduce((a, b) => (rank(b.e) > rank(a.e) ? b : a));
+    problems.push(`${f}: ${best.t}: ${'missing' in best.e ? `${best.e.missing}${best.e.detail}` : 'never red'}`);
+  }
+  if (candidates.size > 0) {
+    // An edited case whose test file reads its environment, path, clock or randomness is not provable by
+    // differential execution alone: drop it (and say why when nothing else is left for the file).
+    const reads = new Map<string, string[]>();
+    for (const test of new Set([...candidates.values()].flat().filter((c) => c.edited === true).map((c) => c.test))) {
+      reads.set(test, contextReads(test, (await ctx.workspace.read(test)) ?? ''));
+    }
+    const contextBound = (c: RedCase): string[] => (c.edited === true ? reads.get(c.test) ?? [] : []);
+    for (const [f, greens] of candidates) {
+      const kept = greens.filter((c) => contextBound(c).length === 0);
+      if (kept.length > 0) {
+        candidates.set(f, kept);
+        continue;
+      }
+      candidates.delete(f);
+      const c = greens[0];
+      if (c === undefined) continue;
+      problems.push(`${f}: ${c.test}: "${c.name}" was edited after its red and its test file reads ${contextBound(c).join(', ')}: an edited case is accepted through the revert check only when its outcome cannot depend on where, when or how it runs`);
+    }
+  }
+  /** Changed files whose own revert flips none of their accepted cases: not proven (never green). */
+  const unproven: string[] = [];
+  if (problems.length === 0 && candidates.size > 0) {
+    // Revert check, one changed file at a time: in two equivalent fresh copies F's cases must pass with the
+    // current source and fail with F ALONE back at its run-start content. Only F's candidate tests run.
+    for (const [f, greens] of candidates) {
+      const files = [...new Set(greens.map((c) => c.test))].sort();
+      let diff: DifferentialRun;
+      try {
+        diff = await ctx.services.runTestsReverted(files, [f]);
+      } catch (e) {
+        return { status: 'unproven', summary: `revert check could not run for ${f}: ${e instanceof Error ? e.message : String(e)}` };
+      }
+      const cur = new Map(diff.current.observations.map((o) => [o.file, o]));
+      const rev = new Map(diff.reverted.observations.map((o) => [o.file, o]));
+      const proven = greens.filter((c) => flipsWithSource(cur.get(c.test), rev.get(c.test), c));
+      if (proven.length > 0) {
+        (proven.some((c) => c.edited !== true) ? unchangedProofs : editedProofs).add(f);
+        continue;
+      }
+      const c = greens[0];
+      if (c === undefined) continue;
+      if (!passesIn(cur.get(c.test), c)) {
+        problems.push(`${f}: ${c.test}: "${c.name}" does not pass in a fresh copy with the current source (revert check): its pass depends on where or how it runs, not on the source`);
+        continue;
+      }
+      if (changed.length === 1) {
+        // The file alone IS the whole change: its case passing with the run-start source proves the red did not depend on it.
+        problems.push(
+          c.edited === true
+            ? `${f}: ${c.test}: "${c.name}" was edited after its red and its current body also passes with the run-start source (revert check): the edit, not the source change, makes it pass`
+            : `${f}: ${c.test}: "${c.name}" also passes with the run-start source (revert check): its red did not depend on the source change`,
+        );
+        continue;
+      }
+      // Several files changed: this one alone flips nothing (it may only work together with the others): not proven.
+      unproven.push(
+        c.edited === true
+          ? `${f}: ${c.test}: "${c.name}" was edited after its red and its current body also passes with ${f} at its run-start content (revert check): the edit, not ${f}'s change, makes it pass`
+          : `${f}: ${c.test}: "${c.name}" also passes with ${f} alone at its run-start content (revert check): no accepted case depends on ${f}'s own change`,
+      );
+    }
+  }
+  if (problems.length > 0) {
+    return {
+      status: 'fail',
+      summary: `${problems.length + unproven.length} of ${changed.length} changed source files lack a red -> green test case`,
+      details: [
+        ...problems,
+        ...unproven.map((u) => `unproven: ${u}`),
+        'Each changed file needs a covering case that was seen failing and now passes, and that fails again with that file alone at its original content (a case edited after its red counts only through that revert check).',
+      ],
+      logPath: report.logPath,
+    };
+  }
+  if (unproven.length > 0) {
+    const files = unproven.map((u) => u.slice(0, u.indexOf(': ')));
+    return {
+      status: 'unproven',
+      summary: `${unproven.length} of ${changed.length} changed source files not proven by their own revert: ${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}`,
+      details: [
+        ...unproven,
+        'Each changed file must be proven on its own: some case that went red -> green must fail again when that file ALONE is back at its original content. A change no case depends on (e.g. a refactor) needs a case that observes it, or must be left out.',
+      ],
+      logPath: report.logPath,
+    };
+  }
+  return {
+    status: 'pass',
+    summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)`,
+  };
+}

@@ -21,7 +21,7 @@
  */
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
-import { activeLayout, isTestFile, isTestSupport, suggestTestPath } from '../../src/core/plugin-api.ts';
+import { activeLayout, isGovernedCodePath, isTestFile, isTestSupport, suggestTestPath } from '../../src/core/plugin-api.ts';
 import type { RunContext, RunState, TestObservation } from '../../src/core/plugin-api.ts';
 
 /**
@@ -35,12 +35,12 @@ export function sha256(text: string): string {
 }
 
 /**
- * Source files the observed-red rule governs: every TypeScript file that is neither a
- * runnable test nor test support of the API's layout (its source roots and anything else
- * a broad brownfield scope allows, e.g. scripts/x.ts).
+ * Source files the observed-red rule governs: every code file of the API's layout (TypeScript; in an
+ * in-place web layout JavaScript and .vue/.svelte components too) that is neither a runnable test nor
+ * test support (its source roots and anything else a broad brownfield scope allows, e.g. scripts/x.ts).
  */
 export function isGovernedSource(rel: string): boolean {
-  return /\.[cm]?tsx?$/.test(rel) && !/\.d\.[cm]?tsx?$/.test(rel) && !isTestFile(rel) && !isTestSupport(rel);
+  return isGovernedCodePath(rel, activeLayout());
 }
 
 /**

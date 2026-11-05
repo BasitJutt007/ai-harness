@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import orphans from '../../plugins/gates/orphans.ts';
 import type { GateResult } from '../../src/core/plugin-api.ts';
+import { LEGACY_LAYOUT, setActiveLayout } from '../../src/core/target.ts';
 import { makeHarness, removeTmp, sha } from './helpers.ts';
 
 const dirs: string[] = [];
@@ -92,5 +93,37 @@ describe('orphans gate', () => {
 
   it('created test files themselves are always used; no new files passes', async () => {
     expect((await run({ 'test/new.test.ts': 'export {};\n' })).summary).toBe('no new non-test files');
+  });
+});
+
+describe('orphans gate in an in-place web layout (JavaScript and components are in the graph)', () => {
+  const VUE: Record<string, string> = {
+    'src/main.js': "import App from './App.vue';\nexport const app = App;\n",
+    'src/App.vue': '<template><p/></template>\n<script setup>\nimport { greet } from "./lib/greet.js";\nconst g = greet;\n</script>\n',
+    'src/lib/greet.js': 'export const greet = (n) => `hi ${n}`;\n',
+  };
+  async function runWeb(created: Record<string, string>, start: Record<string, string> = VUE): Promise<GateResult> {
+    setActiveLayout({ ...LEGACY_LAYOUT, codeKinds: 'web' });
+    try {
+      return await run(created, start);
+    } finally {
+      setActiveLayout(undefined);
+    }
+  }
+
+  it('a new helper only a component imports is used; a new component an existing module imports is used', async () => {
+    const r = await runWeb({
+      'src/App.vue': '<template><Badge/></template>\n<script setup>\nimport { greet } from "./lib/greet.js";\nimport { fmt } from "./lib/fmt.ts";\nimport Badge from "./Badge.vue";\nconst g = [greet, fmt, Badge];\n</script>\n',
+      'src/lib/fmt.ts': 'export const fmt = (n: number): string => String(n);\n',
+      'src/Badge.vue': '<template><b/></template>\n',
+    });
+    expect(r).toMatchObject({ status: 'pass', summary: '2 created files, all imported by a test or by existing code' });
+  });
+
+  it('the twin: a new component and a new JavaScript module nothing imports are orphans', async () => {
+    const r = await runWeb({ 'src/Unused.vue': '<template><i/></template>\n', 'src/lib/unused.js': 'export const x = 1;\n' });
+    expect(r.status).toBe('fail');
+    expect(details(r)).toMatch(/src\/Unused\.vue: created, but neither a test nor code that existed at run start imports it/);
+    expect(details(r)).toMatch(/src\/lib\/unused\.js: created/);
   });
 });

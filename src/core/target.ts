@@ -19,10 +19,14 @@
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
 import type { Stack } from './types.ts';
+
+/** The --import entry that defines import.meta.env for a Vite app's modules under node:test (import-meta-env.mjs). */
+export const IMPORT_META_ENV = fileURLToPath(new URL('./import-meta-env.mjs', import.meta.url));
 
 // ───────────────────────────── types ─────────────────────────────
 
@@ -66,6 +70,13 @@ export interface TargetLayout {
   /** Jest testRegex patterns (matched against '/' + the API-relative path). */
   testRegex: string[];
   resolution: ResolutionConfig;
+  /**
+   * Which file kinds are code the harness traces and governs. Absent or 'typescript' (file mode, every
+   * worktree run): TypeScript only, the 01 behaviour. 'web' (an in-place run in any web repository, see
+   * inPlaceProfile): JavaScript too (.js .jsx .mjs .cjs, tests named *.test|spec.js(x)), and single-file
+   * components (.vue .svelte) as governed source a test can import (their own imports are not traced).
+   */
+  codeKinds?: 'typescript' | 'web';
 }
 
 export type RunnerKind = 'vitest' | 'jest' | 'node-test';
@@ -89,6 +100,17 @@ export interface TestRunnerInfo {
   nodeArgs?: string[];
   /** node:test: the file patterns the project's test script passes (none = node's defaults). */
   patterns?: string[];
+  /**
+   * Single-file component kinds a test run can import ('.vue', '.svelte'): vitest loads the repository's Vite
+   * config, so a component is loadable when the repository declares the Vite plugin that compiles it. Absent:
+   * none, so a component edit cannot be proven by a test (UNPROVEN in place, never a red it cannot get).
+   */
+  components?: string[];
+  /**
+   * jest: the moduleNameMapper the harness passes on its command line (jestPathMapper): the config's own
+   * entries plus tsconfig paths/baseUrl the config does not map. Absent: no flag (the config's map stands).
+   */
+  moduleNameMapper?: Record<string, string | string[]>;
 }
 
 /**
@@ -96,6 +118,9 @@ export interface TestRunnerInfo {
  *   express     the 01 stack: route extraction, zod-boundary, rest-conventions, problem+json, contract lock;
  *   nestjs      NestJS + Jest: the repository's own tsc/ESLint/Prettier, nest-route-guard, the Nest route lock;
  *   react-vite  React + Vite: the repository's own tsc and ESLint, the Vite build; no served API to lock;
+ *   web         in place only (a session in any other web repository with a package.json): the generic web
+ *               profile, i.e. the repository's own type check and ESLint on what the run changed and its
+ *               test runner when supported; no stack-specific standards and no API lock (named as such);
  *   unknown     none of these: every stack-specific gate is UNPROVEN (never another stack's rules).
  */
 export type { Stack } from './types.ts';
@@ -121,6 +146,40 @@ const TS_SOURCE_RE = /\.[cm]?tsx?$/;
 const DECL_RE = /\.d\.[cm]?tsx?$/;
 /** The harness's own test file shape; runner globs only add to it inside dedicated test dirs. */
 const TEST_NAME_RE = /\.(test|spec)\.[cm]?tsx?$/;
+/** A web layout's scripts: TypeScript and JavaScript, with or without JSX, ESM or CommonJS. */
+const WEB_SCRIPT_RE = /\.[cm]?[jt]sx?$/;
+/** A web layout's test file shape: TEST_NAME_RE for JavaScript too. */
+const WEB_TEST_NAME_RE = /\.(test|spec)\.[cm]?[jt]sx?$/;
+/** Single-file components: governed logic a test can import, whose own imports the harness does not trace. */
+const COMPONENT_RE = /\.(vue|svelte)$/;
+
+const TS_GLOBS = ['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx'];
+const WEB_SCRIPT_GLOBS = [...TS_GLOBS, '**/*.js', '**/*.mjs', '**/*.cjs', '**/*.jsx'];
+
+/** Whether `layout` is a web layout (codeKinds 'web': an in-place run). */
+export function isWebLayout(layout: TargetLayout = active): boolean {
+  return layout.codeKinds === 'web';
+}
+
+/** Script files the import graph is built over: TypeScript, and in a web layout JavaScript too. */
+export function isScriptPath(rel: string, layout: TargetLayout = active): boolean {
+  return (isWebLayout(layout) ? WEB_SCRIPT_RE : TS_SOURCE_RE).test(rel) && !DECL_RE.test(rel);
+}
+
+/** Code the harness governs: scripts, and in a web layout single-file components too (no declarations). */
+export function isCodePath(rel: string, layout: TargetLayout = active): boolean {
+  return isScriptPath(rel, layout) || (isWebLayout(layout) && COMPONENT_RE.test(rel));
+}
+
+/** Globs of the script files of `layout` (the import graph's nodes). */
+export function scriptGlobs(layout: TargetLayout = active): string[] {
+  return isWebLayout(layout) ? [...WEB_SCRIPT_GLOBS] : [...TS_GLOBS];
+}
+
+/** Globs of every code file of `layout` (scripts, plus components in a web layout). */
+export function codeGlobs(layout: TargetLayout = active): string[] {
+  return isWebLayout(layout) ? [...WEB_SCRIPT_GLOBS, '**/*.vue', '**/*.svelte'] : [...TS_GLOBS];
+}
 /** Directory names that conventionally hold only tests (and their helpers). */
 const TEST_DIR_RE = /^(tests?|__tests__|specs?|e2e|integration|__integration__|__mocks__)$/i;
 /** Tooling config files: never governed source, never "the code a test exercises". */
@@ -225,8 +284,8 @@ export function matchesTestPattern(rel: string, layout: TargetLayout = active): 
  * dedicated test dirs into a test, so a broad include cannot un-govern source.
  */
 export function isTestPath(rel: string, layout: TargetLayout = active): boolean {
-  if (TEST_NAME_RE.test(rel)) return true;
-  return TS_SOURCE_RE.test(rel) && !DECL_RE.test(rel) && underAny(rel, layout.testSupportRoots) && matchesTestPattern(rel, layout);
+  if ((isWebLayout(layout) ? WEB_TEST_NAME_RE : TEST_NAME_RE).test(rel)) return true;
+  return isScriptPath(rel, layout) && underAny(rel, layout.testSupportRoots) && matchesTestPattern(rel, layout);
 }
 
 /** Test support: any other file inside a dedicated test dir (helpers, fixtures). */
@@ -234,10 +293,21 @@ export function isTestSupportPath(rel: string, layout: TargetLayout = active): b
   return underAny(rel, layout.testSupportRoots) && !isTestPath(rel, layout);
 }
 
-/** Governed source a test can exercise: TypeScript under a source root, not a test, test support, declaration or tooling config. */
+/**
+ * Governed source a test can exercise: code (TypeScript; in a web layout JavaScript and components too)
+ * under a source root, not a test, test support, declaration or tooling config.
+ */
 export function isSourcePath(rel: string, layout: TargetLayout = active): boolean {
-  return TS_SOURCE_RE.test(rel) && !DECL_RE.test(rel) && !isToolingConfig(rel) && underAny(rel, layout.sourceRoots)
+  return isCodePath(rel, layout) && !isToolingConfig(rel) && underAny(rel, layout.sourceRoots)
     && !isTestPath(rel, layout) && !isTestSupportPath(rel, layout);
+}
+
+/**
+ * Code the observed-red rule governs: every code file (isCodePath) that is neither a runnable test nor
+ * test support, wherever it lies (a broad scope may allow scripts/x.ts outside the source roots).
+ */
+export function isGovernedCodePath(rel: string, layout: TargetLayout = active): boolean {
+  return isCodePath(rel, layout) && !isTestPath(rel, layout) && !isTestSupportPath(rel, layout);
 }
 
 /** Short label of the source roots for messages, e.g. "src/" or "lib/, scripts/" or "the API root". */
@@ -253,15 +323,17 @@ export function sourceRootsLabel(layout: TargetLayout = active): string {
  */
 export function suggestTestPath(source: string, layout: TargetLayout = active): string {
   const clean = cleanRel(source);
-  const base = posix.basename(clean).replace(/\.[cm]?tsx?$/, '');
+  const base = posix.basename(clean).replace(/\.[cm]?[jt]sx?$|\.(vue|svelte)$/, '');
   const name = base === 'index' ? posix.basename(posix.dirname(clean)) || 'index' : base;
   const dir = posix.dirname(clean);
+  // A web layout's JavaScript source gets a JavaScript test (a .jsx component a .test.jsx); everything else .ts.
+  const ext = isWebLayout(layout) ? (/\.(jsx?)$/.exec(clean)?.[1] ?? 'ts') : 'ts';
   const inDir = (d: string, file: string): string => (d === '.' ? file : `${d}/${file}`);
   const candidates: string[] = [];
-  for (const root of layout.testSupportRoots) candidates.push(inDir(root, `${name}.test.ts`), inDir(root, `${name}.spec.ts`));
-  candidates.push(inDir(dir, `${name}.test.ts`), inDir(dir, `${name}.spec.ts`), inDir(dir, `__tests__/${name}.test.ts`));
-  for (const root of layout.testRoots) candidates.push(inDir(root, `${name}.test.ts`), inDir(root, `${name}.spec.ts`));
-  return candidates.find((c) => matchesTestPattern(c, layout) && isTestPath(c, layout)) ?? `test/${name}.test.ts`;
+  for (const root of layout.testSupportRoots) candidates.push(inDir(root, `${name}.test.${ext}`), inDir(root, `${name}.spec.${ext}`));
+  candidates.push(inDir(dir, `${name}.test.${ext}`), inDir(dir, `${name}.spec.${ext}`), inDir(dir, `__tests__/${name}.test.${ext}`));
+  for (const root of layout.testRoots) candidates.push(inDir(root, `${name}.test.${ext}`), inDir(root, `${name}.spec.${ext}`));
+  return candidates.find((c) => matchesTestPattern(c, layout) && isTestPath(c, layout)) ?? `test/${name}.test.${ext}`;
 }
 
 /**
@@ -624,6 +696,18 @@ interface RunnerConfig {
   regex: string[];
   aliases: Array<{ find: string; replacement: string }>;
   notes: string[];
+  /** Jest only: what jestPathMapper needs to know of the repository's own config. */
+  jest?: JestFacts;
+}
+
+/** What the repository's jest config says about module resolution (readJestConfig). */
+export interface JestFacts {
+  /** jest's rootDir, API-relative ('.' by default). */
+  rootDir: string;
+  /** Its moduleNameMapper: absent, every entry statically known, or not readable (computed, spread, a helper call). */
+  mapper: { state: 'absent' } | { state: 'static'; entries: Record<string, string | string[]> } | { state: 'unknown' };
+  /** modulePaths or moduleDirectories is set (or cannot be read): bare imports may already resolve through them. */
+  resolvesBare: boolean;
 }
 
 const VITEST_DEFAULT_INCLUDE = ['**/*.{test,spec}.?(c|m)[jt]s?(x)'];
@@ -691,22 +775,47 @@ function readVitestConfig(apiRoot: string): RunnerConfig {
   return cfg;
 }
 
+/** A jest option exactly as the config states it, or unknown (the config computes it, or may set it from elsewhere). */
+type StaticOption = { known: true; value: unknown } | { known: false };
+
+/** A string or a list of strings exactly as written (the values a moduleNameMapper entry may hold). */
+function staticValue(e: ts.Expression): string | string[] | null {
+  return ts.isStringLiteralLike(e) ? e.text : stringList(e);
+}
+
 /** Jest options as plain data: package.json "jest", jest.config.json, or a static jest.config.* object. */
-function jestOptions(apiRoot: string, pkg: PackageJson | null): { file: string | null; get: (k: string) => unknown } | null {
+function jestOptions(apiRoot: string, pkg: PackageJson | null): { file: string | null; get: (k: string) => unknown; exact: (k: string) => StaticOption } | null {
   if (pkg !== null && isRecord(pkg.raw['jest'])) {
     const o = pkg.raw['jest'];
-    return { file: join(apiRoot, 'package.json'), get: (k) => o[k] };
+    return { file: join(apiRoot, 'package.json'), get: (k) => o[k], exact: (k) => ({ known: true, value: o[k] }) };
   }
   const file = firstExisting(apiRoot, JEST_CONFIGS);
   if (file === null) return null;
   if (file.endsWith('.json')) {
     const o = readJson(file);
-    return isRecord(o) ? { file, get: (k) => o[k] } : { file, get: () => undefined };
+    return isRecord(o) ? { file, get: (k) => o[k], exact: (k) => ({ known: true, value: o[k] }) } : { file, get: () => undefined, exact: () => ({ known: false }) };
   }
   const sf = parseScript(file);
   const obj = sf === null ? null : configObject(sf);
   return {
     file,
+    // A value is exact only when the whole config object is literal (no spread can add the key) and so is the value.
+    exact: (k) => {
+      if (obj === null || obj.properties.some((p) => !ts.isPropertyAssignment(p))) return { known: false };
+      const e = prop(obj, k);
+      if (e === undefined) return { known: true, value: undefined };
+      const v = staticValue(e);
+      if (v !== null) return { known: true, value: v };
+      if (!ts.isObjectLiteralExpression(e)) return { known: false };
+      const out: Record<string, string | string[]> = {};
+      for (const p of e.properties) {
+        const key = ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteralLike(p.name)) ? p.name.text : null;
+        const value = ts.isPropertyAssignment(p) ? staticValue(p.initializer) : null;
+        if (key === null || value === null) return { known: false };
+        out[key] = value;
+      }
+      return { known: true, value: out };
+    },
     get: (k) => {
       const e = obj === null ? undefined : prop(obj, k);
       if (e === undefined) return undefined;
@@ -763,7 +872,87 @@ function readJestConfig(apiRoot: string, pkg: PackageJson | null): RunnerConfig 
       cfg.aliases.push({ find, replacement: withRoot(to.replace(/\/$/, '')) });
     }
   }
+  cfg.jest = jestFacts(opts, rootDir);
   return cfg;
+}
+
+/** The module-resolution facts of a jest config (JestFacts); a rootDir that is not literal makes the mapper unknown. */
+function jestFacts(opts: { exact: (k: string) => StaticOption }, rootDir: string): JestFacts {
+  const root = opts.exact('rootDir');
+  const mapper = opts.exact('moduleNameMapper');
+  const paths = opts.exact('modulePaths');
+  const dirs = opts.exact('moduleDirectories');
+  // node_modules alone is jest's default: only another entry can resolve a baseUrl import.
+  const extraDirs = dirs.known && Array.isArray(dirs.value) && dirs.value.every((d) => d === 'node_modules');
+  const resolvesBare = !paths.known || paths.value !== undefined || !dirs.known || (dirs.value !== undefined && !extraDirs);
+  if (!root.known || (root.value !== undefined && typeof root.value !== 'string')) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  if (!mapper.known) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  if (mapper.value === undefined) return { rootDir, mapper: { state: 'absent' }, resolvesBare };
+  if (!isRecord(mapper.value)) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  const entries: Record<string, string | string[]> = {};
+  for (const [k, v] of Object.entries(mapper.value)) {
+    if (typeof v === 'string' || (Array.isArray(v) && v.every((x) => typeof x === 'string'))) entries[k] = v as string | string[];
+    else return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  }
+  return { rootDir, mapper: { state: 'static', entries }, resolvesBare };
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The moduleNameMapper the harness passes on its jest command line (`--moduleNameMapper=<json>`) so imports
+ * through tsconfig `paths` and `baseUrl` (e.g. `src/modules/users` with baseUrl ".") resolve under jest as
+ * they do under tsc, when the repository's jest config maps none of them itself. The repository's config is
+ * never edited: the flag replaces the config's map, so its own entries are kept verbatim and the derived
+ * ones are added; a map the harness cannot read whole (computed, spread, a helper such as ts-jest's
+ * pathsToModuleNameMapper) is left alone (`note`). Targets are written against jest's own `<rootDir>`, so
+ * the flag works from any copy of the tree. null: nothing to add.
+ */
+export function jestPathMapper(apiRoot: string, resolution: Pick<ResolutionConfig, 'paths' | 'baseUrl'>, facts: JestFacts): { mapper: Record<string, string | string[]>; added: string[] } | { note: string } | null {
+  if (resolution.paths.length === 0 && resolution.baseUrl === null) return null;
+  if (facts.mapper.state === 'unknown') return { note: 'jest: its moduleNameMapper (or rootDir) is not static, so tsconfig paths/baseUrl are not added to it; imports through them may not resolve under jest' };
+  const existing = facts.mapper.state === 'static' ? facts.mapper.entries : {};
+  const keys = (): RegExp[] => [...Object.keys(existing), ...Object.keys(derived)].flatMap((k) => {
+    try {
+      return [new RegExp(k)];
+    } catch {
+      return [];
+    }
+  });
+  const covered = (spec: string): boolean => keys().some((r) => r.test(spec));
+  const fromRoot = (target: string): string => {
+    const rel = posix.relative(facts.rootDir === '.' ? '' : facts.rootDir, target === '.' ? '' : target);
+    return rel === '' ? '<rootDir>' : `<rootDir>/${rel}`;
+  };
+  const derived: Record<string, string | string[]> = {};
+  for (const p of resolution.paths) {
+    const star = p.pattern.indexOf('*');
+    const pre = star < 0 ? p.pattern : p.pattern.slice(0, star);
+    const post = star < 0 ? '' : p.pattern.slice(star + 1);
+    if (covered(star < 0 ? p.pattern : `${pre}x${post}`)) continue;
+    const key = star < 0 ? `^${escapeRe(p.pattern)}$` : `^${escapeRe(pre)}(.*)${escapeRe(post)}$`;
+    const values = p.targets.map((t) => fromRoot(star < 0 ? t : t.replace('*', '$1')));
+    if (values.length > 0) derived[key] = values.length === 1 ? values[0] ?? '' : values;
+  }
+  if (resolution.baseUrl !== null && !facts.resolvesBare) {
+    // baseUrl-relative imports name a top-level directory under baseUrl; never shadow an installed package.
+    const base = join(apiRoot, resolution.baseUrl);
+    let names: string[] = [];
+    try {
+      names = readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    } catch {
+      names = [];
+    }
+    for (const name of names) {
+      if (name === 'node_modules' || name.startsWith('.') || exists(join(apiRoot, 'node_modules', name))) continue;
+      if (covered(`${name}/x`)) continue;
+      derived[`^${escapeRe(name)}/(.*)$`] = fromRoot(posix.join(resolution.baseUrl, name, '$1'));
+    }
+  }
+  const added = Object.keys(derived);
+  return added.length === 0 ? null : { mapper: { ...existing, ...derived }, added };
 }
 
 const VALUE_FLAGS = new Set(['--import', '--require', '-r', '--loader', '--experimental-loader', '--test-reporter', '--test-reporter-destination',
@@ -808,26 +997,68 @@ export function parseNodeTestScript(script: string): { globs: string[]; nodeArgs
 
 const OTHER_RUNNERS = ['mocha', 'ava', 'tap', 'jasmine', 'uvu', 'karma', 'playwright test', 'cypress'];
 
+/**
+ * Runners behind a tool's own command: the tool supplies the configuration (transforms, module mappers,
+ * environments), so the harness running the bare runner would test something else. Named, with why, so the
+ * profile can say which runner it is and that it is unsupported, never fall back to the harness's vitest.
+ */
+const BUN_REASON = "unsupported test runner bun test (bun's own runner and module loader; the harness runs vitest, jest and node:test)";
+const WRAPPED_RUNNERS: Array<{ re: RegExp; name: string; reason: string }> = [
+  { re: /(^|[\s/])bun\s+(run\s+)?test\b/, name: 'bun test', reason: BUN_REASON },
+  { re: /(^|[\s/])(react-scripts|craco|react-app-rewired)\s+test\b/, name: 'react-scripts test', reason: "unsupported test runner react-scripts test (Create React App's jest with its own Babel, CSS and environment configuration, which the harness cannot reproduce)" },
+  { re: /(^|[\s/])ng\s+test\b/, name: 'ng test', reason: "unsupported test runner ng test (the Angular CLI's test builder: Karma/Jasmine or its jest builder with Angular's configuration)" },
+  { re: /(^|[\s/])nx\s+(run\s+\S+:test|test|affected\b.*test)\b/, name: 'nx test', reason: "unsupported test runner nx test (Nx's executor supplies the runner configuration)" },
+  { re: /(^|[\s/])vue-cli-service\s+test/, name: 'vue-cli-service test', reason: "unsupported test runner vue-cli-service test (Vue CLI's test plugin supplies the runner configuration)" },
+  { re: /(^|[\s/])ember\s+test\b/, name: 'ember test', reason: 'unsupported test runner ember test (Ember CLI with QUnit/Testem)' },
+];
+
+/** Dependencies that mean a tool's own runner when no test script or runner config names one. */
+const WRAPPED_DEPENDENCIES: Array<{ dep: string; runner: string }> = [
+  { dep: 'react-scripts', runner: 'react-scripts test' },
+  { dep: '@angular/cli', runner: 'ng test' },
+  { dep: '@angular-devkit/build-angular', runner: 'ng test' },
+  { dep: '@vue/cli-service', runner: 'vue-cli-service test' },
+  { dep: 'bun-types', runner: 'bun test' },
+  { dep: '@types/bun', runner: 'bun test' },
+];
+
 interface RunnerChoice {
   kind: RunnerKind | 'unknown';
   name: string;
   evidence: string;
   /** node:test: load tsx (extensionless relative imports, .tsx) even where node strips types itself. */
   tsxLoader?: boolean;
+  /** kind 'unknown': why the runner is unsupported, when more can be said than its name. */
+  reason?: string;
+}
+
+/** A React + Vite app (react and vite declared): its tests need tsx to load extensionless imports and .tsx. */
+function isReactVite(deps: Record<string, string>): boolean {
+  return deps['react'] !== undefined && deps['vite'] !== undefined;
 }
 
 function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: string[]): RunnerChoice {
   const script = pkg?.scripts['test'] ?? '';
-  if (/\bvitest\b/.test(script)) return { kind: 'vitest', name: 'vitest', evidence: `package.json scripts.test: ${script}` };
-  if (/\bjest\b/.test(script)) return { kind: 'jest', name: 'jest', evidence: `package.json scripts.test: ${script}` };
-  if (parseNodeTestScript(script) !== null) return { kind: 'node-test', name: 'node:test', evidence: `package.json scripts.test: ${script}` };
+  const fromScript = `package.json scripts.test: ${script}`;
+  const deps = pkg?.deps ?? {};
+  // A tool's own test command first: `react-scripts test` runs jest, but with configuration only the tool has.
+  const wrapped = WRAPPED_RUNNERS.find((w) => w.re.test(script));
+  if (wrapped !== undefined) return { kind: 'unknown', name: wrapped.name, evidence: fromScript, reason: wrapped.reason };
+  if (/\bvitest\b/.test(script)) return { kind: 'vitest', name: 'vitest', evidence: fromScript };
+  if (/\bjest\b/.test(script)) return { kind: 'jest', name: 'jest', evidence: fromScript };
+  if (parseNodeTestScript(script) !== null) return { kind: 'node-test', name: 'node:test', evidence: fromScript };
   const other = OTHER_RUNNERS.find((r) => new RegExp(`(^|[\\s/])${r}\\b`).test(script));
-  if (other !== undefined) return { kind: 'unknown', name: other, evidence: `package.json scripts.test: ${script}` };
+  if (other !== undefined) return { kind: 'unknown', name: other, evidence: fromScript };
   const vitestCfg = firstExisting(apiRoot, VITEST_CONFIGS.filter((f) => f.startsWith('vitest')));
   if (vitestCfg !== null) return { kind: 'vitest', name: 'vitest', evidence: posix.basename(vitestCfg) };
   const jestCfg = firstExisting(apiRoot, JEST_CONFIGS);
   if (jestCfg !== null || (pkg !== null && isRecord(pkg.raw['jest']))) return { kind: 'jest', name: 'jest', evidence: jestCfg !== null ? posix.basename(jestCfg) : 'package.json "jest"' };
-  const deps = pkg?.deps ?? {};
+  // A tool that brings its own runner, declared without a test script or runner of its own naming another.
+  const wrappedDep = WRAPPED_DEPENDENCIES.find((w) => deps[w.dep] !== undefined);
+  if (wrappedDep !== undefined && deps['vitest'] === undefined && deps['jest'] === undefined) {
+    const w = WRAPPED_RUNNERS.find((x) => x.name === wrappedDep.runner);
+    return { kind: 'unknown', name: wrappedDep.runner, evidence: `${wrappedDep.dep} dependency`, ...(w !== undefined ? { reason: w.reason } : {}) };
+  }
   if (deps['vitest'] !== undefined) return { kind: 'vitest', name: 'vitest', evidence: 'vitest dependency' };
   if (deps['jest'] !== undefined || deps['ts-jest'] !== undefined) return { kind: 'jest', name: 'jest', evidence: 'jest dependency' };
   const otherDep = OTHER_RUNNERS.find((r) => deps[r] !== undefined);
@@ -841,16 +1072,19 @@ function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: strin
     } catch {
       continue;
     }
+    if (/from\s+['"]bun:test['"]/.test(text)) return { kind: 'unknown', name: 'bun test', evidence: `${f} imports bun:test`, reason: BUN_REASON };
     if (/from\s+['"]vitest['"]/.test(text)) seen.vitest += 1;
     else if (/from\s+['"]node:test['"]|require\(['"]node:test['"]\)/.test(text)) seen.node += 1;
     else if (/from\s+['"]@jest\/globals['"]|\bjest\.(fn|mock|spyOn)\(/.test(text)) seen.jest += 1;
   }
-  if (seen.node > seen.vitest && seen.node >= seen.jest) return { kind: 'node-test', name: 'node:test', evidence: 'test files import node:test' };
+  // A React + Vite tree keeps tsx: re-detection (ship reopens a run) sees the node:test files the agent wrote there,
+  // which import extensionless paths exactly as when the run started without a runner.
+  if (seen.node > seen.vitest && seen.node >= seen.jest) return { kind: 'node-test', name: 'node:test', evidence: 'test files import node:test', ...(isReactVite(deps) ? { tsxLoader: true } : {}) };
   if (seen.jest > seen.vitest) return { kind: 'jest', name: 'jest', evidence: 'test files use jest APIs' };
   // A React + Vite app with no runner at all: node:test, Node's own runner. Adding a runner would change
   // package.json and the lockfile (which no run may write), and the harness's vitest would load the app's
   // vite.config (which the sandbox refuses to let it bundle into node_modules); `node --test` needs neither.
-  if (seen.vitest === 0 && deps['react'] !== undefined && deps['vite'] !== undefined) {
+  if (seen.vitest === 0 && isReactVite(deps)) {
     // With tsx as the loader: Vite apps import extensionless relative paths, which Node's own type stripping cannot resolve.
     return { kind: 'node-test', name: 'node:test', evidence: "no runner declared: a React + Vite app gets node:test with tsx (no dependency to add, no Vite config to load; run with npx tsx --test)", tsxLoader: true };
   }
@@ -860,7 +1094,7 @@ function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: strin
 function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | null, ctx: { repoRoot?: string; harnessRoot: string }, testFiles: string[]): TestRunnerInfo {
   const declared = pkg?.deps ?? {};
   if (choice.kind === 'unknown') {
-    return { kind: 'unknown', name: choice.name, supported: false, reason: `unsupported test runner ${choice.name} (supported: vitest, jest, node:test)`, evidence: choice.evidence };
+    return { kind: 'unknown', name: choice.name, supported: false, reason: choice.reason ?? `unsupported test runner ${choice.name} (supported: vitest, jest, node:test)`, evidence: choice.evidence };
   }
   if (choice.kind === 'node-test') {
     const parsed = parseNodeTestScript(pkg?.scripts['test'] ?? '');
@@ -874,6 +1108,10 @@ function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | nu
       }
       nodeArgs.push(`--import=${pathToFileHref(loader)}`);
     }
+    // A Vite app's modules read import.meta.env, which only Vite (and Vitest) define: under node:test they would
+    // crash at import. The harness defines it for modules under the API root, as Vite does (import-meta-env.mjs);
+    // after the TypeScript loader, so its hook sees the JavaScript the loader produced.
+    if (declared['vite'] !== undefined) nodeArgs.push(`--import=${pathToFileHref(IMPORT_META_ENV)}`);
     return {
       kind: 'node-test', name: `node:test (node ${process.versions.node})`, supported: true, version: process.versions.node,
       evidence: choice.evidence, nodeArgs, patterns: parsed?.globs ?? [],
@@ -895,13 +1133,26 @@ function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | nu
     }
     return { kind: 'jest', name: `jest ${resolved.version ?? '?'}`, supported: true, bin, version: resolved.version, origin: resolved.origin, evidence: choice.evidence };
   }
+  const components = componentKinds(declared);
+  const withComponents = components.length > 0 ? { components } : {};
   if (bin !== null) {
-    return { kind: 'vitest', name: `vitest ${resolved.version ?? '?'}`, supported: true, bin, version: resolved.version, origin: resolved.origin, evidence: choice.evidence };
+    return { kind: 'vitest', name: `vitest ${resolved.version ?? '?'}`, supported: true, bin, version: resolved.version, origin: resolved.origin, evidence: choice.evidence, ...withComponents };
   }
   const own = resolvePackage('vitest', ctx.harnessRoot, { harnessRoot: ctx.harnessRoot });
   const ownBin = packageBin(own, 'vitest');
   if (ownBin === null) return { kind: 'vitest', name: 'vitest (missing)', supported: false, reason: 'vitest is installed neither in the target nor in the harness', evidence: choice.evidence };
-  return { kind: 'vitest', name: `vitest ${own.version ?? '?'}`, supported: true, bin: ownBin, version: own.version, origin: 'harness', evidence: choice.evidence };
+  return { kind: 'vitest', name: `vitest ${own.version ?? '?'}`, supported: true, bin: ownBin, version: own.version, origin: 'harness', evidence: choice.evidence, ...withComponents };
+}
+
+/** Vite plugins that compile single-file components, by the component extension they make importable. */
+const COMPONENT_PLUGINS: Record<string, string[]> = {
+  '.vue': ['@vitejs/plugin-vue', '@vitejs/plugin-vue2', '@nuxt/test-utils'],
+  '.svelte': ['@sveltejs/vite-plugin-svelte', '@sveltejs/kit'],
+};
+
+/** Component kinds vitest can import in a repository that declares `deps` (through its Vite config's plugins). */
+function componentKinds(deps: Record<string, string>): string[] {
+  return Object.entries(COMPONENT_PLUGINS).filter(([, plugins]) => plugins.some((p) => deps[p] !== undefined)).map(([ext]) => ext);
 }
 
 function pathToFileHref(p: string): string {
@@ -1014,16 +1265,20 @@ export interface LayoutResult {
  * Work out where the API keeps its source and tests (see the module comment). Deterministic and
  * static: config modules are parsed, never executed.
  */
-export async function analyzeLayout(apiRoot: string): Promise<LayoutResult> {
+export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {}): Promise<LayoutResult> {
   const root = resolve(apiRoot);
   const notes: string[] = [];
   const pkg = readPackageJson(root);
   const tsInfo = readTsconfig(root);
   if (tsInfo !== null) notes.push(...tsInfo.errors.map((e) => `tsconfig: ${e}`));
+  // A web layout (an in-place run in any web repository) learns from JavaScript files too: a JavaScript
+  // repository's test dirs and test files are where its .js tests are. File mode: TypeScript, as in 01.
+  const web = opts.web === true;
   const all = existsSync(root)
-    ? (await glob(['**/*.{ts,mts,cts,tsx,js,mjs,cjs}'], { cwd: root, ignore: IGNORE_DIRS, dot: false, followSymbolicLinks: false }).catch(() => [])).map(toPosix).sort()
+    ? (await glob([web ? '**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}' : '**/*.{ts,mts,cts,tsx,js,mjs,cjs}'], { cwd: root, ignore: IGNORE_DIRS, dot: false, followSymbolicLinks: false }).catch(() => [])).map(toPosix).sort()
     : [];
-  const tsFiles = all.filter((f) => TS_SOURCE_RE.test(f) && !DECL_RE.test(f));
+  const tsFiles = all.filter((f) => (web ? WEB_SCRIPT_RE : TS_SOURCE_RE).test(f) && !DECL_RE.test(f));
+  const testName = web ? WEB_TEST_NAME_RE : TEST_NAME_RE;
 
   // Resolution: tsconfig paths/baseUrl, then the runner config's aliases.
   const resolution = emptyResolution();
@@ -1050,7 +1305,7 @@ export async function analyzeLayout(apiRoot: string): Promise<LayoutResult> {
     }
   }
 
-  const testFilesByName = tsFiles.filter((f) => TEST_NAME_RE.test(f));
+  const testFilesByName = tsFiles.filter((f) => testName.test(f));
   const runner = chooseRunner(root, pkg, testFilesByName);
   let runnerConfig: RunnerConfig;
   let globs: string[];
@@ -1079,7 +1334,7 @@ export async function analyzeLayout(apiRoot: string): Promise<LayoutResult> {
       return [];
     }
   });
-  const testMatch = (rel: string): boolean => TEST_NAME_RE.test(rel) || globMatch(rel) || regexes.some((r) => r.test(`/${rel}`));
+  const testMatch = (rel: string): boolean => testName.test(rel) || globMatch(rel) || regexes.some((r) => r.test(`/${rel}`));
   const testFiles = tsFiles.filter(testMatch);
 
   // Candidate test dirs: the static base of each glob, plus the outermost conventionally named dir of each test file.
@@ -1155,6 +1410,7 @@ export async function analyzeLayout(apiRoot: string): Promise<LayoutResult> {
     testGlobs: globs,
     testRegex: regex,
     resolution,
+    ...(web ? { codeKinds: 'web' as const } : {}),
   };
   return { layout, runner, runnerConfig, entries, pkg, tsInfo, testFiles, bareImports: [...bareImports].sort(), notes };
 }
@@ -1167,6 +1423,13 @@ export async function targetLayout(apiRoot: string): Promise<TargetLayout> {
 // ───────────────────────────── profile ─────────────────────────────
 
 const FRAMEWORKS = ['express', 'fastify', '@nestjs/core', 'hono', 'koa', '@hapi/hapi', 'restify', 'polka', 'elysia', 'h3'];
+/** Frontend and meta frameworks the generic web profile names (most specific first). */
+const WEB_FRAMEWORKS = ['next', 'nuxt', '@sveltejs/kit', 'astro', '@remix-run/react', '@angular/core', 'vue', 'svelte', 'solid-js', 'preact', 'lit', 'react'];
+
+/** The framework a generic web repository is built on, for the profile line: a frontend first, then a server, else "none". */
+function webFramework(deps: Record<string, string>, server: string): string {
+  return WEB_FRAMEWORKS.find((f) => deps[f] !== undefined) ?? (server !== 'unknown' ? server : 'none');
+}
 /** Dependencies whose resolution run.json records. */
 export const TRACKED_DEPENDENCIES = ['express', 'zod', 'vitest', 'typescript', 'tsx', 'supertest'];
 
@@ -1174,9 +1437,9 @@ export const TRACKED_DEPENDENCIES = ['express', 'zod', 'vitest', 'typescript', '
  * Compute the profile of the API at `apiRoot`. `repoRoot` is the checkout the API lives in (the
  * worktree top), which decides whether a package resolves from the target or the harness.
  */
-export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: string; harnessRoot: string }): Promise<TargetProfile> {
+export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: string; harnessRoot: string; inPlace?: boolean }): Promise<TargetProfile> {
   const apiRoot = resolve(opts.apiRoot);
-  const analysis = await analyzeLayout(apiRoot);
+  const analysis = await analyzeLayout(apiRoot, { web: opts.inPlace === true });
   const { layout, pkg } = analysis;
   const notes = [...analysis.notes];
   const unsupported: string[] = [];
@@ -1196,18 +1459,24 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   const pick = (list: string[]): string | undefined => (list.includes('express') ? 'express' : list[0]);
   const declaredFwName = pick(declaredFw) ?? pick(importedFw) ?? 'unknown';
   const deps = pkg?.deps ?? {};
-  const stack: Stack = deps['@nestjs/core'] !== undefined
+  const known: Stack = deps['@nestjs/core'] !== undefined
     ? 'nestjs'
     : declaredFwName === 'express'
       ? 'express'
       : deps['react'] !== undefined && deps['vite'] !== undefined
         ? 'react-vite'
         : 'unknown';
-  const fwName = stack === 'nestjs' ? '@nestjs/core' : stack === 'react-vite' ? 'react' : declaredFwName;
-  const fwPkg = fwName === 'unknown' ? null : resolvePackage(fwName, apiRoot, ctx);
+  // In place (a session) any other repository with a package.json gets the generic web profile instead of
+  // an UNPROVEN run; file mode keeps 'unknown' (its 01 policy never loosens).
+  const stack: Stack = known === 'unknown' && opts.inPlace === true && pkg !== null ? 'web' : known;
+  const fwName = stack === 'nestjs' ? '@nestjs/core' : stack === 'react-vite' ? 'react' : stack === 'web' ? webFramework(deps, declaredFwName) : declaredFwName;
+  const fwPkg = fwName === 'unknown' || fwName === 'none' ? null : resolvePackage(fwName, apiRoot, ctx);
   const framework = { name: fwName, version: fwPkg?.version ?? null, supported: stack !== 'unknown' };
   if (!framework.supported) {
     unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: no stack profile (express, nestjs, react-vite) applies, so route extraction, the standards and the contract lock report UNPROVEN`);
+  } else if (stack === 'web') {
+    notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, both blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
+    if (FRAMEWORKS.includes(fwName)) notes.push(`framework ${fwName} serves an API the harness extracts no routes from: contract changes are not locked; a human verifies them`);
   } else if (stack === 'nestjs') {
     notes.push("stack nestjs: standards are the repository's own (tsc with its tsconfig, its ESLint and Prettier on changed files) plus nest-route-guard; the Nest route lock compares controller routes (method and path), not DTO shapes");
   } else if (stack === 'react-vite') {
@@ -1216,6 +1485,15 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
 
   const runner = runnerInfo(analysis.runner, apiRoot, pkg, ctx, analysis.testFiles);
   if (!runner.supported) unsupported.push(`${runner.reason ?? `unsupported test runner ${runner.name}`}: tests-green and observed red are UNPROVEN`);
+  const jestFactsOf = analysis.runnerConfig.jest;
+  if (runner.kind === 'jest' && runner.supported && jestFactsOf !== undefined) {
+    const mapped = jestPathMapper(apiRoot, layout.resolution, jestFactsOf);
+    if (mapped !== null && 'note' in mapped) notes.push(mapped.note);
+    else if (mapped !== null) {
+      runner.moduleNameMapper = mapped.mapper;
+      notes.push(`jest: tsconfig paths/baseUrl the jest config does not map are passed as --moduleNameMapper (${mapped.added.join(', ')}); the repository's config is not edited`);
+    }
+  }
 
   const zodPkg = dependencies['zod'] ?? resolvePackage('zod', apiRoot, ctx);
   const zodMajor = major(zodPkg.version);
@@ -1235,6 +1513,17 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
     notes,
     unsupported,
   };
+}
+
+/**
+ * The profile an in-place run (a session in the owner's checkout, any web repository) works with: the
+ * computed profile with a web layout (codeKinds 'web': JavaScript and .vue/.svelte components are code
+ * the harness traces and governs, see TargetLayout). File mode never calls it. Idempotent. A profile
+ * computed with `inPlace: true` also learned its test dirs from JavaScript tests; one computed without
+ * keeps its TypeScript-only test dirs (a JavaScript helper there then needs a red: fail closed).
+ */
+export function inPlaceProfile(p: TargetProfile): TargetProfile {
+  return p.codeKinds === 'web' ? p : { ...p, codeKinds: 'web' };
 }
 
 /** The 4-6 line preflight summary printed before the first model turn. */
@@ -1260,7 +1549,7 @@ export function profileRecord(p: TargetProfile): Record<string, unknown> {
   return {
     stack: p.stack,
     framework: p.framework,
-    runner: { kind: p.runner.kind, name: p.runner.name, supported: p.runner.supported, origin: p.runner.origin ?? null, bin: p.runner.bin ?? null, evidence: p.runner.evidence, ...(p.runner.reason !== undefined ? { reason: p.runner.reason } : {}) },
+    runner: { kind: p.runner.kind, name: p.runner.name, supported: p.runner.supported, origin: p.runner.origin ?? null, bin: p.runner.bin ?? null, evidence: p.runner.evidence, ...(p.runner.reason !== undefined ? { reason: p.runner.reason } : {}), ...(p.runner.moduleNameMapper !== undefined ? { moduleNameMapper: p.runner.moduleNameMapper } : {}) },
     sourceRoots: p.sourceRoots,
     testRoots: p.testRoots,
     testSupportRoots: p.testSupportRoots,
@@ -1268,6 +1557,7 @@ export function profileRecord(p: TargetProfile): Record<string, unknown> {
     testRegex: p.testRegex,
     resolution: { tsconfig: p.resolution.tsconfig, baseUrl: p.resolution.baseUrl, paths: p.resolution.paths, aliases: p.resolution.aliases },
     entryCandidates: p.entryCandidates,
+    ...(p.codeKinds === 'web' ? { codeKinds: 'web' } : {}),
     dependencies: Object.fromEntries(Object.entries(p.dependencies).map(([k, d]) => [k, { version: d.version, origin: d.origin, declared: d.declared }])),
     zod: p.zod,
     notes: p.notes,

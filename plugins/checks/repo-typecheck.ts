@@ -55,9 +55,29 @@ export function projectsOf(root: string): { projects: Project[]; problem?: strin
   return { projects: [project(top, parsed)] };
 }
 
-async function run(ctx: CheckContext): Promise<CheckFinding[]> {
-  const skip = (why: string): CheckFinding[] => [{ rule: RULE, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: why }];
-  const tsc = join(ctx.root, 'node_modules', 'typescript', 'bin', 'tsc');
+/** How a repository type check runs (repo-typecheck for nestjs/react-vite; web-typecheck for the generic web profile). */
+export interface TypecheckOptions {
+  /** Rule id the findings carry. */
+  rule: string;
+  /**
+   * Run the checker confined (no network, writes only to a temp dir): an in-place run's repository is any
+   * repository, and the checker loads what its tsconfig names. Off for repo-typecheck (file mode, unchanged).
+   */
+  confined: boolean;
+  /** Use the repository's vue-tsc when it has one (it type-checks .vue files; plain tsc cannot import them). */
+  vueTsc: boolean;
+  /** A repository with no tsconfig.json and no TypeScript has no type check: nothing to check (no findings), not UNPROVEN. */
+  naWithoutTypeScript: boolean;
+}
+
+/** The repository's own type check as findings (see the module comment). */
+export async function repoTypecheck(ctx: CheckContext, o: TypecheckOptions): Promise<CheckFinding[]> {
+  const rule = o.rule;
+  const skip = (why: string): CheckFinding[] => [{ rule, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: why }];
+  const vue = join(ctx.root, 'node_modules', 'vue-tsc', 'bin', 'vue-tsc.js');
+  const tsc = o.vueTsc && existsSync(vue) ? vue : join(ctx.root, 'node_modules', 'typescript', 'bin', 'tsc');
+  const label = tsc === vue ? 'vue-tsc' : 'tsc';
+  if (o.naWithoutTypeScript && !existsSync(join(ctx.root, 'tsconfig.json')) && !existsSync(tsc)) return [];
   if (!existsSync(tsc)) return skip('the repository has no TypeScript of its own (node_modules/typescript): its type check cannot be run');
   const { projects, problem } = projectsOf(ctx.root);
   if (problem !== undefined) return skip(problem);
@@ -69,9 +89,10 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
     for (const p of projects) {
       const args = [tsc, '--noEmit', '--pretty', 'false', '-p', p.config];
       if (p.incremental) args.push('--tsBuildInfoFile', join(tmp, `${basename(p.config)}.tsbuildinfo`));
-      const r = await ctx.exec(process.execPath, args, { cwd: ctx.root, timeoutMs: 900_000 });
-      log.push(`$ tsc ${args.slice(1).join(' ')}  (exit ${String(r.code)})`, r.stdout.trim());
-      if (r.timedOut) return skip(`tsc timed out on ${relative(ctx.root, p.config)}`);
+      const confined = o.confined ? { env: { TMPDIR: tmp }, sandbox: { writable: [tmp], network: 'none' as const } } : {};
+      const r = await ctx.exec(process.execPath, args, { cwd: ctx.root, timeoutMs: 900_000, ...confined });
+      log.push(`$ ${label} ${args.slice(1).join(' ')}  (exit ${String(r.code)})`, r.stdout.trim());
+      if (r.timedOut) return skip(`${label} timed out on ${relative(ctx.root, p.config)}`);
       let parsedAny = false;
       for (const line of r.stdout.split('\n')) {
         const m = DIAG.exec(line.trim());
@@ -86,16 +107,16 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
       }
       if (r.code !== 0 && !parsedAny) {
         const first = (r.stdout || r.stderr).trim().split('\n').slice(0, 3).join(' | ');
-        return skip(`tsc exited ${String(r.code)} on ${relative(ctx.root, p.config)} without diagnostics it could read: ${first}`);
+        return skip(`${label} exited ${String(r.code)} on ${relative(ctx.root, p.config)} without diagnostics it could read: ${first}`);
       }
     }
   } finally {
     rmSync(tmp, { recursive: true, force: true });
-    await ctx.logs.write('repo-typecheck.txt', log.join('\n'));
+    await ctx.logs.write(`${rule}.txt`, log.join('\n'));
   }
-  const findings: CheckFinding[] = [...byFile.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([file, violations]) => ({ rule: RULE, file, status: 'fail', units: { passed: 0, total: violations.length }, violations }));
+  const findings: CheckFinding[] = [...byFile.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([file, violations]) => ({ rule, file, status: 'fail', units: { passed: 0, total: violations.length }, violations }));
   const errors = findings.reduce((n, f) => n + f.violations.length, 0) + project.length;
-  findings.push({ rule: RULE, file: PROJECT, status: errors === 0 ? 'pass' : 'fail', units: errors === 0 ? { passed: 1, total: 1 } : { passed: 0, total: project.length }, violations: project });
+  findings.push({ rule, file: PROJECT, status: errors === 0 ? 'pass' : 'fail', units: errors === 0 ? { passed: 1, total: 1 } : { passed: 0, total: project.length }, violations: project });
   return findings;
 }
 
@@ -106,5 +127,5 @@ export default defineCheck({
   description: "The repository's own type check passes: its TypeScript, its tsconfig, every referenced project.",
   unit: 'errors',
   doc: DOC,
-  run,
+  run: (ctx) => repoTypecheck(ctx, { rule: RULE, confined: false, vueTsc: false, naWithoutTypeScript: false }),
 });

@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import testsGreen from '../../plugins/gates/tests-green.ts';
 import { exec } from '../../src/core/exec.ts';
+import { computeTargetProfile } from '../../src/core/target.ts';
 import { measureTestBaseline } from '../../src/core/test-baseline.ts';
 import { runVitest } from '../../src/core/testing.ts';
 import type { LogStore, TestBaseline } from '../../src/core/types.ts';
@@ -84,4 +85,39 @@ describe('the run-start baseline (real vitest)', () => {
     h.ctx.state.testBaseline = undefined;
     expect((await testsGreen.run(h.ctx, 'finish')).summary).toBe('4 of 6 tests skipped or todo (remove .skip/.todo/.only; a skipped test proves nothing)');
   }, 120_000);
+});
+
+describe("the baseline runs the target's own runner (the profile's), not always the harness's vitest", () => {
+  const NODE_TEST = "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('adds', () => {\n  assert.equal(1 + 1, 2);\n});\ntest.skip('later', () => {});\n";
+
+  it('a node:test suite: measured with node:test (its cases and skips are the baseline)', async () => {
+    const n = await makeHarness({
+      label: 'baseline-node-test',
+      task: brownfieldTask(),
+      files: { 'package.json': JSON.stringify({ name: 'nt', type: 'module', private: true, scripts: { test: 'node --test test/' } }), 'test/a.test.mjs': NODE_TEST },
+    });
+    try {
+      const p = await computeTargetProfile({ apiRoot: n.ws.root, repoRoot: n.ws.root, harnessRoot: HARNESS_ROOT });
+      expect(p.runner.kind).toBe('node-test');
+      const b = await measureTestBaseline({ root: n.ws.root, exec, harnessRoot: HARNESS_ROOT, logs, runner: p.runner, layout: p });
+      expect(b.error).toBeUndefined();
+      expect(b.files).toEqual(['test/a.test.mjs']);
+      expect(b.totals).toMatchObject({ tests: 2, passed: 1 });
+      expect(b.skipped).toEqual([{ file: 'test/a.test.mjs', name: 'later', status: 'skip' }]);
+    } finally {
+      await removeTmp(n.dir);
+    }
+  }, 120_000);
+
+  it('an unsupported runner runs nothing: the baseline says why, and no runner was started', async () => {
+    const calls: string[] = [];
+    const spy: typeof exec = (cmd, args, opts) => {
+      calls.push(cmd);
+      return exec(cmd, args, opts);
+    };
+    const runner = { kind: 'unknown' as const, name: 'bun test', supported: false, reason: 'unsupported test runner bun test', evidence: 'test' };
+    const b = await measureTestBaseline({ root: h.ws.root, exec: spy, harnessRoot: HARNESS_ROOT, logs, runner });
+    expect(calls).toEqual([]);
+    expect(b.error).toMatch(/not run \(UNPROVEN\): unsupported test runner bun test/);
+  });
 });

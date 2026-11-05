@@ -7,7 +7,7 @@
  */
 import type { z } from 'zod';
 import type ts from 'typescript';
-import type { TargetLayout } from './target.ts';
+import type { TargetLayout, TestRunnerInfo } from './target.ts';
 
 // ───────────────────────────── Conversation model ─────────────────────────────
 // A provider-neutral transcript. Drivers translate to and from their wire format.
@@ -345,6 +345,9 @@ export interface Workspace {
   hidden?(rel: string): Promise<string | null>;
 }
 
+/** What a run knows of the target's test runner (TargetProfile.runner, target.ts TestRunnerInfo). */
+export type RunnerSummary = Pick<TestRunnerInfo, 'kind' | 'name' | 'supported' | 'reason' | 'components'>;
+
 /**
  * A run that works directly in the owner's checkout (an interactive session) instead of a worktree
  * of its own: the checkout and the branch HEAD was on when it started. The branch-guard hook re-checks
@@ -498,6 +501,11 @@ export interface SandboxPolicy {
   writable: string[];
   /** 'none' = no network at all; 'localhost' = loopback only (supertest, runtime probes). */
   network: 'none' | 'localhost';
+  /**
+   * Values the harness itself sets in the child's environment (sandbox.ts confinedEnv), never copied from
+   * the caller's env; PATH, HOME, TMPDIR and XDG_* stay the harness's. E.g. BROWSERSLIST for a build.
+   */
+  env?: Readonly<Record<string, string>>;
 }
 
 /** Which confinement actually wrapped an execution (recorded in run evidence). */
@@ -700,6 +708,11 @@ export interface RunContext {
   stack?: Stack;
   /** Set when the run writes in the owner's checkout (see InPlaceRun); absent for a worktree run. */
   inPlace?: InPlaceRun;
+  /**
+   * The target's test runner from preflight (absent: not computed). In place it decides a file's proof tier:
+   * logic needs an observed red only where a supported runner can run a test for it (plugins/lib/proof.ts).
+   */
+  runner?: RunnerSummary;
   workspace: Workspace;
   state: RunState;
   logs: LogStore;
@@ -924,7 +937,7 @@ export interface CheckContext {
  * The target's stack (src/core/target.ts computes it from package.json): which checks and gates
  * apply. A plugin that declares `stacks` runs only on those; one that declares none runs on all.
  */
-export type Stack = 'express' | 'nestjs' | 'react-vite' | 'unknown';
+export type Stack = 'express' | 'nestjs' | 'react-vite' | 'web' | 'unknown';
 
 export interface CheckPlugin {
   kind: 'check';

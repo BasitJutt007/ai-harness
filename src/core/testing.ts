@@ -31,7 +31,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { glob } from 'tinyglobby';
 import { safeEnv } from './exec.ts';
-import { activeLayout, isSourcePath, sourceRootsLabel, versionAtLeast } from './target.ts';
+import { activeLayout, isSourcePath, isWebLayout, scriptGlobs, sourceRootsLabel, versionAtLeast } from './target.ts';
 import type { TargetLayout, TestRunnerInfo } from './target.ts';
 import { graphFiles, importGraph, reachesSource, locatedRed, resolveImport, staticTestCases } from './testmap.ts';
 import type { ImportGraph, StaticTestCase } from './testmap.ts';
@@ -104,8 +104,10 @@ function invocation(runner: TestRunnerInfo | undefined, root: string, files: str
   if (kind === 'jest' && runner?.bin !== undefined) {
     // --runTestsByPath: the entries are paths, not regexes; jest's cache stays in the per-run temp dir.
     // A worker memory limit makes jest (29+) never run tests in band, i.e. never inside the process that holds fd 3.
+    // tsconfig paths/baseUrl the jest config does not map (TestRunnerInfo.moduleNameMapper), as one JSON flag.
+    const mapper = runner.moduleNameMapper !== undefined ? [`--moduleNameMapper=${JSON.stringify(runner.moduleNameMapper)}`] : [];
     const args = [runner.bin, '--ci', '--json', `--outputFile=${REPORT_CHANNEL}`, '--testLocationInResults', '--watchman=false',
-      '--maxWorkers=2', '--workerIdleMemoryLimit=4GB', `--cacheDirectory=${join(tmpDir, 'jest-cache')}`, ...filter,
+      '--maxWorkers=2', '--workerIdleMemoryLimit=4GB', `--cacheDirectory=${join(tmpDir, 'jest-cache')}`, ...mapper, ...filter,
       ...(files.length > 0 ? ['--runTestsByPath', ...files] : [])];
     return { cmd: process.execPath, args, label: 'jest' };
   }
@@ -428,9 +430,9 @@ export function reportSuccess(json: string): boolean | undefined {
   }
 }
 
-/** Import graph of the API root's TypeScript files as they are on disk after the run (for "does this import reach source?"). */
+/** Import graph of the API root's scripts (TypeScript; JavaScript too in a web layout) as they are on disk after the run (for "does this import reach source?"). */
 async function sourceGraph(root: string, layout: TargetLayout): Promise<ImportGraph> {
-  const listed = await glob(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx'], { cwd: root, ignore: ['**/node_modules/**', '**/.git/**'] }).catch(() => []);
+  const listed = await glob(scriptGlobs(layout), { cwd: root, ignore: ['**/node_modules/**', '**/.git/**'] }).catch(() => []);
   return importGraph(graphFiles(listed), (f) => readFile(join(root, f), 'utf8').catch(() => null), layout);
 }
 
@@ -586,11 +588,18 @@ export function missingSourceModule(root: string, message: string, layout: Targe
       rel = aliased;
     }
     if (rel.startsWith('../') || isAbsolute(rel)) return null;
+    // A web layout's JavaScript importer names a JavaScript module (`./x` or `./x.js` is x.js); TypeScript's
+    // convention otherwise (`./x.js` is x.ts).
+    const web = isWebLayout(layout);
+    const jsImporter = web && /\.[cm]?jsx?$/.test(importer);
     const asTs = rel.replace(/\.(m|c)?js$/, '.$1ts');
-    const file = /\.[cm]?tsx?$/.test(asTs) ? asTs : `${asTs}.ts`;
+    const file = jsImporter
+      ? (/\.[cm]?[jt]sx?$/.test(rel) ? rel : `${rel}.js`)
+      : /\.[cm]?tsx?$/.test(asTs) ? asTs : `${asTs}.ts`;
     if (!isSourcePath(file, layout)) return null;
     const abs = resolve(root, rel);
     const candidates = [abs, abs.replace(/\.(m|c)?js$/, '.$1ts'), `${abs}.ts`, join(abs, 'index.ts')];
+    if (web) candidates.push(`${abs}.tsx`, `${abs}.js`, `${abs}.jsx`, `${abs}.mjs`, `${abs}.cjs`, join(abs, 'index.tsx'), join(abs, 'index.js'), join(abs, 'index.jsx'));
     if (candidates.some((c) => existsSync(c))) return null;
     return file;
   }
