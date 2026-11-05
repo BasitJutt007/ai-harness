@@ -5,12 +5,14 @@
  *   - a run whose own entry is DONE (executeRun writes it before calling ship) gets no second one;
  *   - a run whose entry is NOT DONE (it stopped part-way) gets a DONE entry from the ship, once every ship gate
  *     re-ran fresh and green with agent code confined and a supported target profile;
- *   - a ledger that cannot record that run, a contract text no longer approved, a closed item, an UNPROVEN target profile, or
- *     agent code that would run unconfined ships nothing: refused before anything is staged.
+ *   - that DONE entry is written right before the commit, after every check that can still refuse (drift, the
+ *     secret scan, nothing to commit), so a ship that refuses never leaves a DONE behind;
+ *   - a ledger that cannot record that run, a contract text no longer approved, a closed item, an UNPROVEN target
+ *     profile, or agent code that would run unconfined ships nothing.
  * Every refusal has its twin that ships. gh is faked; git and the remote are real (a local bare repository).
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
@@ -170,24 +172,74 @@ describe('ship: the ledger it writes', () => {
   });
 });
 
-describe('ship refuses, before anything is staged, what close could never accept', () => {
-  it('a ledger that cannot record the DONE run: refused, nothing committed or pushed; the writable twin ships', async () => {
-    const s = await setup();
+describe('a ship that refuses leaves no DONE run behind (it is recorded right before the commit)', () => {
+  it('the secret scan refuses: the stopped run stays NOT DONE, nothing staged or committed; with the key gone it ships', async () => {
+    const s = await setup(`export const v = 2;\nexport const key = '${AWS_KEY}';\n`);
+    runEntry(s.ledger, 'NOT DONE (loop ended aborted)');
     const before = events(s.ledger);
-    chmodSync(s.ledger, 0o444);
-    let r: ShipResult;
-    try {
-      r = await shipOnce(shipCtx(s));
-    } finally {
-      chmodSync(s.ledger, 0o644);
-    }
+    const r = await shipOnce(shipCtx(s));
     expect(r.status).toBe('refused');
-    expect(r.reasons.join('\n')).toMatch(/the item ledger could not record the DONE run this ship stands on, so nothing was staged: .*EACCES/);
+    expect(r.reasons.join('\n')).toMatch(/possible secrets in the staged diff \(unstaged again\)/);
+    expect(events(s.ledger)).toEqual(before);
+    await nothingShipped(s);
+    // the twin: the same stopped run, the key removed
+    writeFiles(s.repo, { 'api/src/app.ts': 'export const v = 2;\n' });
+    expect((await shipOnce(shipCtx(s))).status).toBe('shipped');
+    expect(events(s.ledger).slice(-3)).toMatchObject([{ type: 'run', verdict: 'NOT DONE (loop ended aborted)' }, { type: 'run', verdict: SHIP_DONE_VERDICT }, { type: 'shipped' }]);
+  });
+
+  it('a file changed while the gates ran: refused, nothing recorded; the next ship (nothing changing) ships', async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'NOT DONE (loop ended aborted)');
+    const before = events(s.ledger);
+    const meddler: PluginRecord<GatePlugin> = {
+      plugin: { kind: 'gate', name: 'scope', description: 'scope', phases: ['ship'], run: () => { writeFiles(s.repo, { 'api/src/app.ts': 'export const v = 99;\n' }); return Promise.resolve({ status: 'pass', summary: 'scope (stub, edits a file)' }); } },
+      file: 'plugins/gates/scope.ts',
+      sha256: 'x',
+    };
+    const r = await shipOnce(shipCtx(s, fakeGh(), { gates: [meddler] }));
+    expect(r.status).toBe('refused');
+    expect(r.reasons.join('\n')).toMatch(/the API root changed while the ship gates were running/);
     expect(events(s.ledger)).toEqual(before);
     await nothingShipped(s);
     expect((await shipOnce(shipCtx(s))).status).toBe('shipped');
   });
 
+  it('nothing to commit (HEAD is a commit a person made): refused, nothing recorded; the twin with a change ships', async () => {
+    const s = await setup();
+    await git(s.repo, 'add', '-A');
+    await git(s.repo, 'commit', '-q', '-m', 'a person committed the change');
+    const before = events(s.ledger);
+    const r = await shipOnce(shipCtx(s));
+    expect(r).toMatchObject({ status: 'refused', reasons: ['nothing to commit under api'] });
+    expect(events(s.ledger)).toEqual(before);
+    writeFiles(s.repo, { 'api/src/app.ts': 'export const v = 3;\n' });
+    expect((await shipOnce(shipCtx(s))).status).toBe('shipped');
+  });
+
+  it('a ledger that cannot take the DONE run (it broke while the ship ran): refused, unstaged, nothing committed or pushed; on a sound ledger it ships', async () => {
+    // A fault at the last step before the commit, independent of file modes (root ignores a read-only file): the
+    // ledger's hash chain breaks while the secret scan reads the staged diff.
+    const breaking = (s: Setup): Exec => (cmd, args, opts) => {
+      if (cmd === 'git' && args.includes('--cached') && args.includes('-U0')) appendFileSync(s.ledger, `${JSON.stringify({ seq: 99, at: 'x', prev: 'x', hash: 'x', event: { type: 'run' } })}\n`);
+      return fakeGh()(cmd, args, opts);
+    };
+    const s = await setup();
+    runEntry(s.ledger, 'NOT DONE (loop ended aborted)');
+    const r = await shipOnce(shipCtx(s, breaking(s)));
+    expect(r.status).toBe('refused');
+    expect(r.reasons.join('\n')).toMatch(/^the item ledger could not record the DONE run this ship stands on, so nothing was committed \(unstaged again\): run \S+ worked under contract text [0-9a-f]{12}, which is not approved: the item ledger is broken/);
+    expect(doneEntries(s.ledger)).toEqual([]);
+    expect(events(s.ledger).some((e) => e.type === 'shipped')).toBe(false);
+    await nothingShipped(s);
+    // the twin: the same ship on a sound ledger
+    const t = await setup();
+    runEntry(t.ledger, 'NOT DONE (loop ended aborted)');
+    expect((await shipOnce(shipCtx(t))).status).toBe('shipped');
+  });
+});
+
+describe('ship refuses, before anything is staged, what close could never accept', () => {
   it('a contract text no longer approved (the stakeholder said no after the yes): refused; approved again, it ships', async () => {
     const s = await setup();
     recordReply(s.item.root, SLUG, 'no, wait', 'tty', 's');
