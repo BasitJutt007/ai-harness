@@ -20,7 +20,7 @@
  * as held (fail closed): the refusal says which file to remove.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { linkSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, linkSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { exec as coreExec } from './exec.ts';
@@ -77,10 +77,15 @@ export async function repoStateLocation(repoTop: string, env: NodeJS.ProcessEnv 
   return { id, root, sessionsDir: join(root, 'sessions'), tokensDir: join(root, 'tokens'), itemsRoot: root, locksDir: join(root, 'locks') };
 }
 
-/** The state directory of the checkout at `repoTop` (created, with its sub-directories). */
+/**
+ * The state directory of the checkout at `repoTop` (created, with its sub-directories). Owner-only (0700):
+ * it holds transcripts, contracts and ledgers of the owner's work. Directories it creates get that mode,
+ * and the checkout's own directory and its sub-directories are set to it when they already exist.
+ */
 export async function repoStateDir(repoTop: string, env: NodeJS.ProcessEnv = process.env, run: Exec = coreExec): Promise<RepoStateDir> {
   const dirs = await repoStateLocation(repoTop, env, run);
-  for (const d of [dirs.sessionsDir, dirs.tokensDir, dirs.locksDir]) mkdirSync(d, { recursive: true });
+  for (const d of [dirs.sessionsDir, dirs.tokensDir, dirs.locksDir]) mkdirSync(d, { recursive: true, mode: 0o700 });
+  for (const d of [dirs.root, dirs.sessionsDir, dirs.tokensDir, dirs.locksDir]) chmodSync(d, 0o700);
   return dirs;
 }
 
