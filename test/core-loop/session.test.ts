@@ -155,6 +155,16 @@ describe('history and the next message', () => {
     expect(parts[1]).toEqual({ type: 'text', text: 'and now?' });
   });
 
+  it('a transcript that cannot record the message ends the call as an error, never a crash', async () => {
+    const s = setup([text('hi')], { history: [], yieldOnText: true, message: 'hello' });
+    s.store.appendTranscript = () => {
+      throw new Error('disk full');
+    };
+    const r = await runAgent(s.opts);
+    expect(r).toMatchObject({ status: 'error', turns: 0 });
+    expect(r.error).toMatch(/disk full/);
+  });
+
   it('a message is kept in the history even when its request fails', async () => {
     const history: TranscriptTurn[] = [];
     const driver = new FakeDriver([text('hi'), new Error('down'), new Error('down'), new Error('down'), new Error('down')]);

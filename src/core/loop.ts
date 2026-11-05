@@ -715,16 +715,15 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     return withFinish({ status: 'aborted', turns: turnsDone, error: 'aborted by the operator' });
   };
 
-  // The owner's next message joins the conversation before anything is sent (and is kept if the request fails).
-  if (opts.message !== undefined) {
-    const part: TextPart = { type: 'text', text: opts.message };
-    const last = turns[turns.length - 1];
-    if (last === undefined) first.parts.push(part);
-    else last.results = last.results === null ? { role: 'user', parts: [part] } : { role: last.results.role, parts: [...last.results.parts, part] };
-    store.appendTranscript({ turn: last?.turn ?? 0, user: [part] });
-  }
-
   try {
+    // The owner's next message joins the conversation before anything is sent (and is kept if the request fails).
+    if (opts.message !== undefined) {
+      const part: TextPart = { type: 'text', text: opts.message };
+      const last = turns[turns.length - 1];
+      if (last === undefined) first.parts.push(part);
+      else last.results = last.results === null ? { role: 'user', parts: [part] } : { role: last.results.role, parts: [...last.results.parts, part] };
+      store.appendTranscript({ turn: last?.turn ?? 0, user: [part] });
+    }
     for (let i = 1; i <= limit; i += 1) {
       const turn = base + i;
       if (isAborted(opts.signal)) return aborted(i - 1);
