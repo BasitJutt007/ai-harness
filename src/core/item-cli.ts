@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { closeItem } from './close.ts';
+import { closeItem, ledgerFacts, preconditions } from './close.ts';
 import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
 import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
@@ -304,6 +304,81 @@ export async function cmdItem(
   }
   out(usage);
   return 2;
+}
+
+// ───────────────────────────── harness gate ─────────────────────────────
+
+/** The three gates of assignment 02, as `harness gate <name>` checks them. */
+export const GATE_NAMES = ['problem-statement', 'human-yes', 'outcome'] as const;
+export type GateName = (typeof GATE_NAMES)[number];
+
+/** A gate's verdict on an item now: PASS or REFUSE, with the reason. */
+export interface GateCheck {
+  pass: boolean;
+  reason: string;
+}
+
+/**
+ * The outcome gate, read-only: PASS only when the item is closed (the `closed` entry closeItem writes
+ * after every fact held and the after reading was recorded). Otherwise REFUSE with what is missing: with
+ * `repoDir`, every fact is gathered as close would (a dry run: nothing is recorded); without it, what
+ * the item's own records show.
+ */
+async function outcomeCheck(root: string, slug: string, harnessRoot: string, repoDir: string | undefined, run: Exec, harnessMetrics: boolean): Promise<GateCheck> {
+  const st = itemStatus(root, slug);
+  if (st.ledger.problems.length > 0) return { pass: false, reason: `the item ledger is broken (${st.ledger.problems.join('; ')})` };
+  const closed = st.ledger.entries.find((e) => e.event.type === 'closed');
+  if (closed !== undefined && closed.event.type === 'closed') {
+    const c = closed.event;
+    return { pass: true, reason: `closed at ledger seq ${closed.seq}: before ${c.before.value} (at ${c.before.sha.slice(0, 12)}) -> after ${c.after.value} (at the merge ${c.mergeSha.slice(0, 12)}, merged by ${c.mergedBy})` };
+  }
+  const notYet = `not closed: harness item close ${slug} --repo <dir> reads the metric after the PR merged and records it`;
+  if (repoDir === undefined) {
+    const own = preconditions({ status: st, ...ledgerFacts(st) });
+    return { pass: false, reason: own.length > 0 ? own.join('; ') : `${notYet} (pass --repo <dir> to check GitHub and the metric now)` };
+  }
+  const r = await closeItem({ root, harnessRoot, slug, repoDir, exec: run, dryRun: true, harnessMetrics });
+  return { pass: false, reason: r.ok ? `every check holds, but the item is ${notYet}` : r.reasons.join('; ') };
+}
+
+/** The verdict of one gate on an item now (nothing is recorded). */
+export async function gateCheck(gate: GateName, root: string, slug: string, opts: { harnessRoot: string; repoDir?: string; exec?: Exec; harnessMetrics?: boolean }): Promise<GateCheck> {
+  if (gate === 'outcome') return outcomeCheck(root, slug, opts.harnessRoot, opts.repoDir, opts.exec ?? coreExec, opts.harnessMetrics ?? false);
+  const st = itemStatus(root, slug);
+  if (gate === 'problem-statement') return { pass: st.contract.ok, reason: st.contract.reason };
+  if (!st.contract.ok) return { pass: false, reason: `needs a complete contract first: ${st.contract.reason}` };
+  return { pass: st.approval?.ok === true, reason: st.approval?.reason ?? 'not proposed' };
+}
+
+/**
+ * `harness gate <problem-statement|human-yes|outcome> <slug> [--repo <dir>]`: one gate's verdict on an
+ * item, as the run's hooks and the close command decide it. Prints `PASS` or `REFUSE` with the reason;
+ * exit 0 on PASS, 2 on REFUSE (and on a usage error). Read-only: nothing is proposed, recorded or closed.
+ */
+export async function cmdGate(a: ItemArgs, out: Out, opts: { exec?: Exec; root?: string; harnessRoot?: string; harnessMetrics?: boolean } = {}): Promise<number> {
+  const usage = `usage: harness gate ${GATE_NAMES.join('|')} <slug> [--repo <dir>]`;
+  const [gate, slug, ...extra] = a.positionals;
+  const unknown = [...a.flags.keys()].find((k) => k !== 'repo');
+  if (gate === undefined || slug === undefined || extra.length > 0 || unknown !== undefined || !(GATE_NAMES as readonly string[]).includes(gate)) {
+    out(unknown !== undefined ? `unknown option --${unknown}\n${usage}` : usage);
+    return 2;
+  }
+  const harnessRoot = opts.harnessRoot ?? HARNESS_ROOT;
+  const root = opts.root ?? itemsRoot(harnessRoot);
+  const repoArg = one(a, 'repo');
+  let v: GateCheck;
+  try {
+    v = await gateCheck(gate as GateName, root, slug, {
+      harnessRoot,
+      ...(repoArg !== undefined ? { repoDir: resolve(repoArg) } : {}),
+      ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
+      harnessMetrics: opts.harnessMetrics ?? opts.root === undefined,
+    });
+  } catch (e) {
+    v = { pass: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  out(`${v.pass ? 'PASS' : 'REFUSE'}  ${gate}  ${slug}: ${v.reason}`);
+  return v.pass ? 0 : 2;
 }
 
 /** For tests: the item's ledger entries as types, in order. */

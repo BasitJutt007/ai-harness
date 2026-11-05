@@ -67,3 +67,6 @@ export function defineGate(p: Omit<GatePlugin, 'kind'>): GatePlugin {
 export function defineCheck(p: Omit<CheckPlugin, 'kind'>): CheckPlugin {
   return { kind: 'check', ...p };
 }
+
+/** A gate's source file run on its own points at `harness gate ...` instead of exiting 0 in silence (see main-module.ts). */
+export { isMainModule, pointWhenRunDirectly } from './main-module.ts';

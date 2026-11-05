@@ -9,7 +9,10 @@
  * contract is re-read on every write, so a contract emptied or changed mid-run stops edits at once
  * (a changed text needs a new proposal and a new yes: see contract-gate).
  */
-import { contractVerdict, defineHook, itemPaths } from '../../src/core/plugin-api.ts';
+import { contractVerdict, defineHook, itemPaths, pointWhenRunDirectly } from '../../src/core/plugin-api.ts';
+
+// Run on its own this file enforces nothing (hooks act inside a run): say how to check the gate instead.
+pointWhenRunDirectly(import.meta.url, "problem-gate is a harness hook: it blocks edits inside a run. To check an item's problem-statement gate now: harness gate problem-statement <slug> [--repo <dir>]");
 
 export default defineHook({
   name: 'problem-gate',

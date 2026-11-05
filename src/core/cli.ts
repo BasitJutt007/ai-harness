@@ -15,7 +15,7 @@ import { loadRegistry } from './registry.ts';
 import { TURN_EXTENSION_STEP, TURN_LIMIT_BASE, TURN_LIMIT_CAP, TURNS_PER_BEHAVIOUR, TURNS_PER_RESOURCE } from './loop.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
-import { cmdItem } from './item-cli.ts';
+import { cmdGate, cmdItem } from './item-cli.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
 import { computeTargetProfile, targetLayout } from './target.ts';
 import { loadTask } from './task.ts';
@@ -79,6 +79,11 @@ commands:
                                   it next to the before value, or refuses. Every run is bound to an
                                   item (--item <slug>, default the task id) and is refused before the
                                   first model turn unless its contract is complete and approved.
+  gate problem-statement|human-yes|outcome <slug> [--repo <dir>]
+                                  one gate's verdict on an item now, as the run's hooks and close
+                                  decide it: PASS or REFUSE with the reason (outcome passes only on a
+                                  closed item; with --repo it checks every close fact, recording
+                                  nothing). Read-only. exit 0 on PASS, 2 on REFUSE
   doctor                          environment, plugin load, provider-leak scan and an isolation
                                   self-test (exit 1 if agent code cannot be confined in auto mode)
 
@@ -839,6 +844,8 @@ export async function main(argv: string[], out: Out = (l) => console.log(l)): Pr
         return await cmdDoctor(out);
       case 'item':
         return await cmdItem(parsed, out);
+      case 'gate':
+        return await cmdGate(parsed, out);
       default:
         out(`unknown command "${command}"\n\n${USAGE}`);
         return 2;

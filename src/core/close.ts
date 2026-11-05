@@ -25,8 +25,12 @@
 import { randomUUID } from 'node:crypto';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
 import { appendLedger, itemPaths, itemStatus, writeMetricValues, type ItemStatus, type LedgerEntry, type LedgerEvent, type MetricReading } from './items.ts';
+import { pointWhenRunDirectly } from './main-module.ts';
 import { readingUnproven, readMetric, type MeasureResult } from './measure.ts';
 import type { Exec } from './types.ts';
+
+// Run on its own this file closes nothing: say how to check the outcome gate instead.
+pointWhenRunDirectly(import.meta.url, 'close.ts is the outcome check: it closes an item only through the harness. To check an item\'s outcome gate now: harness gate outcome <slug> --repo <dir> (harness item close <slug> --repo <dir> records it)');
 
 export interface PrState {
   url: string;
@@ -207,6 +211,17 @@ export interface CloseResult extends OutcomeVerdict {
   lines: string[];
 }
 
+/** What the item's own ledger says the outcome check starts from: the latest shipped entry and the latest before reading. */
+export function ledgerFacts(status: ItemStatus): Pick<OutcomeFacts, 'shipped' | 'before'> {
+  let shipped: OutcomeFacts['shipped'] = null;
+  let before: MetricReading | null = null;
+  for (const e of status.ledger.entries) {
+    if (e.event.type === 'shipped') shipped = { entry: e, event: e.event };
+    if (e.event.type === 'metric' && e.event.phase === 'before') before = e.event.reading;
+  }
+  return { shipped, before };
+}
+
 /** Whether the before reading was taken before the merge: its commit is an ancestor of mergeSha^1 and is not mergeSha. */
 async function beforeMergeFact(repoDir: string, before: MetricReading, mergeSha: string, run: Exec): Promise<true | { error: string }> {
   if (before.sha === mergeSha) return { error: `the before reading was taken at the merge commit ${mergeSha.slice(0, 12)} itself, not before the merge` };
@@ -225,10 +240,7 @@ export async function closeItem(opts: CloseOptions): Promise<CloseResult> {
     return { ...v, facts, lines: v.ok ? [] : v.reasons.map((r) => `outcome  REFUSE  ${r}`) };
   };
 
-  for (const e of status.ledger.entries) {
-    if (e.event.type === 'shipped') facts.shipped = { entry: e, event: e.event };
-    if (e.event.type === 'metric' && e.event.phase === 'before') facts.before = e.event.reading;
-  }
+  Object.assign(facts, ledgerFacts(status));
   if (preconditions(facts).length > 0) return finish();
   const shipped = facts.shipped;
   if (shipped === null || shipped.event.prUrl === null) return finish();
