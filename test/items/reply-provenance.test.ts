@@ -82,6 +82,39 @@ describe('a reply counts only for the contract text it was typed against', () =>
     expect(v.ok).toBe(false);
     expect(v.reason).toMatch(/does not record the contract text it was typed against/);
   });
+
+  it('item status says why such a yes stopped counting and what to type; typed again, it approves and the note is gone (the twin)', async () => {
+    const root = proposed();
+    // a yes as harness versions before the reply hash recorded it: no contractHash
+    appendLedger(itemPaths(root, SLUG).ledger, { type: 'human_turn', text: 'yes, approved', channel: 'tty', session: 's', inReplyTo: 1 });
+    const status = async (): Promise<string> => {
+      const out: string[] = [];
+      await cmdItem({ positionals: ['status', SLUG], flags: new Map() }, (l) => out.push(l), { root });
+      return out.join('\n');
+    };
+    const note = `a reply recorded without the contract text it answered does not count; type it again: harness item reply ${SLUG}`;
+    const refused = await status();
+    expect(refused).toMatch(/human-yes\s+REFUSE\s+no typed yes from Test Stakeholder after the proposal \(seq 1\); not counted: "yes, approved" \(seq 2\) does not record the contract text/);
+    expect(refused).toContain(note);
+    expect(itemStatus(root, SLUG).approval?.retype).toEqual([2]);
+    const reader = { isTTY: true, ask: async () => 'yes, approved' };
+    expect(await cmdItem({ positionals: ['reply', SLUG], flags: new Map() }, () => undefined, { root, reader })).toBe(0);
+    const approved = await status();
+    expect(approved).toMatch(/human-yes\s+pass/);
+    expect(approved).not.toContain(note);
+  });
+
+  it('item status names no retype for a reply that is not a yes, or a yes answered by a later decision', () => {
+    const root = proposed();
+    const ledger = itemPaths(root, SLUG).ledger;
+    appendLedger(ledger, { type: 'human_turn', text: 'what is the metric?', channel: 'tty', session: 's', inReplyTo: 1 });
+    expect(itemStatus(root, SLUG).lines.join('\n')).not.toMatch(/type it again/);
+    appendLedger(ledger, { type: 'human_turn', text: 'yes', channel: 'tty', session: 's', inReplyTo: 1 });
+    expect(itemStatus(root, SLUG).lines.join('\n')).toMatch(/type it again: harness item reply reply-item/);
+    // the stakeholder then declined: the decision stands, and nothing asks for the old yes again
+    recordReply(root, SLUG, 'no', 'tty', 's');
+    expect(itemStatus(root, SLUG).lines.join('\n')).not.toMatch(/type it again/);
+  });
 });
 
 describe("operator provenance: recorded and shown, never a refusal", () => {

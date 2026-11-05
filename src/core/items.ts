@@ -482,6 +482,12 @@ export interface ApprovalVerdict {
   stakeholder: string | null;
   /** Replies that were seen but did not count, with why (shown in refusals). */
   ignored: string[];
+  /**
+   * Seqs of plain yes replies to the latest proposal, typed at a terminal, that record no contract text
+   * (typed before replies recorded one): they never count, and the stakeholder must type the yes again.
+   * Set only when no reply decided the proposal.
+   */
+  retype?: number[];
 }
 
 /**
@@ -503,6 +509,7 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
     return { ok: false, reason: `the contract changed after it was proposed (proposal seq ${latest.seq}): propose it again and get a new yes`, ignored: [], proposal: latest.seq, turn: null, stakeholder };
   }
   const ignored: string[] = [];
+  const retype: number[] = [];
   let decisive: { entry: LedgerEntry; kind: ReplyKind } | null = null;
   for (const e of ledger.entries) {
     if (e.event.type !== 'human_turn') continue;
@@ -530,6 +537,7 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
       ignored.push(ev.contractHash === undefined
         ? `"${quote}" (seq ${e.seq}) does not record the contract text it was typed against`
         : `"${quote}" (seq ${e.seq}) was typed while the contract read differently (${(ev.contractHash ?? 'none').slice(0, 12)}), not the proposed text (${latest.event.contractHash.slice(0, 12)})`);
+      if (ev.contractHash === undefined && classifyReply(ev.text).kind === 'yes') retype.push(e.seq);
       continue;
     }
     const c = classifyReply(ev.text);
@@ -540,7 +548,15 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
     decisive = { entry: e, kind: c.kind };
   }
   if (decisive === null) {
-    return { ok: false, reason: `no typed yes from ${stakeholder} after the proposal (seq ${latest.seq})${ignored.length > 0 ? `; not counted: ${ignored.join('; ')}` : ''}`, ignored, proposal: latest.seq, turn: null, stakeholder };
+    return {
+      ok: false,
+      reason: `no typed yes from ${stakeholder} after the proposal (seq ${latest.seq})${ignored.length > 0 ? `; not counted: ${ignored.join('; ')}` : ''}`,
+      ignored,
+      proposal: latest.seq,
+      turn: null,
+      stakeholder,
+      ...(retype.length > 0 ? { retype } : {}),
+    };
   }
   if (decisive.kind === 'no') {
     const ev = decisive.entry.event;
@@ -555,6 +571,11 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
 export function openProposal(ledger: Ledger): number | null {
   const p = ledger.entries.filter((e) => e.event.type === 'proposed').at(-1);
   return p === undefined ? null : p.seq;
+}
+
+/** What `harness item status <slug>` says when a yes stopped counting because it records no contract text (ApprovalVerdict.retype). */
+export function retypeLine(slug: string): string {
+  return `a reply recorded without the contract text it answered does not count; type it again: harness item reply ${slug}`;
 }
 
 // ───────────────────────────── runs and ships ─────────────────────────────
@@ -645,6 +666,8 @@ export function itemStatus(root: string, slug: string): ItemStatus {
   const lines = [
     `problem-statement  ${contract.ok ? 'pass' : 'REFUSE'}  ${contract.reason}`,
     `human-yes          ${approval?.ok === true ? 'pass' : 'REFUSE'}  ${approval?.reason ?? 'needs a complete contract first'}`,
+    // A yes typed before replies recorded their contract text stops counting: say why, and what to do.
+    ...(approval !== null && !approval.ok && (approval.retype?.length ?? 0) > 0 ? [`                   ${retypeLine(slug)}`] : []),
   ];
   return { slug, paths, contract, approval, ledger, stage, editable, lines };
 }
