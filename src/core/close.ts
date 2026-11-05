@@ -24,7 +24,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
-import { appendLedger, itemPaths, itemStatus, writeMetricValues, type ItemStatus, type LedgerEntry, type LedgerEvent, type MetricReading } from './items.ts';
+import { appendLedger, isDoneVerdict, itemPaths, itemStatus, writeMetricValues, type ItemStatus, type LedgerEntry, type LedgerEvent, type MetricReading } from './items.ts';
 import { pointWhenRunDirectly } from './main-module.ts';
 import { readingUnproven, readMetric, type MeasureResult } from './measure.ts';
 import type { Exec } from './types.ts';
@@ -69,14 +69,11 @@ export function isBotMerger(login: string | null, isBot: boolean): boolean {
   return isBot || (login !== null && (/^app\//i.test(login) || /\[bot\]$/i.test(login)));
 }
 
-/** A `run` entry that ended DONE: 'DONE', or 'DONE (...)' when the gates decided without a finish call. */
-function doneVerdict(verdict: string): boolean {
-  return /^DONE\b/.test(verdict);
-}
-
 /**
  * Why the shipped entry does not stand for a DONE run of the approved contract text, or null: the
- * `run` entry of the same run id, before the shipped entry, with a DONE verdict and the approved hash.
+ * `run` entry of the same run id, before the shipped entry, with a DONE verdict (items.ts isDoneVerdict)
+ * and the approved hash. The harness writes `shipped` only through items.ts appendShipped, which puts
+ * that entry immediately before it; any other shape was not written by a ship.
  */
 export function shippedRunProblem(status: ItemStatus, shipped: { entry: LedgerEntry; event: Shipped }): string | null {
   const approved = status.contract.parse?.hash ?? null;
@@ -85,7 +82,7 @@ export function shippedRunProblem(status: ItemStatus, shipped: { entry: LedgerEn
   if (last === undefined || last.event.type !== 'run') {
     return `the shipped entry (seq ${shipped.entry.seq}) names run ${shipped.event.runId}, but the ledger holds no record of that run before it: a shipped line alone proves nothing`;
   }
-  if (!doneVerdict(last.event.verdict)) return `run ${shipped.event.runId} (ledger seq ${last.seq}) did not end DONE (${last.event.verdict}): what shipped was not cleared by the gates`;
+  if (!isDoneVerdict(last.event.verdict)) return `run ${shipped.event.runId} (ledger seq ${last.seq}) did not end DONE (${last.event.verdict}): what shipped was not cleared by the gates`;
   if (approved === null || last.event.contractHash !== approved) {
     return `run ${shipped.event.runId} (ledger seq ${last.seq}) ran under another contract text (${last.event.contractHash.slice(0, 12)}), not the approved one (${(approved ?? 'none').slice(0, 12)})`;
   }

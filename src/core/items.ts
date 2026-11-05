@@ -557,6 +557,53 @@ export function openProposal(ledger: Ledger): number | null {
   return p === undefined ? null : p.seq;
 }
 
+// ───────────────────────────── runs and ships ─────────────────────────────
+
+/** The item's record of one governed run: executeRun writes it before any ship (a ship needs it on record). */
+export type LedgerRun = Omit<Extract<LedgerEvent, { type: 'run' }>, 'type'>;
+/** The item's record of a ship: the branch pushed, the head commit, the PR the harness opened. */
+export type LedgerShipped = Omit<Extract<LedgerEvent, { type: 'shipped' }>, 'type'>;
+
+/** A `run` verdict that ended DONE: 'DONE', or 'DONE (...)' (the gates decided without a finish call, or a fresh green ship). */
+export function isDoneVerdict(verdict: string): boolean {
+  return /^DONE\b/.test(verdict);
+}
+
+/** The verdict `harness ship` records for a run once every ship-phase gate re-ran fresh and green on its tree. */
+export const SHIP_DONE_VERDICT = 'DONE (harness ship: every ship gate re-ran fresh and green)';
+
+function isDoneRunOf(e: LedgerEntry, run: LedgerRun): boolean {
+  return e.event.type === 'run' && e.event.runId === run.runId && e.event.contractHash === run.contractHash && isDoneVerdict(e.event.verdict);
+}
+
+/**
+ * The DONE run a ship stands on, as the ledger's latest entry: the entry already there when the latest entry
+ * is a DONE run of this run id under this contract text, else this `run` record appended now. Throws, writing
+ * nothing, for a run that did not end DONE or a contract text the ledger does not approve (a broken ledger
+ * approves nothing): what it records is exactly what the outcome check accepts (close.ts shippedRunProblem).
+ */
+export function recordDoneRun(file: string, run: LedgerRun, now: () => Date = () => new Date()): LedgerEntry {
+  if (!isDoneVerdict(run.verdict)) throw new Error(`run ${run.runId} did not end DONE (${run.verdict}): no ship stands on it`);
+  const ledger = readLedger(file);
+  const approval = approvalVerdict(ledger, run.contractHash);
+  if (!approval.ok) throw new Error(`run ${run.runId} worked under contract text ${run.contractHash.slice(0, 12)}, which is not approved: ${approval.reason}`);
+  const latest = ledger.entries.at(-1);
+  if (latest !== undefined && isDoneRunOf(latest, run)) return latest;
+  return appendLedger(file, { type: 'run', ...run }, now);
+}
+
+/**
+ * The only writer of `shipped` (ship.ts): it goes in immediately after a DONE `run` entry of the same run id
+ * under the approved contract text (recordDoneRun appends that entry when the latest one is not it), so the
+ * outcome check finds the run that cleared what shipped. Throws, writing no `shipped` entry, when that run
+ * cannot be recorded.
+ */
+export function appendShipped(file: string, run: LedgerRun, shipped: LedgerShipped, now: () => Date = () => new Date()): LedgerEntry {
+  if (shipped.runId !== run.runId) throw new Error(`a ship of run ${shipped.runId} cannot stand on the record of run ${run.runId}`);
+  recordDoneRun(file, run, now);
+  return appendLedger(file, { type: 'shipped', ...shipped }, now);
+}
+
 // ───────────────────────────── operations ─────────────────────────────
 
 export type ItemStage = 'no-contract' | 'incomplete' | 'unproposed' | 'awaiting-yes' | 'declined' | 'approved' | 'shipped' | 'closed' | 'broken';

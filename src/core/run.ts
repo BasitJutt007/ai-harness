@@ -875,11 +875,26 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // is still DONE when the fresh final gate run is green, labelled so.
   const gatesDecided = !abortedRun && (status === 'max_turns' || status === 'stalled') && final.ok && final.results.length > 0 && runUnproven.length === 0;
   const ok = ((status === 'done' && final.ok) || gatesDecided) && runUnproven.length === 0;
+  const verdictText = gatesDecided
+    ? `DONE (the loop ended ${status} without finish; the fresh final gate run is green)`
+    : ok ? 'DONE' : `NOT DONE (${notDoneReason(status, agent.status, final.ok, runUnproven)})`;
+
+  // The item's own record of the run (its job-store entry: red run, gates, verdict live in runs/<id>/), written
+  // BEFORE any ship: the outcome check closes an item only on a `shipped` entry that comes after a DONE run of
+  // the approved text, so a run whose record cannot be written ships nothing.
+  let ledgerError: string | null = null;
+  try {
+    appendLedger(itemPaths(item.root, item.slug).ledger, { type: 'run', runId, status, verdict: ok && !gatesDecided ? 'DONE' : verdictText, contractHash: item.contractHash });
+  } catch (e) {
+    ledgerError = errMsg(e);
+  }
 
   let shipped: ShipOutcome | undefined;
   if (opts.ship) {
     if (abortedRun || stopRequested()) {
       shipped = { status: 'refused', branch, reasons: ['stopped by signal'] };
+    } else if (ok && ledgerError !== null) {
+      shipped = { status: 'refused', branch, reasons: [`the run could not be recorded in the item ledger (${ledgerError}): a ship needs its DONE run on record before it, so nothing was shipped`] };
     } else if (ok) {
       try {
         const { ship } = await import('./ship.ts');
@@ -909,9 +924,6 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     state: harnessRel(join(runDir, 'state.json')),
     tokens: harnessRel(tokensPath),
   };
-  const verdictText = gatesDecided
-    ? `DONE (the loop ended ${status} without finish; the fresh final gate run is green)`
-    : ok ? 'DONE' : `NOT DONE (${notDoneReason(status, agent.status, final.ok, runUnproven)})`;
   store.writeJson('run.json', {
     ...runRecordBase,
     model: finalModel,
@@ -969,12 +981,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   ];
   const text = lines.join('\n');
   log(text);
-  // The item's own record of the run (its job-store entry: red run, gates, verdict live in runs/<id>/).
-  try {
-    appendLedger(itemPaths(item.root, item.slug).ledger, { type: 'run', runId, status, verdict: ok && !gatesDecided ? 'DONE' : verdictText, contractHash: item.contractHash });
-  } catch (e) {
-    log(`item       could not record the run in the item ledger: ${errMsg(e)}`);
-  }
+  if (ledgerError !== null) log(`item       could not record the run in the item ledger: ${ledgerError}`);
 
   return {
     runId,

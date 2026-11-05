@@ -21,7 +21,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import contractGate from '../../plugins/hooks/contract-gate.ts';
 import problemGate from '../../plugins/hooks/problem-gate.ts';
 import { outcomeVerdict, type OutcomeFacts, type PrState } from '../../src/core/close.ts';
-import { appendLedger, itemPaths, itemStatus, parseContract, proposeItem, recordReply, writeSigned, type MetricReading } from '../../src/core/items.ts';
+import { appendLedger, appendShipped, itemPaths, itemStatus, parseContract, proposeItem, recordReply, writeSigned, type LedgerEntry, type MetricReading } from '../../src/core/items.ts';
 import type { HookPlugin, ItemBinding, RunContext, ToolCallInfo } from '../../src/core/types.ts';
 import { contractFor, writeContract } from '../support/items.ts';
 
@@ -186,10 +186,21 @@ const reading = (sha: string, over: Partial<MetricReading> = {}): MetricReading 
 interface LedgerShape {
   /** The `run` entry before the shipped one: absent, or with these fields changed. */
   run?: 'none' | { runId?: string; verdict?: string; contractHash?: string };
+  /**
+   * A shape the harness never writes: appendShipped refuses it (checked first), or, for no run at all, always
+   * writes the run before `shipped`. Written by hand, as a forged ledger would be.
+   */
+  forged?: true;
   contract?: string;
 }
 
-/** An approved, shipped item with a before reading, a PR merged by a person, and an after reading at the merge. */
+/**
+ * An approved, shipped item with a before reading, a PR merged by a person, and an after reading at the merge.
+ * The baseline ledger is what the harness writes: the run's own entry (executeRun appends it before it ships),
+ * then the ship through appendShipped (ship.ts, the only writer of `shipped`); test/e2e/ship-closes.test.ts
+ * checks the real CLI writes exactly that. A mutated shape is a forgery appendShipped refuses to write, so it is
+ * written by hand, and the audit first checks that the writer does refuse it.
+ */
 function closable(shape: LedgerShape = {}): OutcomeFacts {
   const root = tmp();
   const contract = shape.contract ?? COMPLETE;
@@ -197,10 +208,17 @@ function closable(shape: LedgerShape = {}): OutcomeFacts {
   proposeItem(root, SLUG, { session: 's', before: reading('e'.repeat(40), { value: 3 }) });
   recordReply(root, SLUG, 'yes', 'tty', 's');
   const ledger = itemPaths(root, SLUG).ledger;
-  if (shape.run !== 'none') {
-    appendLedger(ledger, { type: 'run', runId: 'r1', status: 'done', verdict: 'DONE', contractHash: parseContract(contract).hash, ...shape.run });
+  const ship = { runId: 'r1', branch: 'harness/r1', headSha: HEAD, base: 'main', prUrl: 'https://example.test/pull/1' };
+  const run = { runId: 'r1', status: 'done', verdict: 'DONE', contractHash: parseContract(contract).hash, ...(shape.run === 'none' ? {} : shape.run) };
+  // The run's own entry, whatever its verdict, as executeRun writes it before it ships.
+  if (shape.run !== 'none') appendLedger(ledger, { type: 'run', ...run });
+  let entry: LedgerEntry;
+  if (shape.forged === true) {
+    if (shape.run !== 'none') expect(() => appendShipped(ledger, run, ship), 'the harness writer refuses this shape').toThrow();
+    entry = appendLedger(ledger, { type: 'shipped', ...ship });
+  } else {
+    entry = appendShipped(ledger, run, ship);
   }
-  const entry = appendLedger(ledger, { type: 'shipped', runId: 'r1', branch: 'harness/r1', headSha: HEAD, base: 'main', prUrl: 'https://example.test/pull/1' });
   if (entry.event.type !== 'shipped') throw new Error('fixture');
   const pr: PrState = { url: 'https://example.test/pull/1', number: 1, state: 'MERGED', mergedAt: '2026-11-07T10:00:00Z', mergedBy: 'a-person', mergedByBot: false, mergeSha: MERGE, baseRef: 'main', headSha: HEAD };
   return { status: itemStatus(root, SLUG), shipped: { entry, event: entry.event }, before: reading('e'.repeat(40), { value: 3 }), pr, onBase: true, beforeMerge: true, after: { ok: true, reading: reading(MERGE, { value: 0 }) } };
@@ -238,10 +256,10 @@ const OUTCOME_MUTATIONS: Array<{ name: string; mutate: (f: OutcomeFacts) => Outc
 
 /** Ledger shapes: the shipped entry must follow a DONE run of the approved contract text (and the contract must name a Measure). */
 const LEDGER_MUTATIONS: Array<{ name: string; shape: LedgerShape; why: RegExp }> = [
-  { name: 'a shipped line with no run record before it', shape: { run: 'none' }, why: /names run r1, but the ledger holds no record of that run before it/ },
-  { name: 'the run that shipped did not end DONE', shape: { run: { verdict: 'NOT DONE (final gates not green)' } }, why: /did not end DONE/ },
-  { name: 'the run record is of another run', shape: { run: { runId: 'r0' } }, why: /no record of that run/ },
-  { name: 'the run ran under another contract text', shape: { run: { contractHash: '0'.repeat(64) } }, why: /ran under another contract text/ },
+  { name: 'a shipped line with no run record before it', shape: { run: 'none', forged: true }, why: /names run r1, but the ledger holds no record of that run before it/ },
+  { name: 'the run that shipped did not end DONE', shape: { run: { verdict: 'NOT DONE (final gates not green)' }, forged: true }, why: /did not end DONE/ },
+  { name: 'the run record is of another run', shape: { run: { runId: 'r0' }, forged: true }, why: /no record of that run/ },
+  { name: 'the run ran under another contract text', shape: { run: { contractHash: '0'.repeat(64) }, forged: true }, why: /ran under another contract text/ },
   { name: 'the contract says "Measure: none"', shape: { contract: contractFor(SLUG, { Measure: 'none' }) }, why: /no Measure: the outcome cannot be read/ },
 ];
 

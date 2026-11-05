@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
 import { cmdGate } from '../../src/core/item-cli.ts';
-import { appendLedger, itemPaths, parseContract, proposeItem, recordReply } from '../../src/core/items.ts';
+import { appendLedger, appendShipped, itemPaths, parseContract, proposeItem, recordReply } from '../../src/core/items.ts';
 import { isMainModule } from '../../src/core/main-module.ts';
 import { contractFor, writeContract } from '../support/items.ts';
 
@@ -62,8 +62,10 @@ describe('harness gate', () => {
     recordReply(root, SLUG, 'yes', 'tty', 's');
     expect(await gate(root, 'outcome', SLUG)).toMatchObject({ code: 2, text: expect.stringMatching(/^REFUSE {2}outcome {2}gate-item: the harness never shipped this item/) });
     const ledger = itemPaths(root, SLUG).ledger;
-    appendLedger(ledger, { type: 'run', runId: 'r1', status: 'done', verdict: 'DONE', contractHash: parseContract(contractFor(SLUG)).hash });
-    appendLedger(ledger, { type: 'shipped', runId: 'r1', branch: 'harness/r1', headSha: 'd'.repeat(40), base: 'main', prUrl: 'https://example.test/pull/1' });
+    // What the harness writes: the run's own entry (executeRun, before it ships), then the ship (appendShipped).
+    const run = { runId: 'r1', status: 'done', verdict: 'DONE', contractHash: parseContract(contractFor(SLUG)).hash };
+    appendLedger(ledger, { type: 'run', ...run });
+    appendShipped(ledger, run, { runId: 'r1', branch: 'harness/r1', headSha: 'd'.repeat(40), base: 'main', prUrl: 'https://example.test/pull/1' });
     expect((await gate(root, 'outcome', SLUG)).text).toMatch(/REFUSE {2}outcome {2}gate-item: not closed: harness item close gate-item --repo <dir> reads the metric after the PR merged and records it \(pass --repo <dir> to check GitHub and the metric now\)/);
     appendLedger(ledger, { type: 'closed', before: reading, after: { ...reading, value: 0, sha: 'e'.repeat(40) }, prUrl: 'https://example.test/pull/1', mergeSha: 'e'.repeat(40), mergedBy: 'a-person', closeRunId: 'x' });
     expect(await gate(root, 'outcome', SLUG)).toEqual({ code: 0, text: `PASS  outcome  ${SLUG}: closed at ledger seq 7: before 3 (at aaaaaaaaaaaa) -> after 0 (at the merge eeeeeeeeeeee, merged by a-person)` });

@@ -4,12 +4,15 @@
  * removes every worktree and branch the runs created. Nothing here touches the harness repo's git.
  */
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, join } from 'node:path';
 import { z } from 'zod';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
 import { exec } from '../../src/core/exec.ts';
+import { cmdItem } from '../../src/core/item-cli.ts';
+import { itemsRoot } from '../../src/core/items.ts';
 import type { Exec, RunEvent } from '../../src/core/types.ts';
+import { contractFor, writeContract } from '../support/items.ts';
 
 export const ROOT = HARNESS_ROOT;
 
@@ -174,3 +177,65 @@ export const SCRIPTS = join(ROOT, 'fixtures', 'scripted');
 export const USERS_TASK = join(ROOT, 'tasks', 'users-api.task.yaml');
 export const PROJECTS_TASK = join(ROOT, 'tasks', 'projects-change.task.yaml');
 export const SAMPLE = join(ROOT, 'samples', 'existing-api');
+
+/** A local bare repository at the origin tempRepo names (.../fixture/repo.git), main pushed: push and fetch work offline. */
+export function bareOrigin(tmp: TempRepo): string {
+  const origin = join(tmp.dir, 'remotes', 'fixture', 'repo.git');
+  mkdirSync(dirname(origin), { recursive: true });
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+  git(tmp.repo, ['push', '-q', 'origin', 'refs/heads/main:refs/heads/main']);
+  return origin;
+}
+
+/**
+ * A fake `gh`, first on PATH: installed, authenticated, `pr create` prints `prUrl`, anything else fails.
+ * Every call is appended to <dir>/gh-calls.log. The real CLI ships through it; nothing reaches GitHub.
+ * restore() puts PATH back.
+ */
+export function fakeGhOnPath(dir: string, prUrl: string): { calls: () => string[]; restore: () => void } {
+  const bin = join(dir, 'fake-bin');
+  const log = join(dir, 'gh-calls.log');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, 'gh'), [
+    '#!/bin/sh',
+    `printf '%s\\n' "$*" >> '${log}'`,
+    'case "$1" in',
+    '  --version) echo "gh version 0.0.0 (fake)"; exit 0 ;;',
+    '  auth) exit 0 ;;',
+    `  pr) if [ "$2" = "create" ]; then echo '${prUrl}'; exit 0; fi ;;`,
+    'esac',
+    'echo "fake gh: no such command: $*" >&2',
+    'exit 1',
+    '',
+  ].join('\n'));
+  chmodSync(join(bin, 'gh'), 0o755);
+  const saved = process.env['PATH'];
+  process.env['PATH'] = `${bin}${delimiter}${saved ?? ''}`;
+  return {
+    calls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter((l) => l.length > 0) : []),
+    restore: () => {
+      if (saved === undefined) delete process.env['PATH'];
+      else process.env['PATH'] = saved;
+    },
+  };
+}
+
+/** A Measure script: the number of top-level entries of the commit it runs at (.git excluded). */
+export const ENTRIES_METRIC = "import { readdirSync } from 'node:fs';\nconsole.log(readdirSync('.').filter((f) => f !== '.git').length);\n";
+
+/**
+ * An item in the suite's items root, proposed and approved through the real CLI: `harness item propose <slug>
+ * --repo <clone>` reads the before value at origin/main (confined), records the proposal, and the reply typed
+ * at the (test) terminal approves it. Returns the items root and what the CLI printed.
+ */
+export async function approvedItem(tmp: TempRepo, slug: string): Promise<{ root: string; printed: string }> {
+  const root = itemsRoot(HARNESS_ROOT);
+  mkdirSync(join(root, 'metrics'), { recursive: true });
+  writeFileSync(join(root, 'metrics', `${slug}.mjs`), ENTRIES_METRIC);
+  writeContract(root, slug, contractFor(slug, { Measure: `node metrics/${slug}.mjs`, Metric: 'top-level entries, main HEAD before: ____ after: ____' }));
+  const lines: string[] = [];
+  const reader = { isTTY: true, ask: (): Promise<string | null> => Promise.resolve('yes, approved') };
+  const code = await cmdItem({ positionals: ['propose', slug], flags: new Map([['repo', [tmp.repo]]]) }, (l) => lines.push(l), { reader });
+  if (code !== 0) throw new Error(`item propose ${slug} failed:\n${lines.join('\n')}`);
+  return { root, printed: lines.join('\n') };
+}
