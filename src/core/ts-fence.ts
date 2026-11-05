@@ -10,7 +10,9 @@
  * fenced host: fileExists, readFile, directoryExists, getDirectories, readDirectory, realpath and
  * getSourceFile behave as if a path outside the allow-list did not exist. Allowed, as the OS fence
  * allows them (sandbox.ts readFence):
- *   - the tree the API lives in: the API root, or the run's worktree root (sandbox.ts enclosingRoot);
+ *   - the tree the API lives in: the API root, the run's worktree root, or an in-place run's checkout
+ *     (sandbox.ts enclosingRoot), except, in an in-place checkout, its `.git` and `.env*` entries
+ *     (sandbox.ts isHiddenInPlace), which a program never sees, as confined code never reads them;
  *   - every node_modules found walking up from the API root, under both spellings (link and realpath),
  *     plus the packages symlinked into them from elsewhere (workspace packages);
  *   - the TypeScript lib directory.
@@ -22,7 +24,7 @@ import { readdirSync, realpathSync, statSync } from 'node:fs';
 import type { Dirent } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
-import { enclosingRoot, linkedPackages, realpathLoose } from './sandbox.ts';
+import { enclosingRoot, isHiddenInPlace, linkedPackages, realpathLoose } from './sandbox.ts';
 
 export interface TsFence {
   /** The API root the fence was derived from (absolute). */
@@ -166,8 +168,9 @@ export function createTsFence(apiRoot: string): TsFence {
     const abs = resolve(root, path);
     const known = verdicts.get(abs);
     if (known !== undefined) return known;
-    // As written, then as it really is (a symlink inside the tree must not lead out of it).
-    const ok = within(abs) && within(nativeRealpathLoose(abs));
+    // As written, then as it really is (a symlink inside the tree must not lead out of it, or to a hidden entry).
+    const real = nativeRealpathLoose(abs);
+    const ok = within(abs) && within(real) && !isHiddenInPlace(abs) && !isHiddenInPlace(real);
     verdicts.set(abs, ok);
     if (!ok && exists(abs)) refusedPaths.add(abs);
     return ok;

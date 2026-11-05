@@ -18,6 +18,14 @@
  *                         bound read-write LAST, new network namespace (loopback only), new pid and
  *                         ipc namespaces that die with the harness.
  *
+ * In-place runs (a session in the owner's checkout, setConfinedRoot): the checkout's top is the tree
+ * confined code may read, named explicitly instead of inferred from path suffixes, and inside it every
+ * `.git` and `.env*` entry stays unreadable: on Seatbelt by path regexes denied after the allow (any
+ * depth, entries created later included, matched on the canonical path so symlinks and letter case do
+ * not get around them); on bwrap, which has no patterns, by masking each such entry a bounded walk of
+ * the tree finds at the call (a tree too big to walk refuses the call; entries created by the owner
+ * during that call are not covered). Worktree runs are unchanged.
+ *
  * The child's environment is an allow-list (confinedEnv), never the caller's env minus a deny list.
  *
  * Not used: Node's --permission model. Verified on Node 24: a child process started with
@@ -33,6 +41,7 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, st
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { HARNESS_ROOT, loadConfig } from './config.ts';
+import type { Dirent } from 'node:fs';
 import type { Exec, SandboxMechanism, SandboxPolicy } from './types.ts';
 
 export type SandboxMode = 'auto' | 'off';
@@ -190,8 +199,58 @@ function isHarnessTmp(p: string): boolean {
   return p.endsWith(`${sep}.harness${sep}tmp`);
 }
 
+// ───────────────────────────── in-place runs: an explicit confined tree ─────────────────────────────
+
+/** The explicit confined tree of an in-place run (setConfinedRoot), under each of its spellings; null = none. */
+let explicitRoot: string[] | null = null;
+
+/**
+ * In-place runs (a session in the owner's checkout): confine code whose cwd lies in `root` (the
+ * repository top) to that whole tree, instead of the tree inferred from the .harness/worktrees and
+ * .harness/tmp path suffixes, and keep `<root>/.git` (any `.git` in it) and every `.env*` file or
+ * directory in it unreadable even though the tree is (readFence `hiddenIn`). Process-wide, like
+ * setSandboxMode: one session per process. null clears it. Throws, registering nothing, for a root that
+ * does not exist, is the filesystem root, contains the operator's home or the harness root, or contains
+ * the directories that hold every run's trees.
+ */
+export function setConfinedRoot(root: string | null): void {
+  if (root === null) {
+    explicitRoot = null;
+    return;
+  }
+  if (!isAbsolute(root) || !existsSync(root) || !statSync(root).isDirectory()) throw new Error(`sandbox: confined root ${root} is not an existing directory`);
+  const all = spellings(root);
+  const wide = [...spellings(homedir()), ...spellings(HARNESS_ROOT), worktreeParent(), join(HARNESS_ROOT, '.harness', 'tmp')]
+    .filter((p): p is string => p !== null)
+    .find((p) => all.some((r) => inside(p, r)));
+  if (all.some((r) => r === dirname(r))) throw new Error('sandbox: the filesystem root cannot be a confined root');
+  if (wide !== undefined) throw new Error(`sandbox: confined root ${root} contains ${wide}; confined code may never read it whole`);
+  explicitRoot = all;
+}
+
+/** The registered explicit confined tree (real path), or null. */
+export function confinedRoot(): string | null {
+  return explicitRoot === null ? null : realpathLoose(explicitRoot[0] ?? '/');
+}
+
+/** The spelling of the explicit confined tree that contains `p`, or null. */
+function explicitRootOf(p: string): string | null {
+  return explicitRoot?.find((r) => inside(p, r)) ?? null;
+}
+
+/**
+ * Whether the absolute path `p` is, or lies inside, a `.git` or `.env*` entry of the explicit in-place
+ * tree (any letter case): what the OS fence denies there, for the in-process fence (ts-fence.ts).
+ */
+export function isHiddenInPlace(p: string): boolean {
+  const root = explicitRootOf(p);
+  if (root === null) return false;
+  return relative(root, p).split(sep).some((seg) => /^\.env/i.test(seg) || seg.toLowerCase() === '.git');
+}
+
 /**
  * The tree the confined code works in, derived from its cwd:
+ *   inside the explicit root       → that root (an in-place run: setConfinedRoot)
  *   <worktreeDir>/<runId>/…        → <worktreeDir>/<runId> (the run's worktree, monorepo siblings included)
  *   …/.harness/tmp/<call>/<tree>/… → …/.harness/tmp/<call>/<tree> (a per-call dir holds scratch next to the tree)
  *   …/.harness/tmp/<call>          → itself
@@ -200,6 +259,8 @@ function isHarnessTmp(p: string): boolean {
  * it that is itself running as the harness) narrows to the cwd: the harness root is never readable whole.
  */
 export function enclosingRoot(cwd: string): string {
+  const explicit = explicitRootOf(cwd);
+  if (explicit !== null) return spellings(HARNESS_ROOT).some((h) => inside(h, explicit)) ? cwd : explicit;
   const chain = [cwd, ...ancestors(cwd)];
   let root = cwd;
   for (let i = 0; i + 1 < chain.length; i++) {
@@ -258,6 +319,12 @@ export interface ReadFence {
   metadata: string[];
   /** Credential stores, denied after (and despite) every allow. */
   secrets: string[];
+  /**
+   * In-place runs (setConfinedRoot): the allowed tree, under each spelling, whose `.git` and `.env*`
+   * entries stay unreadable after every allow (Seatbelt: path regexes; bwrap: the entries found are
+   * masked). Absent or empty: nothing inside the allowed trees is hidden (worktree runs).
+   */
+  hiddenIn?: string[];
 }
 
 /**
@@ -288,8 +355,11 @@ export function readFence(cmd: string, cwd: string, writable: string[]): ReadFen
     .flatMap(spellings);
   const required: string[] = [];
   const optional: string[] = [];
+  const hiddenIn: string[] = [];
   for (const c of spellings(cwd)) {
     const root = enclosingRoot(c);
+    // In an in-place tree its .git and .env* entries stay hidden, whatever part of it is allowed.
+    if (explicitRootOf(c) !== null) hiddenIn.push(...spellings(root));
     const spans = runParents.find((p) => inside(p, root));
     if (forbidden(root) === null && spans !== undefined) {
       throw new Error(`sandbox: refusing to make ${root} readable: it contains ${spans}, which holds other runs' trees`);
@@ -341,7 +411,64 @@ export function readFence(cmd: string, cwd: string, writable: string[]): ReadFen
     allow: uniqAllow,
     metadata: [...new Set(uniqAllow.flatMap(ancestors))],
     secrets: secretStores(),
+    ...(hiddenIn.length > 0 ? { hiddenIn: [...new Set(hiddenIn)] } : {}),
   };
+}
+
+/** A path as a literal inside a Seatbelt (POSIX extended) regex. */
+export function regexLiteral(path: string): string {
+  return path.replace(/[\\.[\](){}*+?|^$]/g, '\\$&');
+}
+
+/** `ci('env')` -> `[eE][nN][vV]`: letter-case-insensitive, whatever the volume. */
+function ci(word: string): string {
+  return [...word].map((ch) => (/[a-z]/i.test(ch) ? `[${ch.toLowerCase()}${ch.toUpperCase()}]` : regexLiteral(ch))).join('');
+}
+
+/**
+ * The Seatbelt regexes that keep an in-place tree's secrets unreadable: any `.git` and any `.env*`
+ * entry (file or directory, and everything under it) at any depth of `root`. Seatbelt matches the
+ * canonical path of what is opened, so `..`, `//`, letter case and symlinks lead to the same check.
+ */
+export function hiddenPatterns(root: string): string[] {
+  const at = `^${regexLiteral(root)}/(.*/)?`;
+  return [`${at}\\.${ci('git')}(/.*)?$`, `${at}\\.${ci('env')}[^/]*(/.*)?$`];
+}
+
+/** Entries skipped while looking for `.env*` entries (dependencies; the .git directory is masked whole). */
+const ENV_WALK_SKIP = new Set(['node_modules', '.git']);
+/** At most this many directory entries are visited; a bigger tree fails closed (bwrapArgs throws). */
+export const ENV_WALK_LIMIT = 50_000;
+
+/**
+ * The `.git` and `.env*` entries (files or directories) under `root` to mask for bwrap, which has no
+ * path patterns: the `.git` entry at the top, and every `.env*` entry found walking the tree
+ * (symlinks not followed, node_modules skipped). Throws when the tree has more than ENV_WALK_LIMIT
+ * entries: an incomplete list would leave a secret readable.
+ */
+export function hiddenEntries(root: string, limit: number = ENV_WALK_LIMIT): string[] {
+  const out: string[] = [];
+  const git = join(root, '.git');
+  if (existsSync(git)) out.push(git);
+  const stack = [root];
+  let seen = 0;
+  while (stack.length > 0) {
+    const dir = stack.pop() ?? root;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      seen += 1;
+      if (seen > limit) throw new Error(`sandbox: ${root} has more than ${limit} entries; its .env files cannot all be found, so confined code is not run there`);
+      const p = join(dir, e.name);
+      if (/^\.env/i.test(e.name)) out.push(p);
+      else if (e.isDirectory() && !ENV_WALK_SKIP.has(e.name)) stack.push(p);
+    }
+  }
+  return out;
 }
 
 /** Number of -D parameters of each kind a Seatbelt profile takes (see seatbeltProfile). */
@@ -351,6 +478,8 @@ export interface ProfileCounts {
   allow: number;
   metadata: number;
   secrets: number;
+  /** Regexes of entries hidden inside an allowed in-place tree (hiddenPatterns); absent = 0. */
+  hidden?: number;
 }
 
 /** Name resolution (getaddrinfo / getpwuid), notifications and logging: all a confined toolchain needs. */
@@ -363,12 +492,12 @@ const MACH_ALLOWED = [
 
 /**
  * The Seatbelt profile. Paths are passed as -D parameters (W* writable, D* read-denied roots,
- * R* readable roots, M* metadata-only ancestors, S* credential stores), never interpolated.
- * The last matching rule wins, so the order is: deny reads under D, allow R, allow stat on M,
- * deny S again.
+ * R* readable roots, M* metadata-only ancestors, H* regexes of hidden entries of an in-place tree,
+ * S* credential stores), never interpolated. The last matching rule wins, so the order is: deny reads
+ * under D, allow R, allow stat on M, deny H, deny S again.
  */
 export function seatbeltProfile(c: ProfileCounts, network: SandboxPolicy['network']): string {
-  const list = (prefix: string, n: number, kind: 'subpath' | 'literal'): string =>
+  const list = (prefix: string, n: number, kind: 'subpath' | 'literal' | 'regex'): string =>
     Array.from({ length: n }, (_, i) => `(${kind} (param "${prefix}${i}"))`).join(' ');
   const devices = '(literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (subpath "/dev/fd")';
   const lines = [
@@ -379,6 +508,7 @@ export function seatbeltProfile(c: ProfileCounts, network: SandboxPolicy['networ
   if (c.deny > 0) lines.push(`(deny file-read* ${list('D', c.deny, 'subpath')})`);
   if (c.allow > 0) lines.push(`(allow file-read* ${list('R', c.allow, 'subpath')})`);
   if (c.metadata > 0) lines.push(`(allow file-read-metadata ${list('M', c.metadata, 'literal')})`);
+  if ((c.hidden ?? 0) > 0) lines.push(`(deny file-read* ${list('H', c.hidden ?? 0, 'regex')})`);
   if (c.secrets > 0) lines.push(`(deny file-read* ${list('S', c.secrets, 'subpath')})`);
   lines.push('(deny mach-lookup)');
   lines.push(`(allow mach-lookup ${MACH_ALLOWED.map((n) => `(global-name "${n}")`).join(' ')})`);
@@ -409,6 +539,11 @@ export function bwrapArgs(fence: ReadFence, writable: string[], cwd: string): st
     .filter((r) => existsSync(r))
     .sort((x, y) => x.split(sep).length - y.split(sep).length || x.localeCompare(y));
   for (const r of binds) a.push('--ro-bind', r, r);
+  // An in-place tree's .git and .env* entries, masked after the tree was bound back (as the secrets are).
+  for (const s of [...new Set((fence.hiddenIn ?? []).map((r) => realpathLoose(r)))].flatMap((r) => hiddenEntries(r))) {
+    if (statSync(s).isDirectory()) a.push('--tmpfs', s);
+    else a.push('--ro-bind', '/dev/null', s);
+  }
   for (const s of fence.secrets) {
     if (statSync(s).isDirectory()) a.push('--tmpfs', s);
     else a.push('--ro-bind', '/dev/null', s);
@@ -503,8 +638,10 @@ export function wrap(
     add('D', fence.deny);
     add('R', fence.allow);
     add('M', fence.metadata);
+    const hidden = [...new Set((fence.hiddenIn ?? []).map((r) => realpathLoose(r)))].flatMap(hiddenPatterns);
+    add('H', hidden);
     add('S', fence.secrets);
-    const counts = { writable: writable.length, deny: fence.deny.length, allow: fence.allow.length, metadata: fence.metadata.length, secrets: fence.secrets.length };
+    const counts = { writable: writable.length, deny: fence.deny.length, allow: fence.allow.length, metadata: fence.metadata.length, secrets: fence.secrets.length, ...(hidden.length > 0 ? { hidden: hidden.length } : {}) };
     return { cmd: SANDBOX_EXEC, args: [...params, '-p', seatbeltProfile(counts, policy.network), cmd, ...args], env: outEnv, mechanism };
   }
   // --unshare-net leaves only loopback (bwrap brings `lo` up), which is what both policies allow.
