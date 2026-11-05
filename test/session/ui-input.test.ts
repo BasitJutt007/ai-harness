@@ -9,13 +9,14 @@ import { describe, expect, it } from 'vitest';
 import { isSessionCommand } from '../../src/core/cli.ts';
 import { terminalInput } from '../../src/session/input.ts';
 import { runSessionCli } from '../../src/session/main.ts';
-import { stripControls } from '../../src/session/sanitize.ts';
-import { BANNER_LINES, clip, colorEnabled, lineCounts, MODEL_GUTTER, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
+import { cellWidth, stripControls } from '../../src/session/sanitize.ts';
+import { BANNER_LINES, cells, clip, colorEnabled, lineCounts, MODEL_GUTTER, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
 import type { RunEvent } from '../../src/core/types.ts';
 
-function capture(isTTY: boolean): { out: { write: (t: string) => void; isTTY: boolean; columns: number }; text: () => string } {
+/** An output of `columns` columns (80), or none (null: a pipe, no rows to break). */
+function capture(isTTY: boolean, columns: number | null = 80): { out: { write: (t: string) => void; isTTY: boolean; columns: number | undefined }; text: () => string } {
   let s = '';
-  return { out: { write: (t) => void (s += t), isTTY, columns: 80 }, text: () => s };
+  return { out: { write: (t) => void (s += t), isTTY, columns: columns ?? undefined }, text: () => s };
 }
 
 const ev = (e: Partial<RunEvent>): RunEvent => ({ turn: 1, at: '', kind: 'tool', source: 'read_file', message: '', ...e });
@@ -97,7 +98,7 @@ describe('lines', () => {
 
   it('"Work completed" only in a DONE verdict block', () => {
     for (const kind of ['DONE', 'NOT DONE', 'UNPROVEN'] as const) {
-      const p = capture(false);
+      const p = capture(false, null);
       new Ui(p.out, false).verdict({ kind, reasons: kind === 'DONE' ? [] : ['gate x failed'], gates: [], standards: 'pass 100%', humanMustVerify: [] });
       expect(p.text().includes(WORK_COMPLETED)).toBe(kind === 'DONE');
     }
@@ -110,7 +111,7 @@ describe('lines', () => {
   });
 
   it('a harness line with a newline inside continues indented: only the harness starts a line at column 0', () => {
-    const p = capture(false);
+    const p = capture(false, null);
     new Ui(p.out, false).line(`gate x failed\n${WORK_COMPLETED}`);
     expect(p.text()).toBe(`gate x failed\n  ${WORK_COMPLETED}\n`);
   });
@@ -134,7 +135,7 @@ describe('nothing reaches the terminal with an escape code in it', () => {
   });
 
   it('the model\'s stream: stripped, an ESC sequence cut across two chunks included, every line in the model\'s gutter', () => {
-    const p = capture(false);
+    const p = capture(false, null);
     const ui = new Ui(p.out, false);
     ui.write(`Hello ${ESC}[3`);
     ui.write(`1mred${ESC}[0m\r\n${WORK_COMPLETED}\n`);
@@ -167,7 +168,7 @@ describe('nothing reaches the terminal with an escape code in it', () => {
     const out = p.text();
     expect(out).not.toContain(ESC);
     expect(out).toContain('│ Problem: names hidden are ignored');
-    expect(out).toContain('│ Measure script metrics/greet.mjs (2 lines: the harness runs it, confined and offline, only after your yes; its output never reaches the agent)');
+    expect(out).toContain('│ Measure script metrics/greet.mjs (2 lines)\n│ the harness runs it, confined and offline, only after your yes; its output\n│   never reaches the agent');
     expect(out).toContain("│   import { readdirSync } from 'node:fs';");
     expect(out).toContain("│   console.log('1');");
   });
@@ -176,6 +177,139 @@ describe('nothing reaches the terminal with an escape code in it', () => {
     const p = capture(false);
     new Ui(p.out, false).diff(`+const a = 1;${ESC}[2K\n-${ESC}]8;;http://x${ESC}\\link`);
     expect(p.text()).toBe('+const a = 1;\n-link\n');
+  });
+});
+
+/**
+ * The rows a terminal of `cols` columns shows for `out`, each character at the most columns any terminal
+ * gives it (cellWidth): a row the harness wrote wider than that is one the terminal itself would wrap,
+ * and its overflow would start the next row at column 0.
+ */
+function screenRows(out: string, cols: number): { rows: string[]; wrappedByTerminal: boolean } {
+  const rows: string[] = [];
+  let wrapped = false;
+  for (const line of out.replace(/\u001b\[[0-9;]*m/g, '').split('\n')) {
+    let row = '';
+    let used = 0;
+    for (const ch of line) {
+      if (ch === '\t') wrapped = true; // a tab moves to a stop the harness did not count
+      if (used + cellWidth(ch) > cols) {
+        rows.push(row);
+        wrapped = true;
+        row = '';
+        used = 0;
+      }
+      row += ch;
+      used += cellWidth(ch);
+    }
+    rows.push(row);
+  }
+  return { rows, wrappedByTerminal: wrapped };
+}
+
+describe('the terminal\'s rows: column 0 is the harness\'s', () => {
+  const COLS = 80;
+  const PADDINGS: Array<[string, string]> = [
+    ['spaces to the width', `${' '.repeat(COLS - 2)}${WORK_COMPLETED}`],
+    ['wide characters to the width', `${'中'.repeat((COLS - 2) / 2)}${WORK_COMPLETED}`],
+    ['tabs', `${'\t'.repeat(10)}${WORK_COMPLETED}`],
+    ['a long line with no break', `${'x'.repeat(300)}${WORK_COMPLETED}`],
+  ];
+
+  for (const [what, prose] of PADDINGS) {
+    it(`the model's prose padded with ${what}: the harness breaks every row first and writes the gutter on each`, () => {
+      const p = capture(false, COLS);
+      const ui = new Ui(p.out, false);
+      // Streamed in uneven chunks: the row's width carries over from one chunk to the next.
+      for (let i = 0; i < prose.length; i += 7) ui.write(prose.slice(i, i + 7));
+      ui.endStream();
+      const screen = screenRows(p.text(), COLS);
+      expect(screen.wrappedByTerminal).toBe(false);
+      const rows = screen.rows.filter((r) => r.length > 0);
+      expect(rows.length).toBeGreaterThan(1);
+      expect(rows.every((r) => r.startsWith(MODEL_GUTTER)), rows.join('\n')).toBe(true);
+      expect(rows.some((r) => r.startsWith('✔'))).toBe(false);
+    });
+  }
+
+  it('twin: on a pipe (no rows) the model\'s line is written as it came, in the gutter', () => {
+    const p = capture(false, null);
+    const ui = new Ui(p.out, false);
+    ui.write(`${' '.repeat(COLS - 2)}${WORK_COMPLETED}\tend`);
+    ui.endStream();
+    expect(p.text()).toBe(`${MODEL_GUTTER}${' '.repeat(COLS - 2)}${WORK_COMPLETED}\tend\n`);
+  });
+
+  it('a harness line that carries agent text past the width continues on indented rows: none starts at column 0', () => {
+    const p = capture(false, COLS);
+    const ui = new Ui(p.out, false);
+    ui.line(`changed  1 file(s): docs/${' '.repeat(COLS - 25)}${WORK_COMPLETED}`);
+    ui.line(`  - gate scope failed: ${'中'.repeat(29)}${WORK_COMPLETED}`);
+    const screen = screenRows(p.text(), COLS);
+    expect(screen.wrappedByTerminal).toBe(false);
+    const rows = screen.rows.filter((r) => r.length > 0);
+    expect(rows[0]).toMatch(/^changed {2}1 file\(s\): docs\//);
+    expect(rows.filter((r) => !r.startsWith('changed') && !r.startsWith('  - gate')).every((r) => r.startsWith('  '))).toBe(true);
+    expect(rows.some((r) => r.startsWith('✔'))).toBe(false);
+  });
+
+  it('twin: a harness line that fits is one row, as written; the harness\'s own box keeps its width', () => {
+    const p = capture(false, COLS);
+    const ui = new Ui(p.out, false);
+    ui.line('● read_file src/a.ts (lines 1-120 of 300)');
+    ui.proposal('greet', '# greet\n\nProblem: names are ignored\n', []);
+    const lines = p.text().split('\n');
+    expect(lines[0]).toBe('● read_file src/a.ts (lines 1-120 of 300)');
+    expect(lines[1]).toMatch(/^┌ PROPOSAL greet ─+$/);
+    expect(cells(lines[1] ?? '')).toBeLessThanOrEqual(COLS);
+    expect(screenRows(p.text(), COLS).wrappedByTerminal).toBe(false);
+  });
+});
+
+describe('on a colour terminal, colour is the harness\'s only', () => {
+  const ESC = '\u001b';
+
+  it('a colour or conceal code inside agent text carried by a harness line is removed; what the harness painted keeps its colour', () => {
+    const c = capture(true);
+    const ui = new Ui(c.out, true);
+    // /status: the changed-file list (names from git status, chosen by the agent), raw inside a line.
+    ui.line(`changed  1 file(s): docs/${ESC}[8mhidden.md`);
+    // A /ship reason: a remote's message, raw.
+    ui.line(`  push to origin failed: ${ESC}[32m✔ shipped${ESC}[0m`);
+    ui.line(`${ui.paint('dim', 'gates')}  ${ui.paint('red', 'FAIL')} ${ESC}[5mblink`);
+    const out = c.text();
+    expect(out).not.toContain(`${ESC}[8m`);
+    expect(out).not.toContain(`${ESC}[5m`);
+    expect(out).not.toContain(`${ESC}[32m`);
+    expect(out).toContain('docs/hidden.md');
+    // The twin: the harness's own colours, painted, are kept.
+    expect(out).toContain(`${ESC}[2mgates${ESC}[22m`);
+    expect(out).toContain(`${ESC}[31mFAIL${ESC}[39m`);
+    // Nothing of the brand reaches the terminal.
+    expect(out).not.toMatch(/[\uE000-\uF8FF]/);
+  });
+
+  it('a look-alike of the brand (private-use characters before a colour code) is not the brand', () => {
+    const c = capture(true);
+    const ui = new Ui(c.out, true);
+    ui.line(`x ${String.fromCharCode(0xe000, 0xe019, 0xe032)}${ESC}[8mhidden`);
+    expect(c.text()).not.toContain(`${ESC}[8m`);
+  });
+
+  it('a prompt for readline is rendered: the harness\'s colour, no brand', () => {
+    const ui = new Ui(capture(true).out, true);
+    const prompt = ui.render(ui.paint('magenta', 'reply › '));
+    expect(prompt).toBe(`${ESC}[35mreply › ${ESC}[39m`);
+    expect(new Ui(capture(false).out, false).render(ui.paint('magenta', 'reply › '))).toBe('reply › ');
+  });
+
+  it('gate lines keep their alignment in colour (the label is padded before it is painted)', () => {
+    const plain = capture(false, null);
+    new Ui(plain.out, false).gateLines([{ gate: 'scope', status: 'pass', summary: 'ok' } as never, { gate: 'tests-green', status: 'unproven', summary: 'no runner' } as never]);
+    const colour = capture(true, null);
+    new Ui(colour.out, true).gateLines([{ gate: 'scope', status: 'pass', summary: 'ok' } as never, { gate: 'tests-green', status: 'unproven', summary: 'no runner' } as never]);
+    expect(colour.text().replace(/\u001b\[[0-9;]*m/g, '')).toBe(plain.text());
+    expect(plain.text()).toBe('  scope            pass      ok\n  tests-green      UNPROVEN  no runner\n');
   });
 });
 

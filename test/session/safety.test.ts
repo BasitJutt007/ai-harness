@@ -29,7 +29,7 @@ import type { RunContext } from '../../src/core/types.ts';
 import { sessionSystemPrompt } from '../../src/session/prompt.ts';
 import { initialCopyHook, pruneSessionCopies, runSession } from '../../src/session/session.ts';
 import { ScriptedInput } from '../../src/session/input.ts';
-import { calls, fakeRemote, git, ledgerTypes, proposal, realRegistry, registryWithGates, runScripted, SessionDriver, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
+import { BASELINE, calls, fakeRemote, git, ledgerTypes, proposal, realRegistry, registryWithGates, runScripted, SessionDriver, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
 
 let r: WebRepo;
 beforeEach(() => {
@@ -268,6 +268,33 @@ describe('run-start copies: lazy, and pruned', () => {
     expect(readdirSync(sessions).filter((s) => existsSync(join(sessions, s, 'initial'))).sort()).toEqual(['s2', 's3', 's4', 's5', 's6', 's7']);
     // Records stay; only the copies go.
     expect(existsSync(join(sessions, 's0', 'run.json'))).toBe(true);
+  });
+});
+
+describe('what a whole session prints on a colour terminal', () => {
+  it('a file name the agent chose with a conceal code in it reaches /status without the code; the harness\'s colours stay (the twin), and no brand leaks', async () => {
+    let out = '';
+    const name = 'docs/\u001b[8mhidden.md';
+    const res = await runSession({
+      cwd: r.repo,
+      input: new ScriptedInput(['fix the greeting', 'yes', '/status'], 'tty'),
+      output: { write: (t) => void (out += t), isTTY: true, columns: 120 },
+      env: { ...r.env, NO_COLOR: '', TERM: 'xterm-256color' },
+      exec: coreExec,
+      registry: await registryWithGates(),
+      driver: new SessionDriver([calls(['propose_contract', proposal()]), calls(['write_file', { path: name, content: 'x\n' }]), text('ok')]),
+      measureBaseline: async () => BASELINE,
+      isolation: { mode: 'auto', mechanism: 'sandbox-exec', policy: 'test' },
+      sessionId: `colour${Date.now().toString(36)}`,
+    });
+    expect(res.code).toBe(0);
+    expect(existsSync(join(r.repo, name))).toBe(true);
+    const status = out.split('\n').find((l) => l.startsWith('changed ')) ?? '';
+    expect(status).toContain('docs/hidden.md');
+    expect(status).not.toContain('\u001b[8m');
+    expect(out).not.toContain('\u001b[8m');
+    expect(out).toMatch(/\u001b\[32m(?:\u001b\[1m)?✔ approved|\u001b\[1m\u001b\[32m✔ approved/);
+    expect(out).not.toMatch(/[\uE000-\uF8FF]/);
   });
 });
 

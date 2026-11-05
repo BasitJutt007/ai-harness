@@ -87,7 +87,7 @@ describe.skipIf(detectMechanism() === 'none' && isolationInfo().mode === 'auto')
     expect(out).toMatch(/● read_file src\/greeting\.ts/);
     expect(out).toMatch(/┌ PROPOSAL greeting-trim/);
     expect(out).toMatch(/│ Stakeholder: Demo Owner/);
-    expect(out).toMatch(/│ Measure script metrics\/greeting-trim\.mjs \(3 lines: the harness runs it, confined and offline, only after your yes/);
+    expect(out).toMatch(/│ Measure script metrics\/greeting-trim\.mjs \(3 lines\)\n│ the harness runs it, confined and offline, only after your yes/);
     expect(out).toContain("│   const files = readdirSync('test').filter((f) => f.startsWith('greeting'));");
     expect(out).toMatch(/│ before value: read by the harness at development only after your yes/);
     expect(out).toMatch(/✔ approved: Demo Owner approved proposal seq 1 in a typed turn/);

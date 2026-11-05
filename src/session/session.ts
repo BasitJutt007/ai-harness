@@ -365,7 +365,8 @@ class Session {
     this.banner();
     for (;;) {
       const approval = this.pending !== null;
-      const prompt = approval ? this.ui.paint('magenta', 'reply › ') : this.ui.paint('cyan', '› ');
+      // readline writes the prompt itself: rendered (the harness's colour only), never a painted string as it is.
+      const prompt = this.ui.render(approval ? this.ui.paint('magenta', 'reply › ') : this.ui.paint('cyan', '› '));
       const l = await this.input.read(prompt, { approval });
       if (l.kind === 'eof') break;
       if (l.kind === 'interrupt') {
