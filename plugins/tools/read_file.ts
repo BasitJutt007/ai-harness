@@ -17,6 +17,9 @@ export default defineTool({
   async run(input, ctx) {
     const r = toApiRel(ctx.workspace, input.path);
     if (!r.ok) return { ok: false, summary: `read_file: ${r.reason}` };
+    // A workspace over the owner's checkout (visibility 'git') never shows .env*, .git or git-ignored paths.
+    const hidden = (await ctx.workspace.hidden?.(r.rel)) ?? null;
+    if (hidden !== null) return { ok: false, summary: `read_file: ${hidden}` };
     const content = await ctx.workspace.read(r.rel);
     if (content === null) return { ok: false, summary: `read_file: ${r.rel} does not exist (use list_files to find paths)` };
     const lines = splitLines(content);

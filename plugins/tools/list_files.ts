@@ -17,6 +17,9 @@ export default defineTool({
     if (input.dir !== undefined && input.dir.trim() !== '' && input.dir.trim() !== '.') {
       const r = toApiRel(ctx.workspace, input.dir);
       if (!r.ok) return { ok: false, summary: `list_files: ${r.reason}` };
+      // Over the owner's checkout a hidden directory is refused by name (its files are never listed either).
+      const hidden = (await ctx.workspace.hidden?.(r.rel)) ?? null;
+      if (hidden !== null) return { ok: false, summary: `list_files: ${hidden}` };
       dir = r.rel;
     }
     const pattern = input.pattern ?? '**/*';

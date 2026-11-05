@@ -28,6 +28,7 @@ export default defineTool({
       test = (line) => line.includes(input.pattern);
     }
 
+    // Over the owner's checkout (visibility 'git') list() holds only git-visible files, never a .env* or .git path.
     const files = (await ctx.workspace.list([input.glob ?? '**/*.ts'])).sort();
     const hits: string[] = [];
     const fullHits: string[] = [];

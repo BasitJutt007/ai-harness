@@ -130,7 +130,58 @@ function realpathLoose(p: string): string {
 
 const LIST_IGNORE = ['**/node_modules/**', '**/.git/**', '**/dist/**'];
 
-export function createWorkspace(repoRoot: string, rootRel: string): Workspace {
+/** A `.env*` path: any segment (file or directory) whose name starts with `.env`, in any letter case. */
+export function isEnvPath(rel: string): boolean {
+  return rel.split('/').some((seg) => /^\.env/i.test(seg));
+}
+
+/** A path inside a `.git` directory (or the `.git` file of a worktree), in any letter case. */
+export function isGitPath(rel: string): boolean {
+  return rel.split('/').some((seg) => seg.toLowerCase() === '.git');
+}
+
+export interface WorkspaceOptions {
+  /**
+   * Which files the read tools may see (Workspace.visibility). Default 'all': a run's own worktree,
+   * every file. 'git' (opt-in, a workspace over the owner's real checkout): list() returns only
+   * git-visible files (`git ls-files --cached --others --exclude-standard`, so files created since
+   * appear) and never a `.env*` or `.git` path, and hidden() names why any other path is refused.
+   */
+  visibility?: 'all' | 'git';
+}
+
+/**
+ * Why the read tools must not show `rel` in a git-visibility workspace, or null. `.env*` paths are
+ * refused even when tracked (they hold secrets more often than not); `.git` internals always; any
+ * other path when `git check-ignore` (index respected, so a tracked file is never "ignored") says it
+ * is ignored. A check that fails is a refusal: what git cannot classify is not shown.
+ */
+export async function gitHiddenReason(root: string, rel: string): Promise<string | null> {
+  if (isEnvPath(rel)) return `${rel} is an environment file (.env*): it can hold secrets, so it is never shown, even when tracked`;
+  if (isGitPath(rel)) return `${rel} is inside .git: repository internals are never shown`;
+  const r = await exec('git', ['-C', root, 'check-ignore', '-q', '--', rel], { cwd: root, timeoutMs: 30_000 });
+  if (r.code === 1) return null;
+  if (r.code === 0) return `${rel} is ignored by git (.gitignore): ignored files (dependencies, build output, local config) are not shown`;
+  return `could not tell whether ${rel} is ignored by git (git check-ignore exited ${String(r.code)}: ${(r.stderr || r.stdout).trim().split('\n')[0] ?? ''}), so it is not shown`;
+}
+
+/** Git-visible files under `root` (tracked, or untracked and not ignored), root-relative, unsorted; throws when git fails. */
+async function gitVisible(root: string): Promise<string[]> {
+  const r = await exec('git', ['-C', root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.'], { cwd: root, timeoutMs: 60_000 });
+  if (r.code !== 0) throw new Error(`git ls-files failed in ${root} (exit ${String(r.code)}): ${(r.stderr || r.stdout).trim()}`);
+  return [...new Set(r.stdout.split('\0').filter((p) => p.length > 0))];
+}
+
+/** A regular file, or a symlink to one (what the glob lists with onlyFiles); a deleted tracked path or a submodule is not. */
+async function isListableFile(abs: string): Promise<boolean> {
+  const st = await lstat(abs).catch(() => null);
+  if (st === null) return false;
+  if (st.isFile()) return true;
+  return st.isSymbolicLink() && ((await stat(abs).catch(() => null))?.isFile() ?? false);
+}
+
+export function createWorkspace(repoRoot: string, rootRel: string, opts: WorkspaceOptions = {}): Workspace {
+  const visibility = opts.visibility ?? 'all';
   const repoAbs = resolve(repoRoot);
   const root = resolve(repoAbs, rootRel);
   if (!isInside(repoAbs, root)) throw new Error(`API root "${rootRel}" escapes the repository`);
@@ -153,6 +204,9 @@ export function createWorkspace(repoRoot: string, rootRel: string): Workspace {
     repoRoot: repoAbs,
     root,
     rootRel: normRootRel,
+    ...(visibility === 'git'
+      ? { visibility, hidden: (rel: string): Promise<string | null> => gitHiddenReason(root, rel) }
+      : {}),
     resolve(rel: string): string {
       return checkRel(rel);
     },
@@ -216,6 +270,16 @@ export function createWorkspace(repoRoot: string, rootRel: string): Workspace {
         if (pat.startsWith('/') || pat.split('/').includes('..')) throw new Error(`pattern escapes the API root: ${pat}`);
       }
       if (!existsSync(root)) return [];
+      if (visibility === 'git') {
+        const wanted = picomatch(patterns, { dot: true });
+        const skipped = picomatch(LIST_IGNORE, { dot: true });
+        const out: string[] = [];
+        for (const f of await gitVisible(root)) {
+          if (!wanted(f) || skipped(f) || isEnvPath(f) || isGitPath(f)) continue;
+          if (await isListableFile(join(root, f))) out.push(f);
+        }
+        return out.sort();
+      }
       const found = await glob(patterns, {
         cwd: root,
         ignore: LIST_IGNORE,
