@@ -176,7 +176,7 @@ export async function closeItem(opts: CloseOptions): Promise<CloseResult> {
 
   const measure = status.contract.parse?.measure ?? null;
   if (measure === null) return finish();
-  facts.after = await readMetric({ harnessRoot: opts.harnessRoot, repoDir: opts.repoDir, ref: mergeSha, measure, exec: run, label: opts.slug });
+  facts.after = await readMetric({ harnessRoot: opts.harnessRoot, itemsRoot: opts.root, repoDir: opts.repoDir, ref: mergeSha, measure, exec: run, label: opts.slug });
   const result = finish();
   if (!result.ok || facts.after.ok !== true || facts.before === null) return result;
 

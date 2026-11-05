@@ -95,7 +95,7 @@ export interface MetricSpec {
 }
 
 export interface MeasureSpec {
-  /** Harness-relative script path, always metrics/<file>.mjs. */
+  /** Items-root-relative script path, always metrics/<file>.mjs (measure.ts measureScriptPath finds it). */
   script: string;
   args: string[];
   /** The command as written. */
@@ -161,11 +161,14 @@ export function parseMetric(text: string): MetricSpec | { error: string } {
 const MEASURE_SCRIPT_RE = /^metrics\/[a-z0-9][a-z0-9._-]*\.mjs$/;
 const MEASURE_ARG_RE = /^[A-Za-z0-9._=:,/@+-]+$/;
 
-/** Measure: `node metrics/<file>.mjs [args]` only: a script in the harness repo, plain arguments, no shell. */
+/**
+ * Measure: `node metrics/<file>.mjs [args]` only: a script in metrics/ under the items root (the harness
+ * root in file mode, the session's state directory in a session), plain arguments, no shell.
+ */
 export function parseMeasure(text: string): MeasureSpec | { error: string } {
   const t = text.trim().replace(/^`+|`+$/g, '').trim();
   const parts = t.split(/\s+/).filter((p) => p.length > 0);
-  const err = { error: 'Measure must be `node metrics/<script>.mjs [args]`: a script in this harness\'s metrics/ directory with plain arguments (no shell syntax)' };
+  const err = { error: 'Measure must be `node metrics/<script>.mjs [args]`: a script in the metrics/ directory of the items root with plain arguments (no shell syntax)' };
   if (parts[0] !== 'node' || parts.length < 2) return err;
   const script = parts[1] ?? '';
   if (!MEASURE_SCRIPT_RE.test(script) || script.includes('..')) return err;

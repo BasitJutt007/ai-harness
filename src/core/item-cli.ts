@@ -190,7 +190,7 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
           for (const d of lint.details) out(`  ${d}`);
           return 1;
         }
-        const before = await readMetric({ harnessRoot, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug });
+        const before = await readMetric({ harnessRoot, itemsRoot: root, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug });
         if (!before.ok) {
           out(`refused: the before value could not be read: ${before.reason}`);
           return 1;

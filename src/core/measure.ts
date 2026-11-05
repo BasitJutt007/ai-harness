@@ -5,11 +5,12 @@
  *
  * - The commit gets its own detached worktree under .harness/measure/, with the clone's node_modules
  *   linked in, so the reading sees exactly that commit's files and nothing of a working tree.
- * - The script lives in this harness's metrics/ directory, which no model tool can write (path-guard
- *   confines model writes to the run's worktree). It runs confined (no network, writes only to its
- *   own temp directory), from a copy in that temp directory because the sandbox never lets confined
- *   code read the harness root; the reading records the script's sha256, so a before and an after
- *   taken with different scripts are never compared.
+ * - The script lives in metrics/ under the items root (measureScriptPath): the harness root in file
+ *   mode, a session's state directory in a session. No model tool can write either (path-guard confines
+ *   model writes to the run's workspace). It runs confined (no network, writes only to its own temp
+ *   directory), from a copy in that temp directory because the sandbox never lets confined code read
+ *   the harness root; the reading records the script's sha256, so a before and an after taken with
+ *   different scripts are never compared.
  * - It runs twice. Both runs must exit 0 and print the same number as their last stdout line; a
  *   non-zero exit, a timeout, a non-numeric last line or two different numbers is no reading (fail
  *   closed), and the reason says which.
@@ -40,6 +41,11 @@ export function lastNumber(stdout: string): number | null {
 
 export interface ReadMetricOptions {
   harnessRoot: string;
+  /**
+   * The items root whose metrics/ holds the script (docs/contracts/ and items/ live there too).
+   * Default: the harness root (file mode, where the two are the same directory).
+   */
+  itemsRoot?: string;
   /** The target repository clone (its refs and node_modules are used, its working tree never). */
   repoDir: string;
   /** What to read at: a commit sha or a ref such as origin/harness-test. */
@@ -50,11 +56,28 @@ export interface ReadMetricOptions {
   label: string;
 }
 
+/**
+ * The Measure script's file: `<root>/<script>` for the first root in `roots` (the items root, then the
+ * harness root when it is another directory) where it is a file. Every candidate must lie inside that
+ * root's metrics/ directory (the contract's Measure already names metrics/<file>.mjs, and parseMeasure
+ * refuses `..`); a script found under neither root is no reading.
+ */
+export function measureScriptPath(script: string, roots: readonly string[]): { ok: true; path: string } | { ok: false; reason: string } {
+  const candidates = [...new Set(roots.map((r) => resolve(r)))];
+  for (const root of candidates) {
+    const path = resolve(root, script);
+    if (!path.startsWith(`${resolve(root, 'metrics')}/`)) return { ok: false, reason: `Measure script ${script} is outside metrics/` };
+    if (existsSync(path) && statSync(path).isFile()) return { ok: true, path };
+  }
+  const where = candidates.length > 1 ? `in metrics/ under the items root (${candidates[0] ?? ''}) or the harness` : 'in the harness';
+  return { ok: false, reason: `Measure script ${script} does not exist ${where}` };
+}
+
 export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult> {
   const run = opts.exec ?? coreExec;
-  const script = resolve(opts.harnessRoot, opts.measure.script);
-  if (!script.startsWith(`${resolve(opts.harnessRoot, 'metrics')}/`)) return { ok: false, reason: `Measure script ${opts.measure.script} is outside metrics/` };
-  if (!existsSync(script) || !statSync(script).isFile()) return { ok: false, reason: `Measure script ${opts.measure.script} does not exist in the harness` };
+  const found = measureScriptPath(opts.measure.script, [opts.itemsRoot ?? opts.harnessRoot, opts.harnessRoot]);
+  if (!found.ok) return { ok: false, reason: found.reason };
+  const script = found.path;
 
   const rev = await run('git', ['-C', opts.repoDir, 'rev-parse', '--verify', `${opts.ref}^{commit}`], { cwd: opts.repoDir });
   if (rev.code !== 0) return { ok: false, reason: `cannot resolve ${opts.ref} in ${opts.repoDir}: ${(rev.stderr || rev.stdout).trim()}` };
