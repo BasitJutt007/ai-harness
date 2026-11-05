@@ -19,11 +19,28 @@
 import { createHash } from 'node:crypto';
 import ts from 'typescript';
 import { join, posix } from 'node:path';
-import { activeLayout, isSourcePath, isTestPath, isTestSupportPath, underRoot } from './target.ts';
+import { activeLayout, isSourcePath, isTestPath, isTestSupportPath, isWebLayout, scriptGlobs, underRoot } from './target.ts';
 import type { TargetLayout } from './target.ts';
 import type { TestMap, Workspace } from './types.ts';
 
 const TS_RE = /\.[cm]?tsx?$/;
+const WEB_CODE_RE = /\.(?:[cm]?[jt]sx?|vue|svelte)$/;
+
+/** A code file name of `layout` (TypeScript; in a web layout JavaScript and components too), declarations included. */
+function codeName(f: string, layout: TargetLayout): boolean {
+  return (isWebLayout(layout) ? WEB_CODE_RE : TS_RE).test(f);
+}
+
+/**
+ * The parser mode of a file: JSX in .tsx and .jsx (and in .js, which may hold JSX), plain TypeScript
+ * otherwise. Parsing JSX as TypeScript reads `<App />` as a type assertion and loses what follows it.
+ */
+export function scriptKindOf(fileName: string): ts.ScriptKind {
+  if (/\.tsx$/i.test(fileName)) return ts.ScriptKind.TSX;
+  if (/\.jsx$/i.test(fileName)) return ts.ScriptKind.JSX;
+  if (/\.[cm]?js$/i.test(fileName)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
 
 /** A runnable test file of the active layout (see the module comment; target.ts isTestPath takes an explicit one). */
 export function isTestFile(rel: string): boolean {
@@ -62,8 +79,9 @@ export function graphFiles(listed: string[]): string[] {
 }
 
 export async function buildTestMap(ws: Workspace, layout: TargetLayout = activeLayout()): Promise<TestMap> {
-  // Every .ts file under the API root: governed files outside the source roots are covered through imports too.
-  const files = graphFiles(await ws.list(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx']));
+  // Every script under the API root (TypeScript; JavaScript too in a web layout): governed files outside the
+  // source roots are covered through imports too.
+  const files = graphFiles(await ws.list(scriptGlobs(layout)));
   const graph = await importGraph(files, (f) => ws.read(f), layout);
   const coverage: Record<string, string[]> = {};
   for (const test of files.filter((f) => isTestPath(f, layout))) coverage[test] = closure(test, graph.edges, layout);
@@ -80,7 +98,11 @@ export function createTestMap(coverage: Record<string, string[]>, existing?: Rea
   return {
     coverage,
     testsFor(source: string): string[] {
-      const src = normalizeSource(source);
+      // A JavaScript source the graph knows (a web layout lists and covers .js files) is itself; otherwise
+      // `x.js` names `x.ts`, TypeScript's convention for relative imports.
+      const clean = cleanSource(source);
+      const known = existing?.has(clean) === true || tests.some((t) => (coverage[t] ?? []).includes(clean));
+      const src = known ? clean : normalizeSource(source);
       const direct = tests.filter((t) => (coverage[t] ?? []).includes(src));
       if (direct.length > 0) return direct;
       if (existing?.has(src) === true) return [];
@@ -92,7 +114,7 @@ export function createTestMap(coverage: Record<string, string[]>, existing?: Rea
 
 /** Every module specifier a file references: import/export-from, import x = require(), require(lit), dynamic import(lit), vi.mock(lit)/jest.mock(lit) & friends. */
 export function importSpecifiers(fileName: string, text: string): string[] {
-  const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, scriptKindOf(fileName));
   const out: string[] = [];
   const visit = (node: ts.Node): void => {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined
@@ -133,26 +155,39 @@ function isViCall(call: ts.CallExpression, names: string[]): boolean {
 /**
  * Resolve a relative specifier from `from` (API-relative) to an API-relative path.
  * `./x.js` → `./x.ts`; `./x` → `./x.ts` or `./x/index.ts` (whichever exists, else `./x.ts`).
- * Non-relative specifiers and paths escaping the API root → null.
+ * A JavaScript file that exists is itself (a web layout lists them), and a JavaScript importer's missing
+ * target stays JavaScript (`./x` → `./x.js`). Non-relative specifiers and paths escaping the API root → null.
  */
 export function resolveSpecifier(from: string, spec: string, existing: ReadonlySet<string>): string | null {
   if (!spec.startsWith('./') && !spec.startsWith('../')) return null;
-  return resolveJoined(posix.normalize(posix.join(posix.dirname(from), spec)), existing);
+  return resolveJoined(posix.normalize(posix.join(posix.dirname(from), spec)), existing, isJsName(from));
 }
 
-/** Extension resolution of an API-relative module path (shared by relative and aliased specifiers). */
-function resolveJoined(joined: string, existing: ReadonlySet<string>): string | null {
+/** A JavaScript file name (.js .jsx .mjs .cjs). */
+function isJsName(f: string): boolean {
+  return /\.[cm]?jsx?$/.test(f);
+}
+
+/**
+ * Extension resolution of an API-relative module path (shared by relative and aliased specifiers). Only a
+ * web layout's graph holds JavaScript files, so in a TypeScript layout the JavaScript branches never match.
+ */
+function resolveJoined(joined: string, existing: ReadonlySet<string>, jsImporter = false): string | null {
   if (joined.startsWith('../') || joined === '..' || posix.isAbsolute(joined)) return null;
   const jsMatch = /\.([cm]?)js(x?)$/.exec(joined);
   if (jsMatch !== null) {
+    if (existing.has(joined)) return joined;
     const stem = joined.slice(0, -jsMatch[0].length);
     const tsx = `${stem}.${jsMatch[1] ?? ''}tsx`;
-    return jsMatch[2] === 'x' || existing.has(tsx) ? tsx : `${stem}.${jsMatch[1] ?? ''}ts`;
+    const tsFile = `${stem}.${jsMatch[1] ?? ''}ts`;
+    if (jsImporter && !existing.has(tsx) && !existing.has(tsFile)) return joined;
+    return jsMatch[2] === 'x' || existing.has(tsx) ? tsx : tsFile;
   }
   if (/\.[cm]?tsx?$/.test(joined)) return joined;
   if (/\.[a-z0-9]+$/i.test(joined) && !existing.has(`${joined}.ts`)) return joined; // e.g. ./data.json
-  for (const c of [`${joined}.ts`, `${joined}.tsx`, `${joined}/index.ts`, `${joined}/index.tsx`]) if (existing.has(c)) return c;
-  return `${joined}.ts`;
+  const exts = ['.ts', '.tsx', '/index.ts', '/index.tsx', '.js', '.jsx', '.mjs', '.cjs', '/index.js', '/index.jsx'];
+  for (const c of exts.map((e) => `${joined}${e}`)) if (existing.has(c)) return c;
+  return jsImporter ? `${joined}.js` : `${joined}.ts`;
 }
 
 /**
@@ -251,7 +286,7 @@ function reachable(start: string, edges: ReadonlyMap<string, string[]>): Set<str
 export function reachesSource(target: string, edges: ReadonlyMap<string, string[]>, layout: TargetLayout = activeLayout()): boolean {
   // Non-TypeScript modules (e.g. a JSON file) count when they sit under an explicit source root, as src/ always did.
   const governed = (f: string): boolean => isSourcePath(f, layout)
-    || (!TS_RE.test(f) && layout.sourceRoots.some((r) => r !== '.' && underRoot(f, r)));
+    || (!codeName(f, layout) && layout.sourceRoots.some((r) => r !== '.' && underRoot(f, r)));
   return [...reachable(target, edges)].some(governed);
 }
 
@@ -260,17 +295,21 @@ function closure(start: string, edges: ReadonlyMap<string, string[]>, layout: Ta
   const seen = reachable(start, edges);
   seen.delete(start);
   return [...seen].filter((f) => !isTestPath(f, layout) && !isTestSupportPath(f, layout)
-    && (TS_RE.test(f) || layout.sourceRoots.some((r) => r !== '.' && underRoot(f, r)))).sort();
+    && (codeName(f, layout) || layout.sourceRoots.some((r) => r !== '.' && underRoot(f, r)))).sort();
+}
+
+function cleanSource(p: string): string {
+  return posix.normalize(p.replace(/\\/g, '/')).replace(/^\.\//, '');
 }
 
 function normalizeSource(p: string): string {
-  const clean = posix.normalize(p.replace(/\\/g, '/')).replace(/^\.\//, '');
-  return clean.replace(/\.([cm]?)js$/, '.$1ts');
+  return cleanSource(p).replace(/\.([cm]?)js$/, '.$1ts');
 }
 
 /** Basename without extension and without a trailing .test/.spec. */
 function stem(p: string): string {
-  return posix.basename(p).replace(/\.[cm]?[jt]s$/, '').replace(/\.(test|spec)$/, '');
+  // .tsx/.jsx too: a new `App.tsx` is found by `App.test.tsx` (the extension used to stay on and match nothing).
+  return posix.basename(p).replace(/\.[cm]?[jt]sx?$|\.(vue|svelte)$/, '').replace(/\.(test|spec)$/, '');
 }
 
 // ───────────────────────────── test cases ─────────────────────────────
@@ -720,7 +759,7 @@ export function locatedRed(s: StaticTestCase, messages: string[], file: string, 
  * that reaches) src/, and whether its assertions only compare constants.
  */
 export function staticTestCases(fileName: string, content: string, r: CaseResolver): StaticTestCase[] {
-  const sf = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const sf = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, scriptKindOf(fileName));
 
   // Modules the file vi.mock()s: bindings imported from them are mocks, not source.
   const mocked = new Set<string>();

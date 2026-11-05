@@ -32,7 +32,7 @@
  * the case asserts a VALUE from source, not only its presence (toBeDefined, toBeTruthy, typeof ...).
  */
 import ts from 'typescript';
-import { defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
+import { activeLayout, codeGlobs, defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import type { DifferentialRun, TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
 import { isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
 
@@ -152,7 +152,7 @@ export default defineGate({
     let deleted: Set<string>;
     let map: TestMap;
     try {
-      const files = await ctx.workspace.list(['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx']);
+      const files = await ctx.workspace.list(codeGlobs(activeLayout()));
       const changedSet = new Set<string>();
       deleted = new Set<string>();
       for (const f of files.filter(isGovernedSource)) {

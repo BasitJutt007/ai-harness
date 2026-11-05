@@ -20,6 +20,8 @@ export type * from './types.ts';
 export { isTestFile, isTestSupport } from './testmap.ts';
 /** The governed API's layout (source roots, test dirs, runner globs; see target.ts). */
 export { activeLayout, isSourcePath, linkDependencies, matchesTestPattern, sourceRootsLabel, suggestTestPath, targetLayout, underAny } from './target.ts';
+/** Which files are code the harness governs (TypeScript; JavaScript and components too in an in-place web layout). */
+export { codeGlobs, isCodePath, isGovernedCodePath, isWebLayout, scriptGlobs } from './target.ts';
 export type { TargetLayout, TargetProfile } from './target.ts';
 
 /** A scaffold template's manifest (templates/<name>/harness.template.json), or null. */
@@ -32,7 +34,7 @@ export { createTsFence } from './ts-fence.ts';
 export type { TsFence } from './ts-fence.ts';
 
 /** The import graph over the API's .ts files (see testmap.ts), for plugins that reason about what imports what. */
-export { graphFiles, importGraph, importSpecifiers, resolveImport } from './testmap.ts';
+export { graphFiles, importGraph, importSpecifiers, resolveImport, scriptKindOf } from './testmap.ts';
 
 /** Backlog items (assignment 02): the contract, the stakeholder's typed yes, and their verdicts (see items.ts). */
 export { approvalVerdict, classifyReply, contractVerdict, itemPaths, itemStatus, parseContract, readLedger } from './items.ts';

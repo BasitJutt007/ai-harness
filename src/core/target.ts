@@ -66,6 +66,13 @@ export interface TargetLayout {
   /** Jest testRegex patterns (matched against '/' + the API-relative path). */
   testRegex: string[];
   resolution: ResolutionConfig;
+  /**
+   * Which file kinds are code the harness traces and governs. Absent or 'typescript' (file mode, every
+   * worktree run): TypeScript only, the 01 behaviour. 'web' (an in-place run in any web repository, see
+   * inPlaceProfile): JavaScript too (.js .jsx .mjs .cjs, tests named *.test|spec.js(x)), and single-file
+   * components (.vue .svelte) as governed source a test can import (their own imports are not traced).
+   */
+  codeKinds?: 'typescript' | 'web';
 }
 
 export type RunnerKind = 'vitest' | 'jest' | 'node-test';
@@ -121,6 +128,40 @@ const TS_SOURCE_RE = /\.[cm]?tsx?$/;
 const DECL_RE = /\.d\.[cm]?tsx?$/;
 /** The harness's own test file shape; runner globs only add to it inside dedicated test dirs. */
 const TEST_NAME_RE = /\.(test|spec)\.[cm]?tsx?$/;
+/** A web layout's scripts: TypeScript and JavaScript, with or without JSX, ESM or CommonJS. */
+const WEB_SCRIPT_RE = /\.[cm]?[jt]sx?$/;
+/** A web layout's test file shape: TEST_NAME_RE for JavaScript too. */
+const WEB_TEST_NAME_RE = /\.(test|spec)\.[cm]?[jt]sx?$/;
+/** Single-file components: governed logic a test can import, whose own imports the harness does not trace. */
+const COMPONENT_RE = /\.(vue|svelte)$/;
+
+const TS_GLOBS = ['**/*.ts', '**/*.mts', '**/*.cts', '**/*.tsx'];
+const WEB_SCRIPT_GLOBS = [...TS_GLOBS, '**/*.js', '**/*.mjs', '**/*.cjs', '**/*.jsx'];
+
+/** Whether `layout` is a web layout (codeKinds 'web': an in-place run). */
+export function isWebLayout(layout: TargetLayout = active): boolean {
+  return layout.codeKinds === 'web';
+}
+
+/** Script files the import graph is built over: TypeScript, and in a web layout JavaScript too. */
+export function isScriptPath(rel: string, layout: TargetLayout = active): boolean {
+  return (isWebLayout(layout) ? WEB_SCRIPT_RE : TS_SOURCE_RE).test(rel) && !DECL_RE.test(rel);
+}
+
+/** Code the harness governs: scripts, and in a web layout single-file components too (no declarations). */
+export function isCodePath(rel: string, layout: TargetLayout = active): boolean {
+  return isScriptPath(rel, layout) || (isWebLayout(layout) && COMPONENT_RE.test(rel));
+}
+
+/** Globs of the script files of `layout` (the import graph's nodes). */
+export function scriptGlobs(layout: TargetLayout = active): string[] {
+  return isWebLayout(layout) ? [...WEB_SCRIPT_GLOBS] : [...TS_GLOBS];
+}
+
+/** Globs of every code file of `layout` (scripts, plus components in a web layout). */
+export function codeGlobs(layout: TargetLayout = active): string[] {
+  return isWebLayout(layout) ? [...WEB_SCRIPT_GLOBS, '**/*.vue', '**/*.svelte'] : [...TS_GLOBS];
+}
 /** Directory names that conventionally hold only tests (and their helpers). */
 const TEST_DIR_RE = /^(tests?|__tests__|specs?|e2e|integration|__integration__|__mocks__)$/i;
 /** Tooling config files: never governed source, never "the code a test exercises". */
@@ -225,8 +266,8 @@ export function matchesTestPattern(rel: string, layout: TargetLayout = active): 
  * dedicated test dirs into a test, so a broad include cannot un-govern source.
  */
 export function isTestPath(rel: string, layout: TargetLayout = active): boolean {
-  if (TEST_NAME_RE.test(rel)) return true;
-  return TS_SOURCE_RE.test(rel) && !DECL_RE.test(rel) && underAny(rel, layout.testSupportRoots) && matchesTestPattern(rel, layout);
+  if ((isWebLayout(layout) ? WEB_TEST_NAME_RE : TEST_NAME_RE).test(rel)) return true;
+  return isScriptPath(rel, layout) && underAny(rel, layout.testSupportRoots) && matchesTestPattern(rel, layout);
 }
 
 /** Test support: any other file inside a dedicated test dir (helpers, fixtures). */
@@ -234,10 +275,21 @@ export function isTestSupportPath(rel: string, layout: TargetLayout = active): b
   return underAny(rel, layout.testSupportRoots) && !isTestPath(rel, layout);
 }
 
-/** Governed source a test can exercise: TypeScript under a source root, not a test, test support, declaration or tooling config. */
+/**
+ * Governed source a test can exercise: code (TypeScript; in a web layout JavaScript and components too)
+ * under a source root, not a test, test support, declaration or tooling config.
+ */
 export function isSourcePath(rel: string, layout: TargetLayout = active): boolean {
-  return TS_SOURCE_RE.test(rel) && !DECL_RE.test(rel) && !isToolingConfig(rel) && underAny(rel, layout.sourceRoots)
+  return isCodePath(rel, layout) && !isToolingConfig(rel) && underAny(rel, layout.sourceRoots)
     && !isTestPath(rel, layout) && !isTestSupportPath(rel, layout);
+}
+
+/**
+ * Code the observed-red rule governs: every code file (isCodePath) that is neither a runnable test nor
+ * test support, wherever it lies (a broad scope may allow scripts/x.ts outside the source roots).
+ */
+export function isGovernedCodePath(rel: string, layout: TargetLayout = active): boolean {
+  return isCodePath(rel, layout) && !isTestPath(rel, layout) && !isTestSupportPath(rel, layout);
 }
 
 /** Short label of the source roots for messages, e.g. "src/" or "lib/, scripts/" or "the API root". */
@@ -253,15 +305,17 @@ export function sourceRootsLabel(layout: TargetLayout = active): string {
  */
 export function suggestTestPath(source: string, layout: TargetLayout = active): string {
   const clean = cleanRel(source);
-  const base = posix.basename(clean).replace(/\.[cm]?tsx?$/, '');
+  const base = posix.basename(clean).replace(/\.[cm]?[jt]sx?$|\.(vue|svelte)$/, '');
   const name = base === 'index' ? posix.basename(posix.dirname(clean)) || 'index' : base;
   const dir = posix.dirname(clean);
+  // A web layout's JavaScript source gets a JavaScript test (a .jsx component a .test.jsx); everything else .ts.
+  const ext = isWebLayout(layout) ? (/\.(jsx?)$/.exec(clean)?.[1] ?? 'ts') : 'ts';
   const inDir = (d: string, file: string): string => (d === '.' ? file : `${d}/${file}`);
   const candidates: string[] = [];
-  for (const root of layout.testSupportRoots) candidates.push(inDir(root, `${name}.test.ts`), inDir(root, `${name}.spec.ts`));
-  candidates.push(inDir(dir, `${name}.test.ts`), inDir(dir, `${name}.spec.ts`), inDir(dir, `__tests__/${name}.test.ts`));
-  for (const root of layout.testRoots) candidates.push(inDir(root, `${name}.test.ts`), inDir(root, `${name}.spec.ts`));
-  return candidates.find((c) => matchesTestPattern(c, layout) && isTestPath(c, layout)) ?? `test/${name}.test.ts`;
+  for (const root of layout.testSupportRoots) candidates.push(inDir(root, `${name}.test.${ext}`), inDir(root, `${name}.spec.${ext}`));
+  candidates.push(inDir(dir, `${name}.test.${ext}`), inDir(dir, `${name}.spec.${ext}`), inDir(dir, `__tests__/${name}.test.${ext}`));
+  for (const root of layout.testRoots) candidates.push(inDir(root, `${name}.test.${ext}`), inDir(root, `${name}.spec.${ext}`));
+  return candidates.find((c) => matchesTestPattern(c, layout) && isTestPath(c, layout)) ?? `test/${name}.test.${ext}`;
 }
 
 /**
@@ -1014,16 +1068,20 @@ export interface LayoutResult {
  * Work out where the API keeps its source and tests (see the module comment). Deterministic and
  * static: config modules are parsed, never executed.
  */
-export async function analyzeLayout(apiRoot: string): Promise<LayoutResult> {
+export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {}): Promise<LayoutResult> {
   const root = resolve(apiRoot);
   const notes: string[] = [];
   const pkg = readPackageJson(root);
   const tsInfo = readTsconfig(root);
   if (tsInfo !== null) notes.push(...tsInfo.errors.map((e) => `tsconfig: ${e}`));
+  // A web layout (an in-place run in any web repository) learns from JavaScript files too: a JavaScript
+  // repository's test dirs and test files are where its .js tests are. File mode: TypeScript, as in 01.
+  const web = opts.web === true;
   const all = existsSync(root)
-    ? (await glob(['**/*.{ts,mts,cts,tsx,js,mjs,cjs}'], { cwd: root, ignore: IGNORE_DIRS, dot: false, followSymbolicLinks: false }).catch(() => [])).map(toPosix).sort()
+    ? (await glob([web ? '**/*.{ts,mts,cts,tsx,js,mjs,cjs,jsx}' : '**/*.{ts,mts,cts,tsx,js,mjs,cjs}'], { cwd: root, ignore: IGNORE_DIRS, dot: false, followSymbolicLinks: false }).catch(() => [])).map(toPosix).sort()
     : [];
-  const tsFiles = all.filter((f) => TS_SOURCE_RE.test(f) && !DECL_RE.test(f));
+  const tsFiles = all.filter((f) => (web ? WEB_SCRIPT_RE : TS_SOURCE_RE).test(f) && !DECL_RE.test(f));
+  const testName = web ? WEB_TEST_NAME_RE : TEST_NAME_RE;
 
   // Resolution: tsconfig paths/baseUrl, then the runner config's aliases.
   const resolution = emptyResolution();
@@ -1050,7 +1108,7 @@ export async function analyzeLayout(apiRoot: string): Promise<LayoutResult> {
     }
   }
 
-  const testFilesByName = tsFiles.filter((f) => TEST_NAME_RE.test(f));
+  const testFilesByName = tsFiles.filter((f) => testName.test(f));
   const runner = chooseRunner(root, pkg, testFilesByName);
   let runnerConfig: RunnerConfig;
   let globs: string[];
@@ -1079,7 +1137,7 @@ export async function analyzeLayout(apiRoot: string): Promise<LayoutResult> {
       return [];
     }
   });
-  const testMatch = (rel: string): boolean => TEST_NAME_RE.test(rel) || globMatch(rel) || regexes.some((r) => r.test(`/${rel}`));
+  const testMatch = (rel: string): boolean => testName.test(rel) || globMatch(rel) || regexes.some((r) => r.test(`/${rel}`));
   const testFiles = tsFiles.filter(testMatch);
 
   // Candidate test dirs: the static base of each glob, plus the outermost conventionally named dir of each test file.
@@ -1155,6 +1213,7 @@ export async function analyzeLayout(apiRoot: string): Promise<LayoutResult> {
     testGlobs: globs,
     testRegex: regex,
     resolution,
+    ...(web ? { codeKinds: 'web' as const } : {}),
   };
   return { layout, runner, runnerConfig, entries, pkg, tsInfo, testFiles, bareImports: [...bareImports].sort(), notes };
 }
@@ -1174,9 +1233,9 @@ export const TRACKED_DEPENDENCIES = ['express', 'zod', 'vitest', 'typescript', '
  * Compute the profile of the API at `apiRoot`. `repoRoot` is the checkout the API lives in (the
  * worktree top), which decides whether a package resolves from the target or the harness.
  */
-export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: string; harnessRoot: string }): Promise<TargetProfile> {
+export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: string; harnessRoot: string; inPlace?: boolean }): Promise<TargetProfile> {
   const apiRoot = resolve(opts.apiRoot);
-  const analysis = await analyzeLayout(apiRoot);
+  const analysis = await analyzeLayout(apiRoot, { web: opts.inPlace === true });
   const { layout, pkg } = analysis;
   const notes = [...analysis.notes];
   const unsupported: string[] = [];
@@ -1237,6 +1296,17 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   };
 }
 
+/**
+ * The profile an in-place run (a session in the owner's checkout, any web repository) works with: the
+ * computed profile with a web layout (codeKinds 'web': JavaScript and .vue/.svelte components are code
+ * the harness traces and governs, see TargetLayout). File mode never calls it. Idempotent. A profile
+ * computed with `inPlace: true` also learned its test dirs from JavaScript tests; one computed without
+ * keeps its TypeScript-only test dirs (a JavaScript helper there then needs a red: fail closed).
+ */
+export function inPlaceProfile(p: TargetProfile): TargetProfile {
+  return p.codeKinds === 'web' ? p : { ...p, codeKinds: 'web' };
+}
+
 /** The 4-6 line preflight summary printed before the first model turn. */
 export function formatProfile(p: TargetProfile): string[] {
   const dep = (n: string): string => {
@@ -1268,6 +1338,7 @@ export function profileRecord(p: TargetProfile): Record<string, unknown> {
     testRegex: p.testRegex,
     resolution: { tsconfig: p.resolution.tsconfig, baseUrl: p.resolution.baseUrl, paths: p.resolution.paths, aliases: p.resolution.aliases },
     entryCandidates: p.entryCandidates,
+    ...(p.codeKinds === 'web' ? { codeKinds: 'web' } : {}),
     dependencies: Object.fromEntries(Object.entries(p.dependencies).map(([k, d]) => [k, { version: d.version, origin: d.origin, declared: d.declared }])),
     zod: p.zod,
     notes: p.notes,

@@ -24,7 +24,7 @@ import { deserializeState, newRunId, newRunState, RunStore, serializeState } fro
 import { isolationHonesty, isolationInfo, isolationUnavailable, setSandboxMode } from './sandbox.ts';
 import { saveInitial } from './initial.ts';
 import { createServices } from './services.ts';
-import { computeTargetProfile, defaultScopeAllow, formatProfile, profileRecord, type TargetProfile } from './target.ts';
+import { computeTargetProfile, defaultScopeAllow, formatProfile, inPlaceProfile, profileRecord, type TargetProfile } from './target.ts';
 import { loadTask, parseTask } from './task.ts';
 import { TEMPLATE_MANIFEST, templateManifest, type TemplateManifest } from './template.ts';
 import { describeTestBaseline, measureTestBaseline } from './test-baseline.ts';
@@ -128,6 +128,9 @@ export function buildContext(opts: {
 }): RunContext {
   const { state, store } = opts;
   const run = opts.exec ?? exec;
+  // In place (a session in any web repository) the layout is a web layout; idempotent when the caller
+  // already used targetProfile(ws, { inPlace: true }). File mode keeps the profile as computed.
+  const profile = opts.inPlace !== undefined && opts.profile !== undefined ? inPlaceProfile(opts.profile) : opts.profile;
   const services = createServices({
     ws: opts.ws,
     registry: opts.registry,
@@ -139,13 +142,13 @@ export function buildContext(opts: {
     baseSha: opts.run.baseSha,
     runDir: opts.run.runDir,
     checkOptions: opts.config.checkOptions,
-    ...(opts.profile !== undefined ? { profile: opts.profile } : {}),
+    ...(profile !== undefined ? { profile } : {}),
   });
   return {
     run: opts.run,
     task: opts.task,
     ...(opts.item !== undefined ? { item: opts.item } : {}),
-    ...(opts.profile !== undefined ? { stack: opts.profile.stack } : {}),
+    ...(profile !== undefined ? { stack: profile.stack } : {}),
     ...(opts.inPlace !== undefined ? { inPlace: opts.inPlace } : {}),
     workspace: opts.ws,
     state,
@@ -170,10 +173,16 @@ export function buildContext(opts: {
   };
 }
 
-/** The profile of the API in the worktree (target.ts). Never throws: a profile that cannot be computed is reported, and the template layout stays. */
-export async function targetProfile(ws: Workspace): Promise<{ profile?: TargetProfile; error?: string }> {
+/**
+ * The profile of the API in the worktree (target.ts). Never throws: a profile that cannot be computed is
+ * reported, and the template layout stays. `inPlace`: the profile of a session in the owner's checkout
+ * (inPlaceProfile: a web layout), so its preflight lines and run record say what the run will use.
+ */
+export async function targetProfile(ws: Workspace, opts: { inPlace?: boolean } = {}): Promise<{ profile?: TargetProfile; error?: string }> {
   try {
-    return { profile: await computeTargetProfile({ apiRoot: ws.root, repoRoot: ws.repoRoot, harnessRoot: HARNESS_ROOT }) };
+    const inPlace = opts.inPlace === true;
+    const profile = await computeTargetProfile({ apiRoot: ws.root, repoRoot: ws.repoRoot, harnessRoot: HARNESS_ROOT, inPlace });
+    return { profile: inPlace ? inPlaceProfile(profile) : profile };
   } catch (e) {
     return { error: `target profile could not be computed (template layout assumed): ${errMsg(e)}` };
   }

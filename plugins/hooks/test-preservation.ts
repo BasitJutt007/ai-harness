@@ -22,7 +22,7 @@
  */
 import { posix } from 'node:path';
 import ts from 'typescript';
-import { defineHook } from '../../src/core/plugin-api.ts';
+import { defineHook, scriptKindOf } from '../../src/core/plugin-api.ts';
 import type { HookVerdict, RunContext, RunState, ToolCallInfo } from '../../src/core/plugin-api.ts';
 import { toApiRel } from '../lib/path-policy.ts';
 import { postImage } from '../lib/post-image.ts';
@@ -147,7 +147,8 @@ function callbackOf(call: ts.CallExpression): Callback | undefined {
 
 /** Parse a vitest file into its cases, hooks, suites and mock calls (static analysis). */
 function parseTestFile(fileName: string, content: string): ParsedFile {
-  const sf = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  // Parsed in the file's own mode: a .tsx/.jsx test's JSX read as TypeScript would lose the cases after it.
+  const sf = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, scriptKindOf(fileName));
   const print = (n: ts.Node): string => printer.printNode(ts.EmitHint.Unspecified, n, sf);
   /** Comparison form: the node's tokens joined by single spaces (comments and layout never count). */
   const norm = (n: ts.Node): string => {
