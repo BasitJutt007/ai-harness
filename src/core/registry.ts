@@ -204,6 +204,7 @@ export async function loadRegistry(config: HarnessConfig, harnessRoot: string): 
   const reg: RegistryView = { drivers: [], tools: [], hooks: [], gates: [], checks: [], errors: [] };
   const seen = new Map<string, string>(); // `${kind}:${name}` -> file
   const disabled = new Set(config.disabled);
+  const checkIds = new Set<string>(); // every check id a plugin defines, disabled ones included
   for (const d of config.pluginDirs) {
     const unsafe = agentWritablePluginDir(config, harnessRoot, d);
     if (unsafe !== null) reg.errors.push({ file: d, error: unsafe });
@@ -240,6 +241,7 @@ export async function loadRegistry(config: HarnessConfig, harnessRoot: string): 
       }
       const p = v.plugin;
       const nm = pluginName(p);
+      if (p.kind === 'check') checkIds.add(nm);
       if (disabled.has(nm) || disabled.has(`${p.kind}:${nm}`)) return;
       const key = `${p.kind}:${nm}`;
       const prior = seen.get(key);
@@ -250,6 +252,14 @@ export async function loadRegistry(config: HarnessConfig, harnessRoot: string): 
       seen.set(key, file);
       addRecord(reg, p, file, hash);
     });
+  }
+  // Options for a check id no plugin defines (a typo, a check renamed or removed) would silently leave
+  // the real check without its options: a load error, like a broken plugin. A disabled check still counts.
+  for (const id of Object.keys(config.checkOptions ?? {})) {
+    if (!checkIds.has(id)) {
+      const known = [...checkIds].sort().join(', ') || '(none)';
+      reg.errors.push({ file: 'harness.config.json', error: `checkOptions["${id}"] names no check plugin (check ids found: ${known}): options for a misspelled id never reach the check they were meant for` });
+    }
   }
   return reg;
 }

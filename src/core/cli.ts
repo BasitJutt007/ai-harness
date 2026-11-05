@@ -749,6 +749,23 @@ export async function doctorIsolation(out: Out): Promise<boolean> {
   }
 }
 
+/**
+ * doctor's plugin line: every plugin loads and the config names only registered checks (registry.errors
+ * carries both). Not ok on any load error. `load` is a test seam (default the harness's own).
+ */
+export async function doctorPlugins(out: Out, load: () => Promise<{ config: HarnessConfig; registry: RegistryView }> = loadAll): Promise<{ ok: boolean; pluginDirs: string[]; driverFiles: string[] }> {
+  try {
+    const { config, registry } = await load();
+    const counts = `${registry.drivers.length} drivers, ${registry.tools.length} tools, ${registry.hooks.length} hooks, ${registry.gates.length} gates, ${registry.checks.length} checks`;
+    out(`plugins   ${registry.errors.length === 0 ? 'ok  ' : 'FAIL'}  ${counts}`);
+    for (const e of registry.errors) out(`    ${e.file}: ${e.error}`);
+    return { ok: registry.errors.length === 0, pluginDirs: config.pluginDirs, driverFiles: registry.drivers.map((r) => r.file) };
+  } catch (e) {
+    out(`plugins   FAIL  ${errMsg(e)}`);
+    return { ok: false, pluginDirs: ['plugins'], driverFiles: [] };
+  }
+}
+
 async function cmdDoctor(out: Out): Promise<number> {
   let ok = true;
   const major = Number(process.versions.node.split('.')[0]);
@@ -756,20 +773,9 @@ async function cmdDoctor(out: Out): Promise<number> {
   ok &&= nodeOk;
   out(`node      ${nodeOk ? 'ok  ' : 'FAIL'}  ${process.version}${nodeOk ? '' : ' (need >= 22)'}`);
 
-  let pluginDirs: string[] = ['plugins'];
-  let driverFiles: string[] = [];
-  try {
-    const { config, registry } = await loadAll();
-    pluginDirs = config.pluginDirs;
-    driverFiles = registry.drivers.map((r) => r.file);
-    const counts = `${registry.drivers.length} drivers, ${registry.tools.length} tools, ${registry.hooks.length} hooks, ${registry.gates.length} gates, ${registry.checks.length} checks`;
-    out(`plugins   ${registry.errors.length === 0 ? 'ok  ' : 'FAIL'}  ${counts}`);
-    for (const e of registry.errors) out(`    ${e.file}: ${e.error}`);
-    if (registry.errors.length > 0) ok = false;
-  } catch (e) {
-    ok = false;
-    out(`plugins   FAIL  ${errMsg(e)}`);
-  }
+  const plugins = await doctorPlugins(out);
+  ok &&= plugins.ok;
+  const { pluginDirs, driverFiles } = plugins;
 
   const vocab = providerVocabulary(HARNESS_ROOT, driverFiles);
   const hits = scanForLeaks(HARNESS_ROOT, vocab.terms, { pluginDirs, driverFiles });
