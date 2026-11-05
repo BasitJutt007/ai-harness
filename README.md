@@ -23,7 +23,9 @@ CLI. Everything else is a plugin that registers by being dropped into `plugins/`
 
 Assignment 02 sits on top of the 01 harness: `git log main..feat/assignment-02` starts at `f24e226`,
 after the 01 merge (`85fe886`). It encodes how I work as hooks and checks, adds the briefing's three
-gates, and runs items from my own backlog through them.
+gates, and puts items from my own backlog through them. The harness code names no codebase: what a
+check needs to know about a repository comes from configuration, and real items live outside this
+repository ([below](#where-real-items-live)).
 
 | Deliverable | Where |
 |---|---|
@@ -96,11 +98,14 @@ Each row of [docs/workflow.md](docs/workflow.md) names its mechanism. The ones a
 - **Stacks I work in:** NestJS + Prisma + Jest and React + Vite are profiled next to Express. Each
   check and gate declares its stacks, and the prompt names the stack and the approved contract.
 - **Routes without the access check** (`nest-route-guard`) and **removed or moved routes** (`route-lock`).
+  Which decorators mark a route admin-only or public is the repository's own: `harness.config.json`
+  `checkOptions["nest-route-guard"]` (`adminDecorators`, `publicDecorators`) names them, and without
+  them the rule is n/a with the reason, never a pass.
 - **Type checks that check nothing** (`repo-typecheck` expands solution-style tsconfigs), **lint that
   lints no TypeScript** (`repo-lint`, n/a with the reason), and **builds broken only at deploy** (`vite-build`).
 - **Unbounded queries** (`prisma-unbounded`: every findMany has a take or selects by id).
 - **Large PRs that draw review round-trips** (`diff-budget`: a brownfield change over 400 changed lines,
-  or the task's `limits.maxDiffLines`, is refused; my blocked PRs had a median of 487).
+  or the task's `limits.maxDiffLines`, is refused; the evidence for the budget is in docs/workflow.md).
 - **Commits and PRs that say nothing:** the contract's Commit header is checked at propose and at
   ship. The repository's own commitlint runs confined, and a config that accepts "patch" is reported
   as checking nothing. The repository's PR template is filled from the contract, and a box is ticked
@@ -342,7 +347,7 @@ Further additions beyond a plain harness:
 - **Known limits:** spec coverage and Contract Lock model Express only. NestJS and React + Vite targets
   get route, type, lint, build and query checks, not the live probes. No Claude run has reached DONE
   yet: the claude driver has answered live requests on claude-haiku-4-5-20251001, and the full re-run
-  waits for the users-api contract's yes. The jest adapter (the backend's runner) has not yet run
+  waits for the users-api contract's yes. The jest adapter has not yet run
   inside a governed run. The Linux sandbox is tested without a live Linux host. The ledger is tamper-evident against hand edits, not against someone who
   recomputes its hash chain: the operator is trusted. Prices in `models.prices` are upper bounds from
   public listings, not the provider's bill.
