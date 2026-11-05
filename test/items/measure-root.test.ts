@@ -1,7 +1,7 @@
 /**
  * The Measure script lives in metrics/ under the ITEMS ROOT, so a session can keep metrics/<slug>.mjs
  * in its state directory outside the harness repo. In file mode the items root is the harness root,
- * and a test items root without its own script still finds the harness's (the file-mode location).
+ * and only the file-mode CLI may fall back to the harness's metrics/ (opt-in, harnessMetrics).
  * Every existing rule stays: the script must lie inside metrics/ of the root it is read from.
  */
 import { execFileSync } from 'node:child_process';
@@ -86,6 +86,16 @@ describe('readMetric with an items root', () => {
     const r = await readMetric({ harnessRoot: harness, itemsRoot: items, repoDir: repo, ref: 'HEAD', measure: spec('node metrics/count.mjs'), label: 'count' });
     expect(r.ok, r.ok ? '' : r.reason).toBe(true);
     if (r.ok) expect(r.reading.value).toBe(7);
+  });
+
+  it("an items root of its own never borrows the harness's script; the opt-in (file-mode CLI) does", async () => {
+    writeFileSync(join(harness, 'metrics', 'count.mjs'), COUNT);
+    const r = await readMetric({ harnessRoot: harness, itemsRoot: items, repoDir: repo, ref: 'HEAD', measure: spec('node metrics/count.mjs'), label: 'count' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe(`Measure script metrics/count.mjs does not exist in metrics/ under the items root (${items})`);
+    const opted = await readMetric({ harnessRoot: harness, itemsRoot: items, repoDir: repo, ref: 'HEAD', measure: spec('node metrics/count.mjs'), label: 'count', harnessMetrics: true });
+    expect(opted.ok, opted.ok ? '' : opted.reason).toBe(true);
+    if (opted.ok) expect(opted.reading.value).toBe(7);
   });
 
   it('without an items root it reads the harness metrics/ as before', async () => {

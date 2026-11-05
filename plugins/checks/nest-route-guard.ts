@@ -10,11 +10,13 @@
  *
  * Which decorators those are differs per codebase, so the names come from harness.config.json
  * `checkOptions["nest-route-guard"]`: `adminDecorators` and `publicDecorators` (identifiers, without
- * the @). With neither configured the rule is n/a and says why: it cannot tell a guarded route from an
- * open one, so it never passes one. With only public decorators configured, an admin-facing route is
- * UNPROVEN (it is known to need an admin check the rule cannot see); an empty public list means the
- * codebase has no decorator that opens a route. Options it cannot read (a typo'd key, a value that is
- * not a list of identifiers) make it UNPROVEN.
+ * the @). An admin-facing route the rule cannot judge (no adminDecorators configured) is UNPROVEN,
+ * route by route; everything it can judge is still judged. So:
+ *   - neither configured: every admin-facing route is UNPROVEN; the rule is n/a (and says why) only
+ *     when the repository has no admin-facing route at all. It never passes a route it cannot judge.
+ *   - only public decorators: a route carrying one still FAILS; admin-facing routes are UNPROVEN.
+ *   - only admin decorators: an empty public list means the codebase has no decorator that opens a route.
+ * Options it cannot read (a typo'd key, a value that is not a list of identifiers) make it UNPROVEN.
  *
  * The habit it encodes (docs/workflow.md, What breaks): routes shipped without the access check they
  * needed, caught in review more than once.
@@ -23,7 +25,7 @@
 import { z } from 'zod';
 import { defineCheck } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
-import { decoratorOf, isAdminFacing, routesOf } from '../lib/nest-routes.ts';
+import { decoratorOf, isAdminFacing, routesOf, type NestRoute } from '../lib/nest-routes.ts';
 
 const RULE = 'nest-route-guard';
 const PROJECT = '(project)';
@@ -68,11 +70,19 @@ function list(names: readonly string[]): string {
   return names.map((n) => `@${n}()`).join(' or ');
 }
 
+/** Why an admin-facing route cannot be judged with these options (no adminDecorators configured). */
+function unjudgedReason(r: NestRoute, more: number, configured: boolean): string {
+  const which = `${r.method} ${r.path} (${r.handler})${more > 0 ? ` and ${more} more admin-facing route(s)` : ''}`;
+  return configured
+    ? `${which} ${more > 0 ? 'are' : 'is'} admin-facing, but no adminDecorators are configured in ${CONFIG_KEY}`
+    : `${which} ${more > 0 ? 'are' : 'is'} admin-facing, but ${NOT_CONFIGURED}`;
+}
+
 async function run(ctx: CheckContext): Promise<CheckFinding[]> {
   const parsed = parseOptions(ctx.options);
   if (!parsed.ok) return [{ rule: RULE, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: parsed.reason }];
   const { adminDecorators: admin, publicDecorators: open } = parsed.options;
-  if (admin.length === 0 && open.length === 0) return [{ rule: RULE, file: PROJECT, status: 'pass', units: { passed: 0, total: 0 }, violations: [], naReason: NOT_CONFIGURED }];
+  const configured = admin.length > 0 || open.length > 0;
   const findings: CheckFinding[] = [];
   for (const file of ctx.sourceFiles) {
     const text = await ctx.read(file);
@@ -84,22 +94,39 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
       findings.push({ rule: RULE, file, status: 'skip', units: { passed: 0, total: routes.length }, violations: [], skipReason: `${unknown[0]?.handler ?? 'a route'}: ${unknown[0]?.unknown ?? 'unreadable path'}` });
       continue;
     }
-    const unjudged = admin.length === 0 ? routes.find(isAdminFacing) : undefined;
-    if (unjudged !== undefined) {
-      findings.push({ rule: RULE, file, status: 'skip', units: { passed: 0, total: routes.length }, violations: [], skipReason: `${unjudged.method} ${unjudged.path} (${unjudged.handler}) is admin-facing, but no adminDecorators are configured in ${CONFIG_KEY}` });
-      continue;
-    }
+    // Each route is judged when the options say enough about it; an admin-facing one without admin names is not.
+    const judged: NestRoute[] = [];
+    const unjudged: NestRoute[] = [];
     const violations: Violation[] = [];
     for (const r of routes) {
       const at = `${file}:${r.line}:1`;
       const pub = decoratorOf(r, open);
-      if (pub !== null) violations.push({ location: at, message: `${r.method} ${r.path} (${r.handler}) is @${pub}: callable without authentication` });
-      else if (isAdminFacing(r) && decoratorOf(r, admin) === null) violations.push({ location: at, message: `${r.method} ${r.path} (${r.handler}) is admin-facing without ${list(admin)}: any signed-in user can call it` });
+      if (pub !== null) {
+        judged.push(r);
+        violations.push({ location: at, message: `${r.method} ${r.path} (${r.handler}) is @${pub}: callable without authentication` });
+      } else if (isAdminFacing(r)) {
+        if (admin.length === 0) {
+          unjudged.push(r);
+          continue;
+        }
+        judged.push(r);
+        if (decoratorOf(r, admin) === null) violations.push({ location: at, message: `${r.method} ${r.path} (${r.handler}) is admin-facing without ${list(admin)}: any signed-in user can call it` });
+      } else if (configured) {
+        judged.push(r); // with no names at all, nothing says whether a plain route is open: not counted
+      }
     }
-    const bad = new Set(violations.map((v) => v.location));
-    const passed = routes.filter((r) => !bad.has(`${file}:${r.line}:1`)).length;
-    findings.push({ rule: RULE, file, status: violations.length === 0 ? 'pass' : 'fail', units: { passed, total: routes.length }, violations });
+    if (judged.length > 0) {
+      const bad = new Set(violations.map((v) => v.location));
+      const passed = judged.filter((r) => !bad.has(`${file}:${r.line}:1`)).length;
+      findings.push({ rule: RULE, file, status: violations.length === 0 ? 'pass' : 'fail', units: { passed, total: judged.length }, violations });
+    }
+    const first = unjudged[0];
+    if (first !== undefined) {
+      findings.push({ rule: RULE, file, status: 'skip', units: { passed: 0, total: unjudged.length }, violations: [], skipReason: unjudgedReason(first, unjudged.length - 1, configured) });
+    }
   }
+  // Nothing configured and no admin-facing route anywhere: there is nothing this rule could judge.
+  if (!configured && findings.length === 0) return [{ rule: RULE, file: PROJECT, status: 'pass', units: { passed: 0, total: 0 }, violations: [], naReason: NOT_CONFIGURED }];
   return findings;
 }
 

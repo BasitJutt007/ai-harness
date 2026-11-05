@@ -15,11 +15,12 @@
  *
  * The lock is a file created exclusively (written to a temp file, then hard-linked into place, so it
  * never exists half-written) holding the owner's pid and start time. A lock whose pid is dead is stale
- * and is taken over; a lock held by a live process refuses the second session and names the file. A
- * lock that cannot be read is treated as held (fail closed): the refusal says which file to remove.
+ * and is taken over (one taker at a time, through an exclusive <lock>.takeover file); a lock held by a
+ * live process refuses the second session and names the file. A lock that cannot be read is treated
+ * as held (fail closed): the refusal says which file to remove.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { linkSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { exec as coreExec } from './exec.ts';
@@ -126,6 +127,29 @@ function readLock(path: string): { text: string } | null {
   }
 }
 
+function errCode(e: unknown): unknown {
+  return typeof e === 'object' && e !== null && 'code' in e ? (e as { code: unknown }).code : undefined;
+}
+
+/** The token in a takeover file, or null. */
+function parseTakeover(text: string): string | null {
+  try {
+    const v: unknown = JSON.parse(text);
+    return typeof v === 'object' && v !== null && typeof (v as { token?: unknown }).token === 'string' ? (v as { token: string }).token : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The lock file's text, 'missing' (ENOENT: released in between), or 'unreadable' (anything else: a directory, no permission). */
+function lockState(path: string): { text: string } | 'missing' | 'unreadable' {
+  try {
+    return { text: readFileSync(path, 'utf8') };
+  } catch (e) {
+    return errCode(e) === 'ENOENT' ? 'missing' : 'unreadable';
+  }
+}
+
 export interface AcquireOptions {
   /** Default: this process. */
   pid?: number;
@@ -136,8 +160,11 @@ export interface AcquireOptions {
 }
 
 /**
- * Take the checkout's lock, or say who holds it. A lock whose pid is dead is taken over (moved aside
- * under a unique name first, so two sessions racing for the same stale lock cannot both win).
+ * Take the checkout's lock, or say who holds it. A lock whose pid is dead is taken over, one taker at a
+ * time: the taker first creates `<lock>.takeover` exclusively, re-reads the lock under it, and removes
+ * the lock only when it is still the very one judged stale (same token). Without that, a slow taker
+ * could move aside the fresh lock a faster one had just taken, and both sessions would run. A second
+ * taker meanwhile is refused (try again), and so is a lock that changed between the two reads.
  */
 export function acquireCheckoutLock(locksDir: string, repoTop: string, opts: AcquireOptions = {}): LockResult {
   mkdirSync(locksDir, { recursive: true });
@@ -162,32 +189,35 @@ export function acquireCheckoutLock(locksDir: string, repoTop: string, opts: Acq
         if (opts.releaseOnExit !== false) process.once('exit', onExit);
         return { ok: true, path, release, ...(tookOver !== undefined ? { tookOver } : {}) };
       } catch (e) {
-        if (!(typeof e === 'object' && e !== null && 'code' in e && (e as { code: unknown }).code === 'EEXIST')) throw e;
+        if (errCode(e) !== 'EEXIST') throw e;
       }
-      const held = readLock(path);
-      if (held === null) continue; // released in between: try again
+      const unreadable = { ok: false as const, path, reason: `the session lock ${path} cannot be read; if no session is running in ${record.checkout}, remove it` };
+      const held = lockState(path);
+      if (held === 'missing') continue; // released in between: try again
+      if (held === 'unreadable') return unreadable;
       const holder = parseLock(held.text);
-      if (holder === null) return { ok: false, path, reason: `the session lock ${path} cannot be read; if no session is running in ${record.checkout}, remove it` };
+      if (holder === null) return unreadable;
       if (alive(holder.pid)) return { ok: false, path, holder, reason: `a session is already running in ${record.checkout} (pid ${holder.pid}, started ${holder.startedAt}); one session per checkout (lock: ${path})` };
-      // Stale: move it aside, and check that what moved is the lock judged stale (not a fresh one taken meanwhile).
-      const aside = `${path}.stale-${pid}-${randomBytes(4).toString('hex')}`;
+      // Stale. Only the holder of the takeover file may remove it, and only if it is still the lock judged stale.
+      const takeover = `${path}.takeover`;
       try {
-        renameSync(path, aside);
-      } catch {
-        continue;
+        writeFileSync(takeover, `${JSON.stringify({ pid, token: record.token })}\n`, { flag: 'wx' });
+      } catch (e) {
+        if (errCode(e) !== 'EEXIST') throw e;
+        return { ok: false, path, reason: `another session is taking over the stale session lock ${path}; try again (if none is starting, remove ${takeover})` };
       }
-      const moved = parseLock(readLock(aside)?.text ?? '');
-      if (moved?.token !== holder.token) {
-        try {
-          linkSync(aside, path); // put the live lock back
-        } catch {
-          // someone else holds the path now; their lock stands
+      try {
+        const again = lockState(path);
+        if (again === 'missing') continue; // gone meanwhile: try to take it fresh
+        if (again === 'unreadable' || parseLock(again.text)?.token !== holder.token) {
+          return { ok: false, path, reason: `the session lock ${path} changed while it was being taken over; try again` };
         }
-        unlinkSync(aside);
-        return { ok: false, path, reason: `the session lock ${path} changed while it was being taken over; try again` };
+        // No one else can replace it now: creating the lock fails while it exists, and removing it needs the takeover file.
+        unlinkSync(path);
+        tookOver = holder;
+      } finally {
+        if (parseTakeover(readLock(takeover)?.text ?? '') === record.token) unlinkSync(takeover);
       }
-      unlinkSync(aside);
-      tookOver = holder;
     }
     return { ok: false, path, reason: `could not take the session lock ${path}` };
   } finally {

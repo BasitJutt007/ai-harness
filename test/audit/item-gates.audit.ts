@@ -5,8 +5,12 @@
  * the gate, never this list.
  *
  *   problem-statement  every required field removed, emptied, left a placeholder or malformed
- *   human-yes          every way a "yes" that is not the stakeholder's typed reply could look like one
- *   outcome            every way the merge or the after reading could be missing, stale or not comparable
+ *   human-yes          every way a "yes" that is not the stakeholder's typed reply could look like one,
+ *                      including a yes typed against another contract text (or not saying which)
+ *   outcome            every way the merge or the after reading could be missing, stale or not comparable:
+ *                      a bot merger by gh's is_bot or its login, a before reading not taken before the
+ *                      merge, a shipped line with no DONE run of the approved text behind it, a reading
+ *                      from an unconfined Measure, a contract with no Measure
  *
  *   npm run audit:mutations
  */
@@ -121,6 +125,23 @@ const YES_MUTATIONS: Array<{ name: string; mutate: (root: string) => void; trans
     mutate: (r) => { recordReply(r, SLUG, 'yes', 'tty', 's'); writeFileSync(itemPaths(r, SLUG).contract, COMPLETE.replace('its gates decide', 'its gates and I decide')); },
   },
   {
+    name: 'a yes typed while the contract read differently, the proposed text put back afterwards',
+    mutate: (r) => {
+      const c = itemPaths(r, SLUG).contract;
+      writeFileSync(c, COMPLETE.replace('its gates decide', 'its gates and I decide'));
+      recordReply(r, SLUG, 'yes', 'tty', 's');
+      writeFileSync(c, COMPLETE);
+    },
+  },
+  {
+    name: 'a typed yes to the proposal that does not record which contract text it answered',
+    mutate: (r) => void appendLedger(itemPaths(r, SLUG).ledger, { type: 'human_turn', text: 'yes', channel: 'tty', session: 's', inReplyTo: 1, agentEnv: [] }),
+  },
+  {
+    name: 'a typed yes recording another contract text',
+    mutate: (r) => void appendLedger(itemPaths(r, SLUG).ledger, { type: 'human_turn', text: 'yes', channel: 'tty', session: 's', inReplyTo: 1, contractHash: 'f'.repeat(64), agentEnv: [] }),
+  },
+  {
     name: '"yes" in the run\'s tool output and assistant text',
     mutate: () => undefined,
     transcript: [
@@ -161,16 +182,28 @@ const reading = (sha: string, over: Partial<MetricReading> = {}): MetricReading 
   value: 1, sha, ref: 'origin/main', command: 'node metrics/fixture-zero.mjs', scriptSha256: 'c'.repeat(64), stdoutSha256: 'd'.repeat(64), excerpt: '1', confinement: 'sandbox-exec', ...over,
 });
 
+/** How the ledger records the run that shipped (the baseline: a DONE run of the approved text, then the ship). */
+interface LedgerShape {
+  /** The `run` entry before the shipped one: absent, or with these fields changed. */
+  run?: 'none' | { runId?: string; verdict?: string; contractHash?: string };
+  contract?: string;
+}
+
 /** An approved, shipped item with a before reading, a PR merged by a person, and an after reading at the merge. */
-function closable(): OutcomeFacts {
+function closable(shape: LedgerShape = {}): OutcomeFacts {
   const root = tmp();
-  writeContract(root, SLUG, COMPLETE);
+  const contract = shape.contract ?? COMPLETE;
+  writeContract(root, SLUG, contract);
   proposeItem(root, SLUG, { session: 's', before: reading('e'.repeat(40), { value: 3 }) });
   recordReply(root, SLUG, 'yes', 'tty', 's');
-  const entry = appendLedger(itemPaths(root, SLUG).ledger, { type: 'shipped', runId: 'r1', branch: 'harness/r1', headSha: HEAD, base: 'main', prUrl: 'https://example.test/pull/1' });
+  const ledger = itemPaths(root, SLUG).ledger;
+  if (shape.run !== 'none') {
+    appendLedger(ledger, { type: 'run', runId: 'r1', status: 'done', verdict: 'DONE', contractHash: parseContract(contract).hash, ...shape.run });
+  }
+  const entry = appendLedger(ledger, { type: 'shipped', runId: 'r1', branch: 'harness/r1', headSha: HEAD, base: 'main', prUrl: 'https://example.test/pull/1' });
   if (entry.event.type !== 'shipped') throw new Error('fixture');
-  const pr: PrState = { url: 'https://example.test/pull/1', number: 1, state: 'MERGED', mergedAt: '2026-11-07T10:00:00Z', mergedBy: 'a-person', mergeSha: MERGE, baseRef: 'main', headSha: HEAD };
-  return { status: itemStatus(root, SLUG), shipped: { entry, event: entry.event }, before: reading('e'.repeat(40), { value: 3 }), pr, onBase: true, after: { ok: true, reading: reading(MERGE, { value: 0 }) } };
+  const pr: PrState = { url: 'https://example.test/pull/1', number: 1, state: 'MERGED', mergedAt: '2026-11-07T10:00:00Z', mergedBy: 'a-person', mergedByBot: false, mergeSha: MERGE, baseRef: 'main', headSha: HEAD };
+  return { status: itemStatus(root, SLUG), shipped: { entry, event: entry.event }, before: reading('e'.repeat(40), { value: 3 }), pr, onBase: true, beforeMerge: true, after: { ok: true, reading: reading(MERGE, { value: 0 }) } };
 }
 
 const pr = (f: OutcomeFacts): PrState => f.pr as PrState;
@@ -190,6 +223,26 @@ const OUTCOME_MUTATIONS: Array<{ name: string; mutate: (f: OutcomeFacts) => Outc
   { name: 'commits were added after ship', mutate: (f) => ({ ...f, pr: { ...pr(f), headSha: '7'.repeat(40) } }), why: /commits were added after ship/ },
   { name: 'GitHub could not be read', mutate: (f) => ({ ...f, pr: { error: 'gh: not authenticated' } }), why: /cannot read the PR/ },
   { name: 'the merge commit is not on the base branch', mutate: (f) => ({ ...f, onBase: { error: `merge commit ${MERGE.slice(0, 12)} is not on origin/main` } }), why: /not on origin\/main/ },
+  // A bot is read from gh's JSON (is_bot) and from the login's shape, whichever says so.
+  { name: 'a GitHub App merged it (login app/renovate, is_bot)', mutate: (f) => ({ ...f, pr: { ...pr(f), mergedBy: 'app/renovate', mergedByBot: true } }), why: /merged by app\/renovate, a bot/ },
+  { name: 'gh says is_bot for a person-looking login', mutate: (f) => ({ ...f, pr: { ...pr(f), mergedBy: 'release-train', mergedByBot: true } }), why: /merged by release-train, a bot/ },
+  { name: 'an app/ login without is_bot', mutate: (f) => ({ ...f, pr: { ...pr(f), mergedBy: 'app/automerge', mergedByBot: false } }), why: /a bot: a person must merge/ },
+  // The before reading must come from before the merge.
+  { name: 'the before reading was not checked against the merge', mutate: (f) => ({ ...f, beforeMerge: null }), why: /not checked against the merge/ },
+  { name: 'the before reading was taken after the merge', mutate: (f) => ({ ...f, beforeMerge: { error: 'the before reading (at eeeeeeeeeeee) was not taken before the merge' } }), why: /not taken before the merge/ },
+  // A reading from a Measure that ran unconfined proves nothing.
+  { name: 'the before reading ran unconfined', mutate: (f) => ({ ...f, before: reading('e'.repeat(40), { value: 3, confinement: 'none' }) }), why: /before reading is UNPROVEN: the Measure ran unconfined/ },
+  { name: 'the after reading ran unconfined', mutate: (f) => ({ ...f, after: { ok: true, reading: reading(MERGE, { value: 0, confinement: 'none' }) } }), why: /after reading is UNPROVEN: the Measure ran unconfined/ },
+  { name: 'the after reading does not say how it was confined', mutate: (f) => ({ ...f, after: { ok: true, reading: reading(MERGE, { value: 0, confinement: '' }) } }), why: /after reading is UNPROVEN/ },
+];
+
+/** Ledger shapes: the shipped entry must follow a DONE run of the approved contract text (and the contract must name a Measure). */
+const LEDGER_MUTATIONS: Array<{ name: string; shape: LedgerShape; why: RegExp }> = [
+  { name: 'a shipped line with no run record before it', shape: { run: 'none' }, why: /names run r1, but the ledger holds no record of that run before it/ },
+  { name: 'the run that shipped did not end DONE', shape: { run: { verdict: 'NOT DONE (final gates not green)' } }, why: /did not end DONE/ },
+  { name: 'the run record is of another run', shape: { run: { runId: 'r0' } }, why: /no record of that run/ },
+  { name: 'the run ran under another contract text', shape: { run: { contractHash: '0'.repeat(64) } }, why: /ran under another contract text/ },
+  { name: 'the contract says "Measure: none"', shape: { contract: contractFor(SLUG, { Measure: 'none' }) }, why: /no Measure: the outcome cannot be read/ },
 ];
 
 describe('audit: the outcome check closes only on a reading taken after a person merged the harness PR', () => {
@@ -204,6 +257,18 @@ describe('audit: the outcome check closes only on a reading taken after a person
       expect(v.reasons.join('; ')).toMatch(m.why);
     });
   }
+
+  for (const m of LEDGER_MUTATIONS) {
+    it(`refuses: ${m.name}`, () => {
+      const v = outcomeVerdict(closable(m.shape));
+      expect(v.ok).toBe(false);
+      expect(v.reasons.join('; ')).toMatch(m.why);
+    });
+  }
+
+  it('a run that ended DONE because the gates decided (no finish call) still counts as DONE', () => {
+    expect(outcomeVerdict(closable({ run: { verdict: 'DONE (the loop ended max_turns without finish; the fresh final gate run is green)' } }))).toEqual({ ok: true, reasons: [] });
+  });
 
   it('refuses: the contract changed after the yes (the approval no longer covers it)', () => {
     const f = closable();

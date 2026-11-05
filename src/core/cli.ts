@@ -15,7 +15,7 @@ import { loadRegistry } from './registry.ts';
 import { TURN_EXTENSION_STEP, TURN_LIMIT_BASE, TURN_LIMIT_CAP, TURNS_PER_BEHAVIOUR, TURNS_PER_RESOURCE } from './loop.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
-import { cmdItem } from './item-cli.ts';
+import { cmdGate, cmdItem } from './item-cli.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
 import { computeTargetProfile, targetLayout } from './target.ts';
 import { loadTask } from './task.ts';
@@ -79,6 +79,11 @@ commands:
                                   it next to the before value, or refuses. Every run is bound to an
                                   item (--item <slug>, default the task id) and is refused before the
                                   first model turn unless its contract is complete and approved.
+  gate problem-statement|human-yes|outcome <slug> [--repo <dir>]
+                                  one gate's verdict on an item now, as the run's hooks and close
+                                  decide it: PASS or REFUSE with the reason (outcome passes only on a
+                                  closed item; with --repo it checks every close fact, recording
+                                  nothing). Read-only. exit 0 on PASS, 2 on REFUSE
   doctor                          environment, plugin load, provider-leak scan and an isolation
                                   self-test (exit 1 if agent code cannot be confined in auto mode)
 
@@ -368,7 +373,8 @@ export function mirrorApi(root: string): string {
   return dest;
 }
 
-async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
+/** `harness check`. `load` (a test seam) gives the config and registry; default the harness's own (loadAll). */
+export async function cmdCheck(p: ParsedArgs, out: Out, load: () => Promise<{ config: HarnessConfig; registry: RegistryView }> = loadAll): Promise<number> {
   const bad = unknownFlags(p, ['api', 'rule', 'category', 'json']);
   if (bad !== null) {
     out(bad);
@@ -376,7 +382,7 @@ async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
   }
   const root = apiDir(p, out);
   if (root === null) return 2;
-  const { config, registry } = await loadAll();
+  const { config, registry } = await load();
   for (const e of registry.errors) out(`plugin error  ${e.file}: ${e.error}`);
   const rules = many(p, 'rule');
   const categories = many(p, 'category');
@@ -748,6 +754,23 @@ export async function doctorIsolation(out: Out): Promise<boolean> {
   }
 }
 
+/**
+ * doctor's plugin line: every plugin loads and the config names only registered checks (registry.errors
+ * carries both). Not ok on any load error. `load` is a test seam (default the harness's own).
+ */
+export async function doctorPlugins(out: Out, load: () => Promise<{ config: HarnessConfig; registry: RegistryView }> = loadAll): Promise<{ ok: boolean; pluginDirs: string[]; driverFiles: string[] }> {
+  try {
+    const { config, registry } = await load();
+    const counts = `${registry.drivers.length} drivers, ${registry.tools.length} tools, ${registry.hooks.length} hooks, ${registry.gates.length} gates, ${registry.checks.length} checks`;
+    out(`plugins   ${registry.errors.length === 0 ? 'ok  ' : 'FAIL'}  ${counts}`);
+    for (const e of registry.errors) out(`    ${e.file}: ${e.error}`);
+    return { ok: registry.errors.length === 0, pluginDirs: config.pluginDirs, driverFiles: registry.drivers.map((r) => r.file) };
+  } catch (e) {
+    out(`plugins   FAIL  ${errMsg(e)}`);
+    return { ok: false, pluginDirs: ['plugins'], driverFiles: [] };
+  }
+}
+
 async function cmdDoctor(out: Out): Promise<number> {
   let ok = true;
   const major = Number(process.versions.node.split('.')[0]);
@@ -755,20 +778,9 @@ async function cmdDoctor(out: Out): Promise<number> {
   ok &&= nodeOk;
   out(`node      ${nodeOk ? 'ok  ' : 'FAIL'}  ${process.version}${nodeOk ? '' : ' (need >= 22)'}`);
 
-  let pluginDirs: string[] = ['plugins'];
-  let driverFiles: string[] = [];
-  try {
-    const { config, registry } = await loadAll();
-    pluginDirs = config.pluginDirs;
-    driverFiles = registry.drivers.map((r) => r.file);
-    const counts = `${registry.drivers.length} drivers, ${registry.tools.length} tools, ${registry.hooks.length} hooks, ${registry.gates.length} gates, ${registry.checks.length} checks`;
-    out(`plugins   ${registry.errors.length === 0 ? 'ok  ' : 'FAIL'}  ${counts}`);
-    for (const e of registry.errors) out(`    ${e.file}: ${e.error}`);
-    if (registry.errors.length > 0) ok = false;
-  } catch (e) {
-    ok = false;
-    out(`plugins   FAIL  ${errMsg(e)}`);
-  }
+  const plugins = await doctorPlugins(out);
+  ok &&= plugins.ok;
+  const { pluginDirs, driverFiles } = plugins;
 
   const vocab = providerVocabulary(HARNESS_ROOT, driverFiles);
   const hits = scanForLeaks(HARNESS_ROOT, vocab.terms, { pluginDirs, driverFiles });
@@ -832,6 +844,8 @@ export async function main(argv: string[], out: Out = (l) => console.log(l)): Pr
         return await cmdDoctor(out);
       case 'item':
         return await cmdItem(parsed, out);
+      case 'gate':
+        return await cmdGate(parsed, out);
       default:
         out(`unknown command "${command}"\n\n${USAGE}`);
         return 2;

@@ -16,11 +16,12 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { closeItem } from './close.ts';
+import { closeItem, ledgerFacts, preconditions } from './close.ts';
 import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
-import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ItemStatus, type MetricReading } from './items.ts';
+import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
+import { provenanceText } from './provenance.ts';
 import { repoCommitlint } from './ship-text.ts';
 import type { Exec } from './types.ts';
 
@@ -77,17 +78,57 @@ function one(a: ItemArgs, name: string): string | undefined {
 
 function stageLine(s: ItemStatus): string {
   const m = s.contract.parse?.metric;
-  const readings = s.ledger.entries.filter((e) => e.event.type === 'metric').map((e) => (e.event.type === 'metric' ? `${e.event.phase} ${e.event.reading.value}` : ''));
   const handAfter = m?.after !== null && m?.after !== undefined && !s.ledger.entries.some((e) => e.event.type === 'closed');
-  return `${s.slug.padEnd(28)} ${s.stage.padEnd(13)}${m !== undefined && m !== null ? ` ${m.name}: ${readings.length > 0 ? readings.join(', ') : 'not read'}` : ''}${handAfter ? `  (contract says after ${m?.after ?? ''}: written by hand, no harness reading; ignored)` : ''}`;
+  return `${s.slug.padEnd(28)} ${s.stage.padEnd(13)}${m !== undefined && m !== null ? ` ${m.name}: ${readingsText(s)}` : ''}${handAfter ? `  (contract says after ${m?.after ?? ''}: written by hand, no harness reading; ignored)` : ''}`;
+}
+
+/**
+ * The metric as status shows it: the LATEST before reading only (an item proposed again has several;
+ * only the newest is the one close compares with), with its ref and short sha, then the after value or
+ * 'not read'.
+ */
+export function readingsText(s: ItemStatus): string {
+  const metric = s.ledger.entries.flatMap((e) => (e.event.type === 'metric' ? [e.event] : []));
+  const before = metric.filter((e) => e.phase === 'before').at(-1)?.reading;
+  const after = metric.filter((e) => e.phase === 'after').at(-1)?.reading;
+  const b = before === undefined
+    ? `before not read${s.contract.parse?.noMeasure === true ? ' (Measure: none)' : ''}`
+    : `before ${before.value} (${before.ref} ${before.sha.slice(0, 12)})`;
+  return `${b}, ${after === undefined ? 'after not read' : `after ${after.value} (${after.sha.slice(0, 12)})`}`;
+}
+
+/** How the latest reply to the item arrived (provenance.ts), for `item status <slug>`; null when there is none. */
+function operatorLine(s: ItemStatus): string | null {
+  const t = s.ledger.entries.filter((e) => e.event.type === 'human_turn').at(-1);
+  if (t === undefined || t.event.type !== 'human_turn') return null;
+  return `operator           reply seq ${t.seq}: ${provenanceText(t.event.channel, t.event.agentEnv)}`;
 }
 
 /** The target clone's origin must be the contract's Repo (reading a metric on another repository proves nothing). */
-async function checkOrigin(repoDir: string, repo: string, run: Exec): Promise<string | null> {
+export async function checkOrigin(repoDir: string, repo: string, run: Exec): Promise<string | null> {
   const r = await run('git', ['-C', repoDir, 'remote', 'get-url', 'origin'], { cwd: repoDir });
   if (r.code !== 0) return `${repoDir} has no origin remote`;
   const url = r.stdout.trim().replace(/\.git$/, '');
   return new RegExp(`[/:]${repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(url) ? null : `${repoDir}'s origin is ${url}, not ${repo}`;
+}
+
+/**
+ * Why the clone at `repoDir` is not where an approved contract's work may happen (file mode), or null: its
+ * origin must be the contract's Repo (checkOrigin) and its current branch the contract's Base, which the
+ * run's worktree starts from. Otherwise a yes given for one change would authorize work on another
+ * repository, or from another branch, than the one the stakeholder approved. A git query that fails is
+ * a refusal.
+ */
+export async function targetRepoProblem(repoDir: string, contract: Pick<ContractParse, 'fields'>, run: Exec): Promise<string | null> {
+  const repo = (contract.fields.Repo ?? '').trim();
+  const base = (contract.fields.Base ?? '').trim();
+  const origin = await checkOrigin(repoDir, repo, run);
+  if (origin !== null) return `the target is not the contract's Repo (${repo}): ${origin}`;
+  const head = await run('git', ['-C', repoDir, 'symbolic-ref', '-q', '--short', 'HEAD'], { cwd: repoDir });
+  const branch = head.stdout.trim();
+  if (head.code !== 0 || branch.length === 0) return `${repoDir} is not on a branch (detached HEAD), but the run starts from the contract's Base (${base}): git switch ${base}`;
+  if (branch !== base) return `${repoDir} is on ${branch}, but the contract's Base is ${base}: the run would start from another branch than the approved one (git switch ${base})`;
+  return null;
 }
 
 async function askReply(root: string, slug: string, reader: ReplyReader, out: Out, session: string): Promise<number> {
@@ -114,9 +155,25 @@ async function askReply(root: string, slug: string, reader: ReplyReader, out: Ou
   return 1;
 }
 
-export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReader; exec?: Exec; root?: string; harnessRoot?: string } = {}): Promise<number> {
+export async function cmdItem(
+  a: ItemArgs,
+  out: Out,
+  opts: {
+    reader?: ReplyReader;
+    exec?: Exec;
+    root?: string;
+    harnessRoot?: string;
+    /**
+     * Whether a Measure script may come from the harness's metrics/ when the items root lacks it. Default:
+     * only for the file-mode items root (no `root` given: the harness's, or HARNESS_ITEMS_ROOT standing in
+     * for it); an items root of its own never borrows a script.
+     */
+    harnessMetrics?: boolean;
+  } = {},
+): Promise<number> {
   const harnessRoot = opts.harnessRoot ?? HARNESS_ROOT;
   const root = opts.root ?? itemsRoot(harnessRoot);
+  const harnessMetrics = opts.harnessMetrics ?? opts.root === undefined;
   const run = opts.exec ?? coreExec;
   const reader = opts.reader ?? terminalReader();
   const session = randomUUID().slice(0, 8);
@@ -152,7 +209,11 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
         for (const s of slugs) {
           const st = itemStatus(root, s);
           out(stageLine(st));
-          if (slug !== undefined) for (const l of st.lines) out(`  ${l}`);
+          if (slug !== undefined) {
+            for (const l of st.lines) out(`  ${l}`);
+            const op = operatorLine(st);
+            if (op !== null) out(`  ${op}`);
+          }
         }
         return 0;
       }
@@ -181,7 +242,7 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
           out(`refused: git fetch origin ${base} failed: ${(fetch.stderr || fetch.stdout).trim()}`);
           return 1;
         }
-        if (c.measure === null) return 1;
+        if (c.measure === null && !c.noMeasure) return 1;
         // The Commit header is approved with the contract, so the repository's own rules see it first.
         const header = (c.fields.Commit ?? '').trim();
         const lint = await repoCommitlint(run, repoDir, `${header}\n`);
@@ -190,18 +251,25 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
           for (const d of lint.details) out(`  ${d}`);
           return 1;
         }
-        const before = await readMetric({ harnessRoot, itemsRoot: root, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug });
-        if (!before.ok) {
-          out(`refused: the before value could not be read: ${before.reason}`);
-          return 1;
+        // "Measure: none": proposed with no before value; such an item can ship, but it can never close.
+        let reading: MetricReading | null = null;
+        if (c.measure !== null) {
+          const before = await readMetric({ harnessRoot, itemsRoot: root, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug, harnessMetrics });
+          if (!before.ok) {
+            out(`refused: the before value could not be read: ${before.reason}`);
+            return 1;
+          }
+          reading = before.reading;
+          if (before.unproven !== undefined) out(`note: the before value is UNPROVEN (${before.unproven}): close will refuse it; propose again where the sandbox works`);
         }
-        const reading: MetricReading = before.reading;
         const p = proposeItem(root, slug, { session, before: reading });
         out(`proposed ${slug} (ledger seq ${p.seq}, contract ${c.hash.slice(0, 12)}) to ${(c.fields.Stakeholder ?? '').trim()}`);
         out(`  Problem   ${(c.fields.Problem ?? '').split('\n')[0] ?? ''}`);
         out(`  Owner     ${(c.fields.Owner ?? '').trim()}`);
         out(`  Commit    ${header}  (${lint.summary})`);
-        out(`  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: before ${reading.value} (read at origin/${base} ${reading.sha.slice(0, 12)})`);
+        out(reading === null
+          ? `  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: no Measure (the contract says "Measure: none"): the outcome cannot be read, so this item can never close`
+          : `  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: before ${reading.value} (read at origin/${base} ${reading.sha.slice(0, 12)})`);
         for (const sc of c.scenarios) out(`  Scenario  WHEN ${sc.when} THEN ${sc.then}`);
         out(`  Not incl. ${c.notIncluded.join('; ')}`);
         if (!reader.isTTY) {
@@ -220,7 +288,7 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
           out('refused: --repo <dir> is needed (the after value is read by running the Measure command at the merge commit)');
           return 2;
         }
-        const r = await closeItem({ root, harnessRoot, slug, repoDir: resolve(repoArg), exec: run });
+        const r = await closeItem({ root, harnessRoot, slug, repoDir: resolve(repoArg), exec: run, harnessMetrics });
         for (const l of r.lines) out(l);
         if (r.ok) out(`closed ${slug}: before and after are in ${CONTRACTS_DIR}/${slug}.md and items/${slug}/ledger.jsonl`);
         else out(`not closed: ${slug} stays open`);
@@ -236,6 +304,81 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
   }
   out(usage);
   return 2;
+}
+
+// ───────────────────────────── harness gate ─────────────────────────────
+
+/** The three gates of assignment 02, as `harness gate <name>` checks them. */
+export const GATE_NAMES = ['problem-statement', 'human-yes', 'outcome'] as const;
+export type GateName = (typeof GATE_NAMES)[number];
+
+/** A gate's verdict on an item now: PASS or REFUSE, with the reason. */
+export interface GateCheck {
+  pass: boolean;
+  reason: string;
+}
+
+/**
+ * The outcome gate, read-only: PASS only when the item is closed (the `closed` entry closeItem writes
+ * after every fact held and the after reading was recorded). Otherwise REFUSE with what is missing: with
+ * `repoDir`, every fact is gathered as close would (a dry run: nothing is recorded); without it, what
+ * the item's own records show.
+ */
+async function outcomeCheck(root: string, slug: string, harnessRoot: string, repoDir: string | undefined, run: Exec, harnessMetrics: boolean): Promise<GateCheck> {
+  const st = itemStatus(root, slug);
+  if (st.ledger.problems.length > 0) return { pass: false, reason: `the item ledger is broken (${st.ledger.problems.join('; ')})` };
+  const closed = st.ledger.entries.find((e) => e.event.type === 'closed');
+  if (closed !== undefined && closed.event.type === 'closed') {
+    const c = closed.event;
+    return { pass: true, reason: `closed at ledger seq ${closed.seq}: before ${c.before.value} (at ${c.before.sha.slice(0, 12)}) -> after ${c.after.value} (at the merge ${c.mergeSha.slice(0, 12)}, merged by ${c.mergedBy})` };
+  }
+  const notYet = `not closed: harness item close ${slug} --repo <dir> reads the metric after the PR merged and records it`;
+  if (repoDir === undefined) {
+    const own = preconditions({ status: st, ...ledgerFacts(st) });
+    return { pass: false, reason: own.length > 0 ? own.join('; ') : `${notYet} (pass --repo <dir> to check GitHub and the metric now)` };
+  }
+  const r = await closeItem({ root, harnessRoot, slug, repoDir, exec: run, dryRun: true, harnessMetrics });
+  return { pass: false, reason: r.ok ? `every check holds, but the item is ${notYet}` : r.reasons.join('; ') };
+}
+
+/** The verdict of one gate on an item now (nothing is recorded). */
+export async function gateCheck(gate: GateName, root: string, slug: string, opts: { harnessRoot: string; repoDir?: string; exec?: Exec; harnessMetrics?: boolean }): Promise<GateCheck> {
+  if (gate === 'outcome') return outcomeCheck(root, slug, opts.harnessRoot, opts.repoDir, opts.exec ?? coreExec, opts.harnessMetrics ?? false);
+  const st = itemStatus(root, slug);
+  if (gate === 'problem-statement') return { pass: st.contract.ok, reason: st.contract.reason };
+  if (!st.contract.ok) return { pass: false, reason: `needs a complete contract first: ${st.contract.reason}` };
+  return { pass: st.approval?.ok === true, reason: st.approval?.reason ?? 'not proposed' };
+}
+
+/**
+ * `harness gate <problem-statement|human-yes|outcome> <slug> [--repo <dir>]`: one gate's verdict on an
+ * item, as the run's hooks and the close command decide it. Prints `PASS` or `REFUSE` with the reason;
+ * exit 0 on PASS, 2 on REFUSE (and on a usage error). Read-only: nothing is proposed, recorded or closed.
+ */
+export async function cmdGate(a: ItemArgs, out: Out, opts: { exec?: Exec; root?: string; harnessRoot?: string; harnessMetrics?: boolean } = {}): Promise<number> {
+  const usage = `usage: harness gate ${GATE_NAMES.join('|')} <slug> [--repo <dir>]`;
+  const [gate, slug, ...extra] = a.positionals;
+  const unknown = [...a.flags.keys()].find((k) => k !== 'repo');
+  if (gate === undefined || slug === undefined || extra.length > 0 || unknown !== undefined || !(GATE_NAMES as readonly string[]).includes(gate)) {
+    out(unknown !== undefined ? `unknown option --${unknown}\n${usage}` : usage);
+    return 2;
+  }
+  const harnessRoot = opts.harnessRoot ?? HARNESS_ROOT;
+  const root = opts.root ?? itemsRoot(harnessRoot);
+  const repoArg = one(a, 'repo');
+  let v: GateCheck;
+  try {
+    v = await gateCheck(gate as GateName, root, slug, {
+      harnessRoot,
+      ...(repoArg !== undefined ? { repoDir: resolve(repoArg) } : {}),
+      ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
+      harnessMetrics: opts.harnessMetrics ?? opts.root === undefined,
+    });
+  } catch (e) {
+    v = { pass: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+  out(`${v.pass ? 'PASS' : 'REFUSE'}  ${gate}  ${slug}: ${v.reason}`);
+  return v.pass ? 0 : 2;
 }
 
 /** For tests: the item's ledger entries as types, in order. */

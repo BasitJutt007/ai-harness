@@ -10,10 +10,12 @@ import type {
   HookEvent,
   HookPlugin,
   HookVerdict,
+  InPlaceRun,
   PluginRecord,
   RunContext,
   ToolCallInfo,
   ToolResult,
+  Workspace,
 } from './types.ts';
 
 /**
@@ -34,6 +36,21 @@ export const REQUIRED_INPLACE_HOOKS = ['branch-guard'] as const;
 export function missingRequiredHooks(hooks: ReadonlyArray<PluginRecord<HookPlugin>>, opts: { inPlace?: boolean } = {}): string[] {
   const required: readonly string[] = opts.inPlace === true ? [...REQUIRED_HOOKS, ...REQUIRED_INPLACE_HOOKS] : REQUIRED_HOOKS;
   return required.filter((name) => !hooks.some((h) => h.plugin.name === name));
+}
+
+/** Where a run writes, as its context says it (RunContext.inPlace, and the workspace it reads through). */
+export interface RunPlacement {
+  inPlace?: InPlaceRun;
+  workspace?: Pick<Workspace, 'visibility'>;
+}
+
+/**
+ * Whether a run writes in the owner's checkout, read from the context itself: it carries an in-place
+ * record, or its workspace is a git-visibility one (only a workspace over the owner's checkout is). Either
+ * one is enough: a caller can never make an in-place run look like a worktree run by leaving a flag out.
+ */
+export function writesInPlace(ctx: RunPlacement): boolean {
+  return ctx.inPlace !== undefined || ctx.workspace?.visibility === 'git';
 }
 
 export interface HookOutcome {

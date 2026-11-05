@@ -12,13 +12,14 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
-import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS } from './hooks.ts';
+import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS, writesInPlace, type RunPlacement } from './hooks.ts';
 import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
+import { targetRepoProblem } from './item-cli.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
 import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
 import { modelAllowed, modelPolicyVerdict, normalizeModel, SpendMeter, spendLine } from './spend.ts';
-import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
+import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary, type CheckOptionsMap } from './prompt.ts';
 import { loadRegistry, pluginFingerprint, toolSpecs } from './registry.ts';
 import { deserializeState, newRunId, newRunState, RunStore, serializeState } from './run-store.ts';
 import { isolationHonesty, isolationInfo, isolationUnavailable, setSandboxMode } from './sandbox.ts';
@@ -123,10 +124,21 @@ export function buildContext(opts: {
    * and events.jsonl). A listener that throws never stops the run and never loses the record.
    */
   onEvent?: (event: RunEvent) => void;
-  /** Set when the run writes in the owner's checkout instead of a worktree (the branch-guard hook re-checks it). */
+  /**
+   * Set when the run writes in the owner's checkout instead of a worktree (the branch-guard hook re-checks
+   * it). Required with a git-visibility workspace (only a workspace over the owner's checkout is one).
+   */
   inPlace?: InPlaceRun;
 }): RunContext {
   const { state, store } = opts;
+  // Fail closed: an in-place run without its record (or without branch-guard) would write unchecked.
+  if (opts.ws.visibility === 'git' && opts.inPlace === undefined) {
+    throw new Error('refused: the workspace is the owner\'s checkout (git visibility) but the run carries no in-place record (the top and the branch it started on), so branch-guard could not re-check a write');
+  }
+  if (writesInPlace({ ...(opts.inPlace !== undefined ? { inPlace: opts.inPlace } : {}), workspace: opts.ws })) {
+    const missing = missingRequiredHooks(opts.registry.hooks, { inPlace: true }).filter((h) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(h));
+    if (missing.length > 0) throw new Error(`refused: an in-place run needs the ${missing.join(', ')} hook (disabled in harness.config.json or failed to load): nothing would re-check the branch before a write`);
+  }
   const run = opts.exec ?? exec;
   const services = createServices({
     ws: opts.ws,
@@ -459,9 +471,10 @@ export function turnLimitLine(limit: TurnLimit, record: TurnLimitRecord | undefi
  * prompt (it says the repository is included and names no fetcher) + every text file under the
  * API root + every standards doc (prompt.ts frontLoad). `tools` are the baseline's tools (no fetchers).
  */
-export function baselineSystemRenderer(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; ws: Workspace }): () => Promise<string> {
-  const prompt = systemPrompt({ task: opts.task, checks: opts.checks, tools: opts.tools, preloaded: true });
-  return async () => `${prompt}\n\n${await frontLoad({ ws: opts.ws, checks: opts.checks })}`;
+export function baselineSystemRenderer(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; ws: Workspace; checkOptions?: CheckOptionsMap }): () => Promise<string> {
+  const options = opts.checkOptions !== undefined ? { checkOptions: opts.checkOptions } : {};
+  const prompt = systemPrompt({ task: opts.task, checks: opts.checks, tools: opts.tools, preloaded: true, ...options });
+  return async () => `${prompt}\n\n${await frontLoad({ ws: opts.ws, checks: opts.checks, ...options })}`;
 }
 
 // ───────────────────────────── executeRun ─────────────────────────────
@@ -500,11 +513,12 @@ export interface ExecuteRunOptions {
 
 /**
  * The item a run is bound to, checked before the first model turn: the required item hooks are
- * registered, the contract names every field, and its text is approved in a typed turn. Throws the
- * refusal (no worktree, no tokens) naming what is missing.
+ * registered (plus branch-guard when the run writes in place, read from `where`: the run's context or
+ * what it will be built from), the contract names every field, and its text is approved in a typed
+ * turn. Throws the refusal (no worktree, no tokens) naming what is missing.
  */
-export function bindItem(slug: string, registry: RegistryView, root: string = itemsRoot(HARNESS_ROOT), opts: { inPlace?: boolean } = {}): ItemBinding {
-  const missing = missingRequiredHooks(registry.hooks, opts);
+export function bindItem(slug: string, registry: RegistryView, root: string = itemsRoot(HARNESS_ROOT), where: RunPlacement = {}): ItemBinding {
+  const missing = missingRequiredHooks(registry.hooks, { inPlace: writesInPlace(where) });
   if (missing.length > 0) {
     // An in-place run also needs the branch guard; say what each missing hook would have stopped.
     const branch = missing.some((m) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(m)) ? ', or a write on a branch other than the working branch the session started on' : '';
@@ -513,6 +527,11 @@ export function bindItem(slug: string, registry: RegistryView, root: string = it
   const status = itemStatus(root, slug);
   if (!status.editable || status.contract.parse === null) {
     throw new Error(`refused before the first model turn (no tokens spent): item "${slug}" (${status.stage})\n${status.lines.map((l) => `           ${l}`).join('\n')}`);
+  }
+  // An approval covers the work it was given for, once: a closed item's outcome is recorded, and new work needs its own item.
+  const closed = status.ledger.entries.find((e) => e.event.type === 'closed');
+  if (closed !== undefined) {
+    throw new Error(`refused before the first model turn (no tokens spent): item "${slug}" is closed (ledger seq ${closed.seq}): its approval covered the work that closed it; new work needs a new item (harness item new <slug>)`);
   }
   return { slug, root, contractHash: status.contract.parse.hash };
 }
@@ -572,6 +591,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // ── workspace: a fresh worktree of the target repository; the target checkout itself is never touched.
   const startedAt = new Date();
   const { repoDir, rootRel } = await locateApi(task, opts.repoBase ?? HARNESS_ROOT);
+  // An approved contract authorizes its own work only: the clone must be the contract's Repo, on its Base.
+  const approvedContract = itemStatus(item.root, item.slug).contract.parse;
+  const wrongTarget = approvedContract === null ? 'the contract could not be read again' : await targetRepoProblem(repoDir, approvedContract, run);
+  if (wrongTarget !== null) throw new Error(`refused before the first model turn (no tokens spent): item "${item.slug}": ${wrongTarget}`);
   if (task.kind === 'greenfield') await refuseExistingOutput(repoDir, rootRel);
   const dirty = await uncommitted(repoDir, rootRel);
   const worktreeParent = resolve(HARNESS_ROOT, config.worktreeDir);
@@ -736,8 +759,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     const tools = offered;
     // Only the rules written for this stack: the agent is never told to meet another stack's standards.
     const checks = selectChecks(registry.checks.map((r) => r.plugin), undefined, undefined, ctx.stack);
-    const system = systemPrompt({ task, checks, tools, ...(ctx.stack !== undefined ? { stack: ctx.stack } : {}) });
-    const baselineSystem = baselineSystemRenderer({ task, checks, tools: withoutFetchers(tools, toolPlugins), ws });
+    // The model sees each rule's configured options (e.g. the repository's decorator names), as the checks do.
+    const system = systemPrompt({ task, checks, tools, checkOptions: config.checkOptions, ...(ctx.stack !== undefined ? { stack: ctx.stack } : {}) });
+    const baselineSystem = baselineSystemRenderer({ task, checks, tools: withoutFetchers(tools, toolPlugins), ws, checkOptions: config.checkOptions });
     const tree = compactTree(await ws.list(['**/*']));
     let testMapText: string | undefined;
     if (task.kind === 'brownfield') {

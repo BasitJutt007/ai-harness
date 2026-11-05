@@ -259,7 +259,7 @@ describe('registry trust boundary (finding 9)', () => {
     writeFileSync(join(inside, 'evil.ts'), `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(marker)}, 'x');\nexport default 1;\n`);
     const link = join(l.dir, 'innocent-plugins');
     symlinkSync(join(wt, 'run-1', 'plugins'), link, 'dir');
-    const reg = await loadRegistry({ ...loadConfig(), worktreeDir: wt, pluginDirs: [join(wt, 'run-1', 'plugins'), link] }, HARNESS_ROOT);
+    const reg = await loadRegistry({ ...loadConfig(), worktreeDir: wt, pluginDirs: [join(wt, 'run-1', 'plugins'), link], checkOptions: {} }, HARNESS_ROOT);
     expect(reg.errors).toHaveLength(2);
     for (const e of reg.errors) expect(e.error).toMatch(/inside the worktree dir .*agent-writable.*executed at import/);
     expect(reg.tools).toHaveLength(0);

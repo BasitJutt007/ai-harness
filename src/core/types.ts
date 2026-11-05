@@ -565,6 +565,13 @@ export interface HarnessConfig {
    * check validates its own and reports UNPROVEN on options it cannot read.
    */
   checkOptions: Record<string, Record<string, unknown>>;
+  /**
+   * Environment-variable names (a trailing `*` matches a prefix) that mark a shell run by an AI agent.
+   * Recorded, names only, with every reply typed at the item prompt (provenance.ts): a terminal proves
+   * a terminal, not a person, so the ledger says which agent markers were present. Never a refusal.
+   * Absent: the schema default.
+   */
+  agentEnvMarkers?: string[];
 }
 
 export interface TestRunReport {

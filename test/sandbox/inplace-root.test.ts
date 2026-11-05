@@ -74,6 +74,18 @@ describe('setConfinedRoot', () => {
       expect(confinedRoot()).toBeNull();
     }
   });
+
+  it("refuses a root that contains the folder of every run's worktree, or the harness scratch (.harness/tmp)", () => {
+    const harnessState = join(HARNESS_ROOT, '.harness');
+    mkdirSync(join(harnessState, 'worktrees'), { recursive: true });
+    mkdirSync(join(harnessState, 'tmp'), { recursive: true });
+    expect(() => setConfinedRoot(harnessState)).toThrow(/sandbox: confined root .* contains .*\.harness\/worktrees; confined code may never read it whole/);
+    expect(() => setConfinedRoot(join(harnessState, 'tmp'))).toThrow(/sandbox: confined root .* contains .*\.harness\/tmp; confined code may never read it whole/);
+    expect(confinedRoot()).toBeNull();
+    // the twin: an ordinary checkout beside them is registered
+    setConfinedRoot(root);
+    expect(confinedRoot()).toBe(root);
+  });
 });
 
 describe('the confined tree', () => {
@@ -156,6 +168,23 @@ describe('bwrap: the hidden entries are masked', () => {
   it('finds the top .git and every .env* entry (node_modules skipped), and fails closed on a tree too big to walk', () => {
     expect(hiddenEntries(root).sort()).toEqual([join(root, '.env'), join(root, '.envs'), join(root, '.git'), join(root, 'sub', '.env.local')].sort());
     expect(() => hiddenEntries(root, 3)).toThrow(/more than 3 entries; its \.env files cannot all be found/);
+  });
+
+  it('masks every nested .git too (a vendored checkout, a submodule\'s .git file), in any letter case, without walking into it', () => {
+    put('vendor/lib/.git/config', '[remote "origin"]\n');
+    put('packages/ui/.GIT', 'gitdir: ../../.git/modules/ui\n');
+    put('vendor/lib/.git/hooks/.env', 'never walked into\n');
+    const found = hiddenEntries(root);
+    expect(found).toContain(join(root, 'vendor', 'lib', '.git'));
+    expect(found).toContain(join(root, 'packages', 'ui', '.GIT'));
+    expect(found).not.toContain(join(root, 'vendor', 'lib', '.git', 'hooks', '.env')); // inside a masked .git
+    // ...and each is masked on the argv: a directory with a tmpfs, a file with /dev/null
+    const args = bwrapArgs({ deny: [], allow: [root], metadata: [], secrets: [], hiddenIn: [root] }, [scratch], root);
+    expect(args.some((a, i) => a === '--tmpfs' && args[i + 1] === join(root, 'vendor', 'lib', '.git'))).toBe(true);
+    expect(args.some((a, i) => a === '--ro-bind' && args[i + 1] === '/dev/null' && args[i + 2] === join(root, 'packages', 'ui', '.GIT'))).toBe(true);
+    // the twins stay readable: .gitignore, .github
+    put('.github/workflows/ci.yml', 'on: push\n');
+    expect(hiddenEntries(root).some((p) => /\.gitignore$|\.github/.test(p))).toBe(false);
   });
 
   it('masks each one after the tree is bound back: files with /dev/null, directories with a tmpfs', () => {

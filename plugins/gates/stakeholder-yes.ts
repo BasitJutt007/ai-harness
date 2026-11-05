@@ -5,7 +5,10 @@
  * typed terminal turn in items/<slug>/ledger.jsonl (src/core/items.ts approvalVerdict). Anything
  * else fails with the reason; the gate is required (src/core/gates.ts), so disabling it is UNPROVEN.
  */
-import { approvalVerdict, contractVerdict, defineGate, itemPaths, readLedger } from '../../src/core/plugin-api.ts';
+import { approvalVerdict, contractVerdict, defineGate, itemPaths, pointWhenRunDirectly, readLedger } from '../../src/core/plugin-api.ts';
+
+// Run on its own this file decides nothing (gates run at finish and ship): say how to check the gate instead.
+pointWhenRunDirectly(import.meta.url, "stakeholder-yes is a harness gate: it runs at finish and ship. To check an item's human-yes gate now: harness gate human-yes <slug> [--repo <dir>]");
 
 export default defineGate({
   name: 'stakeholder-yes',

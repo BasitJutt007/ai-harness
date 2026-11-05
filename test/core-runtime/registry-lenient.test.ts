@@ -51,7 +51,7 @@ afterAll(() => tmp.cleanup());
 describe('registry leniency for drop-in plugins', () => {
   let reg: RegistryView;
   beforeAll(async () => {
-    reg = await loadRegistry({ ...loadConfig(), pluginDirs: [pdir], disabled: [] }, HARNESS_ROOT);
+    reg = await loadRegistry({ ...loadConfig(), pluginDirs: [pdir], disabled: [], checkOptions: {} }, HARNESS_ROOT);
   });
 
   it('loads kebab/camel tool names and .ts/.mts/.js/.mjs files without load errors', () => {

@@ -39,7 +39,7 @@ describe('docs/extending.md', () => {
     }
     expect(new Set(files).size, 'each snippet names its own file').toBe(files.length);
     expect([...new Set(files.map((f) => f.split('/')[1]))].sort()).toEqual(['checks', 'drivers', 'gates', 'hooks', 'tools']);
-    const reg = await loadRegistry({ ...loadConfig(HARNESS_ROOT), pluginDirs: [join(tmp.dir, 'plugins')] }, HARNESS_ROOT);
+    const reg = await loadRegistry({ ...loadConfig(HARNESS_ROOT), pluginDirs: [join(tmp.dir, 'plugins')], checkOptions: {} }, HARNESS_ROOT);
     expect(reg.errors).toEqual([]);
     const loaded = [...reg.drivers, ...reg.tools, ...reg.hooks, ...reg.gates, ...reg.checks].map((r) => r.file.slice(r.file.indexOf('plugins/')));
     expect(loaded.sort()).toEqual([...files].sort());

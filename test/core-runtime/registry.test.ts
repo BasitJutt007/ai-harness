@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
+import { doctorPlugins } from '../../src/core/cli.ts';
 import { loadRegistry, pluginFingerprint, toolSpecs } from '../../src/core/registry.ts';
 import type { HarnessConfig, RegistryView } from '../../src/core/types.ts';
 import { repoTmp } from './helpers.ts';
@@ -62,8 +63,9 @@ beforeAll(() => {
 });
 afterAll(() => tmp.cleanup());
 
+/** The harness config over the temp plugins (its checkOptions name checks that only plugins/ defines: none here). */
 function config(): HarnessConfig {
-  return { ...loadConfig(), pluginDirs: [pdir], disabled: ['disabled_one'] };
+  return { ...loadConfig(), pluginDirs: [pdir], disabled: ['disabled_one'], checkOptions: {} };
 }
 
 describe('registry', () => {
@@ -103,6 +105,28 @@ describe('registry', () => {
     expect(byFile('tools/nodefault.ts')).toMatch(/no default export/);
     expect(byFile('tools/badpreview.ts')).toMatch(/invalid tool plugin.*preview/);
     expect(reg.errors).toHaveLength(5);
+  });
+
+  it('checkOptions for a check id no plugin defines is a load error naming it; a defined (even disabled) id is not', async () => {
+    const typo = await loadRegistry({ ...config(), checkOptions: { c2: { names: ['X'] } } }, HARNESS_ROOT);
+    const e = typo.errors.find((x) => x.file === 'harness.config.json');
+    expect(e?.error).toMatch(/^checkOptions\["c2"\] names no check plugin \(check ids found: c1\)/);
+    // the twins: options for the registered check, and for a check that is disabled
+    expect((await loadRegistry({ ...config(), checkOptions: { c1: { names: ['X'] } } }, HARNESS_ROOT)).errors).toHaveLength(5);
+    const off = await loadRegistry({ ...config(), disabled: ['disabled_one', 'c1'], checkOptions: { c1: {} } }, HARNESS_ROOT);
+    expect(off.errors.some((x) => x.file === 'harness.config.json')).toBe(false);
+    expect(off.checks).toHaveLength(0);
+  });
+
+  it('doctor fails on options for an unregistered check id, naming it; the harness configuration passes', async () => {
+    const lines: string[] = [];
+    const typo = { ...config(), pluginDirs: ['plugins'], checkOptions: { 'nest-route-gaurd': { adminDecorators: ['AdminOnly'] } } };
+    const bad = await doctorPlugins((l) => lines.push(l), async () => ({ config: typo, registry: await loadRegistry(typo, HARNESS_ROOT) }));
+    expect(bad.ok).toBe(false);
+    expect(lines.join('\n')).toMatch(/^plugins {3}FAIL/m);
+    expect(lines.join('\n')).toMatch(/harness\.config\.json: checkOptions\["nest-route-gaurd"\] names no check plugin/);
+    const good: string[] = [];
+    expect((await doctorPlugins((l) => good.push(l))).ok, good.join('\n')).toBe(true);
   });
 
   it('toolSpecs emit plain JSON Schema without $schema, filtered by task kind', () => {

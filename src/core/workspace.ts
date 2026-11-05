@@ -3,7 +3,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, realpathSync, symlinkSync } from 'node:fs';
-import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
@@ -145,7 +145,8 @@ export interface WorkspaceOptions {
    * Which files the read tools may see (Workspace.visibility). Default 'all': a run's own worktree,
    * every file. 'git' (opt-in, a workspace over the owner's real checkout): list() returns only
    * git-visible files (`git ls-files --cached --others --exclude-standard`, so files created since
-   * appear) and never a `.env*` or `.git` path, and hidden() names why any other path is refused.
+   * appear) and never a `.env*` or `.git` path, nor a symlink whose target is one, is git-ignored or
+   * lies outside the root; hidden() names why any other path is refused.
    */
   visibility?: 'all' | 'git';
 }
@@ -178,6 +179,28 @@ async function isListableFile(abs: string): Promise<boolean> {
   if (st === null) return false;
   if (st.isFile()) return true;
   return st.isSymbolicLink() && ((await stat(abs).catch(() => null))?.isFile() ?? false);
+}
+
+/**
+ * Why a listed symlink must not be shown, or null (also null for a path that is not a symlink). git
+ * lists a tracked symlink by its own name, but every reader that follows the listing (search_code, the
+ * baseline front-load) reads what it points at; so the TARGET is judged like any path: outside the root,
+ * a `.env*` or `.git` path, or git-hidden (ignored) is refused. A link that cannot be resolved is refused.
+ */
+async function symlinkHiddenReason(root: string, realRoot: string, rel: string): Promise<string | null> {
+  const abs = join(root, rel);
+  const st = await lstat(abs).catch(() => null);
+  if (st === null || !st.isSymbolicLink()) return null;
+  let target: string;
+  try {
+    target = await realpath(abs);
+  } catch {
+    return `${rel} is a symlink that cannot be resolved`;
+  }
+  const t = toPosix(relative(realRoot, target));
+  if (t === '' || t === '..' || t.startsWith('../') || isAbsolute(t)) return `${rel} is a symlink that leaves the root`;
+  const hidden = await gitHiddenReason(root, t);
+  return hidden === null ? null : `${rel} is a symlink to a hidden path: ${hidden}`;
 }
 
 export function createWorkspace(repoRoot: string, rootRel: string, opts: WorkspaceOptions = {}): Workspace {
@@ -274,9 +297,13 @@ export function createWorkspace(repoRoot: string, rootRel: string, opts: Workspa
         const wanted = picomatch(patterns, { dot: true });
         const skipped = picomatch(LIST_IGNORE, { dot: true });
         const out: string[] = [];
+        const real = realRoot();
         for (const f of await gitVisible(root)) {
           if (!wanted(f) || skipped(f) || isEnvPath(f) || isGitPath(f)) continue;
-          if (await isListableFile(join(root, f))) out.push(f);
+          if (!(await isListableFile(join(root, f)))) continue;
+          // A symlink is judged by what it points at: its readers follow it.
+          if ((await symlinkHiddenReason(root, real, f)) !== null) continue;
+          out.push(f);
         }
         return out.sort();
       }

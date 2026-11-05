@@ -204,7 +204,7 @@ describe('approval verdict (human-yes gate)', () => {
     return readLedger(file);
   }
   const proposed: LedgerEvent = { type: 'proposed', contractHash: hash, stakeholder: 'Abdul Basit', before: null, session: 's1', text: COMPLETE };
-  const typed = (text: string, inReplyTo: number | null = 1, channel: 'tty' | 'pipe' = 'tty'): LedgerEvent => ({ type: 'human_turn', text, channel, session: 's1', inReplyTo });
+  const typed = (text: string, inReplyTo: number | null = 1, channel: 'tty' | 'pipe' = 'tty'): LedgerEvent => ({ type: 'human_turn', text, channel, session: 's1', inReplyTo, contractHash: hash, agentEnv: [] });
 
   it('approves a typed yes after the proposal (the legitimate twin)', () => {
     const v = approvalVerdict(ledgerWith([proposed, typed('Yes, go ahead')]), hash);

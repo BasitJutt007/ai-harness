@@ -13,6 +13,7 @@ import listFiles from '../../plugins/tools/list_files.ts';
 import outline from '../../plugins/tools/outline.ts';
 import readFile from '../../plugins/tools/read_file.ts';
 import searchCode from '../../plugins/tools/search_code.ts';
+import { frontLoad } from '../../src/core/prompt.ts';
 import { createWorkspace, gitHiddenReason, isEnvPath, isGitPath } from '../../src/core/workspace.ts';
 import type { RunContext, Workspace } from '../../src/core/types.ts';
 import { fakeCtx } from '../core-loop/fakes.ts';
@@ -144,6 +145,47 @@ describe('the read tools over a git-visibility workspace', () => {
     expect(nm.ok).toBe(false);
     expect(nm.summary).toMatch(/node_modules is ignored by git/);
     expect((await listFiles.run({ dir: 'src' }, ctx)).data).toEqual({ files: ['src/a.ts', 'src/new.ts'] });
+  });
+
+  /** Tracked symlinks to a secret, to an ignored file, out of the root and into .git, plus a link to a source file (the twin). */
+  function plantLinks(): void {
+    const outside = join(repo, '..', 'outside.txt');
+    writeFileSync(outside, 'TOKEN_OUTSIDE\n');
+    symlinkSync('../.env', join(repo, 'src', 'env-link.ts'));
+    symlinkSync('../debug.log', join(repo, 'src', 'log-link.ts'));
+    symlinkSync(outside, join(repo, 'src', 'out-link.ts'));
+    symlinkSync('../.git/config', join(repo, 'src', 'git-link.ts'));
+    symlinkSync('a.ts', join(repo, 'src', 'alias.ts'));
+    git('add', 'src');
+    git('commit', '-q', '-m', 'links');
+  }
+
+  it('a tracked symlink is listed only when its target would be: never to .env, an ignored file, .git or out of the root', async () => {
+    plantLinks();
+    const ws = createWorkspace(repo, '.', { visibility: 'git' });
+    const listed = await ws.list(['**/*']);
+    expect(listed).toContain('src/alias.ts');
+    for (const f of ['src/env-link.ts', 'src/log-link.ts', 'src/out-link.ts', 'src/git-link.ts']) expect(listed, f).not.toContain(f);
+  });
+
+  it('search_code with glob **/* never reads through a symlink to a hidden file; a link to source is searched', async () => {
+    plantLinks();
+    const ctx = ctxFor(createWorkspace(repo, '.', { visibility: 'git' }));
+    const r = await searchCode.run({ pattern: 'TOKEN_', glob: '**/*' }, ctx);
+    expect(r.ok).toBe(true);
+    expect(r.summary).not.toMatch(/TOKEN_IN_ENV|TOKEN_IN_LOG|TOKEN_OUTSIDE/);
+    expect(r.summary).not.toMatch(/\[core\]/); // nothing of .git/config either
+    expect(r.summary).toContain('src/alias.ts:1:');
+    expect(r.summary).toContain('src/a.ts:1:');
+  });
+
+  it('the baseline front-load never includes a hidden file through a symlink', async () => {
+    plantLinks();
+    const text = await frontLoad({ ws: createWorkspace(repo, '.', { visibility: 'git' }), checks: [] });
+    expect(text).not.toMatch(/TOKEN_IN_ENV|TOKEN_IN_LOG|TOKEN_OUTSIDE|repositoryformatversion/);
+    expect(text).toContain('=== src/alias.ts ===');
+    // file-mode twin: the default workspace front-loads every file it lists
+    expect(await frontLoad({ ws: createWorkspace(repo, '.'), checks: [] })).toContain('TOKEN_IN_ENV');
   });
 
   it('search_code never reads a hidden file, whatever the glob', async () => {

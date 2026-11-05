@@ -6,7 +6,8 @@
  * - The commit gets its own detached worktree under .harness/measure/, with the clone's node_modules
  *   linked in, so the reading sees exactly that commit's files and nothing of a working tree.
  * - The script lives in metrics/ under the items root (measureScriptPath): the harness root in file
- *   mode, a session's state directory in a session. No model tool can write either (path-guard confines
+ *   mode, a session's state directory in a session; only the file-mode CLI may also fall back to the
+ *   harness's metrics/ (harnessMetrics). No model tool can write either (path-guard confines
  *   model writes to the run's workspace). It runs confined (no network, writes only to its own temp
  *   directory), from a copy in that temp directory because the sandbox never lets confined code read
  *   the harness root; the reading records the script's sha256, so a before and an after taken with
@@ -21,12 +22,28 @@ import { join, resolve } from 'node:path';
 import { exec as coreExec } from './exec.ts';
 import type { MeasureSpec, MetricReading } from './items.ts';
 import { linkDependencies } from './target.ts';
-import type { Exec } from './types.ts';
+import type { Exec, SandboxMechanism } from './types.ts';
 
 export const MEASURE_TIMEOUT_MS = 300_000;
 export const NUMBER_RE = /^-?\d+(?:\.\d+)?$/;
 
-export type MeasureResult = { ok: true; reading: MetricReading } | { ok: false; reason: string };
+/**
+ * A reading, or why there is none. `unproven` is set on a reading taken by a Measure that ran unconfined
+ * (sandbox off or unavailable): it is recorded, and close refuses it (readingUnproven).
+ */
+export type MeasureResult = { ok: true; reading: MetricReading; unproven?: string } | { ok: false; reason: string };
+
+/** The sandbox mechanisms that confine a Measure run; any other confinement value is no confinement. */
+const CONFINING: ReadonlySet<string> = new Set<SandboxMechanism>(['sandbox-exec', 'bwrap']);
+
+/**
+ * Why a reading proves nothing, or null: the Measure that produced it ran unconfined (sandbox off or
+ * unavailable, or not recorded), so anything on the machine could have shaped the number. UNPROVEN.
+ */
+export function readingUnproven(r: Pick<MetricReading, 'confinement' | 'sha'>): string | null {
+  if (CONFINING.has(r.confinement)) return null;
+  return `the Measure ran unconfined at ${r.sha.slice(0, 12)} (sandbox: ${r.confinement === '' ? 'not recorded' : r.confinement}), so its number is not proven`;
+}
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
@@ -46,6 +63,13 @@ export interface ReadMetricOptions {
    * Default: the harness root (file mode, where the two are the same directory).
    */
   itemsRoot?: string;
+  /**
+   * Also look in the harness's own metrics/ when the items root has no such script. Opt-in, for the
+   * file-mode CLI only (its items root is the harness's, or a stand-in for it): an items root of its
+   * own (a session's state directory) never borrows a script it does not hold, so a metric can only
+   * be read with the script that root's contract was approved next to.
+   */
+  harnessMetrics?: boolean;
   /** The target repository clone (its refs and node_modules are used, its working tree never). */
   repoDir: string;
   /** What to read at: a commit sha or a ref such as origin/main. */
@@ -75,8 +99,13 @@ export function measureScriptPath(script: string, roots: readonly string[]): { o
 
 export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult> {
   const run = opts.exec ?? coreExec;
-  const found = measureScriptPath(opts.measure.script, [opts.itemsRoot ?? opts.harnessRoot, opts.harnessRoot]);
-  if (!found.ok) return { ok: false, reason: found.reason };
+  const own = opts.itemsRoot ?? opts.harnessRoot;
+  const found = measureScriptPath(opts.measure.script, opts.harnessMetrics === true ? [own, opts.harnessRoot] : [own, own]);
+  if (!found.ok) {
+    // One root that is not the harness: say which (measureScriptPath's single-root wording names the harness).
+    const alone = opts.harnessMetrics !== true && resolve(own) !== resolve(opts.harnessRoot);
+    return { ok: false, reason: alone && !/outside metrics/.test(found.reason) ? `Measure script ${opts.measure.script} does not exist in metrics/ under the items root (${own})` : found.reason };
+  }
   const script = found.path;
 
   const rev = await run('git', ['-C', opts.repoDir, 'rev-parse', '--verify', `${opts.ref}^{commit}`], { cwd: opts.repoDir });
@@ -118,10 +147,9 @@ export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult
     }
     if (values[0] !== values[1]) return { ok: false, reason: `Measure is not deterministic at ${sha.slice(0, 12)}: two runs printed ${String(values[0])} and ${String(values[1])}` };
     const excerpt = stdout.trim().split('\n').slice(-6).join('\n');
-    return {
-      ok: true,
-      reading: { value: values[0] ?? Number.NaN, sha, ref: opts.ref, command: opts.measure.text, scriptSha256, stdoutSha256: sha256(stdout), excerpt, confinement },
-    };
+    const reading: MetricReading = { value: values[0] ?? Number.NaN, sha, ref: opts.ref, command: opts.measure.text, scriptSha256, stdoutSha256: sha256(stdout), excerpt, confinement };
+    const unproven = readingUnproven(reading);
+    return { ok: true, reading, ...(unproven !== null ? { unproven } : {}) };
   } finally {
     await run('git', ['-C', repoTop, 'worktree', 'remove', '--force', tree], { cwd: repoTop }).catch(() => undefined);
     rmSync(scratch, { recursive: true, force: true });

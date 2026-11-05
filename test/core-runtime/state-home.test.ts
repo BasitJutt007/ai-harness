@@ -123,6 +123,61 @@ describe('one session per checkout', () => {
     if (!r.ok) expect(r.reason).toMatch(/cannot be read; if no session is running .* remove it/);
   });
 
+  it('a lock path that exists but cannot be read at all (a directory) is held too, never retried as released', async () => {
+    const d = await repoStateDir(repo, { SF_HARNESS_HOME: home });
+    mkdirSync(lockPath(d.locksDir, repo));
+    const r = acquireCheckoutLock(d.locksDir, repo, { releaseOnExit: false });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/cannot be read; if no session is running .* remove it/);
+  });
+
+  /** A lock left by a process that is gone. */
+  function staleLock(locksDir: string): { dead: number } {
+    const dead = spawnSync(process.execPath, ['-e', '0']).pid ?? 999_999;
+    const stale = acquireCheckoutLock(locksDir, repo, { pid: dead, releaseOnExit: false });
+    expect(stale.ok).toBe(true);
+    return { dead };
+  }
+
+  it('one taker at a time: while another session holds the takeover file, a stale lock is not taken (and stays)', async () => {
+    const d = await repoStateDir(repo, { SF_HARNESS_HOME: home });
+    const { dead } = staleLock(d.locksDir);
+    const path = lockPath(d.locksDir, repo);
+    writeFileSync(`${path}.takeover`, JSON.stringify({ pid: 1, token: 'other-taker' }));
+    const r = acquireCheckoutLock(d.locksDir, repo, { releaseOnExit: false });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(new RegExp(`another session is taking over the stale session lock .*; try again \\(if none is starting, remove .*\\.takeover\\)`));
+    expect((JSON.parse(readFileSync(path, 'utf8')) as { pid: number }).pid).toBe(dead);
+    expect(existsSync(`${path}.takeover`)).toBe(true); // someone else's: never removed by the refused taker
+    // the twin: once that takeover is over, the stale lock is taken, and no takeover file is left behind
+    rmSync(`${path}.takeover`);
+    const now = acquireCheckoutLock(d.locksDir, repo, { releaseOnExit: false });
+    expect(now.ok).toBe(true);
+    if (now.ok) {
+      expect(now.tookOver?.pid).toBe(dead);
+      now.release();
+    }
+    expect(existsSync(`${path}.takeover`)).toBe(false);
+  });
+
+  it('a lock that changed between being judged stale and being taken over is left alone, and the taker is refused', async () => {
+    const d = await repoStateDir(repo, { SF_HARNESS_HOME: home });
+    const { dead } = staleLock(d.locksDir);
+    const path = lockPath(d.locksDir, repo);
+    // Another session takes the stale lock over right after this one judged it stale (between the two reads).
+    const fresh = { pid: process.pid, startedAt: new Date().toISOString(), checkout: realpathSync(repo), token: 'the-faster-taker' };
+    const alive = (p: number): boolean => {
+      if (p === dead) writeFileSync(path, `${JSON.stringify(fresh)}\n`);
+      return false;
+    };
+    const r = acquireCheckoutLock(d.locksDir, repo, { releaseOnExit: false, alive });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/changed while it was being taken over; try again/);
+    // The faster taker's lock stands, untouched; no takeover file is left behind.
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(fresh);
+    expect(existsSync(`${path}.takeover`)).toBe(false);
+  });
+
   it('two checkouts have two locks', async () => {
     const d = await repoStateDir(repo, { SF_HARNESS_HOME: home });
     const other = join(base, 'other');

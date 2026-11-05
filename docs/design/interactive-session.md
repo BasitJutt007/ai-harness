@@ -167,7 +167,27 @@ suite that covers file mode passes unchanged).
 | In-place writability and the `branch-guard` hook (required for in-place runs) | `src/core/inplace.ts`, `plugins/hooks/branch-guard.ts`, `src/core/hooks.ts` |
 | Explicit confined root, `.git` and `.env*` unreadable inside it | `src/core/sandbox.ts` (`setConfinedRoot`), `src/core/ts-fence.ts` |
 
+Gate hardening and review fixes (after step 1; file mode keeps working, each refusal has its twin):
+
+| Piece | Where |
+|---|---|
+| A listed symlink is judged by its target (outside the root, `.env*`, `.git`, git-ignored: dropped) | `src/core/workspace.ts` (`list` with visibility 'git') |
+| In place is read from the context (an in-place record or a git-visibility workspace), never a flag; buildContext and branch-guard refuse a git-visibility run without its record | `src/core/hooks.ts` (`writesInPlace`), `src/core/run.ts`, `plugins/hooks/branch-guard.ts` |
+| The harness's `metrics/` is a fallback for the file-mode CLI only | `src/core/measure.ts` (`harnessMetrics`), `src/core/item-cli.ts` |
+| Overflow shrink cuts folded chat prose to its first line; a failed call's turn number is never reused; the owner's message is recorded before it joins the history | `src/core/context.ts`, `src/core/loop.ts` |
+| One stale-lock taker at a time (`<lock>.takeover`) | `src/core/state-home.ts` |
+| A reply records the contract hash it was typed against and the operator's provenance (agent-shell markers, names only); `Measure: none` | `src/core/items.ts`, `src/core/provenance.ts` |
+| A file-mode run binds only an open item whose Repo is the clone's origin and whose Base is its branch | `bindItem` and `executeRun` in `src/core/run.ts`, `targetRepoProblem` in `src/core/item-cli.ts` |
+| Close: bot mergers from gh's `is_bot`/login, before reading taken before the merge, shipped after a DONE run of the approved text, unconfined readings UNPROVEN, no Measure never closes | `src/core/close.ts`, `src/core/measure.ts` (`readingUnproven`) |
+| `harness gate <problem-statement\|human-yes\|outcome> <slug>`; gate files run alone point to it | `src/core/item-cli.ts` (`cmdGate`), `src/core/main-module.ts` |
+
+For a session: `/ship` must append the item's `run` ledger entry (DONE, the approved contract hash)
+before its `shipped` entry, or `harness item close` refuses the item; a session contract may say
+`Measure: none` (proposed with before = null; such an item ships but never closes).
+
 Known limits: on Linux (bwrap) the `.git`/`.env*` masks are the entries found by a bounded walk at
-each call, checked on the generated argv only (no bwrap on the development machine); on macOS the
-Seatbelt regexes are verified against the real `sandbox-exec`. The session lock treats any live pid as
-the holder (a reused pid keeps a stale lock until its file is removed by hand).
+each call (every `.git` at any depth, node_modules not walked), checked on the generated argv only (no
+bwrap on the development machine); on macOS the Seatbelt regexes are verified against the real
+`sandbox-exec`. The session lock treats any live pid as the holder (a reused pid keeps a stale lock
+until its file is removed by hand), and a takeover file left by a crash mid-takeover is reported with
+the path to remove.

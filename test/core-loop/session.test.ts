@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { DIGEST_HEADER, DIGEST_HEADER_CHAT, digestTurn, jitView, proseLine, type TranscriptTurn } from '../../src/core/context.ts';
+import { DIGEST_HEADER, DIGEST_HEADER_CHAT, digestTurn, jitView, messageChars, proseLine, type TranscriptTurn } from '../../src/core/context.ts';
 import { NUDGE, runAgent, type RunAgentOptions } from '../../src/core/loop.ts';
 import { buildContext } from '../../src/core/run.ts';
 import { newRunState, RunStore } from '../../src/core/run-store.ts';
@@ -71,6 +71,10 @@ function setup(script: ConstructorParameters<typeof FakeDriver>[0], over: Omit<P
     ...rest,
   };
   return { ctx, events, store, driver, opts };
+}
+
+function messageCharsOf(r: ModelRequest | undefined): number {
+  return messageChars(r?.messages ?? []);
 }
 
 function texts(m: Message): string[] {
@@ -163,6 +167,35 @@ describe('history and the next message', () => {
     const r = await runAgent(s.opts);
     expect(r).toMatchObject({ status: 'error', turns: 0 });
     expect(r.error).toMatch(/disk full/);
+    // Recorded first: a message the transcript lacks never joins the conversation the model sees.
+    expect(texts(s.opts.first)).toEqual(['Session: repo demo, branch fix/x.']);
+    expect(s.driver.requests).toHaveLength(0);
+  });
+
+  it('a message the transcript cannot record after earlier turns is not added to the last turn either', async () => {
+    const history: TranscriptTurn[] = [];
+    const s = setup([text('hi')], { history, yieldOnText: true, message: 'hello' });
+    await runAgent(s.opts);
+    s.store.appendTranscript = () => {
+      throw new Error('disk full');
+    };
+    expect((await runAgent({ ...s.opts, message: 'second' })).status).toBe('error');
+    expect(history[0]?.results).toBeNull();
+  });
+
+  it('a failed call never hands its turn number to the next call', async () => {
+    const history: TranscriptTurn[] = [];
+    const driver = new FakeDriver([text('one'), new Error('down'), new Error('down'), new Error('down'), new Error('down'), text('three')]);
+    const s = setup([], { driver, history, yieldOnText: true, message: 'a' });
+    expect((await runAgent(s.opts)).status).toBe('yielded');
+    expect((await runAgent({ ...s.opts, message: 'b' })).status).toBe('error');
+    expect(s.ctx.state.turn).toBe(2); // the failed request was turn 2 (its events and logs say so)
+    expect((await runAgent({ ...s.opts, message: 'c' })).status).toBe('yielded');
+    expect(history.map((t) => t.turn)).toEqual([1, 3]);
+    // file-mode twin: a fresh run starts at turn 1
+    const fresh = setup([text('x')], { history: [], yieldOnText: true, message: 'z' });
+    await runAgent(fresh.opts);
+    expect(fresh.ctx.state.turn).toBe(1);
   });
 
   it('a message is kept in the history even when its request fails', async () => {
@@ -338,6 +371,42 @@ describe('onText: live text', () => {
     const sent = (driver.streamed[0]?.messages ?? []).flatMap(texts).join('\n');
     for (const w of ['run the tests three times', 't1 assistant: Running the tests, pass 1.', 't3 assistant: Running the tests, pass 3.', 'status?']) expect(sent).toContain(w);
     expect(sent).not.toContain(big);
+  });
+
+  it('a context overflow in an oversized chat shrinks the folded prose to its first line (keepChat)', async () => {
+    class Overflow extends Error {}
+    class OverflowOnce extends FakeDriver {
+      errorKind(e: unknown): DriverErrorKind | null {
+        return e instanceof Overflow ? 'context_overflow' : null;
+      }
+    }
+    let overflowed = false;
+    const history: TranscriptTurn[] = [];
+    // Four long chat replies: kept verbatim in the digest, they would make the shrink no smaller.
+    const long = (n: number): string => Array.from({ length: 40 }, (_, l) => `reply ${n} line ${l + 1}: ${'z'.repeat(60)}`).join('\n');
+    const chat = setup([1, 2, 3, 4].map((n) => text(long(n))), { history, yieldOnText: true, message: 'm0' });
+    await runAgent(chat.opts);
+    for (const m of ['m1', 'm2', 'm3']) await runAgent({ ...chat.opts, message: m });
+    const driver = new OverflowOnce([
+      () => {
+        overflowed = true;
+        throw new Overflow('prompt is too long');
+      },
+      text('short answer'),
+    ]);
+    const s = setup([], { driver, history, yieldOnText: true });
+    const r = await runAgent({ ...s.opts, first: chat.opts.first, message: 'and now?' });
+    expect(overflowed).toBe(true);
+    expect(r.status, r.error).toBe('yielded');
+    const [before, after] = driver.requests;
+    expect(messageCharsOf(after)).toBeLessThan(messageCharsOf(before));
+    const sent = (after?.messages ?? []).flatMap(texts).join('\n');
+    expect(sent).toContain(`t1 assistant: reply 1 line 1: ${'z'.repeat(60)} [+39 more lines]`);
+    expect(sent).toContain('t1 user: m1');
+    expect(sent).not.toContain('reply 1 line 2:');
+    expect(sent).toContain('and now?');
+    // the ordinary request before it kept the folded prose verbatim (the twin)
+    expect((before?.messages ?? []).flatMap(texts).join('\n')).toContain('reply 1 line 2:');
   });
 
   it('a listener that throws never stops the run (reported once)', async () => {

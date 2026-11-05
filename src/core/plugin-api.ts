@@ -41,6 +41,9 @@ export type { ApprovalVerdict, ContractParse, ContractVerdict, ItemStatus, Ledge
 /** Every placeholder the context views render for content left out of the model's view (see context.ts). */
 export { ELISION_PLACEHOLDER } from './context.ts';
 
+/** A standard's full text with the options this repository configured for it (checkOptions), as the prompts show it (see prompt.ts). */
+export { optionsSummary, standardDoc } from './prompt.ts';
+
 /** Writing in the owner's checkout (a session): the branch checks the branch-guard hook repeats before every write (see inplace.ts). */
 export { branchVerdict, inPlaceWritability } from './inplace.ts';
 export type { InPlaceVerdict } from './inplace.ts';
@@ -64,3 +67,6 @@ export function defineGate(p: Omit<GatePlugin, 'kind'>): GatePlugin {
 export function defineCheck(p: Omit<CheckPlugin, 'kind'>): CheckPlugin {
   return { kind: 'check', ...p };
 }
+
+/** A gate's source file run on its own points at `harness gate ...` instead of exiting 0 in silence (see main-module.ts). */
+export { isMainModule, pointWhenRunDirectly } from './main-module.ts';
