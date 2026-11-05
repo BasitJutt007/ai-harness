@@ -250,8 +250,10 @@ run from the `ai-harness` folder.
    node bin/harness.mjs run ../my-tasks/add-search.md --driver openai --repo ../harness-demo
    ```
 
-   The run works on its own branch in a worktree under `.harness/worktrees/`, so your clone is never
-   touched. It prints progress, then one line per gate, `verdict DONE` or `NOT DONE`, and the run id
+   The run needs its item approved (the task id names it), and the clone must be what the contract
+   names: its `origin` the contract's Repo, checked out on the contract's Base; otherwise the run is
+   refused before any token is spent. The run works on its own branch in a worktree under
+   `.harness/worktrees/`, so your clone is never touched. It prints progress, then one line per gate, `verdict DONE` or `NOT DONE`, and the run id
    (e.g. `add-search-openai-20261004-160000`). On NOT DONE the gate lines say why; run it again or
    make the description more precise. A change that would break existing clients is refused by
    Contract Lock unless the file sets `allowBreaking: true`. The full evidence is in `runs/<run-id>/`.

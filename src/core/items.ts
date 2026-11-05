@@ -506,8 +506,13 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
       ignored.push(`"${quote}" (seq ${e.seq}) answers proposal ${String(ev.inReplyTo)}, not the latest (${latest.seq})`);
       continue;
     }
-    // A reply counts only for the contract text that was on disk when it was typed.
+    // A reply counts only for the contract text that was on disk when it was typed: never as a yes for
+    // another text. A "no" still stands, whatever text it was typed against (fail closed).
     if (ev.contractHash !== latest.event.contractHash) {
+      if (classifyReply(ev.text).kind === 'no') {
+        decisive = { entry: e, kind: 'no' };
+        continue;
+      }
       ignored.push(ev.contractHash === undefined
         ? `"${quote}" (seq ${e.seq}) does not record the contract text it was typed against`
         : `"${quote}" (seq ${e.seq}) was typed while the contract read differently (${(ev.contractHash ?? 'none').slice(0, 12)}), not the proposed text (${latest.event.contractHash.slice(0, 12)})`);

@@ -62,6 +62,19 @@ describe('a reply counts only for the contract text it was typed against', () =>
     expect(itemStatus(root, SLUG).stage).toBe('approved');
   });
 
+  it('a "no" stands whatever text it was typed against: it revokes an earlier yes (fail closed)', () => {
+    const root = proposed();
+    recordReply(root, SLUG, 'yes', 'tty', 's');
+    expect(itemStatus(root, SLUG).stage).toBe('approved');
+    const c = itemPaths(root, SLUG).contract;
+    writeFileSync(c, OTHER);
+    recordReply(root, SLUG, 'no, wait', 'tty', 's');
+    writeFileSync(c, CONTRACT);
+    const v = approvalVerdict(readLedger(itemPaths(root, SLUG).ledger), parseContract(CONTRACT).hash);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/did not approve \(seq \d+: "no, wait"\)/);
+  });
+
   it('a reply entry that does not record its contract text (an older entry, a hand-written one) never counts', () => {
     const root = proposed();
     appendLedger(itemPaths(root, SLUG).ledger, { type: 'human_turn', text: 'yes', channel: 'tty', session: 's', inReplyTo: 1 });
