@@ -419,4 +419,6 @@ export default defineDriver({
   name: DRIVER_NAME,
   description: 'Anthropic Messages API (adaptive thinking, server-side fallback, automatic prompt caching; steps down for older models).',
   create: (opts) => createClaudeDriver(opts),
+  // The model family this provider serves: how a session picks this driver for an allowlisted model.
+  serves: (model) => /^claude-/.test(model),
 });

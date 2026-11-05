@@ -46,6 +46,7 @@ import type {
   RunContext,
   RunEvent,
   RunState,
+  SessionPort,
   Task,
   ToolSpec,
   Workspace,
@@ -87,7 +88,7 @@ export interface Honesty {
   humanMustVerify: string[];
 }
 
-const JIT_MODE: ContextMode = { jit: true, compactReturns: true, compactHistory: true };
+export const JIT_MODE: ContextMode = { jit: true, compactReturns: true, compactHistory: true };
 const BASELINE_MODE: ContextMode = { jit: false, compactReturns: false, compactHistory: false };
 
 function errMsg(e: unknown): string {
@@ -129,6 +130,8 @@ export function buildContext(opts: {
    * it). Required with a git-visibility workspace (only a workspace over the owner's checkout is one).
    */
   inPlace?: InPlaceRun;
+  /** An interactive session's services to its session-only tools (absent in file mode). */
+  session?: SessionPort;
 }): RunContext {
   const { state, store } = opts;
   // Fail closed: an in-place run without its record (or without branch-guard) would write unchecked.
@@ -162,6 +165,7 @@ export function buildContext(opts: {
     ...(opts.item !== undefined ? { item: opts.item } : {}),
     ...(profile !== undefined ? { stack: profile.stack, runner: profile.runner } : {}),
     ...(opts.inPlace !== undefined ? { inPlace: opts.inPlace } : {}),
+    ...(opts.session !== undefined ? { session: opts.session } : {}),
     workspace: opts.ws,
     state,
     logs: store.logs,
@@ -217,7 +221,7 @@ export async function preflight(task: Task, declaresScope: boolean, ws: Workspac
 /** run.json `target` of a brownfield run whose write scope came from the target layout (preflight). */
 const RecordedTargetScope = z.looseObject({ defaultScope: z.array(z.string().min(1)).min(1) });
 
-async function loadRegistryOrThrow(config: HarnessConfig): Promise<RegistryView> {
+export async function loadRegistryOrThrow(config: HarnessConfig): Promise<RegistryView> {
   const registry = await loadRegistry(config, HARNESS_ROOT);
   if (registry.errors.length > 0) {
     const lines = registry.errors.map((e) => `  ${e.file}: ${e.error}`).join('\n');
@@ -304,8 +308,12 @@ export async function scaffold(templatesDir: string, template: string, dest: str
   if (existsSync(pkg)) await writeFile(pkg, (await readFile(pkg, 'utf8')).replaceAll('__API_NAME__', apiName), 'utf8');
 }
 
-/** Hash of every file at run start; the TypeScript files' content is kept under <runDir>/initial (revert check). */
-async function snapshotHashes(ws: Workspace, runDir: string): Promise<Map<string, string>> {
+/**
+ * Hash of every file at run start; the TypeScript files' content is kept under <runDir>/initial (revert
+ * check). A session snapshots the owner's checkout the same way, through a workspace that lists only
+ * what git shows (never a `.env*` file).
+ */
+export async function snapshotHashes(ws: Workspace, runDir: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const contents = new Map<string, string>();
   for (const f of (await ws.list(['**/*'])).sort()) {

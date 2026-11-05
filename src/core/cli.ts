@@ -8,6 +8,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
 import { ruleWidth, runChecks, selectChecks } from './checks.ts';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
+import { allowedEnvName, envFileLines, lastEnvLoad, loadEnvFile, recordEnvLoad, type EnvFileResult } from './env-file.ts';
 import { exec } from './exec.ts';
 import { agnosticDiff, AgnosticRunSchema, runVerdict, type AgnosticRun } from './governance.ts';
 import { testMapSummary } from './prompt.ts';
@@ -24,7 +25,18 @@ import { comparisonsFor, compareRuns, formatComparison, formatTokenReport, parse
 import { createWorkspace } from './workspace.ts';
 import type { CheckPlugin, HarnessConfig, RegistryView } from './types.ts';
 
-export const USAGE = `usage: harness <command> [options]
+export const USAGE = `usage: harness [chat] [--driver <name>] [--model <id>] [--max-turns N] [--driver-opt k=v]...
+       harness <command> [options]
+
+interactive session (no command, or chat):
+  Run inside any git repository: a governed coding agent on the repository's top level, in the
+  current branch's working tree. Chat with it; before its first edit it proposes a contract that only
+  a reply typed at this terminal approves; the gates (never the model) decide when work is complete.
+  It never commits or pushes: /ship does, when the owner types it. Records live outside the
+  repository, in ~/.sf-harness/repos/<id>/ (SF_HARNESS_HOME overrides). Type /help in a session.
+  Default model: the first non-scripted model on harness.config.json models.allow whose driver has
+  its key. Keys load from SF_HARNESS_ENV_FILE, else ~/.sf-harness/env.development, else
+  ~/.sf-harness/.env (provider keys and HARNESS_* only; never overriding a set variable).
 
 commands:
   run <task-file> --driver <name> [--model <id>] [--driver-opt k=v]... [--baseline]
@@ -771,6 +783,18 @@ export async function doctorPlugins(out: Out, load: () => Promise<{ config: Harn
   }
 }
 
+/**
+ * Provider keys (and HARNESS_* settings) from the owner's env file, before any command runs: the names
+ * allowed are the credential variables the driver plugins read (learned from them, so the core names
+ * no provider) and HARNESS_*. Called by bin/harness.mjs only, so tests that call main() never read the
+ * owner's file. The result (key names, never values) is kept for `harness doctor`.
+ */
+export function loadUserEnv(env: NodeJS.ProcessEnv = process.env): EnvFileResult {
+  const result = loadEnvFile({ env, allowed: allowedEnvName(providerVocabulary(HARNESS_ROOT).credentialVars) });
+  recordEnvLoad(result);
+  return result;
+}
+
 async function cmdDoctor(out: Out): Promise<number> {
   let ok = true;
   const major = Number(process.versions.node.split('.')[0]);
@@ -794,6 +818,7 @@ async function cmdDoctor(out: Out): Promise<number> {
     const set = typeof process.env[v] === 'string' && (process.env[v] ?? '').length > 0;
     out(`env       ${set ? 'set ' : 'unset'} ${v}`);
   }
+  for (const line of envFileLines(lastEnvLoad())) out(line);
 
   const git = await toolVersion('git');
   if (git === null) ok = false;
@@ -807,7 +832,36 @@ async function cmdDoctor(out: Out): Promise<number> {
 
 // ───────────────────────────── entry ─────────────────────────────
 
+/** `harness` with no command (or only options) and `harness chat` start an interactive session. */
+export function isSessionCommand(argv: readonly string[]): boolean {
+  const first = argv[0];
+  if (first === undefined || first === 'chat') return true;
+  return first.startsWith('--') && first !== '--help';
+}
+
+async function cmdSession(p: ParsedArgs, out: Out): Promise<number> {
+  const { runSessionCli } = await import('../session/main.ts');
+  return runSessionCli(p, out);
+}
+
 export async function main(argv: string[], out: Out = (l) => console.log(l)): Promise<number> {
+  if (isSessionCommand(argv)) {
+    const parsed = parseArgs(argv[0] === 'chat' ? argv.slice(1) : argv);
+    if ('error' in parsed) {
+      out(`${parsed.error}\n\n${USAGE}`);
+      return 2;
+    }
+    if (parsed.bools.has('help')) {
+      out(USAGE);
+      return 0;
+    }
+    try {
+      return await cmdSession(parsed, out);
+    } catch (e) {
+      out(`error: ${errMsg(e)}`);
+      return 1;
+    }
+  }
   const [command, ...rest] = argv;
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
     out(USAGE);

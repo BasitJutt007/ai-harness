@@ -31,6 +31,11 @@ const ROLE: Record<Stack, string> = {
     "You change a web repository (its own framework, language and conventions) in a governed harness, acting only through tools; paths are relative to the repository root. Follow the code around you. Logic you change needs a test that fails first with the repository's own runner; styles, markup and text cannot be proven by a test, so they are reported for a human to verify.",
 };
 
+/** The stack's role line (the first line of the system prompt); an interactive session reuses it. */
+export function stackRole(stack: Stack): string {
+  return ROLE[stack];
+}
+
 /**
  * `preloaded`: the --baseline prompt (the repository and the standards follow it, no fetchers).
  * `checkOptions`: harness.config.json checkOptions; a rule configured there shows its options in the

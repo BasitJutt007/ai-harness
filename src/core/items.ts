@@ -165,6 +165,20 @@ export function parseMetric(text: string): MetricSpec | { error: string } {
   return { name: (g['name'] ?? '').trim(), window: (g['window'] ?? '').trim(), before: value(g['before']), after: value(g['after']) };
 }
 
+/**
+ * Repo: `<owner>/<name>` (the origin remote), or `local:<name>` for a repository with no remote (a
+ * session contract in a local checkout; such an item can be committed but never pushed or closed).
+ */
+export const REPO_RE = /^(?:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+|local:[A-Za-z0-9_.-]+)$/;
+
+/** The Measure value that says, explicitly, that an item has no metric script. */
+export const NO_MEASURE = 'none';
+
+/** "Measure: none" (any letter case): no metric script, said on purpose (not a placeholder left unfilled). */
+export function isNoMeasure(value: string | undefined): boolean {
+  return value !== undefined && value.trim().replace(/^`+|`+$/g, '').trim().toLowerCase() === NO_MEASURE;
+}
+
 const MEASURE_SCRIPT_RE = /^metrics\/[a-z0-9][a-z0-9._-]*\.mjs$/;
 const MEASURE_ARG_RE = /^[A-Za-z0-9._=:,/@+-]+$/;
 
@@ -259,8 +273,8 @@ export function parseContract(text: string): ContractParse {
   }
 
   let measure: MeasureSpec | null = null;
-  // "none" is a placeholder everywhere else; as the whole Measure value it is the stated choice of no metric script.
-  const noMeasure = /^`*\s*none\s*`*$/i.test((fields.Measure ?? '').trim());
+  // "Measure: none" says, explicitly, that the item has no metric script ("none" is a placeholder everywhere else).
+  const noMeasure = isNoMeasure(fields.Measure);
   if (noMeasure) measure = null;
   else if (isPlaceholder(fields.Measure)) missing.push('Measure');
   else {
@@ -289,7 +303,7 @@ export function parseContract(text: string): ContractParse {
   if (notIncluded.length === 0) missing.push('Not included');
 
   const repo = fields.Repo?.trim();
-  if (repo !== undefined && !isPlaceholder(repo) && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) problems.push(`Repo must be "<owner>/<name>" (got "${repo}")`);
+  if (repo !== undefined && !isPlaceholder(repo) && !REPO_RE.test(repo)) problems.push(`Repo must be "<owner>/<name>", or "local:<name>" for a repository without a remote (got "${repo}")`);
   const base = fields.Base?.trim();
   if (base !== undefined && !isPlaceholder(base) && !/^[A-Za-z0-9._/-]+$/.test(base)) problems.push(`Base must be a branch name (got "${base}")`);
 

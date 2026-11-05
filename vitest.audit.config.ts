@@ -9,6 +9,6 @@ export default defineConfig({
     maxConcurrency: 4,
     pool: 'forks',
     // Governed runs need an approved backlog item: the suite gets its own items root (test/setup/items.ts).
-    setupFiles: ['test/setup/items.ts'],
+    setupFiles: ['test/setup/env.ts', 'test/setup/items.ts'],
   },
 });

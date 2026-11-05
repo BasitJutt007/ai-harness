@@ -49,11 +49,24 @@ function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
-/** The number a Measure run printed: its last non-empty stdout line, which must be a plain number. */
+/**
+ * The number a Measure run printed: its last non-empty stdout line, which must be a plain number, or a
+ * JSON object whose `value` is a finite number (`{"metric":"...","value":3}`, the shape a session's
+ * propose_contract asks the model's Measure script to print). Anything else is no reading.
+ */
 export function lastNumber(stdout: string): number | null {
   const last = stdout.split('\n').map((l) => l.trim()).filter((l) => l.length > 0).at(-1);
-  if (last === undefined || !NUMBER_RE.test(last)) return null;
-  return Number(last);
+  if (last === undefined) return null;
+  if (NUMBER_RE.test(last)) return Number(last);
+  if (!last.startsWith('{')) return null;
+  try {
+    const v: unknown = JSON.parse(last);
+    if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+    const value: unknown = (v as Record<string, unknown>)['value'];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface ReadMetricOptions {

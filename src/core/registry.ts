@@ -117,6 +117,7 @@ const DriverShape = z.object({
   name,
   description: z.string(),
   create: fn,
+  serves: optFn,
 });
 const ToolShape = z.object({
   kind: z.literal('tool'),
@@ -126,6 +127,7 @@ const ToolShape = z.object({
   effect,
   fetcher: z.boolean().optional(),
   availableIn: z.array(taskKind).optional(),
+  sessionOnly: z.boolean().optional(),
   paths: optFn,
   preview: optFn,
   run: fn,
@@ -293,9 +295,14 @@ export function toolInputSchema(input: z.ZodType): JsonSchema {
   return js;
 }
 
-export function toolSpecs(tools: RegistryView['tools'], kind: TaskKind): ToolSpec[] {
+/**
+ * The tools offered to the model for a task kind. Session-only tools (ToolPlugin.sessionOnly) are
+ * offered only when `opts.session` is true, so file mode's tool list is unchanged by their presence.
+ */
+export function toolSpecs(tools: RegistryView['tools'], kind: TaskKind, opts: { session?: boolean } = {}): ToolSpec[] {
   return tools
     .filter((r) => r.plugin.availableIn === undefined || r.plugin.availableIn.includes(kind))
+    .filter((r) => r.plugin.sessionOnly !== true || opts.session === true)
     .map((r) => ({
       name: r.plugin.name,
       description: r.plugin.description ?? r.plugin.name,

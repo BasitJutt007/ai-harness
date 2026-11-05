@@ -1,0 +1,65 @@
+{
+  "description": "Interactive session demo (harness chat --driver scripted --driver-opt script=fixtures/scripted/session-demo.json) in the small web repo of fixtures/scripted/session-demo/README.md. Owner lines, in order: hello / names with spaces around them get extra spaces in the greeting, fix it / yes (typed at the terminal). The agent reads, proposes a contract, writes a failing test (red), fixes the source, runs the tests (green) and calls finish; the gates decide.",
+  "turns": [
+    {
+      "text": "Hi! I'm sf-harness, a governed coding agent. I can read this repository, explain it, and change it once you approve a contract. What would you like to do?",
+      "calls": []
+    },
+    {
+      "text": "Let me look at how the greeting is built.",
+      "calls": [
+        { "name": "search_code", "input": { "pattern": "greeting" } },
+        { "name": "read_file", "input": { "path": "src/greeting.ts" } }
+      ]
+    },
+    {
+      "text": "greeting() puts the name in as given, so surrounding spaces stay. Here is the contract for the fix.",
+      "calls": [
+        {
+          "name": "propose_contract",
+          "input": {
+            "slug": "greeting-trim",
+            "problem": "greeting() keeps spaces around the name, so ' Ada ' is greeted as 'Hello,  Ada ' (src/greeting.ts line 2).",
+            "owner": "web team",
+            "stakeholder": "the owner at this terminal",
+            "metric": { "name": "greeting test files", "window": "per commit" },
+            "scenarios": [{ "when": "greeting is called with a name that has spaces around it", "then": "it returns Hello, followed by the name without those spaces" }],
+            "notIncluded": ["changing the greeting text itself", "validating empty names"],
+            "commit": "fix(greeting): trim spaces around the visitor name",
+            "measureScript": "import { readdirSync } from 'node:fs';\nconst files = readdirSync('test').filter((f) => f.startsWith('greeting'));\nconsole.log(JSON.stringify({ metric: 'greeting test files', value: files.length }));\n"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Approved. First a failing test for the scenario.",
+      "calls": [
+        {
+          "name": "write_file",
+          "input": {
+            "path": "test/greeting-trim.test.ts",
+            "content": "import { expect, test } from 'vitest';\nimport { greeting } from '../src/greeting.ts';\n\ntest('a name with spaces around it is greeted without them', () => {\n  expect(greeting('  Ada ')).toBe('Hello, Ada');\n});\n"
+          }
+        }
+      ]
+    },
+    {
+      "calls": [{ "name": "run_tests", "input": { "files": ["test/greeting-trim.test.ts"] } }]
+    },
+    {
+      "text": "Red, as expected. Now the fix.",
+      "calls": [
+        {
+          "name": "edit_file",
+          "input": { "path": "src/greeting.ts", "find": "return `Hello, ${name}`;", "replace": "return `Hello, ${name.trim()}`;" }
+        }
+      ]
+    },
+    {
+      "calls": [{ "name": "run_tests", "input": {} }]
+    },
+    {
+      "calls": [{ "name": "finish", "input": { "summary": "greeting() trims the name; test/greeting-trim.test.ts went red, then green with the whole suite." } }]
+    }
+  ]
+}
