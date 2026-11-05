@@ -16,7 +16,7 @@ import { approvalVerdict, contractVerdict, defineHook, itemPaths, pointWhenRunDi
 import type { RunContext } from '../../src/core/plugin-api.ts';
 
 // Run on its own this file enforces nothing (hooks act inside a run): say how to check the gate instead.
-pointWhenRunDirectly(import.meta.url, "contract-gate is a harness hook: it blocks edits and holds finish inside a run. To check an item's human-yes gate now: harness gate human-yes <slug> [--repo <dir>]");
+pointWhenRunDirectly(import.meta.url, "contract-gate is a harness hook: it blocks edits and holds finish inside a run. To check an item's human-yes gate now: harness gate human-yes <slug>");
 
 const YES = /\b(yes|approved?|lgtm|go ahead|ship it)\b/i;
 

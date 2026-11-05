@@ -1,6 +1,6 @@
 /**
- * `harness gate <problem-statement|human-yes|outcome> <slug> [--repo <dir>]`: one gate's verdict on an
- * item now, PASS (exit 0) or REFUSE (exit 2) with the reason, recording nothing. And a gate's source
+ * `harness gate problem-statement|human-yes <slug>` and `harness gate outcome <slug> [--repo <dir>]`: one gate's verdict on an
+ * item now, PASS (exit 0) or REFUSE (exit 2) with the reason, recording nothing; a usage error exits 64. And a gate's source
  * file run on its own points at it (exit 2) instead of exiting 0 in silence; imported, it says nothing.
  */
 import { spawnSync } from 'node:child_process';
@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
+import { main } from '../../src/core/cli.ts';
 import { cmdGate } from '../../src/core/item-cli.ts';
 import { appendLedger, appendShipped, itemPaths, parseContract, proposeItem, recordReply } from '../../src/core/items.ts';
 import { isMainModule } from '../../src/core/main-module.ts';
@@ -71,16 +72,43 @@ describe('harness gate', () => {
     expect(await gate(root, 'outcome', SLUG)).toEqual({ code: 0, text: `PASS  outcome  ${SLUG}: closed at ledger seq 7: before 3 (at aaaaaaaaaaaa) -> after 0 (at the merge eeeeeeeeeeee, merged by a-person)` });
   });
 
-  it('usage errors exit 2 with the usage line: an unknown gate, a missing slug, an unknown option', async () => {
+  it('usage errors exit 64 (never 2, which is REFUSE) with the usage line: an unknown gate, a missing slug, an unknown option', async () => {
     const root = tmp();
-    for (const args of [['stakeholder', SLUG], ['outcome'], []]) {
+    const usage = 'usage: harness gate problem-statement|human-yes <slug>, or harness gate outcome <slug> [--repo <dir>]';
+    for (const args of [['stakeholder', SLUG], ['outcome'], [], ['human-yes', SLUG, 'extra']]) {
       const r = await gate(root, ...args);
-      expect(r.code, args.join(' ')).toBe(2);
-      expect(r.text).toBe('usage: harness gate problem-statement|human-yes|outcome <slug> [--repo <dir>]');
+      expect(r.code, args.join(' ')).toBe(64);
+      expect(r.text).toBe(usage);
     }
     const lines: string[] = [];
-    expect(await cmdGate({ positionals: ['human-yes', SLUG], flags: new Map([['yes', ['1']]]) }, (l) => lines.push(l), { root })).toBe(2);
+    expect(await cmdGate({ positionals: ['human-yes', SLUG], flags: new Map([['yes', ['1']]]) }, (l) => lines.push(l), { root })).toBe(64);
     expect(lines.join('\n')).toMatch(/^unknown option --yes/);
+    // through the real CLI too: an option without its value is a usage error of harness gate, not a REFUSE
+    const cli: string[] = [];
+    expect(await main(['gate', 'outcome', SLUG, '--repo'], (l) => cli.push(l))).toBe(64);
+    expect(cli.join('\n')).toBe(`--repo needs a value\n${usage}`);
+  });
+
+  it('--repo is refused (64) for problem-statement and human-yes, where it does nothing; outcome takes it (the twin)', async () => {
+    const root = tmp();
+    writeContract(root, SLUG);
+    proposeItem(root, SLUG, { session: 's', before: null });
+    recordReply(root, SLUG, 'yes', 'tty', 's');
+    const withRepo = async (name: string): Promise<{ code: number; text: string }> => {
+      const lines: string[] = [];
+      const code = await cmdGate({ positionals: [name, SLUG], flags: new Map([['repo', [root]]]) }, (l) => lines.push(l), { root, harnessRoot: root, exec: async () => ({ code: 1, stdout: '', stderr: 'offline', durationMs: 0, timedOut: false }) });
+      return { code, text: lines.join('\n') };
+    };
+    for (const name of ['problem-statement', 'human-yes']) {
+      const r = await withRepo(name);
+      expect(r.code, name).toBe(64);
+      expect(r.text).toMatch(new RegExp(`^--repo does nothing for the ${name} gate: it reads only the item's contract and ledger \\(only the outcome gate reads a clone\\)\\nusage: `));
+      // without it, the same gate decides (PASS here)
+      expect((await gate(root, name, SLUG)).code, name).toBe(0);
+    }
+    const outcome = await withRepo('outcome');
+    expect(outcome.code).toBe(2);
+    expect(outcome.text).toMatch(/^REFUSE {2}outcome {2}gate-item: /);
   });
 });
 

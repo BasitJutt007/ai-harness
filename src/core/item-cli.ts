@@ -342,6 +342,10 @@ export async function cmdItem(
 export const GATE_NAMES = ['problem-statement', 'human-yes', 'outcome'] as const;
 export type GateName = (typeof GATE_NAMES)[number];
 
+/** `harness gate`'s exit code for a usage error (EX_USAGE): distinct from REFUSE (2), which is a verdict. */
+export const GATE_USAGE_EXIT = 64;
+export const GATE_USAGE = 'usage: harness gate problem-statement|human-yes <slug>, or harness gate outcome <slug> [--repo <dir>]';
+
 /** A gate's verdict on an item now: PASS or REFUSE, with the reason. */
 export interface GateCheck {
   pass: boolean;
@@ -385,21 +389,26 @@ export async function gateCheck(gate: GateName, root: string, slug: string, opts
 }
 
 /**
- * `harness gate <problem-statement|human-yes|outcome> <slug> [--repo <dir>]`: one gate's verdict on an
- * item, as the run's hooks and the close command decide it. Prints `PASS` or `REFUSE` with the reason;
- * exit 0 on PASS, 2 on REFUSE (and on a usage error). Read-only: nothing is proposed, recorded or closed.
+ * `harness gate problem-statement|human-yes <slug>` and `harness gate outcome <slug> [--repo <dir>]`: one
+ * gate's verdict on an item, as the run's hooks and the close command decide it. Prints `PASS` or `REFUSE`
+ * with the reason; exit 0 on PASS, 2 on REFUSE, and GATE_USAGE_EXIT (64) on a usage error, so a script never
+ * reads a mistyped command as a refusal. `--repo` is refused where it would do nothing (only the outcome gate
+ * reads a clone). Read-only: nothing is proposed, recorded or closed.
  */
 export async function cmdGate(a: ItemArgs, out: Out, opts: { exec?: Exec; root?: string; harnessRoot?: string; harnessMetrics?: boolean } = {}): Promise<number> {
-  const usage = `usage: harness gate ${GATE_NAMES.join('|')} <slug> [--repo <dir>]`;
   const [gate, slug, ...extra] = a.positionals;
   const unknown = [...a.flags.keys()].find((k) => k !== 'repo');
   if (gate === undefined || slug === undefined || extra.length > 0 || unknown !== undefined || !(GATE_NAMES as readonly string[]).includes(gate)) {
-    out(unknown !== undefined ? `unknown option --${unknown}\n${usage}` : usage);
-    return 2;
+    out(unknown !== undefined ? `unknown option --${unknown}\n${GATE_USAGE}` : GATE_USAGE);
+    return GATE_USAGE_EXIT;
+  }
+  const repoArg = one(a, 'repo');
+  if (repoArg !== undefined && gate !== 'outcome') {
+    out(`--repo does nothing for the ${gate} gate: it reads only the item's contract and ledger (only the outcome gate reads a clone)\n${GATE_USAGE}`);
+    return GATE_USAGE_EXIT;
   }
   const harnessRoot = opts.harnessRoot ?? HARNESS_ROOT;
   const root = opts.root ?? itemsRoot(harnessRoot);
-  const repoArg = one(a, 'repo');
   let v: GateCheck;
   try {
     v = await gateCheck(gate as GateName, root, slug, {

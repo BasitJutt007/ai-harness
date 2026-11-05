@@ -16,7 +16,7 @@
 import { contractVerdict, defineHook, fileModeMeasureProblem, itemPaths, pointWhenRunDirectly, writesInPlace } from '../../src/core/plugin-api.ts';
 
 // Run on its own this file enforces nothing (hooks act inside a run): say how to check the gate instead.
-pointWhenRunDirectly(import.meta.url, "problem-gate is a harness hook: it blocks edits inside a run. To check an item's problem-statement gate now: harness gate problem-statement <slug> [--repo <dir>]");
+pointWhenRunDirectly(import.meta.url, "problem-gate is a harness hook: it blocks edits inside a run. To check an item's problem-statement gate now: harness gate problem-statement <slug>");
 
 export default defineHook({
   name: 'problem-gate',

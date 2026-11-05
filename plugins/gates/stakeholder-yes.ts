@@ -8,7 +8,7 @@
 import { approvalVerdict, contractVerdict, defineGate, itemPaths, pointWhenRunDirectly, readLedger } from '../../src/core/plugin-api.ts';
 
 // Run on its own this file decides nothing (gates run at finish and ship): say how to check the gate instead.
-pointWhenRunDirectly(import.meta.url, "stakeholder-yes is a harness gate: it runs at finish and ship. To check an item's human-yes gate now: harness gate human-yes <slug> [--repo <dir>]");
+pointWhenRunDirectly(import.meta.url, "stakeholder-yes is a harness gate: it runs at finish and ship. To check an item's human-yes gate now: harness gate human-yes <slug>");
 
 export default defineGate({
   name: 'stakeholder-yes',
