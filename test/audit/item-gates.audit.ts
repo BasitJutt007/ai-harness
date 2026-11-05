@@ -65,6 +65,10 @@ const CONTRACT_MUTATIONS: Array<{ name: string; mutate: (t: string) => string; n
   { name: 'Commit "patch"', mutate: setField('Commit', 'patch'), names: /Conventional Commits header/ },
   { name: 'Commit "fix: comment fixes"', mutate: setField('Commit', 'fix: comment fixes'), names: /says nothing/ },
   { name: 'Commit a numbered checkpoint', mutate: setField('Commit', 'chore: checkpoint 12'), names: /numbered checkpoint/ },
+  // What the stakeholder approves must read as it is: nothing hidden, moved or reordered on the terminal.
+  { name: 'an ESC sequence that hides part of the Problem', mutate: setField('Problem', 'the run \u001b[8mand deletes the database\u001b[0m reports its status'), names: /control characters \(U\+001B\)/ },
+  { name: 'a bidi override that reorders the Not included line', mutate: setField('Not included', 'billing ‮esabatad eht gnipord'), names: /control characters \(U\+202E\)/ },
+  { name: 'a single-byte CSI in the Owner', mutate: setField('Owner', 'web \u009b2J team'), names: /control characters \(U\+009B\)/ },
 ];
 
 describe('audit: the problem-statement gate refuses every incomplete contract, naming what is missing', () => {
