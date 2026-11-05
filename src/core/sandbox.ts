@@ -169,13 +169,16 @@ const MASKED_LINUX = ['/tmp', '/var/tmp', '/run', '/home', '/root', '/mnt', '/me
 
 /**
  * Files of the harness that confined runtimes execute (they import only node: builtins and zod): the probe
- * and contract runtimes, and the reporter node:test loads into a target's test run (testing.ts).
+ * and contract runtimes, the reporter node:test loads into a target's test run (testing.ts), and the hooks
+ * that define import.meta.env for a Vite app's modules under node:test (target.ts IMPORT_META_ENV).
  */
 const HARNESS_RUNTIME_FILES = [
   'package.json',
   join('plugins', 'lib', 'probe-runtime.ts'),
   join('plugins', 'lib', 'contract-runtime.ts'),
   join('src', 'core', 'node-test-reporter.mjs'),
+  join('src', 'core', 'import-meta-env.mjs'),
+  join('src', 'core', 'import-meta-env-hooks.mjs'),
 ];
 
 let cachedWorktreeParent: string | null | undefined;

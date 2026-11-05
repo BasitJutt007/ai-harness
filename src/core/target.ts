@@ -19,10 +19,14 @@
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
 import type { Stack } from './types.ts';
+
+/** The --import entry that defines import.meta.env for a Vite app's modules under node:test (import-meta-env.mjs). */
+export const IMPORT_META_ENV = fileURLToPath(new URL('./import-meta-env.mjs', import.meta.url));
 
 // ───────────────────────────── types ─────────────────────────────
 
@@ -1104,6 +1108,10 @@ function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | nu
       }
       nodeArgs.push(`--import=${pathToFileHref(loader)}`);
     }
+    // A Vite app's modules read import.meta.env, which only Vite (and Vitest) define: under node:test they would
+    // crash at import. The harness defines it for modules under the API root, as Vite does (import-meta-env.mjs);
+    // after the TypeScript loader, so its hook sees the JavaScript the loader produced.
+    if (declared['vite'] !== undefined) nodeArgs.push(`--import=${pathToFileHref(IMPORT_META_ENV)}`);
     return {
       kind: 'node-test', name: `node:test (node ${process.versions.node})`, supported: true, version: process.versions.node,
       evidence: choice.evidence, nodeArgs, patterns: parsed?.globs ?? [],
