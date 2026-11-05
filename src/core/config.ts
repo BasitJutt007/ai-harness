@@ -18,13 +18,28 @@ const PriceSchema = z
   .object({ input: z.number().min(0), cachedInput: z.number().min(0), output: z.number().min(0), note: z.string().optional() })
   .strict();
 
+/**
+ * Branches the harness never works on, ships or writes in place: the long-lived branches of the
+ * common workflows (trunk-based, git-flow, environment branches). harness.config.json
+ * `protectedBranches` adds to this list and can never shorten it: a config that names only its own
+ * extras still protects every branch here (fail closed).
+ */
+export const DEFAULT_PROTECTED_BRANCHES: readonly string[] = ['main', 'master', 'development', 'develop', 'staging', 'production', 'release/*', 'trunk'];
+
+/** The configured list first (its order kept), then every default it does not name. */
+export function withDefaultProtected(configured: readonly string[]): string[] {
+  const seen = new Set(configured);
+  return [...configured, ...DEFAULT_PROTECTED_BRANCHES.filter((b) => !seen.has(b))];
+}
+
 const ConfigSchema = z
   .object({
     pluginDirs: z.array(z.string().min(1)).default(['plugins']),
     disabled: z.array(z.string()).default([]),
     protectedBranches: z
       .array(z.string().min(1))
-      .default(['main', 'master', 'develop', 'trunk', 'release/*', 'production']),
+      .default([...DEFAULT_PROTECTED_BRANCHES])
+      .transform(withDefaultProtected),
     worktreeDir: z.string().min(1).default('.harness/worktrees'),
     runsDir: z.string().min(1).default('runs'),
     tokensDir: z.string().min(1).default('tokens'),
