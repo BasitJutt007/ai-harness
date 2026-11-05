@@ -15,6 +15,11 @@
  * without cache_control). Models such as claude-haiku-4-5, which reject adaptive thinking and
  * effort but cache prompts, so keep caching. `model` reads "<id> (compat)" on the cached tier
  * and "<id> (compat, uncached)" on the bare one.
+ *
+ * Streaming (Driver.stream): the same request on the SDK's messages.stream (beta or plain, by tier),
+ * each text delta passed on as it arrives and the final message translated exactly as complete()
+ * translates a response; the same tier steps, max_tokens clamp and error classification apply. A
+ * client without a stream method (an old test seam) completes and passes the whole text once.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type {
@@ -72,14 +77,28 @@ export interface RequestOpts {
   signal?: AbortSignal;
 }
 
+/**
+ * The part of the SDK's MessageStream / BetaMessageStream (lib/MessageStream.d.ts) the driver uses:
+ * the `text` event (delta, snapshot) and finalMessage(), which resolves to the accumulated message
+ * or rejects when the request fails or the stream ends before a message is complete.
+ */
+export interface ClaudeStream<M> {
+  on(event: 'text', listener: (textDelta: string, textSnapshot: string) => void): unknown;
+  finalMessage(): Promise<M>;
+}
+
 export interface ClaudeClient {
   beta: {
     messages: {
       create(params: MessageCreateParamsNonStreaming, options?: RequestOpts): PromiseLike<BetaMessage>;
+      /** The SDK's beta messages.stream. Optional: without it Driver.stream completes and passes the text once. */
+      stream?(params: MessageCreateParamsNonStreaming, options?: RequestOpts): ClaudeStream<BetaMessage>;
     };
   };
   messages: {
     create(params: PlainCreateParams, options?: RequestOpts): PromiseLike<PlainMessage>;
+    /** The SDK's messages.stream (the cached and bare tiers). */
+    stream?(params: PlainCreateParams, options?: RequestOpts): ClaudeStream<PlainMessage>;
     countTokens(params: MessageCountTokensParams): PromiseLike<{ input_tokens: number }>;
   };
 }
@@ -325,6 +344,44 @@ export function createClaudeDriver(opts: DriverCreateOptions, factory: ClaudeCli
     return fromClaudeResponse(await client.messages.create(buildCompatParams(req, model, ceiling, tier === 'cached'), ro));
   };
 
+  /** The same request as send(), streamed: text deltas go to onDelta, the final message is translated as send() translates. */
+  const sendStreaming = async (req: ModelRequest, ro: RequestOpts | undefined, onDelta: (text: string) => void): Promise<ModelResponse> => {
+    const s = tier === 'full'
+      ? client.beta.messages.stream?.(buildClaudeParams(req, model, effort, ceiling), ro)
+      : client.messages.stream?.(buildCompatParams(req, model, ceiling, tier === 'cached'), ro);
+    if (s === undefined) {
+      const res = await send(req, ro);
+      const text = res.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
+      if (text.length > 0) onDelta(text);
+      return res;
+    }
+    s.on('text', (delta) => onDelta(delta));
+    return fromClaudeResponse(await s.finalMessage());
+  };
+
+  /** One call with the session's adjustments: at most one max_tokens clamp and one step down per tier; each retry changes the request. */
+  const withSteps = async (req: ModelRequest, once: () => Promise<ModelResponse>): Promise<ModelResponse> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await once();
+      } catch (e) {
+        // A request that does not fit is never a parameter problem: the loop shrinks it (errorKind).
+        if (attempt >= TIERS.length || isContextOverflowError(e)) throw e;
+        const cap = rejectedCeiling(e);
+        if (cap !== undefined && (ceiling === undefined || cap < ceiling) && cap < maxTokens(req, ceiling)) {
+          ceiling = cap;
+          continue;
+        }
+        const next = TIERS[TIERS.indexOf(tier) + 1];
+        if (next !== undefined && isExtrasRejection(e)) {
+          tier = next;
+          continue;
+        }
+        throw e;
+      }
+    }
+  };
+
   return {
     name: DRIVER_NAME,
     get model() {
@@ -340,26 +397,11 @@ export function createClaudeDriver(opts: DriverCreateOptions, factory: ClaudeCli
     tokenCounter: 'anthropic messages.countTokens',
     async complete(req, signal) {
       const ro = signal === undefined ? undefined : { signal };
-      // At most one max_tokens clamp and one step down per tier per call; each retry changes the request.
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          return await send(req, ro);
-        } catch (e) {
-          // A request that does not fit is never a parameter problem: the loop shrinks it (errorKind).
-          if (attempt >= TIERS.length || isContextOverflowError(e)) throw e;
-          const cap = rejectedCeiling(e);
-          if (cap !== undefined && (ceiling === undefined || cap < ceiling) && cap < maxTokens(req, ceiling)) {
-            ceiling = cap;
-            continue;
-          }
-          const next = TIERS[TIERS.indexOf(tier) + 1];
-          if (next !== undefined && isExtrasRejection(e)) {
-            tier = next;
-            continue;
-          }
-          throw e;
-        }
-      }
+      return withSteps(req, () => send(req, ro));
+    },
+    async stream(req, signal, onDelta) {
+      const ro = signal === undefined ? undefined : { signal };
+      return withSteps(req, () => sendStreaming(req, ro, onDelta));
     },
     async countTokens(req) {
       const params: MessageCountTokensParams = { model, messages: toPlainClaudeMessages(req.messages) };

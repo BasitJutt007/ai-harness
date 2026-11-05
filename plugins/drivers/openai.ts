@@ -12,11 +12,21 @@
  * system → developer role, loose tool schemas); the change is kept for the session and
  * `model` then reads "<id> (compat)". When no model was chosen (flag / env), a model the
  * account cannot use falls back along DEFAULT_MODELS.
+ *
+ * Streaming (Driver.stream): the same request with `stream: true` and
+ * `stream_options: { include_usage: true }`; text deltas are passed on as they arrive, and the chunks
+ * are accumulated the way the SDK's own ChatCompletionStream does (content and tool-call arguments
+ * concatenated by index, id / type / name replaced, other tool-call fields kept as extras) into one
+ * ChatCompletion, translated exactly as complete() translates a response. The same 400 adjustments
+ * and model fallback apply. A stream that ends without a finish reason or without its usage chunk is
+ * an error, never a reply: the spend of a reply whose usage is unknown could not be counted.
  */
 import OpenAI from 'openai';
 import type {
   ChatCompletion,
+  ChatCompletionChunk,
   ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionCreateParamsStreaming,
   ChatCompletionFunctionTool,
   ChatCompletionMessageFunctionToolCall,
   ChatCompletionMessageParam,
@@ -54,8 +64,25 @@ export interface OpenAIClient {
   chat: {
     completions: {
       create(body: ChatCompletionCreateParamsNonStreaming, options?: { signal?: AbortSignal }): PromiseLike<ChatCompletion>;
+      /**
+       * A test seam's streaming call (the SDK client itself streams through its own create overload,
+       * see streamingCall). Optional: a client that cannot stream completes, and the text is passed once.
+       */
+      createStreaming?(body: ChatCompletionCreateParamsStreaming, options?: { signal?: AbortSignal }): PromiseLike<AsyncIterable<ChatCompletionChunk>>;
     };
   };
+}
+
+type StreamingCall = (body: ChatCompletionCreateParamsStreaming, options?: { signal?: AbortSignal }) => PromiseLike<AsyncIterable<ChatCompletionChunk>>;
+
+/**
+ * How `client` streams: the SDK client through its own `create` overload for `stream: true`
+ * (APIPromise<Stream<ChatCompletionChunk>>), a test seam through createStreaming, else not at all.
+ */
+export function streamingCall(client: OpenAIClient): StreamingCall | undefined {
+  if (client instanceof OpenAI) return (body, options) => client.chat.completions.create(body, options);
+  const own = client.chat.completions.createStreaming;
+  return own === undefined ? undefined : (body, options) => own.call(client.chat.completions, body, options);
 }
 
 export type OpenAIClientFactory = (apiKey: string) => OpenAIClient;
@@ -214,6 +241,54 @@ export function fromOpenAIResponse(res: ChatCompletion): ModelResponse {
   return { parts, stop, usage, model: res.model };
 }
 
+/** Fields of a streamed tool-call delta that are accumulated, not carried as extras. */
+const DELTA_KEYS = new Set(['index', 'id', 'type', 'function']);
+
+/**
+ * Accumulate a chat completion stream into the ChatCompletion it stands for, passing each content delta
+ * to `onDelta` as it arrives. Choice 0 only (the driver never asks for more). Throws when the stream
+ * ends before a finish reason or without the usage chunk (stream_options.include_usage).
+ */
+export async function accumulateStream(chunks: AsyncIterable<ChatCompletionChunk>, onDelta: (text: string) => void): Promise<ChatCompletion> {
+  let head: Pick<ChatCompletion, 'id' | 'created' | 'model'> | undefined;
+  let content: string | null = null;
+  let refusal: string | null = null;
+  let finish: ChatCompletion.Choice['finish_reason'] | null = null;
+  let usage: ChatCompletion['usage'] | undefined;
+  const calls: Array<{ id: string; type: string; name: string; args: string; extras: Record<string, unknown> } | undefined> = [];
+  for await (const chunk of chunks) {
+    head ??= { id: chunk.id, created: chunk.created, model: chunk.model };
+    if (chunk.model.length > 0) head.model = chunk.model;
+    if (chunk.usage !== undefined && chunk.usage !== null) usage = chunk.usage;
+    for (const choice of chunk.choices) {
+      if (choice.index !== 0) continue;
+      const d = choice.delta;
+      if (typeof d.content === 'string' && d.content.length > 0) {
+        content = (content ?? '') + d.content;
+        onDelta(d.content);
+      }
+      if (typeof d.refusal === 'string' && d.refusal.length > 0) refusal = (refusal ?? '') + d.refusal;
+      for (const tc of d.tool_calls ?? []) {
+        const cur = calls[tc.index] ?? { id: '', type: 'function', name: '', args: '', extras: {} };
+        if (tc.id !== undefined && tc.id.length > 0) cur.id = tc.id;
+        if (tc.type !== undefined) cur.type = tc.type;
+        if (tc.function?.name !== undefined && tc.function.name.length > 0) cur.name = tc.function.name;
+        if (tc.function?.arguments !== undefined) cur.args += tc.function.arguments;
+        for (const [k, v] of Object.entries(tc)) if (!DELTA_KEYS.has(k) && v !== undefined) cur.extras[k] = v;
+        calls[tc.index] = cur;
+      }
+      if (choice.finish_reason !== null) finish = choice.finish_reason;
+    }
+  }
+  if (head === undefined || finish === null) throw new Error('the chat completion stream ended before the reply finished (no finish reason)');
+  if (usage === undefined) throw new Error('the chat completion stream ended without its usage chunk (stream_options.include_usage): the spend of this reply could not be counted');
+  // Function calls only, as fromOpenAIResponse reads them (the driver offers no other tool type).
+  const toolCalls: ChatCompletionMessageFunctionToolCall[] = calls.flatMap((c) => (c === undefined || c.type !== 'function' ? [] : [{ ...c.extras, id: c.id, type: 'function' as const, function: { name: c.name, arguments: c.args } }]));
+  const message: ChatCompletion.Choice['message'] = { role: 'assistant', content, refusal };
+  if (toolCalls.length > 0) message.tool_calls = toolCalls;
+  return { ...head, object: 'chat.completion', choices: [{ index: 0, finish_reason: finish, logprobs: null, message }], usage };
+}
+
 export function buildOpenAIParams(req: ModelRequest, model: string, shape: OpenAIShape = STANDARD_SHAPE): ChatCompletionCreateParamsNonStreaming {
   const wanted = req.maxOutputTokens > 0 ? req.maxOutputTokens : DEFAULT_MAX_TOKENS;
   const limit = shape.ceiling === undefined ? wanted : Math.min(wanted, shape.ceiling);
@@ -283,9 +358,31 @@ export function createOpenAIDriver(opts: DriverCreateOptions, factory: OpenAICli
   const chosen = opts.model ?? opts.env['HARNESS_OPENAI_MODEL'];
   const candidates: string[] = chosen !== undefined && chosen.length > 0 ? [chosen] : [...DEFAULT_MODELS];
   const client = factory(apiKey);
+  const streams = streamingCall(client);
   let modelIdx = 0;
   let shape: OpenAIShape = STANDARD_SHAPE;
   const current = (): string => candidates[modelIdx] ?? DEFAULT_MODEL;
+
+  /** One call with the session's adjustments. Bounded: each retry follows a strictly new adjustment or the next model candidate. */
+  const withAdjustments = async (req: ModelRequest, once: () => Promise<ModelResponse>): Promise<ModelResponse> => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await once();
+      } catch (e) {
+        // A request that does not fit is never a parameter problem: the loop shrinks it (errorKind).
+        if (attempt >= 8 || isContextOverflowError(e)) throw e;
+        if (isModelUnavailable(e) && modelIdx + 1 < candidates.length) {
+          modelIdx += 1;
+          continue;
+        }
+        const next = adjustShape(e, shape, req.maxOutputTokens);
+        if (next === undefined) throw e;
+        shape = next;
+      }
+    }
+  };
+  const send = async (req: ModelRequest, ro: { signal: AbortSignal } | undefined): Promise<ModelResponse> =>
+    fromOpenAIResponse(await client.chat.completions.create(buildOpenAIParams(req, current(), shape), ro));
 
   return {
     name: DRIVER_NAME,
@@ -298,22 +395,20 @@ export function createOpenAIDriver(opts: DriverCreateOptions, factory: OpenAICli
     tokenCounter: 'js-tiktoken o200k_base (local, OpenAI chat format)',
     async complete(req, signal) {
       const ro = signal === undefined ? undefined : { signal };
-      // Bounded: each retry follows a strictly new adjustment or the next model candidate.
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          return fromOpenAIResponse(await client.chat.completions.create(buildOpenAIParams(req, current(), shape), ro));
-        } catch (e) {
-          // A request that does not fit is never a parameter problem: the loop shrinks it (errorKind).
-          if (attempt >= 8 || isContextOverflowError(e)) throw e;
-          if (isModelUnavailable(e) && modelIdx + 1 < candidates.length) {
-            modelIdx += 1;
-            continue;
-          }
-          const next = adjustShape(e, shape, req.maxOutputTokens);
-          if (next === undefined) throw e;
-          shape = next;
+      return withAdjustments(req, () => send(req, ro));
+    },
+    async stream(req, signal, onDelta) {
+      const ro = signal === undefined ? undefined : { signal };
+      return withAdjustments(req, async () => {
+        if (streams === undefined) {
+          const res = await send(req, ro);
+          const text = res.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
+          if (text.length > 0) onDelta(text);
+          return res;
         }
-      }
+        const body: ChatCompletionCreateParamsStreaming = { ...buildOpenAIParams(req, current(), shape), stream: true, stream_options: { include_usage: true } };
+        return fromOpenAIResponse(await accumulateStream(await streams(body, ro), onDelta));
+      });
     },
     async countTokens(req) {
       return countChatPayload(buildOpenAIParams(req, current(), shape));

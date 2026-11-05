@@ -11,6 +11,7 @@
  *     "turns": [ { "text"?: string, "calls": [ { "name": string, "input": object, "contentFile"?: string } ] } ] }
  * `contentFile` is resolved relative to the script's directory; its text becomes `input.content`.
  * The N-th complete() call returns turn N (call ids `call_<N>_<i>`, N 1-based, i 0-based).
+ * stream() is the same replay with the turn's text delivered in one chunk (a session's live text).
  */
 import { readFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
@@ -80,10 +81,16 @@ export function createScriptedDriver(opts: DriverCreateOptions): Driver {
   const script = loadScript(file);
   const model = `scripted:${basename(file)}`;
   let calls = 0;
-  return {
+  const driver: Driver = {
     name: DRIVER_NAME,
     model,
     tokenCounter: 'js-tiktoken o200k_base (scripted driver: estimate)',
+    async stream(req, signal, onDelta): Promise<ModelResponse> {
+      const res = await driver.complete(req, signal);
+      const text = res.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
+      if (text.length > 0) onDelta(text);
+      return res;
+    },
     async complete(): Promise<ModelResponse> {
       calls += 1;
       const turn = script.turns[calls - 1];
@@ -107,6 +114,7 @@ export function createScriptedDriver(opts: DriverCreateOptions): Driver {
       return countRequest(req);
     },
   };
+  return driver;
 }
 
 export default defineDriver({
