@@ -1,0 +1,147 @@
+/**
+ * The screen and the keyboard. Colour and the spinner only on a terminal without NO_COLOR (their twin:
+ * a pipe gets plain text); tool output is one clipped line; the verdict block says "Work completed"
+ * only for DONE. The terminal reader takes its channel from stdin itself: a pipe is 'pipe' (it can
+ * never approve), read in order to the end.
+ */
+import { PassThrough } from 'node:stream';
+import { describe, expect, it } from 'vitest';
+import { isSessionCommand } from '../../src/core/cli.ts';
+import { terminalInput } from '../../src/session/input.ts';
+import { runSessionCli } from '../../src/session/main.ts';
+import { BANNER_LINES, clip, colorEnabled, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
+import type { RunEvent } from '../../src/core/types.ts';
+
+function capture(isTTY: boolean): { out: { write: (t: string) => void; isTTY: boolean; columns: number }; text: () => string } {
+  let s = '';
+  return { out: { write: (t) => void (s += t), isTTY, columns: 80 }, text: () => s };
+}
+
+const ev = (e: Partial<RunEvent>): RunEvent => ({ turn: 1, at: '', kind: 'tool', source: 'read_file', message: '', ...e });
+
+describe('colour', () => {
+  it('only on a terminal, never with NO_COLOR or TERM=dumb', () => {
+    expect(colorEnabled(true, {})).toBe(true);
+    expect(colorEnabled(false, {})).toBe(false);
+    expect(colorEnabled(true, { NO_COLOR: '1' })).toBe(false);
+    expect(colorEnabled(true, { NO_COLOR: '' })).toBe(true);
+    expect(colorEnabled(true, { TERM: 'dumb' })).toBe(false);
+  });
+
+  it('coloured output carries ANSI codes; plain output none', () => {
+    const c = capture(true);
+    new Ui(c.out, true).error('x');
+    expect(c.text()).toContain('\u001b[31m');
+    const p = capture(false);
+    new Ui(p.out, false).error('x');
+    expect(p.text()).toBe('x\n');
+  });
+});
+
+describe('the spinner', () => {
+  it('draws on a terminal and clears itself', () => {
+    const c = capture(true);
+    const ui = new Ui(c.out, false);
+    ui.startSpinner('thinking');
+    ui.stopSpinner();
+    expect(c.text()).toMatch(/^\r. thinking\u001b\[K\r\u001b\[K$/);
+  });
+
+  it('twin: a pipe never gets one', () => {
+    const p = capture(false);
+    const ui = new Ui(p.out, false);
+    ui.startSpinner('thinking');
+    ui.stopSpinner();
+    expect(p.text()).toBe('');
+  });
+});
+
+describe('lines', () => {
+  it('the banner is the harness\'s own mark (a gate and the name), three lines', () => {
+    expect(BANNER_LINES).toHaveLength(3);
+    expect(BANNER_LINES.join('\n')).toContain('s f · h a r n e s s');
+  });
+
+  it('one line per tool call, clipped; writes marked ✎, blocks ✗ with the hook', () => {
+    const p = capture(false);
+    const ui = new Ui(p.out, false, (t) => (t === 'write_file' ? 'write' : 'read'));
+    ui.event(ev({ source: 'read_file', decision: 'pass', message: 'src/a.ts (lines 1-120 of 300)' }));
+    ui.event(ev({ source: 'write_file', decision: 'pass', message: 'wrote src/a.ts (+3 −1 lines)' }));
+    ui.event(ev({ kind: 'hook', source: 'observed-red', decision: 'block', message: `observed-red: ${'x'.repeat(300)}` }));
+    ui.event(ev({ kind: 'hook', source: 'path-guard', decision: 'pass', message: 'pre_tool write_file' }));
+    const lines = p.text().trimEnd().split('\n');
+    expect(lines[0]).toBe('● read_file src/a.ts (lines 1-120 of 300)');
+    expect(lines[1]).toBe('✎ write_file wrote src/a.ts (+3 −1 lines)');
+    expect(lines[2]).toMatch(/^✗ BLOCKED by observed-red: x+…$/);
+    expect(lines[2]?.length).toBeLessThanOrEqual(76);
+    expect(lines).toHaveLength(3);
+  });
+
+  it('a command that ran and failed (a red test run) is information (●); a refused read is a refusal (✗)', () => {
+    const p = capture(false);
+    const ui = new Ui(p.out, false, (t) => (t === 'run_tests' ? 'exec' : 'read'));
+    ui.event(ev({ source: 'run_tests', decision: 'block', message: 'tests: 1 failed, 0 passed (1) in 1 files' }));
+    ui.event(ev({ source: 'read_file', decision: 'block', message: 'read_file: .env is an environment file' }));
+    expect(p.text()).toBe('● run_tests tests: 1 failed, 0 passed (1) in 1 files\n✗ read_file: read_file: .env is an environment file\n');
+  });
+
+  it('gate events of the loop\'s finish collapse into one line after the finish note', () => {
+    const p = capture(false);
+    const ui = new Ui(p.out, false);
+    ui.event(ev({ kind: 'gate', source: 'scope', decision: 'pass', data: { status: 'pass' } }));
+    ui.event(ev({ kind: 'gate', source: 'tests-green', decision: 'block', data: { status: 'fail' } }));
+    ui.event(ev({ kind: 'note', source: 'finish', decision: 'block', message: 'FINISH REFUSED (attempt 1). Fix the failing gates, then call finish again.' }));
+    expect(p.text()).toBe('◆ finish refused: (attempt 1). Fix the failing gates, then call finish again.\n  gates  scope pass · tests-green FAIL\n');
+  });
+
+  it('"Work completed" only in a DONE verdict block', () => {
+    for (const kind of ['DONE', 'NOT DONE', 'UNPROVEN'] as const) {
+      const p = capture(false);
+      new Ui(p.out, false).verdict({ kind, reasons: kind === 'DONE' ? [] : ['gate x failed'], gates: [], standards: 'pass 100%', humanMustVerify: [] });
+      expect(p.text().includes(WORK_COMPLETED)).toBe(kind === 'DONE');
+    }
+  });
+
+  it('clip and wrap keep lines inside the width', () => {
+    expect(clip('a  b\nc', 10)).toBe('a b c');
+    expect(clip('abcdefghijk', 5)).toBe('abcd…');
+    for (const l of wrapLine('word '.repeat(40), 30)) expect(l.length).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('the terminal reader', () => {
+  it('a pipe is the pipe channel, read in order to the end of input', async () => {
+    const stdin = new PassThrough() as unknown as NodeJS.ReadStream;
+    const stdout = new PassThrough() as unknown as NodeJS.WriteStream;
+    const input = terminalInput({ stdin, stdout });
+    expect(input.channel).toBe('pipe');
+    (stdin as unknown as PassThrough).end('hello\nyes\n');
+    expect(await input.read('› ')).toEqual({ kind: 'line', text: 'hello' });
+    expect(await input.read('› ')).toEqual({ kind: 'line', text: 'yes' });
+    expect(await input.read('› ')).toEqual({ kind: 'eof' });
+    input.close();
+  });
+});
+
+describe('the command line', () => {
+  it('no command, only options, or chat starts a session; a command or --help does not', () => {
+    expect(isSessionCommand([])).toBe(true);
+    expect(isSessionCommand(['chat'])).toBe(true);
+    expect(isSessionCommand(['--model', 'x'])).toBe(true);
+    expect(isSessionCommand(['run', 'task.yaml'])).toBe(false);
+    expect(isSessionCommand(['--help'])).toBe(false);
+    expect(isSessionCommand(['-h'])).toBe(false);
+  });
+
+  it('a session refuses an unknown option or an argument before it starts (exit 2)', async () => {
+    const lines: string[] = [];
+    expect(await runSessionCli({ positionals: [], flags: new Map([['ship', ['x']]]), bools: new Set() }, (l) => lines.push(l))).toBe(2);
+    expect(await runSessionCli({ positionals: ['extra'], flags: new Map(), bools: new Set() }, (l) => lines.push(l))).toBe(2);
+    expect(await runSessionCli({ positionals: [], flags: new Map([['max-turns', ['0']]]), bools: new Set() }, (l) => lines.push(l))).toBe(2);
+    expect(lines).toEqual([
+      'unknown option --ship (a session takes --driver, --model, --max-turns, --driver-opt)',
+      'a session takes no arguments, got: extra',
+      '--max-turns must be a positive integer (turns per message)',
+    ]);
+  });
+});

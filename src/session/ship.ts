@@ -1,0 +1,212 @@
+/**
+ * /ship in a session: the owner ships, typed at the prompt; the model has no tool that reaches this.
+ *
+ * Refused unless: the last verdict was DONE, for the item bound now; the item is approved and its
+ * contract unchanged; the branch is still the session's working branch, writable (not protected, no
+ * operation in progress) and not the contract's Base; the working tree holds only the agent's changes
+ * (a change the agent did not make would ship unreviewed by the gates) and is what the verdict judged.
+ * Then the ship gates run fresh (required list), the commit message and PR text come from the approved
+ * contract (src/core/ship.ts shipText), and the harness:
+ *   1. copies the item's records into the repository: docs/contracts/<slug>.md,
+ *      .harness/items/<slug>/ledger.jsonl and .harness/items/<slug>/session.json (verdict, gates);
+ *   2. stages exactly the agent's changed files and those records, and scans the staged diff for secrets;
+ *   3. commits on the CURRENT branch (repository hooks off, as the harness), pushes that branch to
+ *      origin with an explicit refspec and never with force, and opens the PR against the contract's
+ *      Base with gh; what it cannot do is reported (status committed), never faked.
+ * Every command is an argv array (no shell). File-mode ship (src/core/ship.ts ship) is untouched.
+ */
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { passThroughEnv } from '../core/exec.ts';
+import { requiredGates, runGates } from '../core/gates.ts';
+import { branchVerdict } from '../core/inplace.ts';
+import { appendLedger, itemPaths, itemStatus } from '../core/items.ts';
+import { formatCommand, ghStatus, NO_HOOKS, scanDiffForSecrets, SHIP_ENV_PASS_THROUGH, shipText } from '../core/ship.ts';
+import type { ExecResult, RunContext } from '../core/types.ts';
+import { isProtectedBranch, normalizeBranch } from '../core/workspace.ts';
+import { verdictRecord, type SessionVerdict } from './verdict.ts';
+
+export interface SessionShipOptions {
+  ctx: RunContext;
+  /** The repository top (real path). */
+  top: string;
+  sessionId: string;
+  lastVerdict: SessionVerdict | null;
+  /** Extra facts for session.json (model, spend, ...). */
+  summary: Record<string, unknown>;
+  /** Remote to push to (default origin). */
+  remote?: string;
+}
+
+export interface SessionShipResult {
+  status: 'shipped' | 'committed' | 'refused';
+  branch: string;
+  commit?: string;
+  prUrl?: string;
+  reasons: string[];
+  /** Every command run, in order, as printable argv lines. */
+  commands: string[];
+}
+
+/** Repository-relative paths with a change in the working tree (porcelain v1, -z; renames give both sides). */
+export function parsePorcelainZ(out: string): string[] {
+  const parts = out.split('\u0000');
+  const paths: string[] = [];
+  for (let i = 0; i < parts.length; i += 1) {
+    const entry = parts[i] ?? '';
+    if (entry.length < 4) continue;
+    const xy = entry.slice(0, 2);
+    paths.push(entry.slice(3));
+    if (xy.includes('R') || xy.includes('C')) {
+      const from = parts[i + 1];
+      if (from !== undefined && from.length > 0) paths.push(from);
+      i += 1;
+    }
+  }
+  return [...new Set(paths)].sort();
+}
+
+/** The paths the session's verdict and ship compare: what `git status` shows changed (untracked included). */
+export async function changedPaths(ctx: RunContext, top: string): Promise<string[] | null> {
+  const r = await ctx.exec('git', ['-C', top, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], { cwd: top, timeoutMs: 60_000 });
+  return r.code === 0 ? parsePorcelainZ(r.stdout) : null;
+}
+
+/** Where the item's records go in the repository. */
+export function recordPaths(slug: string): { contract: string; ledger: string; session: string } {
+  return { contract: `docs/contracts/${slug}.md`, ledger: `.harness/items/${slug}/ledger.jsonl`, session: `.harness/items/${slug}/session.json` };
+}
+
+function firstLine(r: ExecResult): string {
+  return (r.stderr.trim() || r.stdout.trim()).split('\n')[0] ?? '';
+}
+
+export async function sessionShip(o: SessionShipOptions): Promise<SessionShipResult> {
+  const { ctx, top } = o;
+  const remote = o.remote ?? 'origin';
+  const branch = ctx.inPlace?.branch ?? ctx.run.branch;
+  const commands: string[] = [];
+  const refuse = (...reasons: string[]): SessionShipResult => ({ status: 'refused', branch, reasons, commands });
+  const run = async (cmd: string, args: string[], record = true): Promise<ExecResult> => {
+    if (record) commands.push(formatCommand(cmd, args));
+    return ctx.exec(cmd, args, { cwd: top, timeoutMs: 120_000, env: passThroughEnv(SHIP_ENV_PASS_THROUGH) });
+  };
+  const git = (args: string[], record = true): Promise<ExecResult> => run('git', ['-C', top, ...args], record);
+
+  // 1. What the owner can ship: a DONE verdict on the approved, unchanged item, on the working branch.
+  const item = ctx.item;
+  if (item === undefined) return refuse('no approved contract is bound to this session: propose one, approve it, let the gates say DONE, then /ship');
+  const v = o.lastVerdict;
+  if (v === null || v.kind !== 'DONE') return refuse(`the last verdict is ${v === null ? 'none yet' : v.kind}: /ship needs DONE (the agent's accepted finish, or /gates)`);
+  if (v.item?.contractHash !== item.contractHash) return refuse('the last DONE verdict was about another contract: run /gates for this one');
+  const status = itemStatus(item.root, item.slug);
+  if (!status.editable || status.contract.parse === null) return refuse(`item ${item.slug} is not approved (${status.stage}): ${status.lines.join(' | ')}`);
+  if (status.contract.parse.hash !== item.contractHash) return refuse(`docs/contracts/${item.slug}.md changed after it was approved: propose it again`);
+  const base = (status.contract.parse.fields.Base ?? '').trim();
+  const bv = await branchVerdict(top, ctx.config, ctx.exec);
+  if (!bv.writable) return refuse(`${bv.reason}; ${bv.fix}`);
+  if (bv.branch !== branch) return refuse(`HEAD is on ${bv.branch ?? 'another commit'}, not ${branch} where the session started: switch back (git switch ${branch})`);
+  if (isProtectedBranch(branch, ctx.config.protectedBranches)) return refuse(`refusing to ship protected branch "${branch}"`);
+  if (normalizeBranch(branch).toLowerCase() === normalizeBranch(base).toLowerCase()) return refuse(`the branch ${branch} is the contract's Base: cut a working branch (git switch -c <name>) for the PR`);
+
+  // 2. The tree holds the agent's work only, and is the tree the verdict judged.
+  const changed = await changedPaths(ctx, top);
+  if (changed === null) return refuse('git status failed: the working tree could not be read');
+  const written = new Set(ctx.state.written);
+  const foreign = changed.filter((p) => !written.has(p));
+  if (foreign.length > 0) {
+    return refuse(`the working tree has changes the agent did not make (${foreign.slice(0, 5).join(', ')}${foreign.length > 5 ? ', ...' : ''}): commit or set them aside yourself, then /gates and /ship`);
+  }
+  if (changed.length === 0) return refuse('nothing to commit: the working tree has no change');
+  if (changed.join('\n') !== [...v.changed].sort().join('\n')) return refuse('the working tree changed since the DONE verdict: run /gates again');
+
+  // 3. The ship gates, fresh, then the commit and PR text from the approved contract.
+  const gates = await runGates(ctx.registry.gates, ctx, 'ship', { required: requiredGates(ctx.task, 'ship', ctx.stack) });
+  if (!gates.ok) return refuse('the ship gates are not green (re-run fresh):', ...gates.compact.split('\n'));
+  const text = await shipText(ctx, gates, { contract: 'committed in this PR, with the item ledger under .harness/items/' });
+  if ('refuse' in text) return refuse(...text.refuse);
+
+  // 4. The item's records, copied into the repository (removed again if the ship stops before the commit).
+  const rec = recordPaths(item.slug);
+  const paths = itemPaths(item.root, item.slug);
+  const contractText = readFileSync(paths.contract, 'utf8');
+  const repoContract = join(top, rec.contract);
+  if (existsSync(repoContract) && readFileSync(repoContract, 'utf8') !== contractText) {
+    return refuse(`${rec.contract} already exists in the repository with other text: the item's contract cannot be committed there`);
+  }
+  const summary = {
+    session: o.sessionId,
+    item: { slug: item.slug, contractHash: item.contractHash },
+    branch,
+    baseSha: ctx.run.baseSha,
+    verdict: verdictRecord(v),
+    shipGates: Object.fromEntries(gates.results.map((g) => [g.gate, g.status])),
+    ...o.summary,
+  };
+  const created: string[] = [];
+  const put = (rel: string, content: string): void => {
+    const abs = join(top, rel);
+    if (!existsSync(abs)) created.push(abs);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+  };
+  const undo = async (): Promise<void> => {
+    await git(['reset', '-q', '--', ...changed, rec.contract, rec.ledger, rec.session], false);
+    for (const f of created) rmSync(f, { force: true });
+  };
+  put(rec.contract, contractText);
+  put(rec.ledger, readFileSync(paths.ledger, 'utf8'));
+  put(rec.session, `${JSON.stringify(summary, null, 2)}\n`);
+
+  // 5. Stage exactly the agent's files and the records; nothing else may be staged.
+  const add = await git(['add', '--all', '--', ...changed]);
+  if (add.code !== 0) {
+    await undo();
+    return refuse(`git add failed: ${firstLine(add)}`);
+  }
+  const addRecords = await git(['add', '--force', '--', rec.contract, rec.ledger, rec.session]);
+  if (addRecords.code !== 0) {
+    await undo();
+    return refuse(`git add of the item records failed: ${firstLine(addRecords)}`);
+  }
+  const staged = await git(['diff', '--cached', '--name-only', '-z'], false);
+  const expected = new Set([...changed, rec.contract, rec.ledger, rec.session]);
+  const extra = staged.stdout.split('\u0000').filter((p) => p.length > 0 && !expected.has(p));
+  if (staged.code !== 0 || extra.length > 0) {
+    await undo();
+    return refuse(staged.code !== 0 ? `git diff --cached failed: ${firstLine(staged)}` : `other paths are staged (${extra.slice(0, 5).join(', ')}): unstage them first`);
+  }
+  const diff = await git(['diff', '--cached', '--no-color', '-U0']);
+  if (diff.code !== 0) {
+    await undo();
+    return refuse(`could not read the staged diff for the secret scan: ${firstLine(diff)}`);
+  }
+  const secrets = scanDiffForSecrets(diff.stdout);
+  if (secrets.length > 0) {
+    await undo();
+    return refuse('possible secrets in the staged diff (unstaged again):', ...secrets.slice(0, 20));
+  }
+
+  // 6. Commit on the current branch, as the harness.
+  const commit = await git([...NO_HOOKS, '-c', 'user.name=sf-harness', '-c', 'user.email=harness@localhost', 'commit', '-q', '-m', text.message]);
+  if (commit.code !== 0) {
+    await undo();
+    return refuse(`git commit failed: ${firstLine(commit)}`);
+  }
+  const sha = (await git(['rev-parse', 'HEAD'], false)).stdout.trim();
+  const committed = (reasons: string[]): SessionShipResult => ({ status: 'committed', branch, commit: sha, reasons, commands });
+
+  // 7. Push the current branch only: explicit refspec, never force.
+  if ((await git(['remote', 'get-url', remote], false)).code !== 0) return committed([`no remote "${remote}": committed ${sha.slice(0, 12)} on ${branch}, not pushed`]);
+  const push = await git([...NO_HOOKS, 'push', '--no-force', '-u', remote, `refs/heads/${branch}:refs/heads/${branch}`]);
+  if (push.code !== 0) return committed([`push to ${remote} failed: ${firstLine(push)}`]);
+
+  // 8. The PR against the contract's Base.
+  const gh = await ghStatus((args) => run('gh', args, false));
+  if (!gh.ok) return committed([`pushed ${branch} to ${remote}; ${gh.why}, so no PR was opened`]);
+  const pr = await run('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', text.title, '--body', text.body]);
+  if (pr.code !== 0) return committed([`pushed ${branch} to ${remote}; gh pr create failed: ${firstLine(pr)}`]);
+  const url = [...pr.stdout.matchAll(/https?:\/\/\S+/g)].map((m) => m[0]).pop();
+  appendLedger(paths.ledger, { type: 'shipped', runId: o.sessionId, branch, headSha: sha, base, prUrl: url ?? null });
+  return { status: 'shipped', branch, commit: sha, ...(url !== undefined ? { prUrl: url } : {}), reasons: url !== undefined ? [] : ['gh pr create succeeded but printed no URL'], commands };
+}

@@ -25,7 +25,18 @@ import { comparisonsFor, compareRuns, formatComparison, formatTokenReport, parse
 import { createWorkspace } from './workspace.ts';
 import type { CheckPlugin, HarnessConfig, RegistryView } from './types.ts';
 
-export const USAGE = `usage: harness <command> [options]
+export const USAGE = `usage: harness [chat] [--driver <name>] [--model <id>] [--max-turns N] [--driver-opt k=v]...
+       harness <command> [options]
+
+interactive session (no command, or chat):
+  Run inside any git repository: a governed coding agent on the repository's top level, in the
+  current branch's working tree. Chat with it; before its first edit it proposes a contract that only
+  a reply typed at this terminal approves; the gates (never the model) decide when work is complete.
+  It never commits or pushes: /ship does, when the owner types it. Records live outside the
+  repository, in ~/.sf-harness/repos/<id>/ (SF_HARNESS_HOME overrides). Type /help in a session.
+  Default model: the first non-scripted model on harness.config.json models.allow whose driver has
+  its key. Keys load from SF_HARNESS_ENV_FILE, else ~/.sf-harness/env.development, else
+  ~/.sf-harness/.env (provider keys and HARNESS_* only; never overriding a set variable).
 
 commands:
   run <task-file> --driver <name> [--model <id>] [--driver-opt k=v]... [--baseline]
@@ -809,7 +820,36 @@ async function cmdDoctor(out: Out): Promise<number> {
 
 // ───────────────────────────── entry ─────────────────────────────
 
+/** `harness` with no command (or only options) and `harness chat` start an interactive session. */
+export function isSessionCommand(argv: readonly string[]): boolean {
+  const first = argv[0];
+  if (first === undefined || first === 'chat') return true;
+  return first.startsWith('--') && first !== '--help';
+}
+
+async function cmdSession(p: ParsedArgs, out: Out): Promise<number> {
+  const { runSessionCli } = await import('../session/main.ts');
+  return runSessionCli(p, out);
+}
+
 export async function main(argv: string[], out: Out = (l) => console.log(l)): Promise<number> {
+  if (isSessionCommand(argv)) {
+    const parsed = parseArgs(argv[0] === 'chat' ? argv.slice(1) : argv);
+    if ('error' in parsed) {
+      out(`${parsed.error}\n\n${USAGE}`);
+      return 2;
+    }
+    if (parsed.bools.has('help')) {
+      out(USAGE);
+      return 0;
+    }
+    try {
+      return await cmdSession(parsed, out);
+    } catch (e) {
+      out(`error: ${errMsg(e)}`);
+      return 1;
+    }
+  }
   const [command, ...rest] = argv;
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
     out(USAGE);
