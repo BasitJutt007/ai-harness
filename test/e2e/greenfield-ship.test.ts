@@ -180,7 +180,7 @@ describe('ship (the harness ships; never the agent)', () => {
   it('commits and pushes the run branch to a local bare remote; no gh → committed; main untouched', async () => {
     const bare = join(tmp.dir, 'remote.git');
     execFileSync('git', ['init', '-q', '--bare', bare]);
-    git(tmp.repo, ['remote', 'add', 'origin', bare]);
+    git(tmp.repo, ['remote', 'set-url', 'origin', bare]);
     const seen: string[] = [];
     const { ctx, registry } = await openRun(summary.runDir, { runsDir: tmp.runsDir, tokensDir: tmp.tokensDir, exec: execWithoutGh(seen) });
     const r = await ship({ ctx, registry, dryRun: false });

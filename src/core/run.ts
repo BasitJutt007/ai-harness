@@ -14,6 +14,7 @@ import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
 import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS, writesInPlace, type RunPlacement } from './hooks.ts';
 import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
+import { targetRepoProblem } from './item-cli.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
 import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
@@ -527,6 +528,11 @@ export function bindItem(slug: string, registry: RegistryView, root: string = it
   if (!status.editable || status.contract.parse === null) {
     throw new Error(`refused before the first model turn (no tokens spent): item "${slug}" (${status.stage})\n${status.lines.map((l) => `           ${l}`).join('\n')}`);
   }
+  // An approval covers the work it was given for, once: a closed item's outcome is recorded, and new work needs its own item.
+  const closed = status.ledger.entries.find((e) => e.event.type === 'closed');
+  if (closed !== undefined) {
+    throw new Error(`refused before the first model turn (no tokens spent): item "${slug}" is closed (ledger seq ${closed.seq}): its approval covered the work that closed it; new work needs a new item (harness item new <slug>)`);
+  }
   return { slug, root, contractHash: status.contract.parse.hash };
 }
 
@@ -585,6 +591,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // ── workspace: a fresh worktree of the target repository; the target checkout itself is never touched.
   const startedAt = new Date();
   const { repoDir, rootRel } = await locateApi(task, opts.repoBase ?? HARNESS_ROOT);
+  // An approved contract authorizes its own work only: the clone must be the contract's Repo, on its Base.
+  const approvedContract = itemStatus(item.root, item.slug).contract.parse;
+  const wrongTarget = approvedContract === null ? 'the contract could not be read again' : await targetRepoProblem(repoDir, approvedContract, run);
+  if (wrongTarget !== null) throw new Error(`refused before the first model turn (no tokens spent): item "${item.slug}": ${wrongTarget}`);
   if (task.kind === 'greenfield') await refuseExistingOutput(repoDir, rootRel);
   const dirty = await uncommitted(repoDir, rootRel);
   const worktreeParent = resolve(HARNESS_ROOT, config.worktreeDir);

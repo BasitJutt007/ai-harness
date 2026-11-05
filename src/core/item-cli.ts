@@ -19,7 +19,7 @@ import { createInterface } from 'node:readline';
 import { closeItem } from './close.ts';
 import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
-import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ItemStatus, type MetricReading } from './items.ts';
+import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
 import { provenanceText } from './provenance.ts';
 import { repoCommitlint } from './ship-text.ts';
@@ -105,11 +105,30 @@ function operatorLine(s: ItemStatus): string | null {
 }
 
 /** The target clone's origin must be the contract's Repo (reading a metric on another repository proves nothing). */
-async function checkOrigin(repoDir: string, repo: string, run: Exec): Promise<string | null> {
+export async function checkOrigin(repoDir: string, repo: string, run: Exec): Promise<string | null> {
   const r = await run('git', ['-C', repoDir, 'remote', 'get-url', 'origin'], { cwd: repoDir });
   if (r.code !== 0) return `${repoDir} has no origin remote`;
   const url = r.stdout.trim().replace(/\.git$/, '');
   return new RegExp(`[/:]${repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(url) ? null : `${repoDir}'s origin is ${url}, not ${repo}`;
+}
+
+/**
+ * Why the clone at `repoDir` is not where an approved contract's work may happen (file mode), or null: its
+ * origin must be the contract's Repo (checkOrigin) and its current branch the contract's Base, which the
+ * run's worktree starts from. Otherwise a yes given for one change would authorize work on another
+ * repository, or from another branch, than the one the stakeholder approved. A git query that fails is
+ * a refusal.
+ */
+export async function targetRepoProblem(repoDir: string, contract: Pick<ContractParse, 'fields'>, run: Exec): Promise<string | null> {
+  const repo = (contract.fields.Repo ?? '').trim();
+  const base = (contract.fields.Base ?? '').trim();
+  const origin = await checkOrigin(repoDir, repo, run);
+  if (origin !== null) return `the target is not the contract's Repo (${repo}): ${origin}`;
+  const head = await run('git', ['-C', repoDir, 'symbolic-ref', '-q', '--short', 'HEAD'], { cwd: repoDir });
+  const branch = head.stdout.trim();
+  if (head.code !== 0 || branch.length === 0) return `${repoDir} is not on a branch (detached HEAD), but the run starts from the contract's Base (${base}): git switch ${base}`;
+  if (branch !== base) return `${repoDir} is on ${branch}, but the contract's Base is ${base}: the run would start from another branch than the approved one (git switch ${base})`;
+  return null;
 }
 
 async function askReply(root: string, slug: string, reader: ReplyReader, out: Out, session: string): Promise<number> {

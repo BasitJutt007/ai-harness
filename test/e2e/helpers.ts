@@ -53,6 +53,9 @@ export function tempRepo(label: string, files: Record<string, string> = {}, writ
   writeFileSync(join(repo, 'README.md'), '# e2e target\n');
   git(repo, ['add', '-A']);
   git(repo, ['commit', '-q', '-m', 'initial']);
+  // The fixture items name Repo fixture/repo and Base main (test/support/items.ts): a run is bound to the
+  // contract's repository and branch. A local path that does not exist: a push to it fails fast, offline.
+  git(repo, ['remote', 'add', 'origin', join(dir, 'remotes', 'fixture', 'repo.git')]);
   const runsDir = join(dir, 'runs');
   const tokensDir = join(dir, 'tokens');
   return {
