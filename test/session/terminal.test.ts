@@ -96,6 +96,54 @@ describe('pasted lines are one message', () => {
   });
 });
 
+describe('bracketed paste is switched off however the input ends', () => {
+  const ON = '\u001b[?2004h';
+  const OFF = '\u001b[?2004l';
+  const count = (s: string, part: string): number => s.split(part).length - 1;
+
+  it('Ctrl-D (end of input), then the session\'s close: off once', async () => {
+    const t = fakeTty();
+    const input = terminalInput({ stdin: t.stdin, stdout: t.stdout, burstMs: 5 });
+    const got = input.read('› ');
+    t.type('\u0004');
+    expect(await got).toEqual({ kind: 'eof' });
+    input.close();
+    await tick(10);
+    expect(count(t.screen(), ON)).toBe(1);
+    expect(count(t.screen(), OFF)).toBe(1);
+    expect(t.screen().lastIndexOf(OFF)).toBeGreaterThan(t.screen().indexOf(ON));
+  });
+
+  it('Ctrl-C at startup: off before the process ends', () => {
+    const t = fakeTty();
+    const exits: number[] = [];
+    let offBeforeExit = false;
+    const input = terminalInput({ stdin: t.stdin, stdout: t.stdout, exit: (c) => {
+      offBeforeExit = t.screen().includes(OFF);
+      exits.push(c);
+    } });
+    t.type('\u0003');
+    expect(exits).toEqual([130]);
+    expect(offBeforeExit).toBe(true);
+    input.close();
+    expect(count(t.screen(), OFF)).toBe(1);
+  });
+
+  it('twin: /exit (the input still open), then close: off once, and no exit listener is left behind', async () => {
+    const before = process.listenerCount('exit');
+    const t = fakeTty();
+    const input = terminalInput({ stdin: t.stdin, stdout: t.stdout, burstMs: 5 });
+    expect(process.listenerCount('exit')).toBe(before + 1);
+    const got = input.read('› ');
+    t.type('/exit\r');
+    expect(await got).toEqual({ kind: 'line', text: '/exit' });
+    input.close();
+    await tick(10);
+    expect(count(t.screen(), OFF)).toBe(1);
+    expect(process.listenerCount('exit')).toBe(before);
+  });
+});
+
 describe('a reply starts clean', () => {
   it('a read for a reply clears what was typed before it, and says so', async () => {
     const t = fakeTty();

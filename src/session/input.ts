@@ -11,7 +11,9 @@
  *     the lines between its start and end marks, plus the line the owner then ends with Enter), else
  *     lines that arrive within a short coalescing window of each other. Only lines typed after a turn
  *     has started are dropped (never queued: a "yes" typed early must not become the answer to a
- *     proposal shown later), and the owner is told so once per turn.
+ *     proposal shown later), and the owner is told so once per turn. Bracketed-paste mode, switched on
+ *     for this, is switched off once however the input ends (Ctrl-D, /exit, Ctrl-C at startup, the
+ *     process exiting), so the owner's shell never sees paste marks afterwards.
  *   - A read for a reply to a proposal (`read(prompt, { approval: true })`) first clears any half-typed
  *     line: text typed before the PROPOSAL box was shown is never the reply to it.
  *   - Ctrl-C goes to the innermost handler (onInterrupt is a stack): the running turn is cancelled, or a
@@ -97,6 +99,14 @@ export function terminalInput(opts: TerminalInputOptions = {}): OwnerInput {
   let afterPaste = false;
   /** The owner was told, during this busy stretch, that a line was not sent. */
   let droppedNotified = false;
+  /** Bracketed paste is on: it is switched off exactly once, however the input ends (Ctrl-D, /exit, Ctrl-C at startup, exit). */
+  let pasteOn = false;
+  const pasteOff = (): void => {
+    if (!pasteOn) return;
+    pasteOn = false;
+    process.removeListener('exit', pasteOff);
+    stdout.write(PASTE_OFF);
+  };
 
   const deliver = (l: OwnerLine): void => {
     if (waiting !== null) {
@@ -155,6 +165,9 @@ export function terminalInput(opts: TerminalInputOptions = {}): OwnerInput {
   });
   if (tty && pasteKeysSupported()) {
     stdout.write(PASTE_ON);
+    pasteOn = true;
+    // Left on, the owner's shell would see the paste marks around every later paste.
+    process.on('exit', pasteOff);
     stdin.on('keypress', (_s: unknown, k: { name?: string } | undefined) => {
       if (k?.name === 'paste-start') {
         pasting = true;
@@ -173,6 +186,7 @@ export function terminalInput(opts: TerminalInputOptions = {}): OwnerInput {
   }
   rl.on('close', () => {
     closed = true;
+    pasteOff();
     flushBurst();
     deliver({ kind: 'eof' });
   });
@@ -200,7 +214,8 @@ export function terminalInput(opts: TerminalInputOptions = {}): OwnerInput {
       return;
     }
     // Nothing is listening yet (the session is still starting): Ctrl-C quits, as it would anywhere else.
-    // The session lock is released by its process-exit handler.
+    // The session lock is released by its process-exit handler; paste mode is off before the exit.
+    pasteOff();
     rl.close();
     stdout.write('\n');
     exit(130);
@@ -241,7 +256,7 @@ export function terminalInput(opts: TerminalInputOptions = {}): OwnerInput {
     close() {
       if (!tty) process.removeListener('SIGINT', onSigint);
       clearBurst();
-      if (tty && !closed) stdout.write(PASTE_OFF);
+      pasteOff();
       rl.close();
     },
   };
