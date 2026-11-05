@@ -105,6 +105,13 @@ export interface Driver {
   readonly tokenCounter: string;
   complete(req: ModelRequest, signal?: AbortSignal): Promise<ModelResponse>;
   /**
+   * Optional: complete() with the reply's text delivered as it arrives. `onDelta` gets each text delta
+   * in order; the promise resolves to the same ModelResponse complete() would return for the same
+   * reply, and a failure is thrown as complete() throws it (so retryAfterMs and errorKind read it the
+   * same way). The loop calls it only when its caller asked for live text (RunAgentOptions.onText).
+   */
+  stream?(req: ModelRequest, signal: AbortSignal | undefined, onDelta: (text: string) => void): Promise<ModelResponse>;
+  /**
    * Count the input tokens `req` would occupy. Used for BOTH the actual request
    * and the shadow baseline request each turn, so the reduction ratio compares
    * like with like.
@@ -319,8 +326,35 @@ export interface Workspace {
   read(rel: string): Promise<string | null>;
   write(rel: string, content: string): Promise<void>;
   exists(rel: string): Promise<boolean>;
-  /** Glob relative to the API root (node_modules and .git always excluded). */
+  /**
+   * Glob relative to the API root (node_modules and .git always excluded). With visibility 'git',
+   * only git-visible files (tracked, or untracked and not ignored) and never a `.env*` path.
+   */
   list(patterns: string[]): Promise<string[]>;
+  /**
+   * Which files the read tools may see. Absent or 'all' (file mode, a run's own worktree): every
+   * file under the API root. 'git' (opt-in, a workspace over the owner's real checkout): only
+   * git-visible files, and `hidden` names why any other path is refused.
+   */
+  readonly visibility?: 'all' | 'git';
+  /**
+   * Why the read tools must not show `rel` (a `.env*` path even when tracked, anything under `.git/`, a
+   * git-ignored path), or null when they may. Present only with visibility 'git'; a path git cannot
+   * classify is hidden (fail closed).
+   */
+  hidden?(rel: string): Promise<string | null>;
+}
+
+/**
+ * A run that works directly in the owner's checkout (an interactive session) instead of a worktree
+ * of its own: the checkout and the branch HEAD was on when it started. The branch-guard hook re-checks
+ * both before every write. Absent on RunContext: a worktree run (file mode), where the guard is n/a.
+ */
+export interface InPlaceRun {
+  /** Absolute real path of the checkout's top level. */
+  repoTop: string;
+  /** The branch HEAD was on at session start. */
+  branch: string;
 }
 
 /** A test run observed by the harness's own runner. */
@@ -650,6 +684,8 @@ export interface RunContext {
   item?: ItemBinding;
   /** The target's stack from preflight (absent: not computed, e.g. a hand-built context). */
   stack?: Stack;
+  /** Set when the run writes in the owner's checkout (see InPlaceRun); absent for a worktree run. */
+  inPlace?: InPlaceRun;
   workspace: Workspace;
   state: RunState;
   logs: LogStore;

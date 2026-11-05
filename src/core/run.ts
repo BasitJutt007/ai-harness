@@ -38,6 +38,7 @@ import type {
   DriverPlugin,
   Exec,
   HarnessConfig,
+  InPlaceRun,
   ItemBinding,
   LoadedTask,
   RegistryView,
@@ -117,6 +118,13 @@ export function buildContext(opts: {
   profile?: TargetProfile;
   /** The backlog item the run is bound to. */
   item?: ItemBinding;
+  /**
+   * Live view of the run (session use): called with every RunEvent right after it is recorded (state
+   * and events.jsonl). A listener that throws never stops the run and never loses the record.
+   */
+  onEvent?: (event: RunEvent) => void;
+  /** Set when the run writes in the owner's checkout instead of a worktree (the branch-guard hook re-checks it). */
+  inPlace?: InPlaceRun;
 }): RunContext {
   const { state, store } = opts;
   const run = opts.exec ?? exec;
@@ -137,6 +145,7 @@ export function buildContext(opts: {
     task: opts.task,
     ...(opts.item !== undefined ? { item: opts.item } : {}),
     ...(opts.profile !== undefined ? { stack: opts.profile.stack } : {}),
+    ...(opts.inPlace !== undefined ? { inPlace: opts.inPlace } : {}),
     workspace: opts.ws,
     state,
     logs: store.logs,
@@ -149,6 +158,13 @@ export function buildContext(opts: {
       const full: RunEvent = { ...e, turn: state.turn, at: new Date().toISOString() };
       state.events.push(full);
       store.appendEvent(full);
+      if (opts.onEvent !== undefined) {
+        try {
+          opts.onEvent(full);
+        } catch {
+          // a display error never stops the run; the event is already recorded
+        }
+      }
     },
   };
 }

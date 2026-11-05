@@ -12,9 +12,16 @@
  * Turn limit (turnLimitFor): an explicit limit (--max-turns, the task file's maxTurns) is a hard
  * cap. Without one the limit scales with the task's size, and when the run reaches it while the
  * gates are making measurable progress it is extended (see extensionAt).
+ *
+ * Session use (all opt-in; without these options file mode runs exactly as described above): the
+ * conversation lives in a caller-owned `history` that every call appends to (turn numbers continue,
+ * the turn limit applies per call), the owner's next chat message joins it (`message`), a reply
+ * without a tool call hands the turn back to the owner (`yieldOnText`: status 'yielded', no nudge,
+ * no stall counting), folded turns keep their prose (`keepChat`), and the reply's text is delivered
+ * live (`onText`: Driver.stream when the driver has it, else the whole text once).
  */
 import { serializeState } from './run-store.ts';
-import { baselineView, fetcherNames, jitView, messageChars, repeatPointer, type RepeatRef, type TranscriptTurn } from './context.ts';
+import { baselineView, fetcherNames, jitView, messageChars, repeatPointer, type JitViewOptions, type RepeatRef, type TranscriptTurn } from './context.ts';
 import { failingUnits, runGates, type GateOutcome } from './gates.ts';
 import { runPostHooks, runPreHooks } from './hooks.ts';
 import type { SpendMeter } from './spend.ts';
@@ -35,6 +42,7 @@ import type {
   ToolResultPart,
   ToolSpec,
   Task,
+  TextPart,
 } from './types.ts';
 
 /** The subset of RunStore the loop writes to (RunStore satisfies it structurally). */
@@ -44,11 +52,16 @@ export interface AgentStore {
   writeJson(name: string, value: unknown): void;
 }
 
-/** `aborted` = stopped by the operator (Ctrl-C / AbortSignal); evidence is still written. */
-export type AgentStatus = 'done' | 'max_turns' | 'refused' | 'stalled' | 'error' | 'aborted' | 'spend_cap' | 'model_refused';
+/**
+ * `aborted` = stopped by the operator (Ctrl-C / AbortSignal); evidence is still written.
+ * `yielded` = session use only (RunAgentOptions.yieldOnText): the model replied without a tool call,
+ * and the turn goes back to the owner.
+ */
+export type AgentStatus = 'done' | 'max_turns' | 'refused' | 'stalled' | 'error' | 'aborted' | 'spend_cap' | 'model_refused' | 'yielded';
 
 export interface AgentResult {
   status: AgentStatus;
+  /** Turns this call ran (in file mode: the run's turns). */
   turns: number;
   finish?: GateOutcome;
   error?: string;
@@ -87,6 +100,37 @@ export interface RunAgentOptions {
   signal?: AbortSignal;
   /** How the loop waits between attempts (default: a timer that an abort cuts short); a test seam. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+
+  // ── Session use (opt-in; every option absent = file mode, unchanged) ──
+
+  /**
+   * The conversation so far, owned by the caller and kept across calls: every turn this call runs is
+   * appended to it, and turn numbers continue from its last turn. `first` must be the same message on
+   * every call (the conversation's opening). `maxTurns` applies per call.
+   */
+  history?: TranscriptTurn[];
+  /**
+   * The owner's next chat message. With turns in the history it follows the last turn: as that turn's
+   * results when the turn ended on text (the shape the NUDGE has in file mode), else after its tool
+   * results. With no turns yet it opens the conversation: it is appended to `first` (in place: like
+   * `history`, `first` is the caller's). Each message is also recorded in transcript.jsonl as an entry
+   * `{ turn, user }` (turn = the turn it follows, 0 = before the first).
+   */
+  message?: string;
+  /** A reply without a tool call ends the call with status 'yielded': no nudge, no stall counting. */
+  yieldOnText?: boolean;
+  /**
+   * Folded turns keep the conversation: the assistant's prose and the user's messages stay in the
+   * digest verbatim (JitViewOptions.keepChat). Default: true when `history` is given, else false.
+   */
+  keepChat?: boolean;
+  /**
+   * Live text of the model's reply: each delta as it streams (Driver.stream), or, when the driver cannot
+   * stream, the reply's whole text once when it arrives. `attempt` counts the requests sent for this
+   * turn: a retry (or the resend of a shrunk request) has a higher attempt, and text delivered for an
+   * earlier attempt was not the final reply. A listener that throws never stops the run.
+   */
+  onText?: (delta: string, info: { turn: number; attempt: number }) => void;
 }
 
 // ───────────────────────────── turn limit ─────────────────────────────
@@ -279,6 +323,11 @@ function isAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
 }
 
+/**
+ * One request with the loop's retry policy. `call` sends it (default driver.complete; the loop passes
+ * a Driver.stream call when it delivers live text): the same retry, rate-limit and context-overflow
+ * handling applies to either, since both throw the driver's own errors.
+ */
 async function completeWithRetry(
   driver: Driver,
   req: ModelRequest,
@@ -286,12 +335,13 @@ async function completeWithRetry(
   ctx: RunContext,
   signal: AbortSignal | undefined,
   wait: (ms: number, signal?: AbortSignal) => Promise<void>,
+  call: (req: ModelRequest, signal: AbortSignal | undefined) => Promise<ModelResponse> = (r, s) => driver.complete(r, s),
 ): Promise<ModelResponse> {
   let attempt = 0;
   let rateWaits = 0;
   for (;;) {
     try {
-      return await driver.complete(req, signal);
+      return await call(req, signal);
     } catch (e) {
       if (isAborted(signal)) throw new AbortedError('aborted during driver.complete');
       // Too large for the context window: the identical request would fail again; the caller shrinks it.
@@ -610,14 +660,39 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   // Repeat pointers (JIT only): the turns the NEXT request shows verbatim are the current one and the keep-1 before it.
   const repeatsOn = !baselineMode && (!ctx.mode.compactHistory || keep >= 1);
   const shownBefore = ctx.mode.compactHistory ? Math.max(0, keep - 1) : Number.POSITIVE_INFINITY;
-  const turns: TranscriptTurn[] = [];
+  // Session use: the caller's history is THE transcript (appended to in place); file mode starts empty.
+  const turns: TranscriptTurn[] = opts.history ?? [];
+  // Turn numbers continue from the history; `i` below counts this call's turns (what the limit caps).
+  const base = turns[turns.length - 1]?.turn ?? 0;
+  const keepChat = opts.keepChat ?? opts.history !== undefined;
+  const viewOpts = (o: JitViewOptions): JitViewOptions => (keepChat ? { ...o, keepChat: true } : o);
   let idle = 0;
   let lastFinish: GateOutcome | undefined;
   // Turn limit: extended (bounded) while refused finish attempts show fewer failing units (extensionAt).
   let limit = opts.maxTurns;
   const attempts: Array<{ turn: number; failing: number }> = [];
   const extensions: TurnLimitExtension[] = [];
-  const send = (req: ModelRequest): Promise<ModelResponse> => completeWithRetry(driver, req, delays, ctx, opts.signal, opts.sleep ?? sleep);
+  // Live text (onText): deltas from Driver.stream when the driver has it, else the whole reply once.
+  let attempt = 0;
+  let listenerFailed = false;
+  const deliver = (delta: string, turn: number): void => {
+    if (opts.onText === undefined || delta.length === 0) return;
+    try {
+      opts.onText(delta, { turn, attempt });
+    } catch (e) {
+      // The display never stops the run; said once.
+      if (!listenerFailed) ctx.emit({ kind: 'error', source: 'loop', message: `onText listener failed: ${errMsg(e)}` });
+      listenerFailed = true;
+    }
+  };
+  const streams = opts.onText !== undefined && driver.stream !== undefined;
+  const call = (req: ModelRequest, signal: AbortSignal | undefined): Promise<ModelResponse> => {
+    attempt += 1;
+    const turn = ctx.state.turn;
+    if (opts.onText !== undefined && driver.stream !== undefined) return driver.stream(req, signal, (d) => deliver(d, turn));
+    return driver.complete(req, signal);
+  };
+  const send = (req: ModelRequest): Promise<ModelResponse> => completeWithRetry(driver, req, delays, ctx, opts.signal, opts.sleep ?? sleep, call);
 
   const persist = (t: TranscriptTurn, extra: Record<string, unknown>, logs: Record<string, string>): void => {
     store.appendTranscript({
@@ -640,10 +715,21 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     return withFinish({ status: 'aborted', turns: turnsDone, error: 'aborted by the operator' });
   };
 
+  // The owner's next message joins the conversation before anything is sent (and is kept if the request fails).
+  if (opts.message !== undefined) {
+    const part: TextPart = { type: 'text', text: opts.message };
+    const last = turns[turns.length - 1];
+    if (last === undefined) first.parts.push(part);
+    else last.results = last.results === null ? { role: 'user', parts: [part] } : { role: last.results.role, parts: [...last.results.parts, part] };
+    store.appendTranscript({ turn: last?.turn ?? 0, user: [part] });
+  }
+
   try {
-    for (let turn = 1; turn <= limit; turn += 1) {
-      if (isAborted(opts.signal)) return aborted(turn - 1);
+    for (let i = 1; i <= limit; i += 1) {
+      const turn = base + i;
+      if (isAborted(opts.signal)) return aborted(i - 1);
       ctx.state.turn = turn;
+      attempt = 0;
       // Baseline request: front-load re-rendered from the current tree, raw returns, no fetchers. In a
       // --baseline run it is what is sent; otherwise it is the shadow, built from this run's trajectory
       // without its context-fetch calls (a baseline harness has that content front-loaded).
@@ -667,7 +753,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         estimated = c.estimated;
       } else {
         const fullMsgs = jitView(first, turns, keep, false);
-        const msgs = ctx.mode.compactHistory ? jitView(first, turns, keep, true, { writeTools }) : fullMsgs;
+        const msgs = ctx.mode.compactHistory ? jitView(first, turns, keep, true, viewOpts({ writeTools })) : fullMsgs;
         actualReq = { system: opts.system, messages: msgs, tools, maxOutputTokens: opts.maxOutputTokens };
         const c = await countTurn(driver, [{ label: 'actual', req: actualReq }, { label: 'baseline', req: baselineReq }], ctx, ledger);
         actual = c.counts[0] ?? 0;
@@ -690,18 +776,18 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       if (overCap !== null) {
         ctx.emit({ kind: 'note', source: 'loop', message: overCap });
         store.writeJson('state.json', serializeState(ctx.state));
-        return withFinish({ status: 'spend_cap', turns: turn - 1, error: overCap });
+        return withFinish({ status: 'spend_cap', turns: i - 1, error: overCap });
       }
       try {
         response = await send(actualReq);
       } catch (e) {
-        if (e instanceof AbortedError) return aborted(turn - 1);
+        if (e instanceof AbortedError) return aborted(i - 1);
         if (!(e instanceof ContextOverflow)) failure = failureText(e, delays);
         else if (baselineMode) {
           failure = `context overflow: the --baseline request (the repository front-loaded, every raw return, no compaction by definition) does not fit the model's context window: ${e.message}`;
         } else {
           // Shrink once: keep 1 recent turn, fold the rest into the digest, working set as skeletons only.
-          const smaller = jitView(first, turns, 1, true, { writeTools, workingSetFullChars: 0 });
+          const smaller = jitView(first, turns, 1, true, viewOpts({ writeTools, workingSetFullChars: 0 }));
           if (messageChars(smaller) >= messageChars(actualReq.messages)) {
             failure = `context overflow with nothing left to drop (1 recent turn, no working-set file text): ${e.message}`;
           } else {
@@ -725,7 +811,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
             try {
               response = await send(actualReq);
             } catch (e2) {
-              if (e2 instanceof AbortedError) return aborted(turn - 1);
+              if (e2 instanceof AbortedError) return aborted(i - 1);
               failure = e2 instanceof ContextOverflow ? `context overflow: the request does not fit the model's context window even after shrinking it once: ${e2.message}` : failureText(e2, delays);
             }
           }
@@ -735,7 +821,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         const error = failure ?? 'driver.complete returned nothing';
         ctx.emit({ kind: 'error', source: 'driver', message: error });
         store.writeJson('state.json', serializeState(ctx.state));
-        return withFinish({ status: 'error', turns: turn - 1, error });
+        return withFinish({ status: 'error', turns: i - 1, error });
       }
       // A driver with no provider (an offline replay) reports no usage: never record its numbers as the provider's.
       const reported = response.usage.reported !== false;
@@ -753,6 +839,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
 
       if (reported) opts.spend?.meter.add({ input: response.usage.inputTokens, cached: response.usage.cachedInputTokens ?? 0, output: response.usage.outputTokens });
 
+      // A driver that cannot stream: the reply's text, once, as soon as it is here (as a stream would have shown it).
+      if (!streams) deliver(response.parts.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join(''), turn);
       const assistant: Message = { role: 'assistant', parts: response.parts };
       const meta = { stop: response.stop, model: response.model, usage: response.usage, tokens: { actual, baseline }, ...(shrunk ? { contextShrunk: true } : {}) };
       const calls = response.parts.filter((p): p is ToolCallPart => p.type === 'tool_call');
@@ -764,7 +852,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         persist(t, meta, {});
         const error = `the provider served model "${response.model}", which is not on the allowlist (harness.config.json models.allow): its ${calls.length} tool call(s) were not run`;
         ctx.emit({ kind: 'error', source: 'loop', message: error });
-        return withFinish({ status: 'model_refused', turns: turn, error });
+        return withFinish({ status: 'model_refused', turns: i, error });
       }
 
       if (response.stop === 'refusal' && calls.length === 0) {
@@ -772,15 +860,23 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         turns.push(t);
         persist(t, meta, {});
         ctx.emit({ kind: 'note', source: 'loop', message: 'model refused' });
-        return withFinish({ status: 'refused', turns: turn });
+        return withFinish({ status: 'refused', turns: i });
       }
       if (response.stop === 'error' && calls.length === 0) {
         const t: TranscriptTurn = { turn, assistant, results: null, raw: {} };
         turns.push(t);
         persist(t, meta, {});
-        return withFinish({ status: 'error', turns: turn, error: 'driver reported stop reason "error"' });
+        return withFinish({ status: 'error', turns: i, error: 'driver reported stop reason "error"' });
       }
 
+      if (calls.length === 0 && opts.yieldOnText === true) {
+        // Session use: a reply without a tool call is the model talking to the owner; the turn is theirs again.
+        const t: TranscriptTurn = { turn, assistant, results: null, raw: {} };
+        turns.push(t);
+        persist(t, meta, {});
+        if (response.stop === 'max_tokens') ctx.emit({ kind: 'note', source: 'loop', message: 'the reply was cut off at the output limit' });
+        return withFinish({ status: 'yielded', turns: i });
+      }
       if (calls.length === 0) {
         idle += 1;
         if (idle >= MAX_IDLE_TURNS) {
@@ -788,7 +884,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
           turns.push(t);
           persist(t, meta, {});
           ctx.emit({ kind: 'note', source: 'loop', message: `stalled: ${idle} consecutive turns without a tool call` });
-          return withFinish({ status: 'stalled', turns: turn });
+          return withFinish({ status: 'stalled', turns: i });
         }
         const nudge = response.stop === 'max_tokens' ? `Your reply was cut off at the output limit. ${NUDGE}` : NUDGE;
         const t: TranscriptTurn = { turn, assistant, results: { role: 'user', parts: [{ type: 'text', text: nudge }] }, raw: {} };
@@ -832,7 +928,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         if (out.finish !== undefined) {
           lastFinish = out.finish;
           if (out.finish.ok) accepted = out.finish;
-          else attempts.push({ turn, failing: failingUnits(out.finish.results) });
+          else attempts.push({ turn: i, failing: failingUnits(out.finish.results) });
         }
       }
       const hasRepeats = Object.keys(repeats).length > 0;
@@ -846,9 +942,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       };
       turns.push(t);
       persist(t, hasRepeats ? { ...meta, repeats } : meta, logs);
-      if (accepted !== undefined) return withFinish({ status: 'done', turns: turn, finish: accepted });
-      if (isAborted(opts.signal)) return aborted(turn);
-      if (turn === limit && opts.turnExtension !== undefined) {
+      if (accepted !== undefined) return withFinish({ status: 'done', turns: i, finish: accepted });
+      if (isAborted(opts.signal)) return aborted(i);
+      if (i === limit && opts.turnExtension !== undefined) {
         const extra = limit - opts.maxTurns;
         const grant = extensionAt(limit, attempts, opts.turnExtension, extra);
         if (grant !== null) {
@@ -870,6 +966,6 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
     } catch {
       // emitting must never mask the original error
     }
-    return withFinish({ status: 'error', turns: ctx.state.turn, error });
+    return withFinish({ status: 'error', turns: Math.max(0, ctx.state.turn - base), error });
   }
 }

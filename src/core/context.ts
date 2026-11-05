@@ -10,7 +10,8 @@
  *              - older turns fold into a digest appended to the first user message: one
  *                line per tool call (`t<turn> <tool> <short input> -> <first line of result>`,
  *                input strings longer than DIGEST_VALUE_CHARS shown as `<N chars>`), assistant
- *                prose and opaque parts dropped with their turn;
+ *                prose and opaque parts dropped with their turn (session use, keepChat: the
+ *                assistant's prose and the user's messages stay in the digest verbatim, in order);
  *              - after the digest, a working set: a skeleton (signature lines with line
  *                numbers) of each file read in a folded turn and not written since, so a file's
  *                shape does not vanish from context the moment its read turn ages out;
@@ -148,6 +149,9 @@ function elideCalls(m: Message): Message {
 
 /** Opening line of the history digest (explains the format once, instead of per stub). */
 export const DIGEST_HEADER = 'Earlier turns, one line per tool call (tool, short input, first line of its result; re-run a tool to see more):';
+/** Opening line of the digest when the conversation is kept (JitViewOptions.keepChat). */
+export const DIGEST_HEADER_CHAT =
+  'Earlier turns: what you and the user said, verbatim, and one line per tool call (tool, short input, first line of its result; re-run a tool to see more):';
 
 /** First line of a result that carries text (skips blank and rule-only lines), capped. */
 export function headline(s: string): string {
@@ -155,18 +159,39 @@ export function headline(s: string): string {
   return line.length > MAX_STUB_CHARS ? `${line.slice(0, MAX_STUB_CHARS)}…` : line;
 }
 
+/** A prose digest entry: `t<turn> <who>: <text>`, every further line of the text indented by two spaces. */
+export function proseLine(turn: number, who: 'assistant' | 'user', text: string): string {
+  const [head = '', ...rest] = text.replace(/\r\n?/g, '\n').trimEnd().split('\n');
+  return [`t${turn} ${who}: ${head}`, ...rest.map((l) => `  ${l}`)].join('\n');
+}
+
+/** Options of digestTurn. */
+export interface DigestOptions {
+  /**
+   * Keep the conversation (session use): the assistant's prose and the user's messages (text in the
+   * turn's results) stay verbatim, in order, around the turn's tool lines. Default false: prose is
+   * dropped with its turn, as in file mode.
+   */
+  keepChat?: boolean;
+}
+
 /** Digest lines for one turn: deterministic, depends on that turn only. */
-export function digestTurn(t: TranscriptTurn): string[] {
+export function digestTurn(t: TranscriptTurn, opts: DigestOptions = {}): string[] {
+  const keepChat = opts.keepChat === true;
   const results = new Map<string, string>();
   for (const p of t.results?.parts ?? []) if (p.type === 'tool_result') results.set(p.callId, p.content);
   const lines: string[] = [];
+  let calls = 0;
   for (const p of t.assistant.parts) {
+    if (keepChat && p.type === 'text' && p.text.trim().length > 0) lines.push(proseLine(t.turn, 'assistant', p.text));
     if (p.type !== 'tool_call') continue;
+    calls += 1;
     const input = digestInput(p.input);
     const result = results.get(p.id);
     lines.push(`t${t.turn} ${p.name}${input === '' ? '' : ` ${input}`} -> ${result === undefined ? '(no result)' : headline(result)}`);
   }
-  if (lines.length === 0) lines.push(`t${t.turn} (no tool call)`);
+  if (calls === 0 && lines.length === 0) lines.push(`t${t.turn} (no tool call)`);
+  if (keepChat) for (const p of t.results?.parts ?? []) if (p.type === 'text' && p.text.trim().length > 0) lines.push(proseLine(t.turn, 'user', p.text));
   return lines;
 }
 
@@ -321,6 +346,12 @@ export interface JitViewOptions {
   writeTools?: Iterable<string>;
   /** Budget of FULL read results in the working set (default WORKING_SET_FULL_CHARS; 0 = skeletons only). */
   workingSetFullChars?: number;
+  /**
+   * Session use (opt-in): older turns still fold into the digest, but the conversation never leaves
+   * the context: every assistant prose part and every user message of a folded turn is kept verbatim
+   * in the digest, in order (digestTurn keepChat). The digest stays append-only. Default false (file mode).
+   */
+  keepChat?: boolean;
 }
 
 export function jitView(
@@ -339,10 +370,11 @@ export function jitView(
     return out;
   }
   const cutoff = Math.max(0, turns.length - Math.max(0, keepRecentTurns));
-  const digest = turns.slice(0, cutoff).flatMap(digestTurn);
+  const keepChat = opts.keepChat === true;
+  const digest = turns.slice(0, cutoff).flatMap((t) => digestTurn(t, { keepChat }));
   const extra: Part[] = [];
   // The digest comes first and only grows at its end; the working set follows it.
-  if (digest.length > 0) extra.push({ type: 'text', text: [DIGEST_HEADER, ...digest].join('\n') });
+  if (digest.length > 0) extra.push({ type: 'text', text: [keepChat ? DIGEST_HEADER_CHAT : DIGEST_HEADER, ...digest].join('\n') });
   const ws = workingSet(turns, cutoff, opts.writeTools, opts.workingSetFullChars);
   if (ws !== null) extra.push({ type: 'text', text: ws });
   const head: Message = extra.length === 0 ? first : { role: first.role, parts: [...first.parts, ...extra] };
