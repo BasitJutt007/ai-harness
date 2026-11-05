@@ -194,7 +194,7 @@ describe('starting', () => {
 
   it('a piped owner line is echoed, so a piped transcript reads in order (a terminal echoes it itself)', async () => {
     const piped = await runScripted(r, [text('Hi.')], ['hello'], { channel: 'pipe' });
-    expect(piped.out).toMatch(/› hello\nHi\./);
+    expect(piped.out).toMatch(/› hello\n┆ Hi\./);
     const typed = await runScripted(r, [text('Hi.')], ['hello']);
     expect(typed.out).not.toContain('› hello');
   });

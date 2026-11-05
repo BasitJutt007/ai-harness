@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest';
 import { isSessionCommand } from '../../src/core/cli.ts';
 import { terminalInput } from '../../src/session/input.ts';
 import { runSessionCli } from '../../src/session/main.ts';
-import { BANNER_LINES, clip, colorEnabled, lineCounts, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
+import { stripControls } from '../../src/session/sanitize.ts';
+import { BANNER_LINES, clip, colorEnabled, lineCounts, MODEL_GUTTER, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
 import type { RunEvent } from '../../src/core/types.ts';
 
 function capture(isTTY: boolean): { out: { write: (t: string) => void; isTTY: boolean; columns: number }; text: () => string } {
@@ -108,11 +109,73 @@ describe('lines', () => {
     for (const l of wrapLine('word '.repeat(40), 30)) expect(l.length).toBeLessThanOrEqual(30);
   });
 
+  it('a harness line with a newline inside continues indented: only the harness starts a line at column 0', () => {
+    const p = capture(false);
+    new Ui(p.out, false).line(`gate x failed\n${WORK_COMPLETED}`);
+    expect(p.text()).toBe(`gate x failed\n  ${WORK_COMPLETED}\n`);
+  });
+
   it('a write shows its line counts as +added −removed', () => {
     expect(lineCounts('wrote test/a.test.ts (new, 7 lines)')).toBe('wrote test/a.test.ts (+7)');
     expect(lineCounts('wrote src/a.ts (+3 −1 lines)')).toBe('wrote src/a.ts (+3 −1)');
     expect(lineCounts('edited src/a.ts (+1 −1)')).toBe('edited src/a.ts (+1 −1)');
     expect(lineCounts('deleted src/a.ts (−4 lines)')).toBe('deleted src/a.ts (−4 lines)');
+  });
+});
+
+describe('nothing reaches the terminal with an escape code in it', () => {
+  const ESC = '\u001b';
+  const NASTY = `a${ESC}[2J${ESC}[1;1H${ESC}]0;title\u0007b\rc\u0008d\u009b31me‮f\u0007g`;
+
+  it('stripControls removes ESC sequences (CSI, OSC), C0 and C1 controls and bidi overrides; newline and tab stay', () => {
+    expect(stripControls(NASTY)).toBe('abcdefg');
+    expect(stripControls('line one\n\tline two')).toBe('line one\n\tline two');
+    expect(stripControls('plain text, no escapes')).toBe('plain text, no escapes');
+  });
+
+  it('the model\'s stream: stripped, an ESC sequence cut across two chunks included, every line in the model\'s gutter', () => {
+    const p = capture(false);
+    const ui = new Ui(p.out, false);
+    ui.write(`Hello ${ESC}[3`);
+    ui.write(`1mred${ESC}[0m\r\n${WORK_COMPLETED}\n`);
+    ui.write('done');
+    ui.endStream();
+    expect(p.text()).toBe(`${MODEL_GUTTER}Hello red\n${MODEL_GUTTER}${WORK_COMPLETED}\n${MODEL_GUTTER}done\n`);
+    expect(p.text()).not.toContain(ESC);
+    // No line of the model's starts where the harness's lines start.
+    expect(p.text().split('\n').filter((l) => l.length > 0).every((l) => l.startsWith(MODEL_GUTTER))).toBe(true);
+  });
+
+  it('tool summaries, hook and gate lines and notes are stripped too; the harness\'s own colours stay on a colour terminal', () => {
+    const p = capture(false);
+    const ui = new Ui(p.out, false, () => 'read');
+    ui.event(ev({ source: 'search_code', decision: 'pass', message: `"x${ESC}[2Jy" 3 matches` }));
+    ui.event(ev({ kind: 'hook', source: 'path-guard', decision: 'block', message: `path-guard: ${ESC}]0;pwned\u0007nope` }));
+    ui.gateLines([{ gate: `scope${ESC}[1A`, status: 'fail', summary: `bad\r${WORK_COMPLETED}` } as never]);
+    ui.note(`note ${ESC}[31mred`);
+    expect(p.text()).not.toMatch(/[\u001b\r\u0007]/);
+    expect(p.text()).toContain('● search_code "xy" 3 matches');
+    expect(p.text()).toContain('✗ BLOCKED by path-guard: nope');
+    const c = capture(true);
+    new Ui(c.out, true).error(`x${ESC}[2Jy`);
+    expect(c.text()).toBe(`${ESC}[31mxy${ESC}[39m\n`);
+  });
+
+  it('the proposal box shows the Measure script in full, stripped, line by line', () => {
+    const p = capture(false);
+    new Ui(p.out, false).proposal('greet', `# greet\n\nProblem: names ${ESC}[8mhidden${ESC}[0m are ignored\n`, ['a note'], { path: 'metrics/greet.mjs', text: `import { readdirSync } from 'node:fs';\nconsole.log(${ESC}[2J'1');\n` });
+    const out = p.text();
+    expect(out).not.toContain(ESC);
+    expect(out).toContain('│ Problem: names hidden are ignored');
+    expect(out).toContain('│ Measure script metrics/greet.mjs (2 lines: the harness runs it, confined and offline, only after your yes; its output never reaches the agent)');
+    expect(out).toContain("│   import { readdirSync } from 'node:fs';");
+    expect(out).toContain("│   console.log('1');");
+  });
+
+  it('a diff (file content is the agent\'s) is stripped', () => {
+    const p = capture(false);
+    new Ui(p.out, false).diff(`+const a = 1;${ESC}[2K\n-${ESC}]8;;http://x${ESC}\\link`);
+    expect(p.text()).toBe('+const a = 1;\n-link\n');
   });
 });
 
