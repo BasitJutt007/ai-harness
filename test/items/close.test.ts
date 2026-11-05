@@ -38,27 +38,27 @@ beforeEach(() => {
   repo = join(base, 'repo');
   harness = join(base, 'harness');
   root = join(base, 'items-root');
-  git(base, 'init', '-q', '--bare', '-b', 'harness-test', origin);
+  git(base, 'init', '-q', '--bare', '-b', 'main', origin);
   mkdirSync(repo);
-  git(repo, 'init', '-q', '-b', 'harness-test');
+  git(repo, 'init', '-q', '-b', 'main');
   writeFileSync(join(repo, 'count.txt'), '3\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-q', '-m', 'init');
   git(repo, 'remote', 'add', 'origin', origin);
-  git(repo, 'push', '-q', 'origin', 'harness-test');
+  git(repo, 'push', '-q', 'origin', 'main');
   mkdirSync(join(harness, 'metrics'), { recursive: true });
   writeFileSync(join(harness, 'metrics', 'fixture-count.mjs'), COUNT_SCRIPT);
 });
 afterEach(() => rmSync(base, { recursive: true, force: true }));
 
-const CONTRACT = contractFor(SLUG, { Repo: 'fixture/repo', Base: 'harness-test', Measure: 'node metrics/fixture-count.mjs', Metric: 'count, harness-test HEAD before: ____ after: ____' });
+const CONTRACT = contractFor(SLUG, { Repo: 'fixture/repo', Base: 'main', Measure: 'node metrics/fixture-count.mjs', Metric: 'count, main HEAD before: ____ after: ____' });
 
 /** Contract, before reading (3), proposal and a typed yes: what `harness item propose` + `reply` record. */
 async function approved(): Promise<void> {
   writeContract(root, SLUG, CONTRACT);
   const m = parseContract(CONTRACT).measure;
   if (m === null) throw new Error('no measure');
-  const before = await readMetric({ harnessRoot: harness, repoDir: repo, ref: 'origin/harness-test', measure: m, label: SLUG });
+  const before = await readMetric({ harnessRoot: harness, repoDir: repo, ref: 'origin/main', measure: m, label: SLUG });
   if (!before.ok) throw new Error(before.reason);
   proposeItem(root, SLUG, { session: 's', before: before.reading });
   recordReply(root, SLUG, 'yes, approved', 'tty', 's');
@@ -71,15 +71,15 @@ function shipped(): string {
   git(repo, 'commit', '-q', '-am', 'fix: count');
   git(repo, 'push', '-q', 'origin', 'harness/run-1');
   const head = git(repo, 'rev-parse', 'HEAD');
-  appendLedger(itemPaths(root, SLUG).ledger, { type: 'shipped', runId: 'run-1', branch: 'harness/run-1', headSha: head, base: 'harness-test', prUrl: PR_URL });
-  git(repo, 'checkout', '-q', 'harness-test');
+  appendLedger(itemPaths(root, SLUG).ledger, { type: 'shipped', runId: 'run-1', branch: 'harness/run-1', headSha: head, base: 'main', prUrl: PR_URL });
+  git(repo, 'checkout', '-q', 'main');
   return head;
 }
 
-/** A person merges the PR on GitHub (here: a merge commit pushed to origin/harness-test). */
+/** A person merges the PR on GitHub (here: a merge commit pushed to origin/main). */
 function merged(): string {
   git(repo, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #7', 'harness/run-1');
-  git(repo, 'push', '-q', 'origin', 'harness-test');
+  git(repo, 'push', '-q', 'origin', 'main');
   const m = git(repo, 'rev-parse', 'HEAD');
   git(repo, 'reset', '-q', '--hard', 'HEAD~1');
   return m;
@@ -87,7 +87,7 @@ function merged(): string {
 
 function ghReturning(pr: Record<string, unknown>): Exec {
   return async (cmd, args, opts) => {
-    if (cmd === 'gh') return { code: 0, stdout: JSON.stringify({ url: PR_URL, number: 7, baseRefName: 'harness-test', ...pr }), stderr: '', durationMs: 1, timedOut: false };
+    if (cmd === 'gh') return { code: 0, stdout: JSON.stringify({ url: PR_URL, number: 7, baseRefName: 'main', ...pr }), stderr: '', durationMs: 1, timedOut: false };
     return coreExec(cmd, args, opts);
   };
 }
@@ -177,7 +177,7 @@ describe('skip 3: close an item without reading the metric', () => {
     expect(r.ok).toBe(true);
     expect(r.lines.join('\n')).toMatch(/metric\s+count: before 3 \(at [0-9a-f]{12}\) -> after 0 \(at [0-9a-f]{12}\)/);
     expect(ledgerTypes(root, SLUG).slice(-2)).toEqual(['metric', 'closed']);
-    expect(readFileSync(itemPaths(root, SLUG).contract, 'utf8')).toMatch(/^Metric: count, harness-test HEAD before: 3 after: 0$/m);
+    expect(readFileSync(itemPaths(root, SLUG).contract, 'utf8')).toMatch(/^Metric: count, main HEAD before: 3 after: 0$/m);
     expect(itemStatus(root, SLUG).stage).toBe('closed');
     // a second close is refused
     const again = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: ghReturning({}) });

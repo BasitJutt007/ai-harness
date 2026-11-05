@@ -19,18 +19,18 @@ import { approveForTest } from '../support/items.ts';
 
 export const COMPLETE = `# Guard the export route
 
-Problem: Customers without a plan can download the full export; QA reproduced it on a staging account.
+Problem: Customers without a paid plan can download the full report export; QA reproduced it on a staging account.
 Owner: Example product team
 Stakeholder: Abdul Basit
 Repo: example-org/shop-api
-Base: harness-test
-Commit: fix(leads): require the leads entitlement on the export route
-Metric: unguarded export routes, harness-test HEAD before: ____ after: ____
-Measure: node metrics/unguarded-routes.mjs src/modules/leads
-Scenario: WHEN a vendor without the leads entitlement calls GET /leads/export THEN the API answers 403
-Scenario: WHEN a vendor with the entitlement calls it THEN the CSV downloads as before
+Base: main
+Commit: fix(reports): require a paid plan on the export route
+Metric: unguarded export routes, main HEAD before: ____ after: ____
+Measure: node metrics/unguarded-routes.mjs src/modules/reports
+Scenario: WHEN a customer without a paid plan calls GET /reports/export THEN the API answers 403
+Scenario: WHEN a customer with a paid plan calls it THEN the CSV downloads as before
 Not included:
-- changing the entitlement model
+- changing the plans
 - the admin export
 `;
 
@@ -50,14 +50,14 @@ describe('contract parsing (problem-statement gate)', () => {
     expect(p.missing).toEqual([]);
     expect(p.problems).toEqual([]);
     expect(p.complete).toBe(true);
-    expect(p.metric).toEqual({ name: 'unguarded export routes', window: 'harness-test HEAD', before: null, after: null });
-    expect(p.measure).toEqual({ script: 'metrics/unguarded-routes.mjs', args: ['src/modules/leads'], text: 'node metrics/unguarded-routes.mjs src/modules/leads' });
+    expect(p.metric).toEqual({ name: 'unguarded export routes', window: 'main HEAD', before: null, after: null });
+    expect(p.measure).toEqual({ script: 'metrics/unguarded-routes.mjs', args: ['src/modules/reports'], text: 'node metrics/unguarded-routes.mjs src/modules/reports' });
     expect(p.scenarios).toHaveLength(2);
-    expect(p.notIncluded).toEqual(['changing the entitlement model', 'the admin export']);
+    expect(p.notIncluded).toEqual(['changing the plans', 'the admin export']);
   });
 
   it('accepts bold field names and a Scenarios list', () => {
-    const md = COMPLETE.replace('Problem:', '**Problem:**').replace(/Scenario: WHEN a vendor without/, 'Scenarios:\n- WHEN a vendor without').replace('Scenario: WHEN a vendor with the', '- WHEN a vendor with the');
+    const md = COMPLETE.replace('Problem:', '**Problem:**').replace(/Scenario: WHEN a customer without/, 'Scenarios:\n- WHEN a customer without').replace('Scenario: WHEN a customer with a', '- WHEN a customer with a');
     const p = parseContract(md);
     expect(p.complete).toBe(true);
     expect(p.scenarios).toHaveLength(2);
@@ -113,7 +113,7 @@ describe('contract parsing (problem-statement gate)', () => {
     // any change a stakeholder approves is part of it
     expect(parseContract(COMPLETE.replace('answers 403', 'answers 401')).hash).not.toBe(base);
     expect(parseContract(COMPLETE.replace('the admin export', 'nothing')).hash).not.toBe(base);
-    expect(parseContract(COMPLETE.replace('src/modules/leads', 'src')).hash).not.toBe(base);
+    expect(parseContract(COMPLETE.replace('src/modules/reports', 'src')).hash).not.toBe(base);
   });
 
   it('contractVerdict names the file and the missing fields', () => {
