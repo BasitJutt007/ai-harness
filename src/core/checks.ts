@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
-import { isSourcePath, isTestPath, isTestSupportPath, targetLayout } from './target.ts';
+import { isSourcePath, isTestPath, isTestSupportPath, isWebLayout, targetLayout } from './target.ts';
 import type { TargetLayout } from './target.ts';
 import { createTypecheck, registerTypecheck } from './typecheck.ts';
 import type { Typecheck } from './typecheck.ts';
@@ -152,7 +152,8 @@ export async function runChecks(opts: {
   /** harness.config.json `checkOptions`: each check gets only its own entry, as CheckContext.options. */
   checkOptions?: Readonly<Record<string, Record<string, unknown>>>;
 } & CheckRunInfo): Promise<CheckReport> {
-  const selected = selectChecks(opts.checks, opts.categories, opts.rules, opts.stack);
+  // An in-place run's profile has a web layout (inPlaceProfile); file mode never does.
+  const selected = selectChecks(opts.checks, opts.categories, opts.rules, opts.stack, opts.layout !== undefined && isWebLayout(opts.layout));
   const otherStacks = selectChecks(opts.checks, opts.categories, opts.rules).filter((c) => !selected.includes(c));
   const ctx = await createCheckContext(opts);
   const findings: CheckFinding[] = [];
@@ -190,12 +191,15 @@ export function withOptions(ctx: CheckContext, all: Readonly<Record<string, Reco
   return own === undefined ? ctx : { ...ctx, options: structuredClone(own) };
 }
 
-/** Checks matching the categories, rules and (when given) the stack; a check declaring no stacks applies to all. */
-export function selectChecks(checks: CheckPlugin[], categories?: string[], rules?: string[], stack?: Stack): CheckPlugin[] {
+/**
+ * Checks matching the categories, rules and (when given) the stack; a check declaring no stacks applies to all.
+ * `inPlace` (a session's run) adds the checks whose inPlaceStacks name the stack.
+ */
+export function selectChecks(checks: CheckPlugin[], categories?: string[], rules?: string[], stack?: Stack, inPlace = false): CheckPlugin[] {
   return checks.filter((c) =>
     (categories === undefined || categories.length === 0 || categories.includes(c.category))
     && (rules === undefined || rules.length === 0 || rules.includes(c.id))
-    && (stack === undefined || c.stacks === undefined || c.stacks.includes(stack)));
+    && (stack === undefined || c.stacks === undefined || c.stacks.includes(stack) || (inPlace && c.inPlaceStacks?.includes(stack) === true)));
 }
 
 /** Units of a finding are counts: finite, non-negative integers with passed <= total. Null when they are. */

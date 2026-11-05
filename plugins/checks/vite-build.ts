@@ -89,17 +89,37 @@ export interface ViteBuildOptions {
   /** Rule id the findings carry. */
   rule: string;
   /**
-   * A repository without its own Vite installed or without a vite config builds nothing with Vite: nothing to
-   * check (no findings: n/a), not UNPROVEN. Off for vite-build, whose stack declares Vite (missing: UNPROVEN).
+   * A repository without its own Vite installed, or that is no Vite app (viteApp: no vite config, no script
+   * running Vite, no index.html for Vite's defaults), builds nothing with Vite: nothing to check (no findings:
+   * n/a), not UNPROVEN. Off for vite-build, whose stack declares Vite (missing: UNPROVEN).
    */
   naWithoutVite: boolean;
+}
+
+/**
+ * Whether the repository at `root` is a Vite app: a vite config, or none and Vite's defaults (a script that
+ * runs `vite` or `vite build`, or Vite declared with the index.html Vite builds from). A Vite installed only
+ * as vitest's dependency is none of these.
+ */
+export function viteApp(root: string, dependencies: Record<string, string>): boolean {
+  if (VITE_CONFIGS.some((c) => existsSync(join(root, c)))) return true;
+  let scripts: unknown;
+  try {
+    const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    scripts = typeof pkg === 'object' && pkg !== null ? Reflect.get(pkg, 'scripts') : undefined;
+  } catch {
+    scripts = undefined;
+  }
+  const runsVite = typeof scripts === 'object' && scripts !== null
+    && Object.values(scripts).some((s) => typeof s === 'string' && /(^|[\s;&|(])vite(\s+(build|dev|serve|preview)\b|\s*($|[;&|)]))/.test(s));
+  return runsVite || (dependencies['vite'] !== undefined && existsSync(join(root, 'index.html')));
 }
 
 /** The repository's `vite build`, confined (see the module comment). */
 export async function viteBuild(ctx: CheckContext, o: ViteBuildOptions): Promise<CheckFinding[]> {
   const rule = o.rule;
   const vite = join(ctx.root, 'node_modules', 'vite', 'bin', 'vite.js');
-  if (o.naWithoutVite && (!existsSync(vite) || !VITE_CONFIGS.some((c) => existsSync(join(ctx.root, c))))) return [];
+  if (o.naWithoutVite && (!existsSync(vite) || !viteApp(ctx.root, ctx.dependencies()))) return [];
   if (!existsSync(vite)) return [{ rule, file: PROJECT, status: 'skip', units: { passed: 0, total: 0 }, violations: [], skipReason: "the repository's Vite is not installed (node_modules/vite)" }];
   const tmp = mkdtempSync(join(tmpdir(), 'vite-build-'));
   try {

@@ -16,7 +16,7 @@ import { runChecks, selectChecks } from '../../src/core/checks.ts';
 import { requiredGates } from '../../src/core/gates.ts';
 import { loadRegistry } from '../../src/core/registry.ts';
 import { targetProfile } from '../../src/core/run.ts';
-import { computeTargetProfile, formatProfile, setActiveLayout, WEB_NO_STANDARDS_NOTE, webServerNote } from '../../src/core/target.ts';
+import { computeTargetProfile, formatProfile, setActiveLayout, targetLayout, WEB_NO_STANDARDS_NOTE, webServerNote } from '../../src/core/target.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import { sessionSystemPrompt } from '../../src/session/prompt.ts';
 import type { BrownfieldTask, Exec, LogStore, Stack } from '../../src/core/types.ts';
@@ -217,6 +217,48 @@ describe('the generic web checks', () => {
     expect(calls.length).toBe(before);
     // File mode (react-vite) is unchanged: its Vite missing is UNPROVEN, never n/a.
     expect((await build(noVite, 'react-vite')).rules).toEqual([expect.objectContaining({ rule: 'vite-build', status: 'unproven' })]);
+  });
+
+  it('web-build: a zero-config Vite app (a script runs vite build, or Vite declared with its index.html) is built; Vite installed only for vitest is n/a (the twin)', async () => {
+    const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
+    const checks = reg.checks.map((r) => r.plugin);
+    let builds = 0;
+    const fake: Exec = async () => {
+      builds += 1;
+      return { code: 0, stdout: '', stderr: '', durationMs: 1, timedOut: false };
+    };
+    const build = (root: string) => runChecks({ root, checks, exec: fake, harnessRoot: HARNESS_ROOT, logs, stack: 'web', rules: ['web-build'] });
+    const vite = { 'node_modules/vite/bin/vite.js': '', 'src/main.js': 'export {};\n' };
+    const byScript = join(tmp.dir, 'web-build-script');
+    writeTree(byScript, { ...vite, 'package.json': pkg({ scripts: { build: 'vite build' }, dependencies: { lit: '3.0.0' } }) });
+    expect((await build(byScript)).rules).toEqual([expect.objectContaining({ rule: 'web-build', status: 'pass' })]);
+    const byIndex = join(tmp.dir, 'web-build-index');
+    writeTree(byIndex, { ...vite, 'package.json': pkg({ devDependencies: { vite: '7.0.0' } }), 'index.html': '<script type="module" src="/src/main.js"></script>\n' });
+    expect((await build(byIndex)).rules).toEqual([expect.objectContaining({ rule: 'web-build', status: 'pass' })]);
+    expect(builds).toBe(2);
+    const vitestOnly = join(tmp.dir, 'web-build-vitest-only');
+    writeTree(vitestOnly, { ...vite, 'package.json': pkg({ scripts: { test: 'vitest run' }, devDependencies: { vitest: '5.0.3' } }), 'index.html': '<p>docs</p>\n' });
+    expect((await build(vitestOnly)).rules).toEqual([expect.objectContaining({ rule: 'web-build', status: 'n/a' })]);
+    expect(builds).toBe(2);
+  });
+
+  it('web-build runs for express and nestjs in place (a server that builds its frontend with Vite); their file-mode reports are unchanged (the twin)', async () => {
+    const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
+    const checks = reg.checks.map((r) => r.plugin);
+    const fake: Exec = async () => ({ code: 0, stdout: '', stderr: '', durationMs: 1, timedOut: false });
+    const root = join(tmp.dir, 'express-with-vite');
+    writeTree(root, { 'package.json': pkg({ dependencies: { express: '5.2.1' }, devDependencies: { vite: '7.0.0' } }), 'node_modules/vite/bin/vite.js': '', 'vite.config.js': 'export default {};\n', 'src/app.ts': 'export {};\n' });
+    const layout = await targetLayout(root);
+    for (const stack of ['express', 'nestjs'] as const) {
+      const inPlace = await runChecks({ root, checks, exec: fake, harnessRoot: HARNESS_ROOT, logs, stack, layout: { ...layout, codeKinds: 'web' }, rules: ['web-build'] });
+      expect(inPlace.rules, stack).toEqual([expect.objectContaining({ rule: 'web-build', status: 'pass' })]);
+      const fileMode = await runChecks({ root, checks, exec: fake, harnessRoot: HARNESS_ROOT, logs, stack, layout, rules: ['web-build'] });
+      expect(fileMode.rules, stack).toEqual([]);
+      expect(fileMode.text, stack).toMatch(/other stacks {2}not run on .*: web-build \(web\)/);
+    }
+    expect(selectChecks(checks, undefined, undefined, 'express').map((c) => c.id)).not.toContain('web-build');
+    expect(selectChecks(checks, undefined, undefined, 'express', true).map((c) => c.id)).toContain('web-build');
+    expect(selectChecks(checks, undefined, undefined, 'react-vite', true).map((c) => c.id)).not.toContain('web-build');
   });
 
   it('a JavaScript repository has no type check: n/a, never a pass', async () => {
