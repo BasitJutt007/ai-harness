@@ -7,16 +7,17 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import nestRouteGuard from '../../plugins/checks/nest-route-guard.ts';
+import nestRouteGuard, { parseOptions } from '../../plugins/checks/nest-route-guard.ts';
 import prismaUnbounded, { findManyCalls } from '../../plugins/checks/prisma-unbounded.ts';
 import repoTypecheck, { projectsOf } from '../../plugins/checks/repo-typecheck.ts';
 import routeLock from '../../plugins/gates/route-lock.ts';
-import { isAdminFacing, routeKey, routesOf } from '../../plugins/lib/nest-routes.ts';
+import { decoratorOf, isAdminFacing, routeKey, routesOf } from '../../plugins/lib/nest-routes.ts';
 import { writePolicy } from '../../plugins/lib/path-policy.ts';
-import { HARNESS_ROOT } from '../../src/core/config.ts';
+import { runChecks } from '../../src/core/checks.ts';
+import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
 import { exec } from '../../src/core/exec.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
-import type { BrownfieldTask, CheckContext, RunContext } from '../../src/core/types.ts';
+import type { BrownfieldTask, CheckContext, CheckFinding, RunContext } from '../../src/core/types.ts';
 
 const dirs: string[] = [];
 function tmp(): string {
@@ -36,70 +37,158 @@ function put(root: string, files: Record<string, string>): void {
 
 const CONTROLLER = `
 import { Controller, Get, Post, Param } from '@nestjs/common';
-@Controller('admin/badges')
-export class AdminBadgesController {
+@Controller('admin/reports')
+export class AdminReportsController {
   @Get(':id') find(@Param('id') id: string) { return id; }
-  @AdminOnly() @Post() create() { return 1; }
+  @RequireAdmin() @Post() create() { return 1; }
 }
-@AdminOnly()
+@RequireAdmin()
 @Controller('admins')
 export class AdminsController { @Get() list() { return []; } }
-@Controller('vendors')
-export class VendorsController {
-  @Get(':vendorId/badges') badges() { return []; }
-  @Public() @Get('health') health() { return 'ok'; }
+@Controller('shops')
+export class ShopsController {
+  @Get(':shopId/reports') reports() { return []; }
+  @SkipAuth() @Get('health') health() { return 'ok'; }
   @Get(PATH) dynamic() { return 1; }
 }`;
+/** The controller without the route whose path cannot be read. */
+const READABLE = CONTROLLER.replace("@Get(PATH) dynamic() { return 1; }", '');
+/** The decorator names of the codebase under test, as harness.config.json checkOptions would give them. */
+const NAMES = { adminDecorators: ['RequireAdmin'], publicDecorators: ['SkipAuth'] };
 
 describe('NestJS routes from decorators', () => {
   it('joins controller and method paths, keeps decorators, and marks unreadable paths unknown', () => {
     const routes = routesOf('src/a.controller.ts', CONTROLLER);
-    expect(routes.map((r) => `${r.method} ${r.path}`)).toEqual(['GET /admin/badges/:id', 'POST /admin/badges', 'GET /admins', 'GET /vendors/:vendorId/badges', 'GET /vendors/health', 'GET (unknown)']);
+    expect(routes.map((r) => `${r.method} ${r.path}`)).toEqual(['GET /admin/reports/:id', 'POST /admin/reports', 'GET /admins', 'GET /shops/:shopId/reports', 'GET /shops/health', 'GET (unknown)']);
     expect(routes.at(-1)?.unknown).toMatch(/not a string literal/);
-    expect(routeKey({ method: 'GET', path: '/a/:id' })).toBe(routeKey({ method: 'GET', path: '/a/:badgeId' }));
+    expect(routeKey({ method: 'GET', path: '/a/:id' })).toBe(routeKey({ method: 'GET', path: '/a/:reportId' }));
     expect(isAdminFacing({ ...routes[3]!, file: 'src/modules/users/admin/x.controller.ts' })).toBe(true);
+  });
+
+  it('decoratorOf finds a named decorator on the method or its class, and only the names asked for', () => {
+    const routes = routesOf('src/a.controller.ts', READABLE);
+    expect(routes.map((r) => decoratorOf(r, ['RequireAdmin']))).toEqual([null, 'RequireAdmin', 'RequireAdmin', null, null]);
+    expect(routes.map((r) => decoratorOf(r, ['SkipAuth', 'Other']))).toEqual([null, null, null, null, 'SkipAuth']);
+    expect(routes.map((r) => decoratorOf(r, []))).toEqual([null, null, null, null, null]);
   });
 });
 
-function checkCtx(root: string, files: string[]): CheckContext {
-  return { root, sourceFiles: files, testFiles: [], read: async (rel: string) => (await import('node:fs')).readFileSync(join(root, rel), 'utf8'), exec, harnessRoot: HARNESS_ROOT, logs: { write: async () => 'x' } } as unknown as CheckContext;
+function checkCtx(root: string, files: string[], options?: Record<string, unknown>): CheckContext {
+  return { root, sourceFiles: files, testFiles: [], read: async (rel: string) => (await import('node:fs')).readFileSync(join(root, rel), 'utf8'), exec, harnessRoot: HARNESS_ROOT, logs: { write: async () => 'x' }, ...(options !== undefined ? { options } : {}) } as unknown as CheckContext;
 }
 
 describe('nest-route-guard: who may call each route', () => {
-  it('flags an admin route without @AdminOnly and a @Public route; passes the guarded twins', async () => {
+  async function guard(text: string, options?: Record<string, unknown>): Promise<CheckFinding[]> {
     const root = tmp();
-    put(root, { 'src/a.controller.ts': CONTROLLER.replace("@Get(PATH) dynamic() { return 1; }", '') });
-    const [f] = await nestRouteGuard.run(checkCtx(root, ['src/a.controller.ts']));
+    put(root, { 'src/a.controller.ts': text });
+    return nestRouteGuard.run(checkCtx(root, ['src/a.controller.ts'], options));
+  }
+
+  it('flags an admin route without the admin decorator and a public route; passes the guarded twins', async () => {
+    const [f] = await guard(READABLE, NAMES);
     expect(f?.status).toBe('fail');
     expect(f?.violations.map((v) => v.message)).toEqual([
-      'GET /admin/badges/:id (AdminBadgesController.find) is admin-facing without @AdminOnly(): any signed-in user can call it',
-      'GET /vendors/health (VendorsController.health) is @Public: callable without authentication',
+      'GET /admin/reports/:id (AdminReportsController.find) is admin-facing without @RequireAdmin(): any signed-in user can call it',
+      'GET /shops/health (ShopsController.health) is @SkipAuth: callable without authentication',
     ]);
     expect(f?.units).toEqual({ passed: 3, total: 5 });
   });
 
-  it('is UNPROVEN (skip) when a route path cannot be read', async () => {
+  it('the decorator on the method or its class counts; a fixed controller passes', async () => {
+    const fixed = READABLE.replace("@Get(':id') find", "@RequireAdmin() @Get(':id') find").replace("@SkipAuth() @Get('health')", "@Get('health')");
+    expect(await guard(fixed, NAMES)).toEqual([{ rule: 'nest-route-guard', file: 'src/a.controller.ts', status: 'pass', units: { passed: 5, total: 5 }, violations: [] }]);
+  });
+
+  it('the names come from the configuration, not the code: a decorator nobody configured guards nothing', async () => {
+    const [f] = await guard(READABLE, { adminDecorators: ['AdminGuarded'], publicDecorators: ['Anonymous'] });
+    // @RequireAdmin is not configured here, so the create route it decorates is open too; @SkipAuth is not a public marker.
+    expect(f?.violations.map((v) => v.message)).toEqual([
+      'GET /admin/reports/:id (AdminReportsController.find) is admin-facing without @AdminGuarded(): any signed-in user can call it',
+      'POST /admin/reports (AdminReportsController.create) is admin-facing without @AdminGuarded(): any signed-in user can call it',
+    ]);
+    const several = await guard(READABLE, { adminDecorators: ['AdminGuarded', 'RequireAdmin'] });
+    expect(several[0]?.violations.map((v) => v.message)).toEqual([
+      'GET /admin/reports/:id (AdminReportsController.find) is admin-facing without @AdminGuarded() or @RequireAdmin(): any signed-in user can call it',
+    ]);
+  });
+
+  it('is n/a with the reason when no decorator names are configured, never a pass', async () => {
+    const none = [{ rule: 'nest-route-guard', file: '(project)', status: 'pass', units: { passed: 0, total: 0 }, violations: [], naReason: 'no access decorators configured: set adminDecorators and/or publicDecorators in harness.config.json checkOptions["nest-route-guard"]' }];
+    expect(await guard(READABLE)).toEqual(none);
+    expect(await guard(READABLE, {})).toEqual(none);
+    expect(await guard(READABLE, { adminDecorators: [], publicDecorators: [] })).toEqual(none);
+  });
+
+  it('through the check runner: n/a without checkOptions, FAIL with them', async () => {
     const root = tmp();
-    put(root, { 'src/a.controller.ts': CONTROLLER });
-    const [f] = await nestRouteGuard.run(checkCtx(root, ['src/a.controller.ts']));
+    put(root, { 'src/a.controller.ts': READABLE });
+    const base = { root, checks: [nestRouteGuard], exec, harnessRoot: HARNESS_ROOT, logs: { write: async () => 'x' }, stack: 'nestjs' as const };
+    const without = await runChecks(base);
+    expect(without.rules).toMatchObject([{ rule: 'nest-route-guard', status: 'n/a' }]);
+    expect(without.text).toMatch(/nest-route-guard\s+n\/a\s+\(none\)\s+0\/0 routes\s+\(no access decorators configured/);
+    const withOptions = await runChecks({ ...base, checkOptions: { 'nest-route-guard': NAMES } });
+    expect(withOptions.rules).toMatchObject([{ rule: 'nest-route-guard', status: 'fail', passed: 3, total: 5 }]);
+  });
+
+  it('options it cannot read make it UNPROVEN (a typo never silently turns the rule off)', async () => {
+    const cases: Array<[Record<string, unknown>, RegExp]> = [
+      [{ adminDecorator: ['RequireAdmin'] }, /adminDecorator/],
+      [{ adminDecorators: 'RequireAdmin' }, /adminDecorators/],
+      [{ adminDecorators: ['@RequireAdmin()'] }, /adminDecorators\.0: a decorator name without @ or \(\)/],
+      [{ publicDecorators: [7] }, /publicDecorators\.0/],
+    ];
+    for (const [bad, why] of cases) {
+      const [f] = await guard(READABLE, bad);
+      expect(f?.status, JSON.stringify(bad)).toBe('skip');
+      expect(f?.skipReason).toMatch(/^unreadable harness\.config\.json checkOptions\["nest-route-guard"\]: /);
+      expect(f?.skipReason).toMatch(why);
+    }
+  });
+
+  it('only public decorators configured: an admin-facing route is UNPROVEN; a controller without one is judged', async () => {
+    const [admin] = await guard(READABLE, { publicDecorators: ['SkipAuth'] });
+    expect(admin).toMatchObject({ status: 'skip', skipReason: 'GET /admin/reports/:id (AdminReportsController.find) is admin-facing, but no adminDecorators are configured in harness.config.json checkOptions["nest-route-guard"]' });
+    const shops = "@Controller('shops') export class ShopsController { @Get(':id') one() {} @SkipAuth() @Get('health') health() {} }";
+    const [f] = await guard(shops, { publicDecorators: ['SkipAuth'] });
+    expect(f?.status).toBe('fail');
+    expect(f?.violations.map((v) => v.message)).toEqual(['GET /shops/health (ShopsController.health) is @SkipAuth: callable without authentication']);
+  });
+
+  it('only admin decorators configured: admin-facing routes are judged; no decorator opens a route', async () => {
+    const [f] = await guard(READABLE, { adminDecorators: ['RequireAdmin'] });
+    expect(f?.violations.map((v) => v.message)).toEqual(['GET /admin/reports/:id (AdminReportsController.find) is admin-facing without @RequireAdmin(): any signed-in user can call it']);
+    expect(f?.units).toEqual({ passed: 4, total: 5 });
+  });
+
+  it('is UNPROVEN (skip) when a route path cannot be read', async () => {
+    const [f] = await guard(CONTROLLER, NAMES);
     expect(f?.status).toBe('skip');
     expect(f?.skipReason).toMatch(/not a string literal/);
+  });
+
+  it('the harness configuration names readable decorators for both kinds', () => {
+    const parsed = parseOptions(loadConfig(HARNESS_ROOT).checkOptions['nest-route-guard']);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.options.adminDecorators.length).toBeGreaterThan(0);
+      expect(parsed.options.publicDecorators.length).toBeGreaterThan(0);
+    }
   });
 });
 
 describe('prisma-unbounded: every findMany is bounded', () => {
   const SERVICE = `
-export class NotificationsService {
+export class OrdersService {
   constructor(private prisma: any) {}
-  all() { return this.prisma.notification.findMany(); }
-  mine(userId: string) { return this.prisma.notification.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }); }
-  page(userId: string, take: number, skip: number) { return this.prisma.notification.findMany({ where: { userId }, take, skip }); }
-  byIds(ids: string[]) { return this.prisma.notification.findMany({ where: { id: { in: ids } } }); }
-  one(id: string) { return this.prisma.notification.findMany({ where: { id } }); }
-  opaque(args: object) { return this.prisma.notification.findMany(args); }
-  spread(extra: object) { return this.prisma.notification.findMany({ ...extra, where: { read: false } }); }
-  boundedSpread(extra: object) { return this.prisma.notification.findMany({ ...extra, take: 20 }); }
-  first(id: string) { return this.prisma.notification.findFirst({ where: { id } }); }
+  all() { return this.prisma.order.findMany(); }
+  mine(userId: string) { return this.prisma.order.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }); }
+  page(userId: string, take: number, skip: number) { return this.prisma.order.findMany({ where: { userId }, take, skip }); }
+  byIds(ids: string[]) { return this.prisma.order.findMany({ where: { id: { in: ids } } }); }
+  one(id: string) { return this.prisma.order.findMany({ where: { id } }); }
+  opaque(args: object) { return this.prisma.order.findMany(args); }
+  spread(extra: object) { return this.prisma.order.findMany({ ...extra, where: { paid: false } }); }
+  boundedSpread(extra: object) { return this.prisma.order.findMany({ ...extra, take: 20 }); }
+  first(id: string) { return this.prisma.order.findFirst({ where: { id } }); }
 }`;
 
   it('flags findMany without take (no arguments, a where, an opaque argument, a spread); passes take and id lookups', () => {
@@ -165,7 +254,7 @@ describe('route-lock: no base route disappears', () => {
   }
   async function lock(after: string, allowBreaking = false): Promise<Awaited<ReturnType<typeof routeLock.run>>> {
     const root = tmp();
-    put(root, { 'src/a.controller.ts': "@Controller('vendors') export class V { @Get(':id') one() {} @Delete(':id') remove() {} }" });
+    put(root, { 'src/a.controller.ts': "@Controller('shops') export class V { @Get(':id') one() {} @Delete(':id') remove() {} }" });
     git(root, 'init', '-q');
     git(root, 'add', '.');
     git(root, 'commit', '-q', '-m', 'base');
@@ -177,23 +266,23 @@ describe('route-lock: no base route disappears', () => {
   }
 
   it('fails when a route is removed', async () => {
-    const r = await lock("@Controller('vendors') export class V { @Get(':id') one() {} }");
+    const r = await lock("@Controller('shops') export class V { @Get(':id') one() {} }");
     expect(r.status).toBe('fail');
-    expect(r.details).toEqual(['removed: DELETE /vendors/:param (src/a.controller.ts:1 V.remove)']);
+    expect(r.details).toEqual(['removed: DELETE /shops/:param (src/a.controller.ts:1 V.remove)']);
   });
 
   it('passes a renamed parameter and an added route (the twins), listing the addition', async () => {
-    const r = await lock("@Controller('vendors') export class V { @Get(':vendorId') one() {} @Delete(':vendorId') remove() {} @Post() add() {} }");
+    const r = await lock("@Controller('shops') export class V { @Get(':shopId') one() {} @Delete(':shopId') remove() {} @Post() add() {} }");
     expect(r.status).toBe('pass');
-    expect(r.details).toEqual(['added: POST /vendors (src/a.controller.ts:1)']);
+    expect(r.details).toEqual(['added: POST /shops (src/a.controller.ts:1)']);
     expect(r.humanMustVerify?.[0]).toMatch(/shapes are not compared/);
   });
 
   it('is UNPROVEN on an unreadable path; a removal the task allows passes, named', async () => {
     expect((await lock("@Controller(P) export class V { @Get(':id') one() {} }")).status).toBe('unproven');
-    const allowed = await lock("@Controller('vendors') export class V { @Get(':id') one() {} }", true);
+    const allowed = await lock("@Controller('shops') export class V { @Get(':id') one() {} }", true);
     expect(allowed.status).toBe('pass');
-    expect(allowed.humanMustVerify?.join(' ')).toMatch(/removed routes allowed by the task: DELETE \/vendors\/:param/);
+    expect(allowed.humanMustVerify?.join(' ')).toMatch(/removed routes allowed by the task: DELETE \/shops\/:param/);
   });
 });
 

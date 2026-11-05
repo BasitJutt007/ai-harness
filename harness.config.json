@@ -17,5 +17,8 @@
       "scripted:*": { "input": 0, "cachedInput": 0, "output": 0, "note": "offline replay: nothing is sent to a provider" }
     },
     "maxRunUsd": 2
+  },
+  "checkOptions": {
+    "nest-route-guard": { "adminDecorators": ["AdminOnly"], "publicDecorators": ["Public"] }
   }
 }
