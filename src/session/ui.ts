@@ -194,7 +194,7 @@ export class Ui {
         return;
       }
       const icon = effect === 'write' ? this.paint('yellow', '✎') : effect === 'control' ? this.paint('magenta', '◆') : this.paint('cyan', '●');
-      this.line(`${icon} ${clip(`${e.source} ${e.message}`, w)}`);
+      this.line(`${icon} ${clip(`${e.source} ${effect === 'write' ? lineCounts(e.message) : e.message}`, w)}`);
       return;
     }
     if (e.kind === 'hook') {
@@ -280,6 +280,11 @@ export class Ui {
       else this.line(l);
     }
   }
+}
+
+/** A write tool's summary with its line counts as +added −removed: "(new, 7 lines)" → "(+7)", "(+3 −1 lines)" → "(+3 −1)". */
+export function lineCounts(summary: string): string {
+  return summary.replace(/\(new, (\d+) lines?\)/, '(+$1)').replace(/\((\+\d+ −\d+) lines?\)/, '($1)');
 }
 
 /** A line cut into pieces of at most `width` characters, on spaces where it can. */

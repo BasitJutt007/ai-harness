@@ -120,8 +120,8 @@ export const HELP_LINES = [
   '  /ship            commit, push and open the PR (only after a DONE verdict)',
   '  /import <file>   propose a contract you wrote (<slug>.md, its .mjs Measure next to it)',
   '  /exit            end the session (also Ctrl-D, or Ctrl-C twice on an empty prompt)',
-  'Ctrl-C cancels the agent\'s turn. After a proposal, the next line you type is your reply: only "yes"-style',
-  'replies typed at this terminal approve it.',
+  'Ctrl-C cancels the agent\'s turn. After a proposal, the next line you type (other than a /command) is your',
+  'reply: only a plain yes typed at this terminal approves it.',
 ];
 
 class Session {
@@ -231,6 +231,7 @@ class Session {
       interrupts = 0;
       const text = l.text.trim();
       if (text.length === 0) continue;
+      if (this.input.channel === 'pipe') this.ui.line(this.ui.paint('dim', `${this.pending !== null ? 'reply › ' : '› '}${text}`));
       if (text.startsWith('/')) {
         if ((await this.command(text)) === 'exit') break;
         continue;
@@ -566,6 +567,7 @@ class Session {
       this.ui.line(`${head} ${r.commit?.slice(0, 12) ?? ''} on ${r.branch}${r.prUrl !== undefined ? `  ${r.prUrl}` : ''}`);
       for (const x of r.reasons) this.ui.line(`  ${x}`);
       if (r.status === 'shipped') this.ui.note('after the merge: harness item close <slug> (in this repository) reads the metric again');
+      this.ui.note('start a new session for the next change: this one\'s gates compare against the commit it started from');
     }
     this.writeRunJson('running');
   }
@@ -708,6 +710,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
     ui.error(`harness: refused: ${errMsg(e)} (run harness inside a project repository)`);
     return { code: 2 };
   }
+  let started = false;
   try {
     const sid = deps.sessionId ?? newSessionId();
     const runDir = join(stateDir.sessionsDir, sid);
@@ -792,8 +795,13 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
       ledger,
     );
     session.writeRunJson('running');
+    started = true;
     await session.run();
     return { code: 0, sessionId: sid, sessionDir: runDir };
+  } catch (e) {
+    ui.stopSpinner();
+    ui.error(`harness: ${started ? 'the session stopped' : 'the session could not start'}: ${errMsg(e)}`);
+    return { code: 1 };
   } finally {
     setConfinedRoot(null);
     lock.release();

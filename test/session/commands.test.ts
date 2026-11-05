@@ -182,6 +182,23 @@ describe('starting', () => {
     expect(again.code).toBe(0);
   });
 
+  it('a session that fails says so (exit 1) and still releases its lock', async () => {
+    const broken = await runScripted(r, [], [() => {
+      throw new Error('terminal gone');
+    }]);
+    expect(broken.result.code).toBe(1);
+    expect(broken.out).toContain('harness: the session stopped: terminal gone');
+    const next = await runScripted(r, [], []);
+    expect(next.result.code).toBe(0);
+  });
+
+  it('a piped owner line is echoed, so a piped transcript reads in order (a terminal echoes it itself)', async () => {
+    const piped = await runScripted(r, [text('Hi.')], ['hello'], { channel: 'pipe' });
+    expect(piped.out).toMatch(/› hello\nHi\./);
+    const typed = await runScripted(r, [text('Hi.')], ['hello']);
+    expect(typed.out).not.toContain('› hello');
+  });
+
   it('a session releases its lock when it ends (the next one starts)', async () => {
     const first = await runScripted(r, [], ['/exit']);
     expect(first.result.code).toBe(0);

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { isSessionCommand } from '../../src/core/cli.ts';
 import { terminalInput } from '../../src/session/input.ts';
 import { runSessionCli } from '../../src/session/main.ts';
-import { BANNER_LINES, clip, colorEnabled, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
+import { BANNER_LINES, clip, colorEnabled, lineCounts, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
 import type { RunEvent } from '../../src/core/types.ts';
 
 function capture(isTTY: boolean): { out: { write: (t: string) => void; isTTY: boolean; columns: number }; text: () => string } {
@@ -71,7 +71,7 @@ describe('lines', () => {
     ui.event(ev({ kind: 'hook', source: 'path-guard', decision: 'pass', message: 'pre_tool write_file' }));
     const lines = p.text().trimEnd().split('\n');
     expect(lines[0]).toBe('● read_file src/a.ts (lines 1-120 of 300)');
-    expect(lines[1]).toBe('✎ write_file wrote src/a.ts (+3 −1 lines)');
+    expect(lines[1]).toBe('✎ write_file wrote src/a.ts (+3 −1)');
     expect(lines[2]).toMatch(/^✗ BLOCKED by observed-red: x+…$/);
     expect(lines[2]?.length).toBeLessThanOrEqual(76);
     expect(lines).toHaveLength(3);
@@ -106,6 +106,13 @@ describe('lines', () => {
     expect(clip('a  b\nc', 10)).toBe('a b c');
     expect(clip('abcdefghijk', 5)).toBe('abcd…');
     for (const l of wrapLine('word '.repeat(40), 30)) expect(l.length).toBeLessThanOrEqual(30);
+  });
+
+  it('a write shows its line counts as +added −removed', () => {
+    expect(lineCounts('wrote test/a.test.ts (new, 7 lines)')).toBe('wrote test/a.test.ts (+7)');
+    expect(lineCounts('wrote src/a.ts (+3 −1 lines)')).toBe('wrote src/a.ts (+3 −1)');
+    expect(lineCounts('edited src/a.ts (+1 −1)')).toBe('edited src/a.ts (+1 −1)');
+    expect(lineCounts('deleted src/a.ts (−4 lines)')).toBe('deleted src/a.ts (−4 lines)');
   });
 });
 
