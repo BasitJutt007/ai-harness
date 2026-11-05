@@ -23,9 +23,17 @@ import type {
  */
 export const REQUIRED_HOOKS = ['problem-gate', 'contract-gate'] as const;
 
-/** The required hooks the registry lacks (empty = all present). */
-export function missingRequiredHooks(hooks: ReadonlyArray<PluginRecord<HookPlugin>>): string[] {
-  return REQUIRED_HOOKS.filter((name) => !hooks.some((h) => h.plugin.name === name));
+/**
+ * Hooks a run that writes in the owner's checkout (RunContext.inPlace: an interactive session) needs
+ * on top of REQUIRED_HOOKS: without branch-guard nothing would re-check, before a write, that HEAD is
+ * still on the working branch the session started on.
+ */
+export const REQUIRED_INPLACE_HOOKS = ['branch-guard'] as const;
+
+/** The required hooks the registry lacks (empty = all present); `inPlace` adds REQUIRED_INPLACE_HOOKS. */
+export function missingRequiredHooks(hooks: ReadonlyArray<PluginRecord<HookPlugin>>, opts: { inPlace?: boolean } = {}): string[] {
+  const required: readonly string[] = opts.inPlace === true ? [...REQUIRED_HOOKS, ...REQUIRED_INPLACE_HOOKS] : REQUIRED_HOOKS;
+  return required.filter((name) => !hooks.some((h) => h.plugin.name === name));
 }
 
 export interface HookOutcome {

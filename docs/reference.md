@@ -22,7 +22,10 @@ content; content hooks judge that post-image and refuse a write tool without one
   leave the source roots, or use absolute, computed or loader imports), `unsafe-code-guard` (`any`,
   `x!`, `@ts-ignore`), `secret-guard`, `elision-guard` (no `<omitted N chars>`-style placeholders; no
   write that breaks the parse of an existing source file or drops over half its exports and routes),
-  `dependency-policy` (an added import must be a builtin or a declared, installed package). *Post-tool:*
+  `dependency-policy` (an added import must be a builtin or a declared, installed package),
+  `branch-guard` (in-place session runs only: before every write, HEAD must still be on the working
+  branch the session started on, not protected, with no merge/rebase/cherry-pick/bisect in progress;
+  it passes in a worktree run, where it has nothing to check). *Post-tool:*
   `typecheck-feedback` records up to 3 type errors of the written files and never blocks.
 - *Gates* (fresh at finish and at ship; finish needs no `fail`/`unproven` and one `pass`):
   `tests-green`, `observed-red` (red → green on the same case, plus a **revert check** per changed

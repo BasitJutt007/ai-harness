@@ -12,7 +12,7 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
-import { missingRequiredHooks } from './hooks.ts';
+import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS } from './hooks.ts';
 import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
@@ -502,10 +502,12 @@ export interface ExecuteRunOptions {
  * registered, the contract names every field, and its text is approved in a typed turn. Throws the
  * refusal (no worktree, no tokens) naming what is missing.
  */
-export function bindItem(slug: string, registry: RegistryView, root: string = itemsRoot(HARNESS_ROOT)): ItemBinding {
-  const missing = missingRequiredHooks(registry.hooks);
+export function bindItem(slug: string, registry: RegistryView, root: string = itemsRoot(HARNESS_ROOT), opts: { inPlace?: boolean } = {}): ItemBinding {
+  const missing = missingRequiredHooks(registry.hooks, opts);
   if (missing.length > 0) {
-    throw new Error(`refused before the first model turn: required hook(s) ${missing.join(', ')} not registered (disabled in harness.config.json or failed to load), so nothing would stop an edit without a contract or a stakeholder yes`);
+    // An in-place run also needs the branch guard; say what each missing hook would have stopped.
+    const branch = missing.some((m) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(m)) ? ', or a write on a branch other than the working branch the session started on' : '';
+    throw new Error(`refused before the first model turn: required hook(s) ${missing.join(', ')} not registered (disabled in harness.config.json or failed to load), so nothing would stop an edit without a contract or a stakeholder yes${branch}`);
   }
   const status = itemStatus(root, slug);
   if (!status.editable || status.contract.parse === null) {
