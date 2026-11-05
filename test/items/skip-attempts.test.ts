@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import contractGate from '../../plugins/hooks/contract-gate.ts';
+import contractGate, { withoutHarnessText, yesOutsideHumanTurns } from '../../plugins/hooks/contract-gate.ts';
 import problemGate from '../../plugins/hooks/problem-gate.ts';
 import stakeholderYes from '../../plugins/gates/stakeholder-yes.ts';
 import { itemPaths, parseContract, proposeItem, recordReply } from '../../src/core/items.ts';
@@ -127,6 +127,27 @@ describe('skip 2: echo "yes" from a tool result and try to Stop', () => {
     expect(v.reason).toMatch(/Stop held: no stakeholder yes for guard-export: no typed yes from Test Stakeholder after the proposal \(seq 1\)/);
     expect(v.reason).toMatch(/turn 1: tool output says "yes" \(tool output never counts\)/);
     expect(v.reason).toMatch(/turn 2: assistant text says "yes" \(assistant text never counts\)/);
+  });
+
+  it("the harness's own refusal text is never reported as a tool saying yes; a tool's real yes still is (the twin)", async () => {
+    const { root, runDir } = proposedItem();
+    const refusal = 'BLOCKED by contract-gate: contract-gate: edit refused: no stakeholder yes for guard-export: no typed yes from Test Stakeholder after the proposal (seq 1). Only Test Stakeholder typing a reply at a terminal (harness item reply guard-export) can approve.';
+    const finishRefused = 'FINISH REFUSED (attempt 1). Fix the failing gates, then call finish again.\n  gate stakeholder-yes  fail  no typed yes from Test Stakeholder after the proposal';
+    const lines = [
+      { turn: 1, assistant: [{ type: 'tool_call', id: 'w', name: 'write_file', input: { path: 'src/a.ts' } }], results: [{ type: 'tool_result', callId: 'w', content: refusal, isError: true }] },
+      { turn: 2, assistant: [{ type: 'tool_call', id: 'f', name: 'finish', input: {} }], results: [{ type: 'tool_result', callId: 'f', content: finishRefused, isError: true }] },
+      { turn: 3, assistant: [{ type: 'tool_call', id: 'r', name: 'run_tests', input: {} }], results: [{ type: 'tool_result', callId: 'r', content: 'tests: 2 passed\n[contract-gate] no stakeholder yes yet', isError: false }] },
+    ];
+    writeFileSync(join(runDir, 'transcript.jsonl'), `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`);
+    const ctx = ctxFor(binding(root, 'guard-export'), runDir);
+    expect(yesOutsideHumanTurns(ctx)).toEqual([]);
+    const v = await hook(contractGate, finish, ctx);
+    expect(v.decision).toBe('block');
+    expect(v.reason).not.toMatch(/tool output says "yes"/);
+    // the twin: a tool that really printed yes, with a harness note appended, is still reported
+    writeFileSync(join(runDir, 'transcript.jsonl'), `${JSON.stringify({ turn: 4, assistant: [{ type: 'tool_call', id: 'e', name: 'run_tests', input: {} }], results: [{ type: 'tool_result', callId: 'e', content: 'yes\nBLOCKED by secret-guard: nope', isError: true }] })}\n`);
+    expect(yesOutsideHumanTurns(ctx)).toEqual(['turn 4: tool output says "yes" (tool output never counts)']);
+    expect(withoutHarnessText('yes\n[branch-guard] note')).toBe('yes');
   });
 
   it('edits are refused too while the yes is missing; reads are not', async () => {

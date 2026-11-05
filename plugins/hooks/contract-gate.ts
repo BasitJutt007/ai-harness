@@ -23,6 +23,17 @@ interface TranscriptLine {
   results?: Array<{ type?: string; content?: string; callId?: string }> | null;
 }
 
+/**
+ * A tool result without the harness's own text in it. A hook's refusal ("BLOCKED by contract-gate:
+ * contract-gate: edit refused: no stakeholder yes ..."), the finish gates' verdict and a hook's note
+ * are written by the harness, not by the tool: their "yes" ("no stakeholder yes") is not a tool saying
+ * yes, and labelling it so would misreport what the run did.
+ */
+export function withoutHarnessText(content: string): string {
+  if (/^(BLOCKED by [\w-]+:|FINISH REFUSED|FINISH ACCEPTED)/.test(content)) return '';
+  return content.split('\n').filter((l) => !/^BLOCKED by [\w-]+: /.test(l) && !/^\[[\w-]+\] /.test(l)).join('\n');
+}
+
 /** Every "yes" in this run's own transcript (assistant text, tool calls, tool output): none of it is a stakeholder turn. */
 export function yesOutsideHumanTurns(ctx: RunContext): string[] {
   let text: string;
@@ -46,7 +57,7 @@ export function yesOutsideHumanTurns(ctx: RunContext): string[] {
       if (p.type === 'tool_call' && YES.test(JSON.stringify(p.input ?? ''))) seen.push(`turn ${turn}: a ${p.name ?? 'tool'} call carries "yes" (tool input never counts)`);
     }
     for (const p of t.results ?? []) {
-      if (p.type === 'tool_result' && YES.test(p.content ?? '')) seen.push(`turn ${turn}: tool output says "yes" (tool output never counts)`);
+      if (p.type === 'tool_result' && YES.test(withoutHarnessText(p.content ?? ''))) seen.push(`turn ${turn}: tool output says "yes" (tool output never counts)`);
       if (p.type === 'text' && YES.test((p as { text?: string }).text ?? '')) seen.push(`turn ${turn}: harness or hook text says "yes" (hook output never counts)`);
     }
   }
