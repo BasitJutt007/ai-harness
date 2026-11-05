@@ -223,7 +223,7 @@ export async function cmdItem(
           out(`refused: git fetch origin ${base} failed: ${(fetch.stderr || fetch.stdout).trim()}`);
           return 1;
         }
-        if (c.measure === null) return 1;
+        if (c.measure === null && !c.noMeasure) return 1;
         // The Commit header is approved with the contract, so the repository's own rules see it first.
         const header = (c.fields.Commit ?? '').trim();
         const lint = await repoCommitlint(run, repoDir, `${header}\n`);
@@ -232,18 +232,25 @@ export async function cmdItem(
           for (const d of lint.details) out(`  ${d}`);
           return 1;
         }
-        const before = await readMetric({ harnessRoot, itemsRoot: root, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug, harnessMetrics });
-        if (!before.ok) {
-          out(`refused: the before value could not be read: ${before.reason}`);
-          return 1;
+        // "Measure: none": proposed with no before value; such an item can ship, but it can never close.
+        let reading: MetricReading | null = null;
+        if (c.measure !== null) {
+          const before = await readMetric({ harnessRoot, itemsRoot: root, repoDir, ref: `origin/${base}`, measure: c.measure, exec: run, label: slug, harnessMetrics });
+          if (!before.ok) {
+            out(`refused: the before value could not be read: ${before.reason}`);
+            return 1;
+          }
+          reading = before.reading;
+          if (before.unproven !== undefined) out(`note: the before value is UNPROVEN (${before.unproven}): close will refuse it; propose again where the sandbox works`);
         }
-        const reading: MetricReading = before.reading;
         const p = proposeItem(root, slug, { session, before: reading });
         out(`proposed ${slug} (ledger seq ${p.seq}, contract ${c.hash.slice(0, 12)}) to ${(c.fields.Stakeholder ?? '').trim()}`);
         out(`  Problem   ${(c.fields.Problem ?? '').split('\n')[0] ?? ''}`);
         out(`  Owner     ${(c.fields.Owner ?? '').trim()}`);
         out(`  Commit    ${header}  (${lint.summary})`);
-        out(`  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: before ${reading.value} (read at origin/${base} ${reading.sha.slice(0, 12)})`);
+        out(reading === null
+          ? `  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: no Measure (the contract says "Measure: none"): the outcome cannot be read, so this item can never close`
+          : `  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: before ${reading.value} (read at origin/${base} ${reading.sha.slice(0, 12)})`);
         for (const sc of c.scenarios) out(`  Scenario  WHEN ${sc.when} THEN ${sc.then}`);
         out(`  Not incl. ${c.notIncluded.join('; ')}`);
         if (!reader.isTTY) {

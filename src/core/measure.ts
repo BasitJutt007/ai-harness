@@ -22,12 +22,28 @@ import { join, resolve } from 'node:path';
 import { exec as coreExec } from './exec.ts';
 import type { MeasureSpec, MetricReading } from './items.ts';
 import { linkDependencies } from './target.ts';
-import type { Exec } from './types.ts';
+import type { Exec, SandboxMechanism } from './types.ts';
 
 export const MEASURE_TIMEOUT_MS = 300_000;
 export const NUMBER_RE = /^-?\d+(?:\.\d+)?$/;
 
-export type MeasureResult = { ok: true; reading: MetricReading } | { ok: false; reason: string };
+/**
+ * A reading, or why there is none. `unproven` is set on a reading taken by a Measure that ran unconfined
+ * (sandbox off or unavailable): it is recorded, and close refuses it (readingUnproven).
+ */
+export type MeasureResult = { ok: true; reading: MetricReading; unproven?: string } | { ok: false; reason: string };
+
+/** The sandbox mechanisms that confine a Measure run; any other confinement value is no confinement. */
+const CONFINING: ReadonlySet<string> = new Set<SandboxMechanism>(['sandbox-exec', 'bwrap']);
+
+/**
+ * Why a reading proves nothing, or null: the Measure that produced it ran unconfined (sandbox off or
+ * unavailable, or not recorded), so anything on the machine could have shaped the number. UNPROVEN.
+ */
+export function readingUnproven(r: Pick<MetricReading, 'confinement' | 'sha'>): string | null {
+  if (CONFINING.has(r.confinement)) return null;
+  return `the Measure ran unconfined at ${r.sha.slice(0, 12)} (sandbox: ${r.confinement === '' ? 'not recorded' : r.confinement}), so its number is not proven`;
+}
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
@@ -131,10 +147,9 @@ export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult
     }
     if (values[0] !== values[1]) return { ok: false, reason: `Measure is not deterministic at ${sha.slice(0, 12)}: two runs printed ${String(values[0])} and ${String(values[1])}` };
     const excerpt = stdout.trim().split('\n').slice(-6).join('\n');
-    return {
-      ok: true,
-      reading: { value: values[0] ?? Number.NaN, sha, ref: opts.ref, command: opts.measure.text, scriptSha256, stdoutSha256: sha256(stdout), excerpt, confinement },
-    };
+    const reading: MetricReading = { value: values[0] ?? Number.NaN, sha, ref: opts.ref, command: opts.measure.text, scriptSha256, stdoutSha256: sha256(stdout), excerpt, confinement };
+    const unproven = readingUnproven(reading);
+    return { ok: true, reading, ...(unproven !== null ? { unproven } : {}) };
   } finally {
     await run('git', ['-C', repoTop, 'worktree', 'remove', '--force', tree], { cwd: repoTop }).catch(() => undefined);
     rmSync(scratch, { recursive: true, force: true });

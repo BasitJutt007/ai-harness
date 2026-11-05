@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeItem, outcomeVerdict } from '../../src/core/close.ts';
 import { exec as coreExec } from '../../src/core/exec.ts';
 import { cmdItem, ledgerTypes } from '../../src/core/item-cli.ts';
-import { appendLedger, itemPaths, itemStatus, parseContract, proposeItem, recordReply } from '../../src/core/items.ts';
+import { appendLedger, itemPaths, itemStatus, parseContract, proposeItem, readLedger, recordReply } from '../../src/core/items.ts';
 import { readMetric } from '../../src/core/measure.ts';
 import type { Exec } from '../../src/core/types.ts';
 import { contractFor, writeContract } from '../support/items.ts';
@@ -65,14 +65,27 @@ async function approved(): Promise<void> {
   recordReply(root, SLUG, 'yes, approved', 'tty', 's');
 }
 
-/** What ship records, and the feature branch it pushed (count 3 -> 0). */
-function shipped(): string {
+type RunRecord = 'done' | 'none' | 'not-done' | 'other-contract' | 'other-run';
+
+/** What a governed run then ship record (a DONE run under the approved text, then the ship), and the branch it pushed (count 3 -> 0). */
+function shipped(record: RunRecord = 'done'): string {
   git(repo, 'checkout', '-q', '-b', 'harness/run-1');
   writeFileSync(join(repo, 'count.txt'), '0\n');
   git(repo, 'commit', '-q', '-am', 'fix: count');
   git(repo, 'push', '-q', 'origin', 'harness/run-1');
   const head = git(repo, 'rev-parse', 'HEAD');
-  appendLedger(itemPaths(root, SLUG).ledger, { type: 'shipped', runId: 'run-1', branch: 'harness/run-1', headSha: head, base: 'main', prUrl: PR_URL });
+  const ledger = itemPaths(root, SLUG).ledger;
+  const hash = parseContract(CONTRACT).hash;
+  if (record !== 'none') {
+    appendLedger(ledger, {
+      type: 'run',
+      runId: record === 'other-run' ? 'run-0' : 'run-1',
+      status: record === 'not-done' ? 'max_turns' : 'done',
+      verdict: record === 'not-done' ? 'NOT DONE (final gates not green)' : 'DONE',
+      contractHash: record === 'other-contract' ? parseContract(CONTRACT.replace('main HEAD', 'any HEAD')).hash : hash,
+    });
+  }
+  appendLedger(ledger, { type: 'shipped', runId: 'run-1', branch: 'harness/run-1', headSha: head, base: 'main', prUrl: PR_URL });
   git(repo, 'checkout', '-q', 'main');
   return head;
 }
@@ -227,7 +240,115 @@ describe('skip 3: close an item without reading the metric', () => {
   it('outcomeVerdict refuses an after reading taken somewhere other than the merge commit', () => {
     const status = itemStatus(join(base, 'none'), SLUG);
     const reading = { value: 0, sha: 'a'.repeat(40), ref: 'x', command: 'node metrics/x.mjs', scriptSha256: 's', stdoutSha256: 'o', excerpt: '', confinement: 'none' };
-    const v = outcomeVerdict({ status, shipped: null, before: reading, pr: null, onBase: null, after: { ok: true, reading } });
+    const v = outcomeVerdict({ status, shipped: null, before: reading, pr: null, onBase: null, beforeMerge: null, after: { ok: true, reading } });
     expect(v.ok).toBe(false);
+  });
+});
+
+describe('the outcome check, hardened', () => {
+  const mergedBy = (login: unknown, m: string, head: string): Exec => ghReturning({ state: 'MERGED', mergedAt: 'x', mergedBy: login, mergeCommit: { oid: m }, headRefOid: head });
+
+  it("a bot's merge is refused, read from gh's real JSON: is_bot, an app/ login, a [bot] login; a person's merge closes (the twin)", async () => {
+    await approved();
+    const head = shipped();
+    const m = merged();
+    for (const login of [{ login: 'app/renovate', is_bot: true }, { login: 'release-train', is_bot: true }, { login: 'app/automerge' }, { login: 'dependabot[bot]' }]) {
+      const r = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: mergedBy(login, m, head) });
+      expect(r.reasons.join(' '), JSON.stringify(login)).toMatch(new RegExp(`merged by ${login.login.replace(/[[\]]/g, '\\$&')}, a bot: a person must merge`));
+      stillOpen();
+    }
+    expect((await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: mergedBy({ login: 'AbdulBasit', is_bot: false }, m, head) })).ok).toBe(true);
+  });
+
+  for (const [record, why] of [
+    ['none', /names run run-1, but the ledger holds no record of that run before it/],
+    ['not-done', /run run-1 \(ledger seq \d+\) did not end DONE \(NOT DONE/],
+    ['other-contract', /run run-1 \(ledger seq \d+\) ran under another contract text/],
+    ['other-run', /names run run-1, but the ledger holds no record of that run/],
+  ] as const) {
+    it(`a shipped entry closes only after a DONE run of the approved contract: refused with ${record}`, async () => {
+      await approved();
+      const head = shipped(record);
+      const m = merged();
+      const r = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: mergedBy({ login: 'AbdulBasit' }, m, head) });
+      expect(r.reasons.join(' ')).toMatch(why);
+      stillOpen();
+    });
+  }
+
+  it('a before reading taken at or after the merge is refused; one taken on the base before it closes (the twin)', async () => {
+    await approved();
+    const head = shipped();
+    const m = merged();
+    const gh = mergedBy({ login: 'AbdulBasit' }, m, head);
+    const measure = parseContract(CONTRACT).measure;
+    if (measure === null) throw new Error('no measure');
+    /** The item proposed again (and approved again) with a before reading taken at `ref`. */
+    const reproposed = async (ref: string): Promise<void> => {
+      const before = await readMetric({ harnessRoot: harness, itemsRoot: root, repoDir: repo, ref, measure, label: SLUG });
+      if (!before.ok) throw new Error(before.reason);
+      proposeItem(root, SLUG, { session: 's2', before: before.reading });
+      recordReply(root, SLUG, 'yes', 'tty', 's2');
+    };
+    await reproposed(m);
+    expect((await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: gh })).reasons.join(' ')).toMatch(/the before reading was taken at the merge commit [0-9a-f]{12} itself, not before the merge/);
+    await reproposed(head); // the PR's own head: in the merge, but not on the base before it
+    expect((await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: gh })).reasons.join(' ')).toMatch(/was not taken before the merge: it is not an ancestor of the merge's first parent/);
+    expect(ledgerTypes(root, SLUG)).not.toContain('closed');
+    await reproposed(`${m}^1`);
+    expect((await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: gh })).ok).toBe(true);
+  });
+
+  it('a Measure that ran unconfined gives an UNPROVEN reading, and close refuses it', async () => {
+    await approved();
+    const head = shipped();
+    const m = merged();
+    const gh = mergedBy({ login: 'AbdulBasit' }, m, head);
+    // the same exec, with the sandbox request dropped (as with sandbox "off")
+    const unconfined: Exec = (cmd, args, opts) => gh(cmd, args, { ...opts, sandbox: undefined });
+    const r = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: unconfined });
+    expect(r.reasons.join(' ')).toMatch(/the after reading is UNPROVEN: the Measure ran unconfined at [0-9a-f]{12} \(sandbox: none\)/);
+    stillOpen();
+    const measure = parseContract(CONTRACT).measure;
+    if (measure === null) throw new Error('no measure');
+    const reading = await readMetric({ harnessRoot: harness, itemsRoot: root, repoDir: repo, ref: m, measure, label: SLUG, exec: unconfined });
+    expect(reading).toMatchObject({ ok: true, unproven: expect.stringMatching(/ran unconfined/) });
+    // the twin: confined, it closes
+    expect((await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: gh })).ok).toBe(true);
+  });
+
+  it('an item whose contract says "Measure: none" can never close; the reason says the outcome cannot be read', async () => {
+    const contract = contractFor(SLUG, { Repo: 'fixture/repo', Base: 'main', Measure: 'none', Metric: 'count, main HEAD before: ____ after: ____' });
+    writeContract(root, SLUG, contract);
+    proposeItem(root, SLUG, { session: 's', before: null });
+    recordReply(root, SLUG, 'yes', 'tty', 's');
+    expect(itemStatus(root, SLUG).stage).toBe('approved');
+    const r = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: ghReturning({}) });
+    expect(r.reasons).toEqual(['no Measure: the outcome cannot be read (the contract says "Measure: none"), so the item cannot close']);
+  });
+
+  it('item propose of a "Measure: none" contract records no before value and says the item can never close', async () => {
+    // the clone's origin must be the contract's Repo (fixture/repo)
+    mkdirSync(join(base, 'fixture'));
+    git(base, 'clone', '-q', '--bare', join(base, 'origin.git'), join(base, 'fixture', 'repo.git'));
+    git(repo, 'remote', 'set-url', 'origin', join(base, 'fixture', 'repo.git'));
+    writeContract(root, SLUG, contractFor(SLUG, { Repo: 'fixture/repo', Base: 'main', Measure: 'none', Metric: 'count, main HEAD before: ____ after: ____' }));
+    const out: string[] = [];
+    const reader = { isTTY: false, ask: async () => null };
+    expect(await cmdItem({ positionals: ['propose', SLUG], flags: new Map([['repo', [repo]]]) }, (l) => out.push(l), { root, harnessRoot: harness, reader }), out.join('\n')).toBe(0);
+    expect(out.join('\n')).toMatch(/Metric {4}count, main HEAD: no Measure \(the contract says "Measure: none"\): the outcome cannot be read, so this item can never close/);
+    const ledger = readLedger(itemPaths(root, SLUG).ledger).entries;
+    expect(ledger.map((e) => e.event.type)).toEqual(['proposed']);
+    expect(ledger[0]?.event).toMatchObject({ type: 'proposed', before: null });
+  });
+
+  it('a dry run gathers every fact and records nothing', async () => {
+    await approved();
+    const head = shipped();
+    const m = merged();
+    const r = await closeItem({ root, harnessRoot: harness, slug: SLUG, repoDir: repo, exec: mergedBy({ login: 'AbdulBasit' }, m, head), dryRun: true });
+    expect(r.ok).toBe(true);
+    expect(r.lines.join('\n')).toMatch(/every check holds; nothing recorded \(dry run\)/);
+    stillOpen();
   });
 });

@@ -6,20 +6,26 @@
  * and reported as hand-written).
  *
  * Facts, gathered in order, each one a refusal when it does not hold:
- *   1. the item ledger is intact, the contract is complete and its text is approved (typed yes);
- *   2. the harness shipped it: a `shipped` ledger entry with the PR the harness opened;
+ *   1. the item ledger is intact, the contract is complete and its text is approved (typed yes), and
+ *      it names a Measure ("Measure: none" can never close: the outcome cannot be read);
+ *   2. the harness shipped it: the latest `shipped` ledger entry, with the PR the harness opened, comes
+ *      after a `run` entry of that same run that ended DONE under the approved contract text (any other
+ *      `shipped` line proves nothing about this contract);
  *   3. a `before` reading exists (taken when the contract was proposed);
- *   4. GitHub says that PR is MERGED, by a person (not a "[bot]" account), into the contract's Base, with the head commit the
- *      harness shipped (a PR that gained commits after ship is not what the gates cleared);
- *   5. the merge commit is on origin/<Base>;
- *   6. the Measure command, run by the harness at the merge commit, prints the same number twice.
+ *   4. GitHub says that PR is MERGED, by a person (not a bot: gh's is_bot, an `app/...` login or a
+ *      `...[bot]` login), into the contract's Base, with the head commit the harness shipped (a PR that
+ *      gained commits after ship is not what the gates cleared);
+ *   5. the merge commit is on origin/<Base>, and the before reading was taken before the merge (its
+ *      commit is an ancestor of the merge's first parent, never the merge commit itself);
+ *   6. the Measure command, run by the harness at the merge commit, confined by the sandbox, prints the
+ *      same number twice. A reading taken unconfined (before or after) is UNPROVEN: it closes nothing.
  * Only then are the after reading and the `closed` entry appended and the contract's Metric line
  * filled in (before and after side by side).
  */
 import { randomUUID } from 'node:crypto';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
 import { appendLedger, itemPaths, itemStatus, writeMetricValues, type ItemStatus, type LedgerEntry, type LedgerEvent, type MetricReading } from './items.ts';
-import { readMetric, type MeasureResult } from './measure.ts';
+import { readingUnproven, readMetric, type MeasureResult } from './measure.ts';
 import type { Exec } from './types.ts';
 
 export interface PrState {
@@ -28,6 +34,8 @@ export interface PrState {
   state: string;
   mergedAt: string | null;
   mergedBy: string | null;
+  /** gh's `mergedBy.is_bot` (a GitHub App or bot account merged it). */
+  mergedByBot: boolean;
   mergeSha: string | null;
   baseRef: string;
   headSha: string;
@@ -41,6 +49,8 @@ export interface OutcomeFacts {
   before: MetricReading | null;
   pr: PrState | { error: string } | null;
   onBase: true | { error: string } | null;
+  /** The before reading's commit is an ancestor of the merge's first parent (and not the merge itself). */
+  beforeMerge: true | { error: string } | null;
   after: MeasureResult | null;
 }
 
@@ -48,6 +58,34 @@ export interface OutcomeVerdict {
   ok: boolean;
   /** Why the item cannot close (empty when ok). */
   reasons: string[];
+}
+
+/** A merger that is not a person: gh's is_bot, a GitHub App login (`app/<name>`), or a `<name>[bot]` account. */
+export function isBotMerger(login: string | null, isBot: boolean): boolean {
+  return isBot || (login !== null && (/^app\//i.test(login) || /\[bot\]$/i.test(login)));
+}
+
+/** A `run` entry that ended DONE: 'DONE', or 'DONE (...)' when the gates decided without a finish call. */
+function doneVerdict(verdict: string): boolean {
+  return /^DONE\b/.test(verdict);
+}
+
+/**
+ * Why the shipped entry does not stand for a DONE run of the approved contract text, or null: the
+ * `run` entry of the same run id, before the shipped entry, with a DONE verdict and the approved hash.
+ */
+export function shippedRunProblem(status: ItemStatus, shipped: { entry: LedgerEntry; event: Shipped }): string | null {
+  const approved = status.contract.parse?.hash ?? null;
+  const runs = status.ledger.entries.filter((e) => e.seq < shipped.entry.seq && e.event.type === 'run' && e.event.runId === shipped.event.runId);
+  const last = runs.at(-1);
+  if (last === undefined || last.event.type !== 'run') {
+    return `the shipped entry (seq ${shipped.entry.seq}) names run ${shipped.event.runId}, but the ledger holds no record of that run before it: a shipped line alone proves nothing`;
+  }
+  if (!doneVerdict(last.event.verdict)) return `run ${shipped.event.runId} (ledger seq ${last.seq}) did not end DONE (${last.event.verdict}): what shipped was not cleared by the gates`;
+  if (approved === null || last.event.contractHash !== approved) {
+    return `run ${shipped.event.runId} (ledger seq ${last.seq}) ran under another contract text (${last.event.contractHash.slice(0, 12)}), not the approved one (${(approved ?? 'none').slice(0, 12)})`;
+  }
+  return null;
 }
 
 /** Steps 1-3: what the item's own records must show before GitHub or the metric is consulted (empty = all hold). */
@@ -60,9 +98,16 @@ export function preconditions(f: Pick<OutcomeFacts, 'status' | 'shipped' | 'befo
   const closed = s.ledger.entries.find((e) => e.event.type === 'closed');
   if (closed !== undefined) reasons.push(`already closed (ledger seq ${closed.seq})`);
   if (reasons.length > 0) return reasons;
+  if (s.contract.parse?.measure === null || s.contract.parse?.measure === undefined) {
+    return [`no Measure: the outcome cannot be read${s.contract.parse?.noMeasure === true ? ' (the contract says "Measure: none")' : ''}, so the item cannot close`];
+  }
   if (f.shipped === null) return ['the harness never shipped this item: there is no PR it opened (harness run <task> --item <slug> --ship)'];
+  const run = shippedRunProblem(s, f.shipped);
+  if (run !== null) return [run];
   if (f.shipped.event.prUrl === null) return [`run ${f.shipped.event.runId} pushed ${f.shipped.event.branch} but opened no PR`];
   if (f.before === null) return ['no before value: the metric was not read when the contract was proposed (harness item propose <slug> --repo <dir>)'];
+  const unconfined = readingUnproven(f.before);
+  if (unconfined !== null) return [`the before reading is UNPROVEN: ${unconfined}; propose the item again where the sandbox works`];
   return [];
 }
 
@@ -77,8 +122,8 @@ export function outcomeVerdict(f: OutcomeFacts): OutcomeVerdict {
   const pr = f.pr;
   if (pr.state !== 'MERGED' || pr.mergeSha === null) return { ok: false, reasons: [`PR #${pr.number} is ${pr.state}, not merged: the metric is read after the merge`] };
   if (pr.mergedBy === null || pr.mergedBy.length === 0) return { ok: false, reasons: [`PR #${pr.number} has no merger on record`] };
-  // A person merges: a GitHub App or bot account ("name[bot]", e.g. an auto-merge action) is not a person.
-  if (/\[bot\]$/i.test(pr.mergedBy)) return { ok: false, reasons: [`PR #${pr.number} was merged by ${pr.mergedBy}, a bot: a person must merge what the harness opened`] };
+  // A person merges: a GitHub App or bot account (an auto-merge action, renovate) is not a person.
+  if (isBotMerger(pr.mergedBy, pr.mergedByBot)) return { ok: false, reasons: [`PR #${pr.number} was merged by ${pr.mergedBy}, a bot: a person must merge what the harness opened`] };
   const base = (f.status.contract.parse?.fields.Base ?? '').trim();
   if (pr.baseRef !== base) return { ok: false, reasons: [`PR #${pr.number} merged into ${pr.baseRef}, but the contract's Base is ${base}`] };
   if (pr.headSha !== f.shipped.event.headSha) {
@@ -87,10 +132,14 @@ export function outcomeVerdict(f: OutcomeFacts): OutcomeVerdict {
 
   if (f.onBase === null) return { ok: false, reasons: ['the merge commit was not checked against the base branch'] };
   if (f.onBase !== true) return { ok: false, reasons: [f.onBase.error] };
+  if (f.beforeMerge === null) return { ok: false, reasons: ['the before reading was not checked against the merge'] };
+  if (f.beforeMerge !== true) return { ok: false, reasons: [f.beforeMerge.error] };
 
   if (f.after === null) return { ok: false, reasons: ['the metric was not read after the merge'] };
   if (!f.after.ok) return { ok: false, reasons: [`the metric could not be read after the merge: ${f.after.reason}`] };
   if (f.after.reading.sha !== pr.mergeSha) return { ok: false, reasons: [`the after reading is at ${f.after.reading.sha.slice(0, 12)}, not the merge commit ${pr.mergeSha.slice(0, 12)}`] };
+  const unconfined = readingUnproven(f.after.reading);
+  if (unconfined !== null) return { ok: false, reasons: [`the after reading is UNPROVEN: ${unconfined}`] };
   if (f.after.reading.command !== f.before.command) {
     return { ok: false, reasons: [`the Measure command changed since the before reading ("${f.before.command}" -> "${f.after.reading.command}"): the two numbers are not comparable`] };
   }
@@ -98,6 +147,18 @@ export function outcomeVerdict(f: OutcomeFacts): OutcomeVerdict {
     return { ok: false, reasons: [`the Measure script changed since the before reading (${f.before.scriptSha256.slice(0, 12)} -> ${f.after.reading.scriptSha256.slice(0, 12)}): the two numbers are not comparable`] };
   }
   return { ok: true, reasons: [] };
+}
+
+/** gh's JSON for `pr view --json ...mergedBy...`: mergedBy is `{ login, is_bot, ... }` (or null). */
+interface GhPr {
+  url: string;
+  number: number;
+  state: string;
+  mergedAt: string | null;
+  mergedBy: { login?: string; is_bot?: boolean } | null;
+  mergeCommit: { oid?: string } | null;
+  baseRefName: string;
+  headRefOid: string;
 }
 
 /** `gh pr view` as PrState (gh runs as the operator, read-only). */
@@ -109,16 +170,14 @@ export async function prState(url: string, cwd: string, run: Exec = coreExec): P
   });
   if (r.code !== 0) return { error: (r.stderr || r.stdout).trim().split('\n')[0] ?? `gh exited ${String(r.code)}` };
   try {
-    const j = JSON.parse(r.stdout) as {
-      url: string; number: number; state: string; mergedAt: string | null;
-      mergedBy: { login?: string } | null; mergeCommit: { oid?: string } | null; baseRefName: string; headRefOid: string;
-    };
+    const j = JSON.parse(r.stdout) as GhPr;
     return {
       url: j.url,
       number: j.number,
       state: j.state,
       mergedAt: j.mergedAt,
       mergedBy: j.mergedBy?.login ?? null,
+      mergedByBot: j.mergedBy?.is_bot === true,
       mergeSha: j.mergeCommit?.oid ?? null,
       baseRef: j.baseRefName,
       headSha: j.headRefOid,
@@ -137,6 +196,8 @@ export interface CloseOptions {
   repoDir: string;
   /** The file-mode CLI only: the Measure script may also come from the harness's metrics/ (ReadMetricOptions.harnessMetrics). */
   harnessMetrics?: boolean;
+  /** Gather every fact and decide, but record nothing (`harness gate outcome`). */
+  dryRun?: boolean;
   exec?: Exec;
   now?: () => Date;
 }
@@ -146,10 +207,19 @@ export interface CloseResult extends OutcomeVerdict {
   lines: string[];
 }
 
+/** Whether the before reading was taken before the merge: its commit is an ancestor of mergeSha^1 and is not mergeSha. */
+async function beforeMergeFact(repoDir: string, before: MetricReading, mergeSha: string, run: Exec): Promise<true | { error: string }> {
+  if (before.sha === mergeSha) return { error: `the before reading was taken at the merge commit ${mergeSha.slice(0, 12)} itself, not before the merge` };
+  const r = await run('git', ['-C', repoDir, 'merge-base', '--is-ancestor', before.sha, `${mergeSha}^1`], { cwd: repoDir });
+  if (r.code === 0) return true;
+  if (r.code === 1) return { error: `the before reading (at ${before.sha.slice(0, 12)}) was not taken before the merge: it is not an ancestor of the merge's first parent ${mergeSha.slice(0, 12)}^1` };
+  return { error: `could not tell whether the before reading (at ${before.sha.slice(0, 12)}) precedes the merge: ${(r.stderr || r.stdout).trim().split('\n')[0] ?? `git exited ${String(r.code)}`}` };
+}
+
 export async function closeItem(opts: CloseOptions): Promise<CloseResult> {
   const run = opts.exec ?? coreExec;
   const status = itemStatus(opts.root, opts.slug);
-  const facts: OutcomeFacts = { status, shipped: null, before: null, pr: null, onBase: null, after: null };
+  const facts: OutcomeFacts = { status, shipped: null, before: null, pr: null, onBase: null, beforeMerge: null, after: null };
   const finish = (): CloseResult => {
     const v = outcomeVerdict(facts);
     return { ...v, facts, lines: v.ok ? [] : v.reasons.map((r) => `outcome  REFUSE  ${r}`) };
@@ -174,13 +244,16 @@ export async function closeItem(opts: CloseOptions): Promise<CloseResult> {
     const anc = await run('git', ['-C', opts.repoDir, 'merge-base', '--is-ancestor', mergeSha, `origin/${base}`], { cwd: opts.repoDir });
     facts.onBase = anc.code === 0 ? true : { error: `the merge commit ${mergeSha.slice(0, 12)} is not on origin/${base}` };
   }
-  if (facts.onBase !== true) return finish();
+  if (facts.onBase !== true || facts.before === null) return finish();
+  facts.beforeMerge = await beforeMergeFact(opts.repoDir, facts.before, mergeSha, run);
+  if (facts.beforeMerge !== true) return finish();
 
   const measure = status.contract.parse?.measure ?? null;
   if (measure === null) return finish();
   facts.after = await readMetric({ harnessRoot: opts.harnessRoot, itemsRoot: opts.root, repoDir: opts.repoDir, ref: mergeSha, measure, exec: run, label: opts.slug, ...(opts.harnessMetrics === true ? { harnessMetrics: true } : {}) });
   const result = finish();
   if (!result.ok || facts.after.ok !== true || facts.before === null) return result;
+  if (opts.dryRun === true) return { ...result, lines: ['outcome  every check holds; nothing recorded (dry run): harness item close records the after reading'] };
 
   // Record: the after reading, the closed entry, and both values side by side in the contract.
   const paths = itemPaths(opts.root, opts.slug);
