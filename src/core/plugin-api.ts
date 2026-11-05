@@ -22,6 +22,8 @@ export { isTestFile, isTestSupport } from './testmap.ts';
 export { activeLayout, isSourcePath, linkDependencies, matchesTestPattern, sourceRootsLabel, suggestTestPath, targetLayout, underAny } from './target.ts';
 /** Which files are code the harness governs (TypeScript; JavaScript and components too in an in-place web layout). */
 export { codeGlobs, isCodePath, isGovernedCodePath, isWebLayout, scriptGlobs } from './target.ts';
+/** What a generic web repository configures for its standards (stack web: its tsconfig.json, its ESLint config). */
+export { ESLINT_CONFIGS, webStandardsConfigured } from './target.ts';
 export type { TargetLayout, TargetProfile } from './target.ts';
 
 /** A scaffold template's manifest (templates/<name>/harness.template.json), or null. */

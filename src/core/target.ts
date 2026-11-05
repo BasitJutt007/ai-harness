@@ -1444,6 +1444,22 @@ const FRAMEWORKS = ['express', 'fastify', '@nestjs/core', 'hono', 'koa', '@hapi/
 /** Frontend and meta frameworks the generic web profile names (most specific first). */
 const WEB_FRAMEWORKS = ['next', 'nuxt', '@sveltejs/kit', 'astro', '@remix-run/react', '@angular/core', 'vue', 'svelte', 'solid-js', 'preact', 'lit', 'react'];
 
+/** ESLint config files at a repository's root (flat config first, then the legacy eslintrc forms). */
+export const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts',
+  '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc', '.eslintrc.yml', '.eslintrc.yaml'];
+
+/**
+ * Whether a generic web repository configures a standard the harness can run: a tsconfig.json (web-typecheck)
+ * or an ESLint config (repo-lint). Without either, every standards rule of stack web is n/a, so the standards
+ * gate stays UNPROVEN (a human verifies standards) and "Work completed" cannot be reached.
+ */
+export function webStandardsConfigured(root: string): boolean {
+  return existsSync(join(root, 'tsconfig.json')) || ESLINT_CONFIGS.some((c) => existsSync(join(root, c)));
+}
+
+/** The profile note of a generic web repository without a tsconfig.json or an ESLint config (webStandardsConfigured). */
+export const WEB_NO_STANDARDS_NOTE = '"Work completed" cannot be reached in this repository until a linter or a tsconfig.json exists: it configures no type check or lint the harness can run, so the standards gate stays UNPROVEN and a human must verify standards';
+
 /** The framework a generic web repository is built on, for the profile line: a frontend first, then a server, else "none". */
 function webFramework(deps: Record<string, string>, server: string): string {
   return WEB_FRAMEWORKS.find((f) => deps[f] !== undefined) ?? (server !== 'unknown' ? server : 'none');
@@ -1501,6 +1517,8 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   if (!framework.supported) {
     unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: no stack profile (express, nestjs, react-vite) applies, so route extraction, the standards and the contract lock report UNPROVEN`);
   } else if (stack === 'web') {
+    // Said first, so the preflight lines show it: such a repository can never reach "Work completed" (fail closed).
+    if (!webStandardsConfigured(apiRoot)) notes.unshift(WEB_NO_STANDARDS_NOTE);
     notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, both blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
     const server = FRAMEWORKS.includes(fwName) ? fwName : FRAMEWORKS.includes(declaredFwName) ? declaredFwName : null;
     if (server !== null) notes.push(`framework ${server} serves an API the harness extracts no routes from: contract changes are not locked; a human verifies them`);

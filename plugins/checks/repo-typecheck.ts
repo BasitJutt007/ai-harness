@@ -66,7 +66,11 @@ export interface TypecheckOptions {
   confined: boolean;
   /** Use the repository's vue-tsc when it has one (it type-checks .vue files; plain tsc cannot import them). */
   vueTsc: boolean;
-  /** A repository with no tsconfig.json and no TypeScript has no type check: nothing to check (no findings), not UNPROVEN. */
+  /**
+   * A repository with no tsconfig.json configures no type check: nothing to check (no findings), not UNPROVEN,
+   * whether or not a TypeScript package is installed (many JavaScript repositories get one as a dependency of
+   * their tools). A tsconfig.json without the TypeScript to run it stays UNPROVEN.
+   */
   naWithoutTypeScript: boolean;
 }
 
@@ -77,7 +81,7 @@ export async function repoTypecheck(ctx: CheckContext, o: TypecheckOptions): Pro
   const vue = join(ctx.root, 'node_modules', 'vue-tsc', 'bin', 'vue-tsc.js');
   const tsc = o.vueTsc && existsSync(vue) ? vue : join(ctx.root, 'node_modules', 'typescript', 'bin', 'tsc');
   const label = tsc === vue ? 'vue-tsc' : 'tsc';
-  if (o.naWithoutTypeScript && !existsSync(join(ctx.root, 'tsconfig.json')) && !existsSync(tsc)) return [];
+  if (o.naWithoutTypeScript && !existsSync(join(ctx.root, 'tsconfig.json'))) return [];
   if (!existsSync(tsc)) return skip('the repository has no TypeScript of its own (node_modules/typescript): its type check cannot be run');
   const { projects, problem } = projectsOf(ctx.root);
   if (problem !== undefined) return skip(problem);

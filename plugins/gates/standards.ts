@@ -37,10 +37,15 @@
  *
  * Both: a skipped rule, an empty standards rule, or zero rules is UNPROVEN, and an n/a rule
  * (nothing to check) is never counted as green.
+ *
+ * Stack web (the generic profile of an in-place run): its standards are the repository's own type check and
+ * lint. When neither was counted (every one n/a) the gate stays UNPROVEN, saying "this repository configures no
+ * type check or lint the harness can run; a human must verify standards" (or that they had nothing to check in
+ * this change), whatever else passed.
  */
 import { isAbsolute, posix, relative, sep } from 'node:path';
 import { z } from 'zod';
-import { defineGate } from '../../src/core/plugin-api.ts';
+import { defineGate, webStandardsConfigured } from '../../src/core/plugin-api.ts';
 import type { CheckFinding, CheckReport, GateResult, RuleSummary, RunContext } from '../../src/core/plugin-api.ts';
 import { removeSnapshot, snapshotBase } from '../lib/contract.ts';
 import { writePolicyFor } from '../lib/path-policy.ts';
@@ -404,13 +409,33 @@ async function brownfieldStrict(ctx: RunContext, report: CheckReport, counted: R
   return { status: 'fail', summary: `${head}: ${blocking.length} standards violation(s) to fix`, failing, details: capped(lines, MAX_DETAILS, `see ${logPath}`), logPath };
 }
 
+/** The standards of the generic web profile: the repository's own type check and lint (the rules it configures). */
+const WEB_STANDARD_CATEGORIES = new Set(['typecheck', 'lint']);
+/** The UNPROVEN summary of a web repository that configures no type check or lint (fail closed, never green). */
+export const WEB_NO_STANDARDS = 'this repository configures no type check or lint the harness can run; a human must verify standards';
+/** The UNPROVEN summary of a web repository whose type check and lint had nothing to check in this change. */
+export const WEB_NOTHING_CHECKED = "the repository's type check and lint had nothing to check in this change (n/a); a human must verify standards";
+
+/**
+ * Stack web: a result means something only when the repository's own type check or lint was counted (not n/a).
+ * Without one, the gate stays UNPROVEN and says why: the repository configures neither (no tsconfig.json, no
+ * ESLint config: its profile notes say up front that "Work completed" cannot be reached), or what it configures
+ * had nothing to check in this change. A failure stays a failure.
+ */
+function webStandardsProven(ctx: RunContext, report: CheckReport, r: GateResult): GateResult {
+  if (r.status === 'fail') return r;
+  if (report.rules.some((x) => WEB_STANDARD_CATEGORIES.has(x.category) && x.status !== 'n/a')) return r;
+  const summary = webStandardsConfigured(ctx.workspace.root) ? WEB_NOTHING_CHECKED : WEB_NO_STANDARDS;
+  return { status: 'unproven', summary, details: [...(r.details ?? []), `standards: ${r.summary}`], humanMustVerify: [summary, ...(r.humanMustVerify ?? [])] };
+}
+
 export default defineGate({
   name: 'standards',
   description:
     'Greenfield: the standards rules pass at 100% over the whole API and other (ORM, lint) rules pass on every file this run changed. '
     + 'Brownfield (strict, default): the standards rules pass at 100% over the whole API too (pre-existing violations in files outside the task scope: incompatible target); other rules may not get worse than at the base commit. '
     + 'Brownfield with "standards: baseline": no rule may get worse than at the base commit (baseline mode: below 100% allowed). '
-    + 'A skipped or empty rule is unproven, never green.',
+    + 'The generic web profile needs its type check or lint counted. A skipped or empty rule is unproven, never green.',
   phases: ['finish', 'ship'],
   async run(ctx): Promise<GateResult> {
     let report: CheckReport;
@@ -419,59 +444,65 @@ export default defineGate({
     } catch (e) {
       return { status: 'unproven', summary: `checks could not run: ${errMsg(e)}` };
     }
-    const compact = report.compact.split('\n').filter((l) => l.trim() !== '').slice(0, MAX_DETAILS);
-    const { status, percent } = report.verdict;
-    if (report.rules.length === 0) return { status: 'unproven', summary: 'verdict 100% over zero rules: no checks ran, nothing is proven', details: compact };
-
-    const counted = report.rules.filter((r) => r.status !== 'n/a');
-    const na = report.rules.length - counted.length;
-    const naNote = na > 0 ? `, ${na} n/a` : '';
-    const allNa = (): GateResult => ({ status: 'unproven', summary: `every rule was n/a (${na}): nothing is proven`, details: compact });
-    if (ctx.task.kind === 'brownfield') {
-      if (counted.length === 0) return allNa();
-      return ctx.task.standards === 'baseline' ? labelled(await brownfield(ctx, report, counted, naNote)) : brownfieldStrict(ctx, report, counted, naNote);
-    }
-
-    if (status === 'unproven') return { status: 'unproven', summary: 'verdict UNPROVEN (a rule was skipped or had nothing to check)', details: compact };
-    const skipped = report.findings.filter((f) => f.status === 'skip');
-    const unproven = counted.filter((r) => r.status === 'unproven');
-    if (counted.length === 0) return allNa();
-    if (skipped.length > 0 || unproven.length > 0) {
-      const which = [...unproven.map((r) => `${r.rule} ${r.status}`), ...skipped.map((f) => `${f.rule} skipped: ${f.skipReason ?? 'no reason'}`)];
-      return { status: 'unproven', summary: `verdict ${status === 'pass' ? '100%' : `${percent}%`} contradicted by ${which.length} rule results`, details: which.slice(0, MAX_DETAILS) };
-    }
-
-    const standardsFailing = counted.filter((r) => r.category === STANDARDS && r.status === 'fail');
-    if (standardsFailing.length > 0) {
-      return { status: 'fail', summary: `verdict ${percent}%`, failing: standardsFailing.reduce((n, r) => n + Math.max(1, r.total - r.passed), 0), details: compact };
-    }
-
-    const otherFailing = counted.filter((r) => r.category !== STANDARDS && r.status === 'fail');
-    if (status === 'pass' && otherFailing.length > 0) {
-      return { status: 'unproven', summary: `verdict 100% contradicted by ${otherFailing.length} failing rules`, details: otherFailing.map((r) => `${r.rule} fail`) };
-    }
-    if (otherFailing.length === 0) {
-      if (status !== 'pass') return { status: 'unproven', summary: `verdict ${percent}% with no failing rule to explain it`, details: compact };
-      return { status: 'pass', summary: `verdict 100% (${counted.length} rules${naNote})` };
-    }
-
-    // Only non-standards rules fail: diff-aware.
-    const { blocking, preExisting } = await classify(ctx, report, otherFailing);
-    const notes = preExisting.map((p) => `pre-existing (not blocking): ${p}`);
-    const pre = preExisting.length > 0 ? `; ${preExisting.length} pre-existing violation(s) in files this run did not change (not blocking)` : '';
-    if (blocking.length > 0) {
-      return {
-        status: 'fail',
-        summary: `verdict ${percent}%: ${blocking.length} violation(s) in files this run changed${pre}`,
-        failing: blocking.length,
-        details: [...blocking.map((b) => `changed file: ${b}`), ...notes].slice(0, MAX_DETAILS),
-      };
-    }
-    return {
-      status: 'pass',
-      summary: `standards rules 100%; every other rule passes on the files this run changed (${counted.length} rules${naNote})${pre}`,
-      details: notes.slice(0, MAX_DETAILS),
-      ...(notes.length > 0 ? { humanMustVerify: capped(notes, MAX_HUMAN, 'see the standards report') } : {}),
-    };
+    const r = await verdictOf(ctx, report);
+    return ctx.stack === 'web' ? webStandardsProven(ctx, report, r) : r;
   },
 });
+
+/** The gate's verdict over the checks' report (see the module comment). */
+async function verdictOf(ctx: RunContext, report: CheckReport): Promise<GateResult> {
+  const compact = report.compact.split('\n').filter((l) => l.trim() !== '').slice(0, MAX_DETAILS);
+  const { status, percent } = report.verdict;
+  if (report.rules.length === 0) return { status: 'unproven', summary: 'verdict 100% over zero rules: no checks ran, nothing is proven', details: compact };
+
+  const counted = report.rules.filter((r) => r.status !== 'n/a');
+  const na = report.rules.length - counted.length;
+  const naNote = na > 0 ? `, ${na} n/a` : '';
+  const allNa = (): GateResult => ({ status: 'unproven', summary: `every rule was n/a (${na}): nothing is proven`, details: compact });
+  if (ctx.task.kind === 'brownfield') {
+    if (counted.length === 0) return allNa();
+    return ctx.task.standards === 'baseline' ? labelled(await brownfield(ctx, report, counted, naNote)) : brownfieldStrict(ctx, report, counted, naNote);
+  }
+
+  if (status === 'unproven') return { status: 'unproven', summary: 'verdict UNPROVEN (a rule was skipped or had nothing to check)', details: compact };
+  const skipped = report.findings.filter((f) => f.status === 'skip');
+  const unproven = counted.filter((r) => r.status === 'unproven');
+  if (counted.length === 0) return allNa();
+  if (skipped.length > 0 || unproven.length > 0) {
+    const which = [...unproven.map((r) => `${r.rule} ${r.status}`), ...skipped.map((f) => `${f.rule} skipped: ${f.skipReason ?? 'no reason'}`)];
+    return { status: 'unproven', summary: `verdict ${status === 'pass' ? '100%' : `${percent}%`} contradicted by ${which.length} rule results`, details: which.slice(0, MAX_DETAILS) };
+  }
+
+  const standardsFailing = counted.filter((r) => r.category === STANDARDS && r.status === 'fail');
+  if (standardsFailing.length > 0) {
+    return { status: 'fail', summary: `verdict ${percent}%`, failing: standardsFailing.reduce((n, r) => n + Math.max(1, r.total - r.passed), 0), details: compact };
+  }
+
+  const otherFailing = counted.filter((r) => r.category !== STANDARDS && r.status === 'fail');
+  if (status === 'pass' && otherFailing.length > 0) {
+    return { status: 'unproven', summary: `verdict 100% contradicted by ${otherFailing.length} failing rules`, details: otherFailing.map((r) => `${r.rule} fail`) };
+  }
+  if (otherFailing.length === 0) {
+    if (status !== 'pass') return { status: 'unproven', summary: `verdict ${percent}% with no failing rule to explain it`, details: compact };
+    return { status: 'pass', summary: `verdict 100% (${counted.length} rules${naNote})` };
+  }
+
+  // Only non-standards rules fail: diff-aware.
+  const { blocking, preExisting } = await classify(ctx, report, otherFailing);
+  const notes = preExisting.map((p) => `pre-existing (not blocking): ${p}`);
+  const pre = preExisting.length > 0 ? `; ${preExisting.length} pre-existing violation(s) in files this run did not change (not blocking)` : '';
+  if (blocking.length > 0) {
+    return {
+      status: 'fail',
+      summary: `verdict ${percent}%: ${blocking.length} violation(s) in files this run changed${pre}`,
+      failing: blocking.length,
+      details: [...blocking.map((b) => `changed file: ${b}`), ...notes].slice(0, MAX_DETAILS),
+    };
+  }
+  return {
+    status: 'pass',
+    summary: `standards rules 100%; every other rule passes on the files this run changed (${counted.length} rules${naNote})${pre}`,
+    details: notes.slice(0, MAX_DETAILS),
+    ...(notes.length > 0 ? { humanMustVerify: capped(notes, MAX_HUMAN, 'see the standards report') } : {}),
+  };
+}

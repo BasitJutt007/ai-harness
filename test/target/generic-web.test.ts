@@ -16,7 +16,7 @@ import { runChecks, selectChecks } from '../../src/core/checks.ts';
 import { requiredGates } from '../../src/core/gates.ts';
 import { loadRegistry } from '../../src/core/registry.ts';
 import { targetProfile } from '../../src/core/run.ts';
-import { computeTargetProfile, setActiveLayout } from '../../src/core/target.ts';
+import { computeTargetProfile, formatProfile, setActiveLayout, WEB_NO_STANDARDS_NOTE } from '../../src/core/target.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import { sessionSystemPrompt } from '../../src/session/prompt.ts';
 import type { BrownfieldTask, LogStore } from '../../src/core/types.ts';
@@ -115,9 +115,12 @@ describe('stack web: in place, any repository with a package.json', () => {
     expect((await profile(toolingOnly, true)).stack).toBe('web');
   });
 
-  it('the session system prompt never calls a web repository TypeScript; the express one does (the twin)', () => {
+  it('the session system prompt never calls a web repository TypeScript, its standards included; the express one does (the twin)', async () => {
     const base = { repo: 'r', branch: 'feat/x', writable: true, reason: '', runner: 'node:test', tools: [], checks: [] };
-    expect(sessionSystemPrompt({ ...base, stack: 'web' })).not.toMatch(/TypeScript/);
+    const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
+    const checks = selectChecks(reg.checks.map((r) => r.plugin), undefined, undefined, 'web');
+    expect(checks.length).toBeGreaterThan(0);
+    expect(sessionSystemPrompt({ ...base, stack: 'web', checks })).not.toMatch(/TypeScript/);
     expect(sessionSystemPrompt({ ...base, stack: 'express' })).toMatch(/TypeScript REST APIs/);
   });
 
@@ -150,6 +153,38 @@ describe('the generic web checks', () => {
     const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
     const report = await runChecks({ root, checks: reg.checks.map((r) => r.plugin), exec, harnessRoot: HARNESS_ROOT, logs, stack: 'web', rules: ['web-typecheck'] });
     expect(report.rules).toEqual([expect.objectContaining({ rule: 'web-typecheck', status: 'n/a' })]);
+  });
+
+  it('n/a is decided on the absence of tsconfig.json alone: a JavaScript repository with TypeScript installed has no type check (n/a, not UNPROVEN)', async () => {
+    const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
+    const root = join(tmp.dir, 'js-with-typescript');
+    writeTree(root, { 'package.json': pkg({ devDependencies: { typescript: '6.0.3' } }), 'src/a.js': 'export const a = 1;\n' });
+    mkdirSync(join(root, 'node_modules'), { recursive: true });
+    symlinkSync(join(HARNESS_ROOT, 'node_modules', 'typescript'), join(root, 'node_modules', 'typescript'), 'dir');
+    const web = await runChecks({ root, checks: reg.checks.map((r) => r.plugin), exec, harnessRoot: HARNESS_ROOT, logs, stack: 'web', rules: ['web-typecheck'] });
+    expect(web.rules).toEqual([expect.objectContaining({ rule: 'web-typecheck', status: 'n/a' })]);
+    // The twins that stay UNPROVEN: a tsconfig.json without the TypeScript to run it (web), and the file-mode
+    // stacks' repo-typecheck, which never decides n/a.
+    const noTs = join(tmp.dir, 'tsconfig-without-typescript');
+    writeTree(noTs, { 'package.json': pkg({}), 'tsconfig.json': '{}', 'src/a.ts': 'export const a = 1;\n' });
+    const unproven = await runChecks({ root: noTs, checks: reg.checks.map((r) => r.plugin), exec, harnessRoot: HARNESS_ROOT, logs, stack: 'web', rules: ['web-typecheck'] });
+    expect(unproven.rules).toEqual([expect.objectContaining({ rule: 'web-typecheck', status: 'unproven' })]);
+    const fileMode = await runChecks({ root, checks: reg.checks.map((r) => r.plugin), exec, harnessRoot: HARNESS_ROOT, logs, stack: 'react-vite', rules: ['repo-typecheck'] });
+    expect(fileMode.rules).toEqual([expect.objectContaining({ rule: 'repo-typecheck', status: 'unproven' })]);
+  });
+
+  it('the profile says up front that "Work completed" cannot be reached without a linter or tsconfig; the twins with one do not', async () => {
+    const bare = join(tmp.dir, 'web-no-standards');
+    writeTree(bare, { 'package.json': pkg({ dependencies: { vue: '3.5.0' } }), 'src/main.js': 'export {};\n' });
+    const p = await profile(bare, true);
+    expect(p.stack).toBe('web');
+    expect(p.notes[0]).toBe(WEB_NO_STANDARDS_NOTE);
+    expect(formatProfile(p).join('\n')).toContain('"Work completed" cannot be reached in this repository until a linter or a tsconfig.json exists');
+    for (const [name, extra] of [['web-eslint', { 'eslint.config.js': 'export default [];\n' }], ['web-tsconfig', { 'tsconfig.json': '{}' }]] as const) {
+      const root = join(tmp.dir, name);
+      writeTree(root, { 'package.json': pkg({ dependencies: { vue: '3.5.0' } }), 'src/main.js': 'export {};\n', ...extra });
+      expect((await profile(root, true)).notes, name).not.toContain(WEB_NO_STANDARDS_NOTE);
+    }
   });
 
   it("a TypeScript repository's own tsc runs confined and reports its errors (fail); the clean twin passes", async () => {

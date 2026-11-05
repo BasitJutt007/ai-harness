@@ -16,12 +16,13 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
-import { defineCheck } from '../../src/core/plugin-api.ts';
+import { defineCheck, ESLINT_CONFIGS } from '../../src/core/plugin-api.ts';
 import type { CheckContext, CheckFinding, Violation } from '../../src/core/plugin-api.ts';
 
 const RULE = 'repo-lint';
 const PROJECT = '(project)';
-const CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts', '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc', '.eslintrc.yml', '.eslintrc.yaml'];
+/** The same list the web profile reads to say whether the repository configures lint (target.ts). */
+const CONFIGS = ESLINT_CONFIGS;
 const LINTABLE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|svelte|astro)$/;
 const IGNORED = /^File ignored/;
 
