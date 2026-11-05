@@ -76,6 +76,8 @@ describe('the contract and the yes in chat', () => {
     // The loop handed the prompt back right after the proposal (no further model turn).
     expect(ran.driver.used).toBe(1);
     expect(ran.input.prompts.at(-1)).toBe('reply › ');
+    // That read is a reply read (the terminal clears anything typed before it); the chat read before it was not.
+    expect(ran.input.approvalReads).toEqual([1]);
     expect(ledgerTypes(ran, 'greeting-name')).toEqual(['proposed']);
     const contract = readFileSync(join(String(ran.runJson['itemsRoot']), 'docs/contracts/greeting-name.md'), 'utf8');
     expect(contract).toContain('Commit: fix(greeting): greet visitors by the name they gave');
