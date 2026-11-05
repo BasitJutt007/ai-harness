@@ -22,6 +22,7 @@ import { exec as coreExec, passThroughEnv } from './exec.ts';
 import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
 import { repoCommitlint } from './ship-text.ts';
+import { repoStateLocation } from './state-home.ts';
 import type { Exec } from './types.ts';
 
 type Out = (line: string) => void;
@@ -114,13 +115,40 @@ async function askReply(root: string, slug: string, reader: ReplyReader, out: Ou
   return 1;
 }
 
-export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReader; exec?: Exec; root?: string; harnessRoot?: string } = {}): Promise<number> {
+/**
+ * The items root of the repository the command runs in, when `slug` is an item there: an interactive
+ * session keeps its items in the repository's state directory (state-home.ts), so `harness item close
+ * <slug>` typed inside that repository after the merge finds it. HARNESS_ITEMS_ROOT, when set, always
+ * wins (tests, file mode); `new` always writes where file mode does. Read-only: nothing is created.
+ */
+export async function repoItemRoot(o: { sub: string | undefined; slug: string | undefined; cwd: string; env: NodeJS.ProcessEnv; exec: Exec }): Promise<{ root: string; repoTop: string } | null> {
+  const override = o.env['HARNESS_ITEMS_ROOT'];
+  if ((override !== undefined && override.length > 0) || o.slug === undefined || o.sub === 'new') return null;
+  try {
+    const top = await o.exec('git', ['-C', o.cwd, 'rev-parse', '--show-toplevel'], { cwd: o.cwd, timeoutMs: 30_000 });
+    if (top.code !== 0 || top.stdout.trim().length === 0) return null;
+    const repoTop = top.stdout.trim();
+    const loc = await repoStateLocation(repoTop, o.env, o.exec);
+    return existsSync(itemPaths(loc.itemsRoot, o.slug).contract) ? { root: loc.itemsRoot, repoTop } : null;
+  } catch {
+    return null; // not a repository, or an invalid slug: the usual root reports it
+  }
+}
+
+export async function cmdItem(
+  a: ItemArgs,
+  out: Out,
+  opts: { reader?: ReplyReader; exec?: Exec; root?: string; harnessRoot?: string; cwd?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<number> {
   const harnessRoot = opts.harnessRoot ?? HARNESS_ROOT;
-  const root = opts.root ?? itemsRoot(harnessRoot);
+  const env = opts.env ?? process.env;
   const run = opts.exec ?? coreExec;
+  const [sub, slug, ...extra] = a.positionals;
+  const repoItem = opts.root === undefined ? await repoItemRoot({ sub, slug, cwd: opts.cwd ?? process.cwd(), env, exec: run }) : null;
+  const root = opts.root ?? repoItem?.root ?? itemsRoot(harnessRoot, env);
   const reader = opts.reader ?? terminalReader();
   const session = randomUUID().slice(0, 8);
-  const [sub, slug, ...extra] = a.positionals;
+  if (repoItem !== null) out(`item ${slug ?? ''}: from this repository's session records (${repoItem.root})`);
   const usage = 'usage: harness item new|status|propose|reply|close <slug> [--repo <dir>]';
   if (sub === undefined || extra.length > 0) {
     out(usage);
@@ -181,7 +209,10 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
           out(`refused: git fetch origin ${base} failed: ${(fetch.stderr || fetch.stdout).trim()}`);
           return 1;
         }
-        if (c.measure === null) return 1;
+        if (c.measure === null) {
+          out(`refused: the contract names no Measure (Measure: none), so there is no before value to read; an item without one can never close`);
+          return 1;
+        }
         // The Commit header is approved with the contract, so the repository's own rules see it first.
         const header = (c.fields.Commit ?? '').trim();
         const lint = await repoCommitlint(run, repoDir, `${header}\n`);
@@ -215,7 +246,8 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
         return await askReply(root, slug, reader, out, session);
       case 'close': {
         if (slug === undefined) break;
-        const repoArg = one(a, 'repo');
+        // A session item closes from inside its repository: --repo defaults to that repository.
+        const repoArg = one(a, 'repo') ?? repoItem?.repoTop;
         if (repoArg === undefined) {
           out('refused: --repo <dir> is needed (the after value is read by running the Measure command at the merge commit)');
           return 2;
