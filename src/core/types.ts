@@ -7,7 +7,7 @@
  */
 import type { z } from 'zod';
 import type ts from 'typescript';
-import type { TargetLayout } from './target.ts';
+import type { TargetLayout, TestRunnerInfo } from './target.ts';
 
 // ───────────────────────────── Conversation model ─────────────────────────────
 // A provider-neutral transcript. Drivers translate to and from their wire format.
@@ -344,6 +344,9 @@ export interface Workspace {
    */
   hidden?(rel: string): Promise<string | null>;
 }
+
+/** What a run knows of the target's test runner (TargetProfile.runner, target.ts TestRunnerInfo). */
+export type RunnerSummary = Pick<TestRunnerInfo, 'kind' | 'name' | 'supported' | 'reason' | 'components'>;
 
 /**
  * A run that works directly in the owner's checkout (an interactive session) instead of a worktree
@@ -693,6 +696,11 @@ export interface RunContext {
   stack?: Stack;
   /** Set when the run writes in the owner's checkout (see InPlaceRun); absent for a worktree run. */
   inPlace?: InPlaceRun;
+  /**
+   * The target's test runner from preflight (absent: not computed). In place it decides a file's proof tier:
+   * logic needs an observed red only where a supported runner can run a test for it (plugins/lib/proof.ts).
+   */
+  runner?: RunnerSummary;
   workspace: Workspace;
   state: RunState;
   logs: LogStore;

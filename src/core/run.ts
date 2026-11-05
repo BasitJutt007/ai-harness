@@ -148,7 +148,7 @@ export function buildContext(opts: {
     run: opts.run,
     task: opts.task,
     ...(opts.item !== undefined ? { item: opts.item } : {}),
-    ...(profile !== undefined ? { stack: profile.stack } : {}),
+    ...(profile !== undefined ? { stack: profile.stack, runner: profile.runner } : {}),
     ...(opts.inPlace !== undefined ? { inPlace: opts.inPlace } : {}),
     workspace: opts.ws,
     state,

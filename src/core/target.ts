@@ -96,6 +96,12 @@ export interface TestRunnerInfo {
   nodeArgs?: string[];
   /** node:test: the file patterns the project's test script passes (none = node's defaults). */
   patterns?: string[];
+  /**
+   * Single-file component kinds a test run can import ('.vue', '.svelte'): vitest loads the repository's Vite
+   * config, so a component is loadable when the repository declares the Vite plugin that compiles it. Absent:
+   * none, so a component edit cannot be proven by a test (UNPROVEN in place, never a red it cannot get).
+   */
+  components?: string[];
 }
 
 /**
@@ -949,13 +955,26 @@ function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | nu
     }
     return { kind: 'jest', name: `jest ${resolved.version ?? '?'}`, supported: true, bin, version: resolved.version, origin: resolved.origin, evidence: choice.evidence };
   }
+  const components = componentKinds(declared);
+  const withComponents = components.length > 0 ? { components } : {};
   if (bin !== null) {
-    return { kind: 'vitest', name: `vitest ${resolved.version ?? '?'}`, supported: true, bin, version: resolved.version, origin: resolved.origin, evidence: choice.evidence };
+    return { kind: 'vitest', name: `vitest ${resolved.version ?? '?'}`, supported: true, bin, version: resolved.version, origin: resolved.origin, evidence: choice.evidence, ...withComponents };
   }
   const own = resolvePackage('vitest', ctx.harnessRoot, { harnessRoot: ctx.harnessRoot });
   const ownBin = packageBin(own, 'vitest');
   if (ownBin === null) return { kind: 'vitest', name: 'vitest (missing)', supported: false, reason: 'vitest is installed neither in the target nor in the harness', evidence: choice.evidence };
-  return { kind: 'vitest', name: `vitest ${own.version ?? '?'}`, supported: true, bin: ownBin, version: own.version, origin: 'harness', evidence: choice.evidence };
+  return { kind: 'vitest', name: `vitest ${own.version ?? '?'}`, supported: true, bin: ownBin, version: own.version, origin: 'harness', evidence: choice.evidence, ...withComponents };
+}
+
+/** Vite plugins that compile single-file components, by the component extension they make importable. */
+const COMPONENT_PLUGINS: Record<string, string[]> = {
+  '.vue': ['@vitejs/plugin-vue', '@vitejs/plugin-vue2', '@nuxt/test-utils'],
+  '.svelte': ['@sveltejs/vite-plugin-svelte', '@sveltejs/kit'],
+};
+
+/** Component kinds vitest can import in a repository that declares `deps` (through its Vite config's plugins). */
+function componentKinds(deps: Record<string, string>): string[] {
+  return Object.entries(COMPONENT_PLUGINS).filter(([, plugins]) => plugins.some((p) => deps[p] !== undefined)).map(([ext]) => ext);
 }
 
 function pathToFileHref(p: string): string {
