@@ -29,8 +29,12 @@ const ROLE: Record<Stack, string> = {
     "You change a React + Vite frontend (TypeScript) in a governed harness, acting only through tools; paths are relative to the repository root. Tests run with the repository's own runner; where it has none, with node:test: put them under test/ as *.test.ts, use import { test } from 'node:test' and import assert from 'node:assert/strict', and import only .ts modules (no .tsx, no DOM); stub globals a module reads at import (window, fetch) before importing it. With RTK Query, cache tags never cross createApi slices: a mutation that changes data another slice caches must invalidate that slice's tags, after the request succeeds; a merge must replace a page that is fetched again, never append it twice.",
 };
 
-/** `preloaded`: the --baseline prompt (the repository and the standards follow it, no fetchers). */
-export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; preloaded?: boolean; stack?: Stack }): string {
+/**
+ * `preloaded`: the --baseline prompt (the repository and the standards follow it, no fetchers).
+ * `checkOptions`: harness.config.json checkOptions; a rule configured there shows its options in the
+ * rules index (the model must see, e.g., which decorator names the repository uses).
+ */
+export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; preloaded?: boolean; stack?: Stack; checkOptions?: CheckOptionsMap }): string {
   const have = new Set(opts.tools.map((t) => t.name));
   const fetchers = CONTEXT_TOOLS.filter((n) => have.has(n)).map((n) => {
     if (n === 'read_file') return 'read_file (line ranges)';
@@ -57,9 +61,27 @@ export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: T
   ];
   if (opts.checks.length > 0) {
     lines.push('', opts.preloaded === true ? 'Standards (full text below):' : 'Standards (fetch_standard <rule> for the full text):');
-    for (const c of opts.checks) lines.push(`- ${c.id}: ${c.description ?? c.id}`);
+    for (const c of opts.checks) {
+      const o = optionsSummary(c.id, opts.checkOptions);
+      lines.push(`- ${c.id}: ${c.description ?? c.id}${o === '' ? '' : ` (configured: ${o})`}`);
+    }
   }
   return lines.join('\n');
+}
+
+/** harness.config.json checkOptions: per check id, that check's own options. */
+export type CheckOptionsMap = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
+/**
+ * One check's configured options as `key: value; key: value` (lists joined by ", "), or '' when it has
+ * none. The model is told the options because a rule's text names them only by key (adminDecorators),
+ * while what the code must carry is their value (@AdminOnly()).
+ */
+export function optionsSummary(id: string, all: CheckOptionsMap | undefined): string {
+  const own = all !== undefined && Object.hasOwn(all, id) ? all[id] : undefined;
+  if (own === undefined) return '';
+  const value = (v: unknown): string => (Array.isArray(v) ? (v.length === 0 ? '(none)' : v.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(', ')) : typeof v === 'string' ? v : JSON.stringify(v) ?? String(v));
+  return Object.entries(own).map(([k, v]) => `${k}: ${value(v)}`).join('; ');
 }
 
 // ───────────────────────────── task brief ─────────────────────────────
@@ -254,9 +276,14 @@ export function testMapSummary(map: TestMap, maxLines = 30): string {
 
 const FRONT_LOAD_CAP = 200 * 1024;
 
-/** Full text of a standard: its doc, else its one-line description, else its id. */
-export function standardDoc(c: CheckPlugin): string {
-  return c.doc ?? c.description ?? c.id;
+/**
+ * Full text of a standard: its doc, else its one-line description, else its id; followed by the options
+ * this repository configured for it (checkOptions), when it has any.
+ */
+export function standardDoc(c: CheckPlugin, checkOptions?: CheckOptionsMap): string {
+  const text = c.doc ?? c.description ?? c.id;
+  const o = optionsSummary(c.id, checkOptions);
+  return o === '' ? text : `${text}\nConfigured for this repository (harness.config.json checkOptions["${c.id}"]): ${o}`;
 }
 
 export async function frontLoad(opts: {
@@ -264,6 +291,8 @@ export async function frontLoad(opts: {
   checks: CheckPlugin[];
   /** Accepted for call-site compatibility and ignored: tool schemas are in every request's tools array. */
   tools?: ToolSpec[];
+  /** harness.config.json checkOptions: each standard's configured options follow its text. */
+  checkOptions?: CheckOptionsMap;
 }): Promise<string> {
   const files = (await opts.ws.list(['**/*'])).filter((p) => !/(^|\/)(node_modules|\.git|dist)(\/|$)/.test(p)).sort();
   const parts: string[] = ['Repository contents:'];
@@ -281,6 +310,6 @@ export async function frontLoad(opts: {
   }
   if (skipped > 0) parts.push(`=== (${skipped} more files omitted: 200 KB cap) ===`);
   parts.push('', 'Standards:');
-  for (const c of opts.checks) parts.push(`=== standard: ${c.id} ===`, standardDoc(c));
+  for (const c of opts.checks) parts.push(`=== standard: ${c.id} ===`, standardDoc(c, opts.checkOptions));
   return parts.join('\n');
 }

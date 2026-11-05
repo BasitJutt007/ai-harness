@@ -18,7 +18,7 @@ import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateR
 import { withoutFetchers } from './context.ts';
 import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
 import { modelAllowed, modelPolicyVerdict, normalizeModel, SpendMeter, spendLine } from './spend.ts';
-import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
+import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary, type CheckOptionsMap } from './prompt.ts';
 import { loadRegistry, pluginFingerprint, toolSpecs } from './registry.ts';
 import { deserializeState, newRunId, newRunState, RunStore, serializeState } from './run-store.ts';
 import { isolationHonesty, isolationInfo, isolationUnavailable, setSandboxMode } from './sandbox.ts';
@@ -470,9 +470,10 @@ export function turnLimitLine(limit: TurnLimit, record: TurnLimitRecord | undefi
  * prompt (it says the repository is included and names no fetcher) + every text file under the
  * API root + every standards doc (prompt.ts frontLoad). `tools` are the baseline's tools (no fetchers).
  */
-export function baselineSystemRenderer(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; ws: Workspace }): () => Promise<string> {
-  const prompt = systemPrompt({ task: opts.task, checks: opts.checks, tools: opts.tools, preloaded: true });
-  return async () => `${prompt}\n\n${await frontLoad({ ws: opts.ws, checks: opts.checks })}`;
+export function baselineSystemRenderer(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; ws: Workspace; checkOptions?: CheckOptionsMap }): () => Promise<string> {
+  const options = opts.checkOptions !== undefined ? { checkOptions: opts.checkOptions } : {};
+  const prompt = systemPrompt({ task: opts.task, checks: opts.checks, tools: opts.tools, preloaded: true, ...options });
+  return async () => `${prompt}\n\n${await frontLoad({ ws: opts.ws, checks: opts.checks, ...options })}`;
 }
 
 // ───────────────────────────── executeRun ─────────────────────────────
@@ -748,8 +749,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     const tools = offered;
     // Only the rules written for this stack: the agent is never told to meet another stack's standards.
     const checks = selectChecks(registry.checks.map((r) => r.plugin), undefined, undefined, ctx.stack);
-    const system = systemPrompt({ task, checks, tools, ...(ctx.stack !== undefined ? { stack: ctx.stack } : {}) });
-    const baselineSystem = baselineSystemRenderer({ task, checks, tools: withoutFetchers(tools, toolPlugins), ws });
+    // The model sees each rule's configured options (e.g. the repository's decorator names), as the checks do.
+    const system = systemPrompt({ task, checks, tools, checkOptions: config.checkOptions, ...(ctx.stack !== undefined ? { stack: ctx.stack } : {}) });
+    const baselineSystem = baselineSystemRenderer({ task, checks, tools: withoutFetchers(tools, toolPlugins), ws, checkOptions: config.checkOptions });
     const tree = compactTree(await ws.list(['**/*']));
     let testMapText: string | undefined;
     if (task.kind === 'brownfield') {
