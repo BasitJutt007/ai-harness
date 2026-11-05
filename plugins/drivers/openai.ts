@@ -277,10 +277,11 @@ export async function accumulateStream(chunks: AsyncIterable<ChatCompletionChunk
         for (const [k, v] of Object.entries(tc)) if (!DELTA_KEYS.has(k) && v !== undefined) cur.extras[k] = v;
         calls[tc.index] = cur;
       }
-      if (choice.finish_reason !== null) finish = choice.finish_reason;
+      // A chunk that omits finish_reason (undefined) has not finished either: only a real value ends the reply.
+      if (choice.finish_reason !== null && choice.finish_reason !== undefined) finish = choice.finish_reason;
     }
   }
-  if (head === undefined || finish === null) throw new Error('the chat completion stream ended before the reply finished (no finish reason)');
+  if (head === undefined || finish === null || finish === undefined) throw new Error('the chat completion stream ended before the reply finished (no finish reason)');
   if (usage === undefined) throw new Error('the chat completion stream ended without its usage chunk (stream_options.include_usage): the spend of this reply could not be counted');
   // Function calls only, as fromOpenAIResponse reads them (the driver offers no other tool type).
   const toolCalls: ChatCompletionMessageFunctionToolCall[] = calls.flatMap((c) => (c === undefined || c.type !== 'function' ? [] : [{ ...c.extras, id: c.id, type: 'function' as const, function: { name: c.name, arguments: c.args } }]));

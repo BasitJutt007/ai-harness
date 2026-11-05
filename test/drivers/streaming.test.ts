@@ -335,6 +335,14 @@ describe('openai driver: stream', () => {
     await expect(accumulateStream(iterate([]), () => undefined)).rejects.toThrow(/before the reply finished/);
   });
 
+  it('a gateway that omits finish_reason (no key at all) has not finished either; the same stream with one has (the twin)', async () => {
+    const omitted = (c: ChatCompletionChunk): ChatCompletionChunk => ({ ...c, choices: c.choices.map(({ finish_reason: _f, ...rest }) => rest as ChatCompletionChunk.Choice) });
+    const half = [omitted(chunk({ content: 'half' })), omitted(chunk({ content: ' a reply' })), usageChunk];
+    await expect(accumulateStream(iterate(half), () => undefined)).rejects.toThrow(/before the reply finished/);
+    const whole = await accumulateStream(iterate([...half.slice(0, 2), chunk({}, 'stop'), usageChunk]), () => undefined);
+    expect(fromOpenAIResponse(whole)).toMatchObject({ stop: 'end_turn', parts: [{ type: 'text', text: 'half a reply' }] });
+  });
+
   it('a refusal streams in as a refusal, as complete() reads it', async () => {
     const res = fromOpenAIResponse(await accumulateStream(iterate([chunk({ refusal: "I can't" }), chunk({ refusal: ' help.' }, 'stop'), usageChunk]), () => undefined));
     expect(res.stop).toBe('refusal');
