@@ -235,6 +235,25 @@ describe('a ship that refuses leaves no DONE run behind (it is recorded right be
     expect(await commitsOnBranch(s)).toBe('1');
   });
 
+  it('git commit fails after the DONE run was recorded: refused, saying the DONE stands on the green gates; the next ship commits on that record, writing no second one', async () => {
+    const s = await setup();
+    runEntry(s.ledger, 'NOT DONE (loop ended aborted)');
+    const failingCommit: Exec = (cmd, args, opts) => (cmd === 'git' && args.includes('commit')
+      ? Promise.resolve({ code: 1, stdout: '', stderr: 'fatal: unable to write new index file', durationMs: 0, timedOut: false })
+      : fakeGh()(cmd, args, opts));
+    const r = await shipOnce(shipCtx(s, failingCommit));
+    expect(r.status).toBe('refused');
+    const doneSeq = readLedger(s.ledger).entries.length;
+    expect(r.reasons).toEqual(['git commit failed: fatal: unable to write new index file', `nothing was committed or shipped; item ledger seq ${doneSeq} records the run DONE, as its ship gates re-ran fresh and green`]);
+    expect(events(s.ledger).at(-1)).toMatchObject({ type: 'run', runId: RUN_ID, verdict: SHIP_DONE_VERDICT });
+    expect(await git(s.repo, 'rev-parse', 'HEAD')).toBe(s.baseSha);
+    expect(await remoteBranch(s)).toBe('');
+    // the twin: the commit goes through, on the DONE run already recorded
+    expect((await shipOnce(shipCtx(s))).status).toBe('shipped');
+    expect(doneEntries(s.ledger)).toHaveLength(1);
+    expect(events(s.ledger).slice(-2).map((e) => e.type)).toEqual(['run', 'shipped']);
+  });
+
   it('a ledger that cannot take the DONE run (it broke while the ship ran): refused, unstaged, nothing committed or pushed; on a sound ledger it ships', async () => {
     // A fault at the last step before the commit, independent of file modes (root ignores a read-only file): the
     // ledger's hash chain breaks while the secret scan reads the staged diff.
