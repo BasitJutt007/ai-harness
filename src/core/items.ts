@@ -343,6 +343,16 @@ export function contractVerdict(paths: ItemPaths, read: (file: string) => string
   return { ok: false, reason: `${rel} is incomplete: ${parts.join('; ')}`, parse };
 }
 
+/**
+ * Why a contract cannot authorize a run that is not in place (file mode), or null: it says "Measure: none". A
+ * file-mode item exists to be closed on its metric, and without a Measure its outcome can never be read. Only an
+ * interactive session (a run in place) may work under such a contract: it can ship, but it never closes.
+ */
+export function fileModeMeasureProblem(parse: Pick<ContractParse, 'noMeasure'>, slug: string): string | null {
+  if (!parse.noMeasure) return null;
+  return `${CONTRACTS_DIR}/${slug}.md says "Measure: none", but a run outside an interactive session needs a Measure (node metrics/<script>.mjs): without one the item's outcome can never be read, so it could never close`;
+}
+
 function readOrNull(file: string): string | null {
   try {
     return readFileSync(file, 'utf8');

@@ -19,7 +19,7 @@ import { createInterface } from 'node:readline';
 import { closeItem, ledgerFacts, preconditions } from './close.ts';
 import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
-import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
+import { classifyReply, CONTRACTS_DIR, fileModeMeasureProblem, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
 import { provenanceText } from './provenance.ts';
 import { repoCommitlint } from './ship-text.ts';
@@ -375,7 +375,11 @@ async function outcomeCheck(root: string, slug: string, harnessRoot: string, rep
 export async function gateCheck(gate: GateName, root: string, slug: string, opts: { harnessRoot: string; repoDir?: string; exec?: Exec; harnessMetrics?: boolean }): Promise<GateCheck> {
   if (gate === 'outcome') return outcomeCheck(root, slug, opts.harnessRoot, opts.repoDir, opts.exec ?? coreExec, opts.harnessMetrics ?? false);
   const st = itemStatus(root, slug);
-  if (gate === 'problem-statement') return { pass: st.contract.ok, reason: st.contract.reason };
+  if (gate === 'problem-statement') {
+    // `harness gate` reads the file-mode items root: its verdict is the one a file-mode run's problem-gate reaches.
+    const noMeasure = st.contract.ok && st.contract.parse !== null ? fileModeMeasureProblem(st.contract.parse, slug) : null;
+    return noMeasure !== null ? { pass: false, reason: noMeasure } : { pass: st.contract.ok, reason: st.contract.reason };
+  }
   if (!st.contract.ok) return { pass: false, reason: `needs a complete contract first: ${st.contract.reason}` };
   return { pass: st.approval?.ok === true, reason: st.approval?.reason ?? 'not proposed' };
 }

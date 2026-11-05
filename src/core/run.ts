@@ -13,7 +13,7 @@ import { exec } from './exec.ts';
 import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
 import { missingRequiredHooks, REQUIRED_HOOKS, REQUIRED_INPLACE_HOOKS, writesInPlace, type RunPlacement } from './hooks.ts';
-import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
+import { appendLedger, contractVerdict, fileModeMeasureProblem, itemPaths, itemsRoot, itemStatus } from './items.ts';
 import { targetRepoProblem } from './item-cli.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
@@ -560,6 +560,9 @@ export function bindItem(slug: string, registry: RegistryView, root: string = it
   if (closed !== undefined) {
     throw new Error(`refused before the first model turn (no tokens spent): item "${slug}" is closed (ledger seq ${closed.seq}): its approval covered the work that closed it; new work needs a new item (harness item new <slug>)`);
   }
+  // "Measure: none" is for an interactive session only (in place): a file-mode item must be closable on its metric.
+  const noMeasure = writesInPlace(where) ? null : fileModeMeasureProblem(status.contract.parse, slug);
+  if (noMeasure !== null) throw new Error(`refused before the first model turn (no tokens spent): item "${slug}": ${noMeasure}`);
   return { slug, root, contractHash: status.contract.parse.hash };
 }
 

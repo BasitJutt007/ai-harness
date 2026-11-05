@@ -4,7 +4,8 @@
  * one mutation; the gate must refuse every mutated item. A mutation that still passes is a bypass: fix
  * the gate, never this list.
  *
- *   problem-statement  every required field removed, emptied, left a placeholder or malformed
+ *   problem-statement  every required field removed, emptied, left a placeholder or malformed, and
+ *                      "Measure: none" in a file-mode run (in place it passes: the twin)
  *   human-yes          every way a "yes" that is not the stakeholder's typed reply could look like one,
  *                      including a yes typed against another contract text (or not saying which)
  *   outcome            every way the merge or the after reading could be missing, stale or not comparable:
@@ -39,8 +40,10 @@ const SLUG = 'audit-item';
 const write: ToolCallInfo = { id: 'w', tool: 'write_file', effect: 'write', input: { path: 'src/a.ts', content: 'x' }, paths: ['src/a.ts'] };
 const finish: ToolCallInfo = { id: 'f', tool: 'finish', effect: 'control', input: { summary: 'done' }, paths: [] };
 
-async function decide(h: HookPlugin, call: ToolCallInfo, item: ItemBinding, runDir: string): Promise<{ decision: string; reason?: string }> {
-  return (await h.run({ event: 'pre_tool', call }, { item, run: { runDir } } as unknown as RunContext)) as { decision: string; reason?: string };
+/** A hook's decision in a file-mode run (no in-place record), or in place (an interactive session) with `inPlace`. */
+async function decide(h: HookPlugin, call: ToolCallInfo, item: ItemBinding, runDir: string, inPlace?: RunContext['inPlace']): Promise<{ decision: string; reason?: string }> {
+  const ctx = { item, run: { runDir }, ...(inPlace !== undefined ? { inPlace } : {}) };
+  return (await h.run({ event: 'pre_tool', call }, ctx as unknown as RunContext)) as { decision: string; reason?: string };
 }
 
 // ───────────────────────────── problem-statement gate ─────────────────────────────
@@ -65,6 +68,8 @@ const CONTRACT_MUTATIONS: Array<{ name: string; mutate: (t: string) => string; n
   { name: 'Commit "patch"', mutate: setField('Commit', 'patch'), names: /Conventional Commits header/ },
   { name: 'Commit "fix: comment fixes"', mutate: setField('Commit', 'fix: comment fixes'), names: /says nothing/ },
   { name: 'Commit a numbered checkpoint', mutate: setField('Commit', 'chore: checkpoint 12'), names: /numbered checkpoint/ },
+  // A file-mode run (no in-place record) exists to be closed on its metric: "none" is for a session only (twin below).
+  { name: 'Measure: none in a file-mode run', mutate: setField('Measure', 'none'), names: /says "Measure: none", but a run outside an interactive session needs a Measure/ },
 ];
 
 describe('audit: the problem-statement gate refuses every incomplete contract, naming what is missing', () => {
@@ -87,6 +92,14 @@ describe('audit: the problem-statement gate refuses every incomplete contract, n
       expect(v.reason).toMatch(m.names);
     });
   }
+
+  it('in place (an interactive session), a contract with Measure: none passes: it can ship, never close (the twin)', async () => {
+    const text = setField('Measure', 'none')(COMPLETE);
+    const root = tmp();
+    writeContract(root, SLUG, text);
+    const v = await decide(problemGate, write, { slug: SLUG, root, contractHash: parseContract(text).hash }, tmp(), { repoTop: root, branch: 'feat/x' });
+    expect(v.decision).toBe('pass');
+  });
 });
 
 // ───────────────────────────── human-yes gate ─────────────────────────────

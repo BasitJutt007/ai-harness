@@ -6,16 +6,22 @@
  *   - the operator's provenance: which agent-shell environment markers were present (names only). It
  *     is recorded and shown ("typed at a terminal inside an AI agent's shell"), never a refusal: a TTY
  *     proves a terminal, not a person (README, gates).
- * And "Measure: none": a complete contract without a metric script.
+ * And "Measure: none": a complete contract without a metric script, for an interactive session (in place)
+ * only: a file-mode run, its problem-gate and `harness gate problem-statement` refuse it, naming Measure.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
-import { cmdItem } from '../../src/core/item-cli.ts';
+import problemGate from '../../plugins/hooks/problem-gate.ts';
+import { cmdGate, cmdItem } from '../../src/core/item-cli.ts';
 import { appendLedger, approvalVerdict, itemPaths, itemStatus, parseContract, proposeItem, readLedger, recordReply } from '../../src/core/items.ts';
 import { agentEnvPresent, provenanceText } from '../../src/core/provenance.ts';
+import { loadRegistry } from '../../src/core/registry.ts';
+import { bindItem } from '../../src/core/run.ts';
+import type { RunContext } from '../../src/core/types.ts';
+import { createWorkspace } from '../../src/core/workspace.ts';
 import { contractFor, writeContract } from '../support/items.ts';
 
 const SLUG = 'reply-item';
@@ -179,5 +185,43 @@ describe('"Measure: none": a complete contract without a metric script', () => {
     expect(parseContract(CONTRACT)).toMatchObject({ noMeasure: false, measure: { script: 'metrics/fixture-zero.mjs' } });
     // what was approved includes the choice: none and a script are different texts
     expect(none.hash).not.toBe(parseContract(CONTRACT).hash);
+  });
+
+  /** An item whose approved contract says Measure: none (as a session proposes it), in a fresh items root. */
+  function approvedNone(): string {
+    const root = tmp();
+    writeContract(root, SLUG, contractFor(SLUG, { Measure: 'none' }));
+    proposeItem(root, SLUG, { session: 's', before: null });
+    recordReply(root, SLUG, 'yes', 'tty', 's');
+    return root;
+  }
+  const NAMED = /docs\/contracts\/reply-item\.md says "Measure: none", but a run outside an interactive session needs a Measure \(node metrics\/<script>\.mjs\)/;
+
+  it('a file-mode run is refused before the first model turn, naming Measure; in place (a session) it binds (the twin)', async () => {
+    const root = approvedNone();
+    const registry = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);
+    expect(() => bindItem(SLUG, registry, root)).toThrow(new RegExp(`refused before the first model turn \\(no tokens spent\\): item "${SLUG}": ${NAMED.source}`));
+    expect(() => bindItem(SLUG, registry, root, { workspace: createWorkspace(root, '.') })).toThrow(NAMED);
+    expect(bindItem(SLUG, registry, root, { inPlace: { repoTop: root, branch: 'feat/x' } })).toMatchObject({ slug: SLUG });
+    // a contract with a Measure binds in file mode
+    const withMeasure = tmp();
+    writeContract(withMeasure, SLUG, CONTRACT);
+    proposeItem(withMeasure, SLUG, { session: 's', before: null });
+    recordReply(withMeasure, SLUG, 'yes', 'tty', 's');
+    expect(bindItem(SLUG, registry, withMeasure)).toMatchObject({ slug: SLUG });
+  });
+
+  it('problem-gate blocks an edit under it in a file-mode run and passes it in place; harness gate problem-statement refuses it', async () => {
+    const root = approvedNone();
+    const item = { slug: SLUG, root, contractHash: parseContract(contractFor(SLUG, { Measure: 'none' })).hash };
+    const call = { id: 'w', tool: 'write_file', effect: 'write' as const, input: {}, paths: ['src/a.ts'] };
+    const decide = async (extra: Partial<RunContext>) => (await problemGate.run({ event: 'pre_tool', call }, { item, ...extra } as RunContext)) as { decision: string; reason?: string };
+    const fileMode = await decide({ workspace: createWorkspace(root, '.') });
+    expect(fileMode.decision).toBe('block');
+    expect(fileMode.reason).toMatch(NAMED);
+    expect((await decide({ inPlace: { repoTop: root, branch: 'feat/x' }, workspace: createWorkspace(root, '.', { visibility: 'git' }) })).decision).toBe('pass');
+    const out: string[] = [];
+    expect(await cmdGate({ positionals: ['problem-statement', SLUG], flags: new Map() }, (l) => out.push(l), { root, harnessRoot: root })).toBe(2);
+    expect(out.join('\n')).toMatch(new RegExp(`^REFUSE {2}problem-statement {2}${SLUG}: ${NAMED.source}`));
   });
 });
