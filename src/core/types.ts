@@ -501,6 +501,11 @@ export interface SandboxPolicy {
   writable: string[];
   /** 'none' = no network at all; 'localhost' = loopback only (supertest, runtime probes). */
   network: 'none' | 'localhost';
+  /**
+   * Values the harness itself sets in the child's environment (sandbox.ts confinedEnv), never copied from
+   * the caller's env; PATH, HOME, TMPDIR and XDG_* stay the harness's. E.g. BROWSERSLIST for a build.
+   */
+  env?: Readonly<Record<string, string>>;
 }
 
 /** Which confinement actually wrapped an execution (recorded in run evidence). */
