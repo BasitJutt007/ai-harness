@@ -435,21 +435,20 @@ export function hiddenPatterns(root: string): string[] {
   return [`${at}\\.${ci('git')}(/.*)?$`, `${at}\\.${ci('env')}[^/]*(/.*)?$`];
 }
 
-/** Entries skipped while looking for `.env*` entries (dependencies; the .git directory is masked whole). */
-const ENV_WALK_SKIP = new Set(['node_modules', '.git']);
+/** Directories not walked while looking for `.git` and `.env*` entries (dependencies). */
+const ENV_WALK_SKIP = new Set(['node_modules']);
 /** At most this many directory entries are visited; a bigger tree fails closed (bwrapArgs throws). */
 export const ENV_WALK_LIMIT = 50_000;
 
 /**
  * The `.git` and `.env*` entries (files or directories) under `root` to mask for bwrap, which has no
- * path patterns: the `.git` entry at the top, and every `.env*` entry found walking the tree
- * (symlinks not followed, node_modules skipped). Throws when the tree has more than ENV_WALK_LIMIT
- * entries: an incomplete list would leave a secret readable.
+ * path patterns: every `.git` entry (the top one, and each nested one: a submodule, a vendored
+ * checkout) and every `.env*` entry found walking the tree, in any letter case (symlinks not followed,
+ * node_modules skipped, a `.git` masked whole rather than walked). Throws when the tree has more than
+ * ENV_WALK_LIMIT entries: an incomplete list would leave a secret readable.
  */
 export function hiddenEntries(root: string, limit: number = ENV_WALK_LIMIT): string[] {
   const out: string[] = [];
-  const git = join(root, '.git');
-  if (existsSync(git)) out.push(git);
   const stack = [root];
   let seen = 0;
   while (stack.length > 0) {
@@ -464,7 +463,8 @@ export function hiddenEntries(root: string, limit: number = ENV_WALK_LIMIT): str
       seen += 1;
       if (seen > limit) throw new Error(`sandbox: ${root} has more than ${limit} entries; its .env files cannot all be found, so confined code is not run there`);
       const p = join(dir, e.name);
-      if (/^\.env/i.test(e.name)) out.push(p);
+      // A .git (directory, or the file of a worktree or submodule) is masked whole, never walked into.
+      if (/^\.env/i.test(e.name) || e.name.toLowerCase() === '.git') out.push(p);
       else if (e.isDirectory() && !ENV_WALK_SKIP.has(e.name)) stack.push(p);
     }
   }
