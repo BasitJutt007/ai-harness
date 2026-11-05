@@ -17,8 +17,10 @@
  * conversation lives in a caller-owned `history` that every call appends to (turn numbers continue,
  * the turn limit applies per call), the owner's next chat message joins it (`message`), a reply
  * without a tool call hands the turn back to the owner (`yieldOnText`: status 'yielded', no nudge,
- * no stall counting), folded turns keep their prose (`keepChat`), and the reply's text is delivered
- * live (`onText`: Driver.stream when the driver has it, else the whole text once).
+ * no stall counting), folded turns keep their prose (`keepChat`), the reply's text is delivered
+ * live (`onText`: Driver.stream when the driver has it, else the whole text once), no shadow baseline
+ * is built or counted (`skipShadowBaseline`), and the caller can take the turn back after any turn
+ * (`yieldAfterTurn`).
  */
 import { serializeState } from './run-store.ts';
 import { baselineView, fetcherNames, jitView, messageChars, repeatPointer, type JitViewOptions, type RepeatRef, type TranscriptTurn } from './context.ts';
@@ -131,6 +133,19 @@ export interface RunAgentOptions {
    * earlier attempt was not the final reply. A listener that throws never stops the run.
    */
   onText?: (delta: string, info: { turn: number; attempt: number }) => void;
+  /**
+   * Build and count no shadow-baseline request: each turn's baseline is its actual count. The shadow
+   * front-loads every file under the API root and is counted on every turn; an interactive session
+   * over the owner's real checkout must not read and count the whole repository on every message.
+   * Ignored in --baseline mode (there the baseline IS the request sent).
+   */
+  skipShadowBaseline?: boolean;
+  /**
+   * Asked after every turn whose tool calls ran: true ends the call with status 'yielded', and the
+   * owner's next message follows that turn's results. A session yields as soon as a proposal awaits
+   * the owner's typed reply, so the model cannot keep working past it.
+   */
+  yieldAfterTurn?: () => boolean;
 }
 
 // ───────────────────────────── turn limit ─────────────────────────────
@@ -633,6 +648,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const { driver, ctx, store, ledger, first, tools } = opts;
   const delays = opts.retryDelaysMs ?? DEFAULT_RETRY_DELAYS;
   const baselineMode = isBaselineMode(ctx.mode);
+  // Session use: no shadow-baseline request at all (never in --baseline mode, where it is the request).
+  const noShadow = opts.skipShadowBaseline === true && !baselineMode;
   const keep = ctx.config.history.keepRecentTurns;
   // The baseline offers no context fetchers (decided by effect and flag, never by name).
   const fetchers = fetcherNames(tools, ctx.registry.tools.map((r) => r.plugin));
@@ -731,25 +748,39 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       attempt = 0;
       // Baseline request: front-load re-rendered from the current tree, raw returns, no fetchers. In a
       // --baseline run it is what is sent; otherwise it is the shadow, built from this run's trajectory
-      // without its context-fetch calls (a baseline harness has that content front-loaded).
-      const baselineReq: ModelRequest = {
-        system: await baselineSystemNow(),
-        messages: baselineMode ? baselineView(first, turns) : baselineView(first, turns, { omitTools: fetchers }),
-        tools: baselineTools,
-        maxOutputTokens: opts.maxOutputTokens,
-      };
+      // without its context-fetch calls (a baseline harness has that content front-loaded). With
+      // skipShadowBaseline (sessions) no shadow is built or counted.
+      const baselineReq: ModelRequest | null = noShadow
+        ? null
+        : {
+            system: await baselineSystemNow(),
+            messages: baselineMode ? baselineView(first, turns) : baselineView(first, turns, { omitTools: fetchers }),
+            tools: baselineTools,
+            maxOutputTokens: opts.maxOutputTokens,
+          };
       let actualReq: ModelRequest;
       let actual: number;
       let baseline: number;
       let estimated: boolean;
       let fullChars = 0;
       let attribution: TurnTokens['attribution'] = { frontLoadChars: 0, rawReturnChars: 0, historyChars: 0, fetchChars: 0 };
-      if (baselineMode) {
+      if (baselineMode && baselineReq !== null) {
         actualReq = baselineReq;
         const c = await countTurn(driver, [{ label: 'actual', req: actualReq }], ctx, ledger);
         actual = c.counts[0] ?? 0;
         baseline = actual;
         estimated = c.estimated;
+      } else if (baselineReq === null) {
+        // No shadow (skipShadowBaseline): only the request sent is counted; its baseline is itself.
+        const fullMsgs = jitView(first, turns, keep, false);
+        const msgs = ctx.mode.compactHistory ? jitView(first, turns, keep, true, viewOpts({ writeTools })) : fullMsgs;
+        actualReq = { system: opts.system, messages: msgs, tools, maxOutputTokens: opts.maxOutputTokens };
+        const c = await countTurn(driver, [{ label: 'actual', req: actualReq }], ctx, ledger);
+        actual = c.counts[0] ?? 0;
+        baseline = actual;
+        estimated = c.estimated;
+        fullChars = messageChars(fullMsgs);
+        attribution = { frontLoadChars: 0, rawReturnChars: 0, historyChars: fullChars - messageChars(msgs), fetchChars: 0 };
       } else {
         const fullMsgs = jitView(first, turns, keep, false);
         const msgs = ctx.mode.compactHistory ? jitView(first, turns, keep, true, viewOpts({ writeTools })) : fullMsgs;
@@ -795,6 +826,11 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
             if (estimated) {
               actual = estimateTokens(actualReq);
               ledger.noteEstimated();
+            } else if (baselineReq === null) {
+              const c = await countTurn(driver, [{ label: 'actual (shrunk)', req: actualReq }], ctx, ledger);
+              actual = c.counts[0] ?? 0;
+              baseline = actual;
+              estimated = c.estimated;
             } else {
               const c = await countTurn(driver, [{ label: 'actual (shrunk)', req: actualReq }, { label: 'baseline', req: baselineReq }], ctx, ledger);
               actual = c.counts[0] ?? 0;
@@ -943,6 +979,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       persist(t, hasRepeats ? { ...meta, repeats } : meta, logs);
       if (accepted !== undefined) return withFinish({ status: 'done', turns: i, finish: accepted });
       if (isAborted(opts.signal)) return aborted(i);
+      // Session use: the caller takes the turn back (e.g. a proposal now awaits the owner's typed reply).
+      if (opts.yieldAfterTurn?.() === true) return withFinish({ status: 'yielded', turns: i });
       if (i === limit && opts.turnExtension !== undefined) {
         const extra = limit - opts.maxTurns;
         const grant = extensionAt(limit, attempts, opts.turnExtension, extra);
