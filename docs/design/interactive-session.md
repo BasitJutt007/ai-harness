@@ -149,3 +149,25 @@ gates  scope pass · observed-red pass · tests-green pass · secrets pass · di
 3. Session: REPL, UI, commands, contract and yes in chat, verdict, ship, close.
 4. Session write policy and proof tiers for any web repo.
 5. Tests for every gate in session mode, docs (README, workflow.md rows, learnings), smoke runs.
+
+## Build status
+
+Step 1 (engine) is in place; nothing below changes file mode (every option is opt-in, and the
+suite that covers file mode passes unchanged).
+
+| Piece | Where |
+|---|---|
+| Conversation across calls: `history`, `message`, `yieldOnText` (status `yielded`), `keepChat`, `onText` | `src/core/loop.ts` (`RunAgentOptions`), `src/core/context.ts` (`JitViewOptions.keepChat`, `digestTurn`) |
+| Streaming: optional `Driver.stream` (same retry, rate-limit and overflow handling as `complete`) | `src/core/types.ts`, `plugins/drivers/{claude,openai,scripted}.ts` |
+| Live events: `buildContext({ onEvent })`; in-place flag `RunContext.inPlace` | `src/core/run.ts`, `src/core/types.ts` |
+| State directory and one session per checkout | `src/core/state-home.ts` |
+| Measure script under the items root (then the harness's `metrics/`) | `src/core/measure.ts` (`measureScriptPath`) |
+| Protected-branch defaults (a config adds, never removes) | `src/core/config.ts` |
+| Git-visible workspace: `createWorkspace(..., { visibility: 'git' })`, `hidden()` | `src/core/workspace.ts`, the read tools in `plugins/tools/` |
+| In-place writability and the `branch-guard` hook (required for in-place runs) | `src/core/inplace.ts`, `plugins/hooks/branch-guard.ts`, `src/core/hooks.ts` |
+| Explicit confined root, `.git` and `.env*` unreadable inside it | `src/core/sandbox.ts` (`setConfinedRoot`), `src/core/ts-fence.ts` |
+
+Known limits: on Linux (bwrap) the `.git`/`.env*` masks are the entries found by a bounded walk at
+each call, checked on the generated argv only (no bwrap on the development machine); on macOS the
+Seatbelt regexes are verified against the real `sandbox-exec`. The session lock treats any live pid as
+the holder (a reused pid keeps a stale lock until its file is removed by hand).
