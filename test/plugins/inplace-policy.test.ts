@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import scopeGate from '../../plugins/gates/scope.ts';
 import dependencyPolicy from '../../plugins/hooks/dependency-policy.ts';
+import { moduleSpecifiers, scriptSource } from '../../plugins/lib/dependencies.ts';
 import pathGuard from '../../plugins/hooks/path-guard.ts';
 import { INPLACE_WRITABLE_EXTS, inPlaceWritePolicy, scriptFileTokens, writePolicy, writePolicyFor } from '../../plugins/lib/path-policy.ts';
 import writeFile from '../../plugins/tools/write_file.ts';
@@ -243,5 +244,27 @@ describe('dependency-policy covers what a session can write: JavaScript and comp
     }
     const ok = '<script setup>\nimport { z } from \'zod\';\nexport const s = z.string();\n</script>\n';
     expect(await dependencyPolicy.run({ event: 'pre_tool', call: write('src/Ok.vue', ok) }, h.ctx)).toEqual({ decision: 'pass' });
+  });
+
+  it('refuses a package import added in an .mdx ESM block or an .html inline module script; the declared one passes (the twin)', async () => {
+    const h = await gitHarness({ 'package.json': PKG, 'node_modules/zod/package.json': '{"name":"zod","version":"4.6.5"}' });
+    const mdx = "import Chart from 'chart-not-here';\nimport { z } from 'zod';\n\n# Report\n\n<Chart data={z} />\n";
+    const html = '<!doctype html>\n<p>hi</p>\n<script type="module">\nimport confetti from \'confetti-not-here\';\nconfetti();\n</script>\n';
+    for (const [file, content, pkg] of [['docs/report.mdx', mdx, 'chart-not-here'], ['public/index.html', html, 'confetti-not-here']] as const) {
+      const v = await dependencyPolicy.run({ event: 'pre_tool', call: write(file, content) }, h.ctx);
+      expect(reasonOf(v), file).toMatch(new RegExp(`imports "${pkg}": package ${pkg} is not installed`));
+    }
+    const okMdx = "import { z } from 'zod';\n\n# Report\n";
+    const okHtml = '<script type="module">\nimport { z } from \'zod\';\nz.string();\n</script>\n';
+    expect(await dependencyPolicy.run({ event: 'pre_tool', call: write('docs/ok.mdx', okMdx) }, h.ctx)).toEqual({ decision: 'pass' });
+    expect(await dependencyPolicy.run({ event: 'pre_tool', call: write('public/ok.html', okHtml) }, h.ctx)).toEqual({ decision: 'pass' });
+  });
+
+  it('scriptSource: MDX ESM outside code fences, HTML module scripts only (prose, fenced examples and classic scripts are not code)', () => {
+    const mdx = "import A from 'a';\nexport const meta = {\n  title: 'x',\n};\n\nSome prose that says import b from 'b'.\n\n```js\nimport c from 'c';\n```\n\nexport { d } from 'd';\n";
+    expect(moduleSpecifiers('docs/x.mdx', mdx)).toEqual(['a', 'd']);
+    const html = '<script>var x = 1;</script>\n<script type="module" src="./main.js"></script>\n<script type=module>import e from "e";</script>\n<script type="importmap">{"imports":{"f":"/f.js"}}</script>\n';
+    expect(moduleSpecifiers('index.html', html)).toEqual(['e']);
+    expect(scriptSource('src/a.ts', 'import g from "g";')).toBe('import g from "g";');
   });
 });
