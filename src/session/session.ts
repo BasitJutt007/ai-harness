@@ -450,7 +450,6 @@ class Session {
     }
     this.turns += result.turns;
     s.store.writeJson('state.json', serializeState(s.ctx.state));
-    if (this.pending !== null) this.showProposal(this.pending);
     if (this.stop !== null) {
       // The model was told in the tool result; the harness ends its turn and says it to the owner itself.
       this.ui.warn(`⏹ the agent stopped: ${clip(this.stop, 400)} (it cannot fix this; you can)`);
@@ -486,7 +485,9 @@ class Session {
     // The gates judge every change: after an accepted finish, and after any turn that left the tree
     // different from what the last verdict judged (the model's words are never the verdict).
     if (result.status === 'done') await this.verdict('finish');
-    else if (await this.treeMoved()) await this.verdict('turn');
+    else if (await this.guarded('checking the working tree', () => this.treeMoved())) await this.verdict('turn');
+    // A proposal is shown last: the next line typed answers it.
+    if (this.pending !== null) this.showProposal(this.pending);
     this.writeRunJson('running');
   }
 
