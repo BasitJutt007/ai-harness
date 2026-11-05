@@ -137,6 +137,23 @@ describe('stack web: in place, any repository with a package.json', () => {
     expect((await profile(toolingOnly, true)).stack).toBe('web');
   });
 
+  it('TypeScript test support (an e2e fixture, a Cypress or Playwright helper, a story) keeps a JavaScript app on web; a .ts module of the app is the twin that does not', async () => {
+    const helpers = {
+      'e2e/fixtures.ts': "export const baseURL = 'http://localhost:3000';\n",
+      'e2e/home.spec.ts': "import { baseURL } from './fixtures.ts';\nexport const u = baseURL;\n",
+      'test/setup.ts': 'export const ready = true;\n',
+      'cypress/support/commands.ts': 'export {};\n',
+      'playwright/global-setup.ts': 'export default async () => {};\n',
+      'src/Button.stories.ts': 'export default {};\n',
+    };
+    const js = join(tmp.dir, 'js-express-ts-helpers');
+    writeTree(js, { ...JS_EXPRESS, ...helpers });
+    expect((await profile(js, true)).stack).toBe('web');
+    const twin = join(tmp.dir, 'js-express-ts-module');
+    writeTree(twin, { ...JS_EXPRESS, ...helpers, 'routes/money.ts': 'export const cents = (n: number): number => n * 100;\n' });
+    expect((await profile(twin, true)).stack).toBe('express');
+  });
+
   it('the session system prompt never calls a web repository TypeScript, its standards included; the express one does (the twin)', async () => {
     const base = { repo: 'r', branch: 'feat/x', writable: true, reason: '', runner: 'node:test', tools: [], checks: [] };
     const reg = await loadRegistry(loadConfig(HARNESS_ROOT), HARNESS_ROOT);

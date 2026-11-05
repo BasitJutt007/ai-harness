@@ -183,6 +183,10 @@ export function codeGlobs(layout: TargetLayout = active): string[] {
 }
 /** Directory names that conventionally hold only tests (and their helpers). */
 const TEST_DIR_RE = /^(tests?|__tests__|specs?|e2e|integration|__integration__|__mocks__)$/i;
+/** Directories of test tools' own support code (Cypress, Playwright): never the app's language. */
+const TEST_TOOL_DIR_RE = /^(cypress|playwright|__fixtures__|fixtures)$/i;
+/** Storybook stories: never the app's language either. */
+const STORY_RE = /\.stories\.[cm]?[jt]sx?$/;
 /** Tooling config files: never governed source, never "the code a test exercises". */
 const TOOLING_RE = /(^|\/)[^/]*\.config\.[cm]?[jt]s$|(^|\/)(vitest|vite|jest)\.(workspace|setup)\.[cm]?[jt]s$/;
 const IGNORE_DIRS = ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.harness/**'];
@@ -1388,8 +1392,6 @@ export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {
   });
   const testMatch = (rel: string): boolean => testName.test(rel) || globMatch(rel) || regexes.some((r) => r.test(`/${rel}`));
   const testFiles = tsFiles.filter(testMatch);
-  // TypeScript the repository's own code is written in (not a declaration, a test or a tool's config file).
-  const typescriptSources = all.some((f) => TS_SOURCE_RE.test(f) && !DECL_RE.test(f) && !testMatch(f) && !isToolingConfig(f));
 
   // Candidate test dirs: the static base of each glob, plus the outermost conventionally named dir of each test file.
   const candidates = new Set<string>();
@@ -1441,6 +1443,11 @@ export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {
     dedicated.push(d);
   }
   const testSupportRoots = outermost(dedicated);
+  // TypeScript the repository's own code is written in: not a declaration, a test, test support (a test dir's
+  // helper, e2e/fixtures.ts, a Cypress or Playwright support file, a story) or a tool's config file. A
+  // JavaScript app whose end-to-end helpers are TypeScript is still a JavaScript app.
+  const typescriptSources = all.some((f) => TS_SOURCE_RE.test(f) && !DECL_RE.test(f) && !testMatch(f) && !isToolingConfig(f)
+    && !underAny(f, testSupportRoots) && !f.split('/').slice(0, -1).some((d) => TEST_DIR_RE.test(d) || TEST_TOOL_DIR_RE.test(d)) && !STORY_RE.test(f));
 
   // Source roots: tsconfig rootDir, else its include dirs / explicit files, else the whole root; minus test dirs.
   let sourceRoots: string[];
