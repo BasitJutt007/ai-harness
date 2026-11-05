@@ -9,15 +9,19 @@
  * with the way out (delete_file). Reachability uses the harness's own import graph (testmap), plus
  * the API's tsconfig `paths` / `baseUrl` aliases resolved the way TypeScript resolves them; an alias
  * TypeScript cannot resolve makes a same-named created file UNPROVEN, never an orphan.
+ *
+ * In an in-place web layout the graph also holds JavaScript and the `<script>` blocks of .vue / .svelte
+ * components: a new helper only a component imports is used, not an orphan, and a new component or
+ * JavaScript module nothing imports is one. File mode keeps its TypeScript graph.
  */
 import path from 'node:path';
 import ts from 'typescript';
-import { defineGate, fileCheckOptions, graphFiles, importGraph, importSpecifiers, isTestFile, isTestSupport } from '../../src/core/plugin-api.ts';
-import { dependencyView } from '../lib/dependencies.ts';
+import { activeLayout, codeGlobs, defineGate, fileCheckOptions, graphFiles, importGraph, importSpecifiers, isTestFile, isTestSupport, isWebLayout } from '../../src/core/plugin-api.ts';
+import { dependencyView, scriptSource } from '../lib/dependencies.ts';
 
 /** The name an import of `p` ends with: its basename without extension (the folder name for an index file). */
 function stem(p: string): string {
-  const base = path.posix.basename(p).replace(/\.[cm]?[jt]s$/, '');
+  const base = path.posix.basename(p).replace(/\.[cm]?[jt]sx?$|\.(vue|svelte)$/, '');
   return base === 'index' ? path.posix.basename(path.posix.dirname(p)) : base;
 }
 
@@ -45,9 +49,11 @@ export default defineGate({
     const edges = new Map<string, string[]>();
     const unresolved = new Set<string>();
     try {
-      files = graphFiles(await ctx.workspace.list(['**/*.ts', '**/*.mts', '**/*.cts']));
+      const web = isWebLayout(activeLayout());
+      files = graphFiles(await ctx.workspace.list(web ? codeGlobs(activeLayout()) : ['**/*.ts', '**/*.mts', '**/*.cts']));
       const texts = new Map<string, string>();
-      for (const f of files) texts.set(f, (await ctx.workspace.read(f)) ?? '');
+      // A component's imports are in its <script> blocks (scriptSource); a script is itself.
+      for (const f of files) texts.set(f, scriptSource(f, (await ctx.workspace.read(f)) ?? ''));
       for (const [f, targets] of (await importGraph(files, async (f) => texts.get(f) ?? null)).edges) edges.set(f, [...targets]);
       // Non-relative specifiers that name the API's own modules (tsconfig paths / baseUrl, package `#imports`).
       const deps = dependencyView(root);
