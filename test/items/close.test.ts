@@ -129,6 +129,29 @@ describe('skip 3: close an item without reading the metric', () => {
     expect(ledgerTypes(root, SLUG)).not.toContain('closed');
   });
 
+  it('item status shows only the latest before reading (ref, short sha) and the after value or "not read"', async () => {
+    await approved();
+    const status = async (): Promise<string> => {
+      const out: string[] = [];
+      await cmdItem({ positionals: ['status'], flags: new Map() }, (l) => out.push(l), { root, harnessRoot: harness });
+      return out.join('\n');
+    };
+    const sha = git(repo, 'rev-parse', 'origin/main').slice(0, 12);
+    expect(await status()).toMatch(new RegExp(`count: before 3 \\(origin/main ${sha}\\), after not read$`, 'm'));
+    // proposed again with a newer before reading: only that one is shown
+    writeFileSync(join(repo, 'count.txt'), '5\n');
+    git(repo, 'commit', '-q', '-am', 'five');
+    git(repo, 'push', '-q', 'origin', 'main');
+    const m = parseContract(CONTRACT).measure;
+    if (m === null) throw new Error('no measure');
+    const again = await readMetric({ harnessRoot: harness, itemsRoot: root, repoDir: repo, ref: 'origin/main', measure: m, label: SLUG });
+    if (!again.ok) throw new Error(again.reason);
+    proposeItem(root, SLUG, { session: 's2', before: again.reading });
+    const text = await status();
+    expect(text).toMatch(new RegExp(`count: before 5 \\(origin/main ${git(repo, 'rev-parse', 'HEAD').slice(0, 12)}\\), after not read$`, 'm'));
+    expect(text).not.toMatch(/before 3/);
+  });
+
   it('refuses when commits were added to the PR after the harness shipped it', async () => {
     await approved();
     shipped();

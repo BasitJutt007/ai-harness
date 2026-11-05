@@ -26,6 +26,12 @@ const PriceSchema = z
  */
 export const DEFAULT_PROTECTED_BRANCHES: readonly string[] = ['main', 'master', 'development', 'develop', 'staging', 'production', 'release/*', 'trunk'];
 
+/**
+ * Agent-shell markers every config gets: generic names only. Product-specific markers are named in
+ * harness.config.json (`agentEnvMarkers`), so the core names no provider.
+ */
+export const DEFAULT_AGENT_ENV_MARKERS: readonly string[] = ['AI_AGENT'];
+
 /** The configured list first (its order kept), then every default it does not name. */
 export function withDefaultProtected(configured: readonly string[]): string[] {
   const seen = new Set(configured);
@@ -69,6 +75,9 @@ const ConfigSchema = z
       .default({ allow: ['scripted:*'], prices: { 'scripted:*': { input: 0, cachedInput: 0, output: 0 } }, maxRunUsd: 2 }),
     // Options per check id (CheckContext.options): repository facts a generic rule needs. Each check validates its own.
     checkOptions: z.record(z.string().min(1), z.record(z.string(), z.unknown())).default({}),
+    // Env names that mark an AI agent's shell, recorded with each typed reply (provenance.ts). Provider-neutral default.
+    agentEnvMarkers: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*\*?$/, 'an environment variable name, optionally ending in *')).default([...DEFAULT_AGENT_ENV_MARKERS])
+      .transform((m) => [...new Set([...m, ...DEFAULT_AGENT_ENV_MARKERS])]),
   })
   .strict();
 

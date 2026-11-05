@@ -21,6 +21,7 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { operatorProvenance, provenanceText, type OperatorProvenance } from './provenance.ts';
 import { commitHeaderProblems } from './ship-text.ts';
 
 // ───────────────────────────── paths ─────────────────────────────
@@ -111,7 +112,13 @@ export interface ContractParse {
   /** Raw text per field (Scenario: every scenario line joined by newlines). */
   fields: Partial<Record<ContractField, string>>;
   metric: MetricSpec | null;
+  /** The Measure command; null when it is missing, malformed, or the contract says "Measure: none". */
   measure: MeasureSpec | null;
+  /**
+   * The contract says "Measure: none": an item without a metric script (a session's small change). The
+   * contract is complete without one, but its outcome can never be read, so it can never close.
+   */
+  noMeasure: boolean;
   scenarios: Scenario[];
   notIncluded: string[];
   /** The Signed line, verbatim (the harness writes it; the human-yes gate never reads it). */
@@ -252,7 +259,10 @@ export function parseContract(text: string): ContractParse {
   }
 
   let measure: MeasureSpec | null = null;
-  if (isPlaceholder(fields.Measure)) missing.push('Measure');
+  // "none" is a placeholder everywhere else; as the whole Measure value it is the stated choice of no metric script.
+  const noMeasure = /^`*\s*none\s*`*$/i.test((fields.Measure ?? '').trim());
+  if (noMeasure) measure = null;
+  else if (isPlaceholder(fields.Measure)) missing.push('Measure');
   else {
     const m = parseMeasure(fields.Measure ?? '');
     if ('error' in m) problems.push(m.error);
@@ -289,6 +299,7 @@ export function parseContract(text: string): ContractParse {
     fields,
     metric,
     measure,
+    noMeasure,
     scenarios,
     notIncluded,
     signed,
@@ -350,7 +361,17 @@ export interface MetricReading {
 
 export type LedgerEvent =
   | { type: 'proposed'; contractHash: string; stakeholder: string; before: MetricReading | null; session: string; text: string }
-  | { type: 'human_turn'; text: string; channel: TurnChannel; session: string; inReplyTo: number | null }
+  | {
+      type: 'human_turn';
+      text: string;
+      channel: TurnChannel;
+      session: string;
+      inReplyTo: number | null;
+      /** sha256 of the contract text on disk when the reply was typed (null: no contract); absent on older entries. */
+      contractHash?: string | null;
+      /** Agent-shell environment markers present when it was recorded, names only (provenance.ts); absent on older entries. */
+      agentEnv?: string[];
+    }
   | { type: 'approved'; turn: number; contractHash: string; stakeholder: string }
   | { type: 'declined'; turn: number; contractHash: string; reason: string }
   | { type: 'metric'; phase: 'before' | 'after'; reading: MetricReading }
@@ -453,7 +474,9 @@ export interface ApprovalVerdict {
  * The human-yes verdict: the latest proposal of THIS contract text, followed by a typed terminal
  * turn whose latest decisive reply is a yes. Nothing else counts: not assistant text, not tool or
  * hook output (they never enter the ledger as human turns), not a turn on a pipe, not a reply to an
- * older proposal, and not a Signed line.
+ * older proposal, not a reply typed while the contract on disk read differently from the proposed text
+ * (or one that does not record which text it was typed against), and not a Signed line. The approving
+ * reason says how the reply arrived (provenance.ts): a terminal proves a terminal, not a person.
  */
 export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalVerdict {
   const none = { proposal: null, turn: null, stakeholder: null };
@@ -483,6 +506,13 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
       ignored.push(`"${quote}" (seq ${e.seq}) answers proposal ${String(ev.inReplyTo)}, not the latest (${latest.seq})`);
       continue;
     }
+    // A reply counts only for the contract text that was on disk when it was typed.
+    if (ev.contractHash !== latest.event.contractHash) {
+      ignored.push(ev.contractHash === undefined
+        ? `"${quote}" (seq ${e.seq}) does not record the contract text it was typed against`
+        : `"${quote}" (seq ${e.seq}) was typed while the contract read differently (${(ev.contractHash ?? 'none').slice(0, 12)}), not the proposed text (${latest.event.contractHash.slice(0, 12)})`);
+      continue;
+    }
     const c = classifyReply(ev.text);
     if (c.kind === 'unclear') {
       ignored.push(`"${quote}" (seq ${e.seq}) is not a plain yes: ${c.why}`);
@@ -498,7 +528,8 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
     const text = ev.type === 'human_turn' ? ev.text : '';
     return { ok: false, reason: `${stakeholder} did not approve (seq ${decisive.entry.seq}: "${text}"): change the contract and propose it again`, ignored, proposal: latest.seq, turn: decisive.entry, stakeholder };
   }
-  return { ok: true, reason: `${stakeholder} approved proposal seq ${latest.seq} in a typed turn (seq ${decisive.entry.seq})`, ignored, proposal: latest.seq, turn: decisive.entry, stakeholder };
+  const how = decisive.entry.event.type === 'human_turn' ? provenanceText(decisive.entry.event.channel, decisive.entry.event.agentEnv) : '';
+  return { ok: true, reason: `${stakeholder} approved proposal seq ${latest.seq} in a typed turn (seq ${decisive.entry.seq}): ${how}`, ignored, proposal: latest.seq, turn: decisive.entry, stakeholder };
 }
 
 /** The proposal the next human turn answers (the latest one), or null. */
@@ -569,13 +600,25 @@ export function proposeItem(root: string, slug: string, opts: { session: string;
 
 /**
  * Record what the stakeholder typed. Only the harness's terminal reader calls this with 'tty'; a
- * piped stdin is recorded as 'pipe' and can never approve. On a yes the harness writes the Signed
- * line itself (the human-yes gate still reads the ledger, never that line).
+ * piped stdin is recorded as 'pipe' and can never approve. With it the entry records the hash of the
+ * contract text on disk at this moment (approvalVerdict counts the reply only for that text) and the
+ * operator's provenance (provenance.ts: agent-shell markers, names only; computed here by default). On
+ * a yes the harness writes the Signed line itself (the human-yes gate still reads the ledger, never
+ * that line).
  */
-export function recordReply(root: string, slug: string, text: string, channel: TurnChannel, session: string, now: () => Date = () => new Date()): { entry: LedgerEntry; verdict: ApprovalVerdict } {
+export function recordReply(
+  root: string,
+  slug: string,
+  text: string,
+  channel: TurnChannel,
+  session: string,
+  now: () => Date = () => new Date(),
+  provenance: OperatorProvenance = operatorProvenance(),
+): { entry: LedgerEntry; verdict: ApprovalVerdict } {
   const paths = itemPaths(root, slug);
   const ledger = readLedger(paths.ledger);
-  const entry = appendLedger(paths.ledger, { type: 'human_turn', text, channel, session, inReplyTo: openProposal(ledger) }, now);
+  const atReply = contractVerdict(paths).parse?.hash ?? null;
+  const entry = appendLedger(paths.ledger, { type: 'human_turn', text, channel, session, inReplyTo: openProposal(ledger), contractHash: atReply, agentEnv: provenance.agentEnv }, now);
   const v = contractVerdict(paths);
   const verdict = v.parse !== null && v.ok ? approvalVerdict(readLedger(paths.ledger), v.parse.hash) : approvalVerdict({ entries: [], problems: [] }, '');
   if (verdict.ok && verdict.turn?.seq === entry.seq && v.parse !== null) {

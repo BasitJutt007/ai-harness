@@ -21,6 +21,7 @@ import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
 import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
+import { provenanceText } from './provenance.ts';
 import { repoCommitlint } from './ship-text.ts';
 import type { Exec } from './types.ts';
 
@@ -77,9 +78,30 @@ function one(a: ItemArgs, name: string): string | undefined {
 
 function stageLine(s: ItemStatus): string {
   const m = s.contract.parse?.metric;
-  const readings = s.ledger.entries.filter((e) => e.event.type === 'metric').map((e) => (e.event.type === 'metric' ? `${e.event.phase} ${e.event.reading.value}` : ''));
   const handAfter = m?.after !== null && m?.after !== undefined && !s.ledger.entries.some((e) => e.event.type === 'closed');
-  return `${s.slug.padEnd(28)} ${s.stage.padEnd(13)}${m !== undefined && m !== null ? ` ${m.name}: ${readings.length > 0 ? readings.join(', ') : 'not read'}` : ''}${handAfter ? `  (contract says after ${m?.after ?? ''}: written by hand, no harness reading; ignored)` : ''}`;
+  return `${s.slug.padEnd(28)} ${s.stage.padEnd(13)}${m !== undefined && m !== null ? ` ${m.name}: ${readingsText(s)}` : ''}${handAfter ? `  (contract says after ${m?.after ?? ''}: written by hand, no harness reading; ignored)` : ''}`;
+}
+
+/**
+ * The metric as status shows it: the LATEST before reading only (an item proposed again has several;
+ * only the newest is the one close compares with), with its ref and short sha, then the after value or
+ * 'not read'.
+ */
+export function readingsText(s: ItemStatus): string {
+  const metric = s.ledger.entries.flatMap((e) => (e.event.type === 'metric' ? [e.event] : []));
+  const before = metric.filter((e) => e.phase === 'before').at(-1)?.reading;
+  const after = metric.filter((e) => e.phase === 'after').at(-1)?.reading;
+  const b = before === undefined
+    ? `before not read${s.contract.parse?.noMeasure === true ? ' (Measure: none)' : ''}`
+    : `before ${before.value} (${before.ref} ${before.sha.slice(0, 12)})`;
+  return `${b}, ${after === undefined ? 'after not read' : `after ${after.value} (${after.sha.slice(0, 12)})`}`;
+}
+
+/** How the latest reply to the item arrived (provenance.ts), for `item status <slug>`; null when there is none. */
+function operatorLine(s: ItemStatus): string | null {
+  const t = s.ledger.entries.filter((e) => e.event.type === 'human_turn').at(-1);
+  if (t === undefined || t.event.type !== 'human_turn') return null;
+  return `operator           reply seq ${t.seq}: ${provenanceText(t.event.channel, t.event.agentEnv)}`;
 }
 
 /** The target clone's origin must be the contract's Repo (reading a metric on another repository proves nothing). */
@@ -168,7 +190,11 @@ export async function cmdItem(
         for (const s of slugs) {
           const st = itemStatus(root, s);
           out(stageLine(st));
-          if (slug !== undefined) for (const l of st.lines) out(`  ${l}`);
+          if (slug !== undefined) {
+            for (const l of st.lines) out(`  ${l}`);
+            const op = operatorLine(st);
+            if (op !== null) out(`  ${op}`);
+          }
         }
         return 0;
       }

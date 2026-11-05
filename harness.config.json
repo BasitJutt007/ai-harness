@@ -20,5 +20,6 @@
   },
   "checkOptions": {
     "nest-route-guard": { "adminDecorators": ["AdminOnly"], "publicDecorators": ["Public"] }
-  }
+  },
+  "agentEnvMarkers": ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "AI_AGENT", "CODEX_*", "CURSOR_AGENT", "GEMINI_CLI"]
 }
