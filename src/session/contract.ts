@@ -30,7 +30,7 @@ import { appendLedger, CONTRACTS_DIR, itemPaths, itemStatus, parseContract, prop
 import { readMetric, type MeasureResult } from '../core/measure.ts';
 import { repoCommitlint } from '../core/ship-text.ts';
 import type { Exec } from '../core/types.ts';
-import { ProposeContractInput, type ProposeContractInputT } from '../../plugins/tools/propose_contract.ts';
+import { measureScriptProblem, normalizeScript, ProposeContractInput, type ProposeContractInputT } from '../../plugins/tools/propose_contract.ts';
 import type { ShownScript } from './ui.ts';
 
 /** What proposing needs from the session. */
@@ -274,7 +274,9 @@ export async function proposeDrafted(raw: unknown, env: ProposalEnv): Promise<Pr
   const parse = parseContract(text);
   const why = incompleteReason(parse, text);
   if (why !== null) return { ok: false, reason: why };
-  const script = input.measureScript !== undefined ? { path: `metrics/${input.slug}.mjs`, text: input.measureScript.endsWith('\n') ? input.measureScript : `${input.measureScript}\n` } : null;
+  // What is written is what the box shows and node runs: \r\n read as \n (the schema refused anything else that breaks a line).
+  const drafted = input.measureScript !== undefined ? normalizeScript(input.measureScript) : undefined;
+  const script = drafted !== undefined ? { path: `metrics/${input.slug}.mjs`, text: drafted.endsWith('\n') ? drafted : `${drafted}\n` } : null;
   return propose(env, input.slug, text, parse, base, script, [`Repo, Base and Stakeholder filled by the harness: ${(parse.fields.Repo ?? '').trim()}, base ${named}, ${env.person}`], toModel);
 }
 
@@ -300,7 +302,11 @@ export async function proposeImported(path: string, cwd: string, env: ProposalEn
     const bySlug = join(dirname(file), `${slug}.mjs`);
     const source = existsSync(named) ? named : existsSync(bySlug) ? bySlug : null;
     if (source === null) return { ok: false, reason: `the Measure line names ${parse.measure.script}: put ${basename(parse.measure.script)} next to the contract (${tildePath(dirname(file))})` };
-    script = { path: parse.measure.script, text: readFileSync(source, 'utf8') };
+    const scriptText = normalizeScript(readFileSync(source, 'utf8'));
+    // The owner reads it in the box before saying yes: it must read as node runs it.
+    const unreadable = measureScriptProblem(scriptText);
+    if (unreadable !== null) return { ok: false, reason: `the Measure script ${tildePath(source)} cannot be shown as it runs: ${unreadable}` };
+    script = { path: parse.measure.script, text: scriptText };
   }
   return propose(env, slug, text, parse, base, script, [`imported from ${tildePath(file)} (Repo and Base as written)`], []);
 }

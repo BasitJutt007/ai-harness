@@ -158,6 +158,58 @@ describe('the propose_contract input', () => {
   });
 });
 
+describe('the Measure script the owner reads is the script node runs', () => {
+  const CR = String.fromCharCode(0x0d);
+  const LS = String.fromCharCode(0x2028);
+  const PS = String.fromCharCode(0x2029);
+  const ZWJ = String.fromCharCode(0x200d);
+  const BOM = String.fromCharCode(0xfeff);
+  const CYRILLIC_A = String.fromCharCode(0x0430);
+  const shown1 = "console.log(JSON.stringify({ metric: 'm', value: 1 })); // prints 1, nothing else";
+  const ran42 = "console.log(JSON.stringify({ metric: 'm', value: 42 }));";
+
+  it('a drafted script with a line break node sees and a terminal does not (lone CR, U+2028, U+2029), an invisible character, or a look-alike letter is refused, naming the line', () => {
+    for (const [what, script, why] of [
+      ['lone CR', `${shown1}${CR}${ran42}\n`, /line 1 holds U\+000D, a line break for node that a terminal does not show/],
+      ['U+2028', `${shown1}${LS}${ran42}\n`, /line 1 holds U\+2028/],
+      ['U+2029', `const a = 1;\n${shown1}${PS}${ran42}\n`, /line 2 holds U\+2029/],
+      ['zero-width joiner', `const value = 1; const val${ZWJ}ue = 42;\nconsole.log(val${ZWJ}ue);\n`, /line 1 holds U\+200D: control characters and invisible characters are refused/],
+      ['byte order mark', `${BOM}console.log(1);\n`, /line 1 holds U\+FEFF/],
+      ['look-alike letter', `const v${CYRILLIC_A}lue = 42;\nconsole.log(v${CYRILLIC_A}lue);\n`, /line 1 holds U\+0430: a Measure script you write is printable ASCII only/],
+    ] as const) {
+      const res = ProposeContractInput.safeParse(proposal({ measureScript: script }));
+      expect(res.success, what).toBe(false);
+      expect(JSON.stringify(res.error?.issues), what).toMatch(why);
+    }
+  });
+
+  it('twin: plain newlines and Windows line endings pass, and what is written ends lines with plain newlines', async () => {
+    const crlf = `${shown1}\r\n${ran42}\r\n`;
+    expect(ProposeContractInput.safeParse(proposal({ measureScript: crlf })).success).toBe(true);
+    const o = await proposeDrafted(input({ measureScript: crlf }), env);
+    expect(o.ok, o.ok ? '' : o.reason).toBe(true);
+    if (!o.ok) return;
+    expect(o.proposal.script?.text).toBe(`${shown1}\n${ran42}\n`);
+    expect(readFileSync(join(env.itemsRoot, 'metrics', 'greeting-name.mjs'), 'utf8')).toBe(`${shown1}\n${ran42}\n`);
+  });
+
+  it('/import holds the owner\'s script to the same rule (non-ASCII text in it is fine), and nothing is written when it is refused', async () => {
+    const dir = join(r.base, 'drafts');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'hand-made.md'), draftedContract(input({ slug: 'hand-made' }), { repo: 'acme/tiny-web', base: 'development', measure: 'node metrics/hand.mjs' }));
+    for (const bad of [`${shown1}${CR}${ran42}\n`, `${shown1}${LS}${ran42}\n`, `console.log(1);${ZWJ}\n`]) {
+      writeFileSync(join(dir, 'hand.mjs'), bad);
+      const o = await proposeImported(join(dir, 'hand-made.md'), r.base, env);
+      expect(o.ok === false && o.reason).toMatch(/the Measure script .*hand\.mjs cannot be shown as it runs: line 1 holds U\+(000D|2028|200D)/);
+      expect(existsSync(join(env.itemsRoot, 'metrics', 'hand.mjs'))).toBe(false);
+    }
+    writeFileSync(join(dir, 'hand.mjs'), "// counts the café's menus\r\nconsole.log(7);\r\n");
+    const ok = await proposeImported(join(dir, 'hand-made.md'), r.base, env);
+    expect(ok.ok, ok.ok ? '' : ok.reason).toBe(true);
+    expect(readFileSync(join(env.itemsRoot, 'metrics', 'hand.mjs'), 'utf8')).toBe("// counts the café's menus\nconsole.log(7);\n");
+  });
+});
+
 describe('Stakeholder and Owner, filled by the harness', () => {
   it('the person at this terminal is the Stakeholder; a Stakeholder the model sends is ignored, and the tool result says so', async () => {
     const o = await proposeDrafted(input({ stakeholder: 'Mallory', owner: '' }), env);

@@ -173,6 +173,22 @@ describe('nothing reaches the terminal with an escape code in it', () => {
     expect(out).toContain("│   console.log('1');");
   });
 
+  it('the box breaks a script where node does (CR, U+2028, U+2029 too) and a contract where its parser does (CR too): nothing is glued onto a comment', () => {
+    const CR = String.fromCharCode(0x0d);
+    const LS = String.fromCharCode(0x2028);
+    const p = capture(false, null);
+    new Ui(p.out, false).proposal('greet', `# greet${CR}Problem: names${CR}Owner: web team\n`, [], { path: 'metrics/greet.mjs', text: `// prints 1${CR}console.log(42);${LS}console.log(43);\n` });
+    const out = p.text();
+    expect(out).toContain('│ Measure script metrics/greet.mjs (3 lines)');
+    expect(out).toContain('│   // prints 1\n│   console.log(42);\n│   console.log(43);\n');
+    expect(out).toContain('│ Problem: names\n│ Owner: web team\n');
+    // The twin: a script with plain newlines is shown with the same lines.
+    const q = capture(false, null);
+    new Ui(q.out, false).proposal('greet', '# greet\nProblem: names\n', [], { path: 'metrics/greet.mjs', text: '// prints 1\nconsole.log(42);\n' });
+    expect(q.text()).toContain('│ Measure script metrics/greet.mjs (2 lines)');
+    expect(q.text()).toContain('│   // prints 1\n│   console.log(42);\n');
+  });
+
   it('a diff (file content is the agent\'s) is stripped', () => {
     const p = capture(false);
     new Ui(p.out, false).diff(`+const a = 1;${ESC}[2K\n-${ESC}]8;;http://x${ESC}\\link`);

@@ -316,6 +316,28 @@ describe('a plain JavaScript web repository', () => {
   });
 });
 
+describe.skipIf(detectMechanism() === 'none')('the Measure script shown is the one that runs (whole session)', () => {
+  const shown1 = "console.log(JSON.stringify({ metric: 'm', value: 1 })); // prints 1, nothing else";
+  const ran42 = "console.log(JSON.stringify({ metric: 'm', value: 42 }));";
+
+  it('a script whose second statement hides behind a carriage return (node runs it, the box would not show it) is refused: no box, nothing runs, nothing recorded', async () => {
+    const ran = await runScripted(r, [calls(['propose_contract', proposal({ measureScript: `${shown1}${String.fromCharCode(0x0d)}${ran42}\n` })]), text('I will rewrite it.')], ['fix the greeting', 'yes']);
+    expect(ran.out).toMatch(/✗ propose_contract: invalid input/);
+    expect(ran.out).not.toContain('┌ PROPOSAL');
+    expect(ran.out).not.toMatch(/before value/);
+    expect(ledgerTypes(ran, 'greeting-name')).toEqual([]);
+    expect(JSON.stringify(ran.driver.requests[1]?.messages ?? [])).toContain('line 1 holds U+000D, a line break for node that a terminal does not show');
+  });
+
+  it('twin: the same two statements on two plain lines are shown as two lines, and the before value is what the second prints', async () => {
+    const ran = await runScripted(r, [calls(['propose_contract', proposal({ measureScript: `${shown1}\n${ran42}\n` })]), text('ok'), text('ok')], ['fix the greeting', 'yes']);
+    expect(ran.out).toContain('│ Measure script metrics/greeting-name.mjs (2 lines)');
+    expect(ran.out).toContain(`│   ${ran42}`);
+    expect(ran.out).toMatch(/before value: 42 \(read by the harness at development/);
+    expect(ledgerTypes(ran, 'greeting-name')).toEqual(['proposed', 'human_turn', 'approved', 'metric']);
+  });
+});
+
 describe.skipIf(detectMechanism() === 'none')('ship, then close', () => {
   const COUNT = "import { readdirSync } from 'node:fs';\nconsole.log(readdirSync('src').length);\n";
 
