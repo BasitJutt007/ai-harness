@@ -3,8 +3,8 @@
  * (different drivers/models) were held to the same rules:
  * - the ACTIVE plugin manifest: every registered (enabled) tool, hook, gate and check with its file
  *   and sha256 (drivers excluded: they legitimately differ). A config that disables a hook changes it.
- * - the governing configuration (harness.config.json as validated, with the effective sandbox mode)
- *   and its sha256. Evidence locations (runsDir, tokensDir) and the worktree dir are where output
+ * - the governing configuration (harness.config.json as validated, with the effective sandbox mode and
+ *   the options each check is given) and its sha256. Evidence locations (runsDir, tokensDir) and the worktree dir are where output
  *   goes, not how a run is governed, and are left out.
  * - the core: sha256 of every file under src/core/ (and of the whole set).
  * The run's verdict and gate statuses are recorded beside it (run.json `verdict`, `gateStatuses`).
@@ -67,6 +67,8 @@ export function governingConfig(config: HarnessConfig, effectiveSandbox: Harness
     history: config.history,
     limits: config.limits,
     sandbox: effectiveSandbox,
+    // What a check is told about the repository (e.g. which decorators guard a route) decides its verdict.
+    checkOptions: config.checkOptions,
   };
 }
 

@@ -95,6 +95,15 @@ describe('harness agnostic: governance', () => {
     expect(r.text).toContain('sandbox: "auto" vs "off"');
   });
 
+  it('a changed check option is a config difference (it decides what a check passes)', async () => {
+    const changed = { ...config, checkOptions: { ...config.checkOptions, 'some-check': { names: ['Other'] } } };
+    const g2 = governanceRecord(reg, changed, HARNESS_ROOT, 'auto');
+    expect(g2.configSha256).not.toBe(gov.configSha256);
+    const r = await agnostic(runDir(gov, 'DONE'), runDir(g2, 'DONE'));
+    expect(r.code).toBe(1);
+    expect(r.text).toMatch(/config hash differs: \w+ vs \w+ \(checkOptions: /);
+  });
+
   it('zero governing diff but a run NOT DONE: exit 1 with the reason', async () => {
     const r = await agnostic(runDir(gov, 'DONE'), runDir(gov, 'NOT DONE (final gates not green)'));
     expect(r.code).toBe(1);

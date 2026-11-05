@@ -128,7 +128,8 @@ comes from `defineTool`, `defineHook`, `defineGate`, `defineCheck` or `defineDri
 Zod-validates and fingerprints it. A new tool is offered on the next run; a new check gets report
 lines, a rules-index line and a place in the `standards` gate (category `standards`: strict over the
 whole API; other categories: only files the run changed, or in brownfield only what it introduced;
-no findings = `n/a`). `"disabled"` in `harness.config.json` turns a plugin off. Plugins are trusted
+no findings = `n/a`). `"disabled"` in `harness.config.json` turns a plugin off, and `"checkOptions"`
+gives a check the repository facts it needs (its own entry only, as `ctx.options`). Plugins are trusted
 code; the registry refuses plugin directories inside the worktree dir. **`src/core/` never changes
 to extend:** `docs/extending.md` has type-checked examples, and `scripts/simulate-extensions.mjs`
 adds the `examples/plugins/` versions to a throwaway copy and asserts that only `plugins/**` changed.

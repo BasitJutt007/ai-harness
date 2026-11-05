@@ -293,7 +293,8 @@ interface CheckPlugin {
 //   exec, harnessRoot, logs,
 //   taskKind? ('greenfield' | 'brownfield'; absent for `harness check`),
 //   base? ({ repoRoot, rootRel, sha } of the run's base commit; absent for `harness check`),
-//   dependencies() (merged dependencies + devDependencies of <root>/package.json, {} if none)
+//   dependencies() (merged dependencies + devDependencies of <root>/package.json, {} if none),
+//   options? (this check's own entry of harness.config.json `checkOptions`; absent when none)
 // CheckFinding: { rule, file, status: 'pass'|'fail'|'skip', units: { passed, total }, violations: [{ location: 'src/x.ts:12:5', message }], skipReason? }
 ```
 
@@ -367,6 +368,19 @@ The core guarantees:
   when a tool you need will not run.
 - Optional helpers live in `plugins/lib/plugin-helpers.ts`: `nodeLocation`, `walk`,
   `fileFinding`, `lastName` and `hasProperty`. It also re-exports the whole plugin API.
+- **Options from the configuration.** A rule that needs a fact about the codebase it checks (which
+  decorator marks a route admin-only, say) reads it from `ctx.options` instead of hard-coding one
+  codebase's names. `harness.config.json` holds them per check id, and each check receives only its
+  own entry (a copy):
+
+  ```json
+  "checkOptions": { "nest-route-guard": { "adminDecorators": ["RequireAdmin"], "publicDecorators": ["SkipAuth"] } }
+  ```
+
+  The core only checks that each entry is an object; validate the values yourself and return a
+  `skip` naming what is wrong when you cannot read them. Without the options a rule needs, report
+  n/a with the reason (a `0/0` finding with `naReason`), never a pass. The options are part of the
+  governing configuration recorded in `run.json`, so `harness agnostic` sees a changed option.
 
 ## Hook
 

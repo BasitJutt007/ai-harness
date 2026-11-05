@@ -376,7 +376,7 @@ async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
   }
   const root = apiDir(p, out);
   if (root === null) return 2;
-  const { registry } = await loadAll();
+  const { config, registry } = await loadAll();
   for (const e of registry.errors) out(`plugin error  ${e.file}: ${e.error}`);
   const rules = many(p, 'rule');
   const categories = many(p, 'category');
@@ -405,6 +405,7 @@ async function cmdCheck(p: ParsedArgs, out: Out): Promise<number> {
       logs,
       layout: profile,
       stack: profile.stack,
+      checkOptions: config.checkOptions,
       ...(rules.length > 0 ? { rules } : {}),
       ...(categories.length > 0 ? { categories } : {}),
     });

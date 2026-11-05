@@ -149,6 +149,8 @@ export async function runChecks(opts: {
   categories?: string[];
   rules?: string[];
   layout?: TargetLayout;
+  /** harness.config.json `checkOptions`: each check gets only its own entry, as CheckContext.options. */
+  checkOptions?: Readonly<Record<string, Record<string, unknown>>>;
 } & CheckRunInfo): Promise<CheckReport> {
   const selected = selectChecks(opts.checks, opts.categories, opts.rules, opts.stack);
   const otherStacks = selectChecks(opts.checks, opts.categories, opts.rules).filter((c) => !selected.includes(c));
@@ -156,7 +158,7 @@ export async function runChecks(opts: {
   const findings: CheckFinding[] = [];
   for (const check of selected) {
     try {
-      const out: unknown = await check.run(ctx);
+      const out: unknown = await check.run(withOptions(ctx, opts.checkOptions, check.id));
       if (!Array.isArray(out)) throw new Error('returned no list of findings');
       findings.push(...out.map((f) => validFinding(f, check.id)));
     } catch (e) {
@@ -177,6 +179,15 @@ export async function runChecks(opts: {
     report.text = `${report.text}\n${line}`;
   }
   return { root: opts.root, findings, ...report };
+}
+
+/**
+ * The context one check runs with: the shared context plus that check's own options (a copy, so a check
+ * cannot change what the next run or another check reads), or the shared context when it has none.
+ */
+export function withOptions(ctx: CheckContext, all: Readonly<Record<string, Record<string, unknown>>> | undefined, id: string): CheckContext {
+  const own = all !== undefined && Object.hasOwn(all, id) ? all[id] : undefined;
+  return own === undefined ? ctx : { ...ctx, options: structuredClone(own) };
 }
 
 /** Checks matching the categories, rules and (when given) the stack; a check declaring no stacks applies to all. */

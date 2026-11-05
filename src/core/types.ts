@@ -524,6 +524,13 @@ export interface HarnessConfig {
   sandbox: 'auto' | 'off';
   /** Model allowlist and spend cap. Default (no config): only the offline replay driver may run. */
   models: ModelPolicy;
+  /**
+   * Options per check id, handed to that check alone as CheckContext.options (default: none). The
+   * repository-specific facts a generic rule needs (e.g. which decorators mark a route admin-only)
+   * live here, so no check hard-codes one codebase's names. The core does not interpret them: each
+   * check validates its own and reports UNPROVEN on options it cannot read.
+   */
+  checkOptions: Record<string, Record<string, unknown>>;
 }
 
 export interface TestRunReport {
@@ -862,6 +869,12 @@ export interface CheckContext {
   dependencies(): Record<string, string>;
   /** The target's stack, when known (the run's profile, or computed by `harness check`). */
   stack?: Stack;
+  /**
+   * This check's own options: harness.config.json `checkOptions.<check id>`, as written (absent when
+   * none are configured). Untrusted input to the check: validate it, and never read absent options
+   * as permission to pass.
+   */
+  options?: Readonly<Record<string, unknown>>;
 }
 
 /**

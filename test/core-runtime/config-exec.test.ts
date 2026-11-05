@@ -44,6 +44,18 @@ describe('config', () => {
     writeFileSync(join(tmp.dir, 'harness.config.json'), JSON.stringify({ sandbox: 'off' }));
     expect(loadConfig(tmp.dir).sandbox).toBe('off');
   });
+
+  it('checkOptions: none by default; an object per check id, kept as written; anything else is refused', () => {
+    writeFileSync(join(tmp.dir, 'harness.config.json'), JSON.stringify({}));
+    expect(loadConfig(tmp.dir).checkOptions).toEqual({});
+    const options = { 'some-check': { names: ['RequireAdmin'], strict: true } };
+    writeFileSync(join(tmp.dir, 'harness.config.json'), JSON.stringify({ checkOptions: options }));
+    expect(loadConfig(tmp.dir).checkOptions).toEqual(options);
+    for (const bad of [{ checkOptions: ['some-check'] }, { checkOptions: { 'some-check': ['RequireAdmin'] } }, { checkOptions: { 'some-check': 'RequireAdmin' } }, { checkOptions: { '': {} } }]) {
+      writeFileSync(join(tmp.dir, 'harness.config.json'), JSON.stringify(bad));
+      expect(() => loadConfig(tmp.dir), JSON.stringify(bad)).toThrow(/checkOptions/);
+    }
+  });
 });
 
 describe('exec', () => {

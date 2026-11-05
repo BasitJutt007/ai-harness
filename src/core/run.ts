@@ -130,6 +130,7 @@ export function buildContext(opts: {
     taskKind: opts.task.kind,
     baseSha: opts.run.baseSha,
     runDir: opts.run.runDir,
+    checkOptions: opts.config.checkOptions,
     ...(opts.profile !== undefined ? { profile: opts.profile } : {}),
   });
   return {

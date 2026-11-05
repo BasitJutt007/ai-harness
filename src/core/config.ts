@@ -52,6 +52,8 @@ const ConfigSchema = z
       })
       .strict()
       .default({ allow: ['scripted:*'], prices: { 'scripted:*': { input: 0, cachedInput: 0, output: 0 } }, maxRunUsd: 2 }),
+    // Options per check id (CheckContext.options): repository facts a generic rule needs. Each check validates its own.
+    checkOptions: z.record(z.string().min(1), z.record(z.string(), z.unknown())).default({}),
   })
   .strict();
 
