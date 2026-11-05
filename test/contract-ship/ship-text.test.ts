@@ -37,9 +37,9 @@ describe('commit header (the contract Commit line)', () => {
   });
 
   it.each([
-    'fix(AUTH): Require the admin role on the ten admin-only routes',
-    'fix(members): refetch every Members list after a member is added',
-    'fix(signals): replace a refetched page instead of appending it again',
+    'fix(AUTH): Require the admin role on the report export routes',
+    'fix(cart): refetch every cart view after an item is added',
+    'fix(feed): replace a refetched page instead of appending it again',
     'chore(deps): Bump zod to 4.1',
     'feat!: drop the v1 users route',
   ])('accepts %j', (header) => {
@@ -63,17 +63,17 @@ describe('commit header (the contract Commit line)', () => {
 });
 
 describe('commit message', () => {
-  const c = parseContract(contractFor('members', { Commit: 'fix(members): refetch every Members list after a member is added', Problem: 'The list keeps its old rows after Add member. '.repeat(4).trim() }));
+  const c = parseContract(contractFor('cart', { Commit: 'fix(cart): refetch every cart view after an item is added', Problem: 'The cart keeps its old rows after Add item. '.repeat(4).trim() }));
 
   it('is the approved header and the contract, wrapped at 72, with no trailers', () => {
-    const msg = commitMessage({ contract: c, slug: 'members', runId: 'members-openai-1', before: '1' });
+    const msg = commitMessage({ contract: c, slug: 'cart', runId: 'cart-openai-1', before: '1' });
     const lines = msg.split('\n');
-    expect(lines[0]).toBe('fix(members): refetch every Members list after a member is added');
+    expect(lines[0]).toBe('fix(cart): refetch every cart view after an item is added');
     expect(lines[1]).toBe('');
     expect(lines.every((l) => l.length <= 72)).toBe(true);
     expect(msg).toContain('Scenarios:\n- WHEN the run finishes THEN its gates decide');
     expect(msg).toContain('before 1;');
-    expect(msg).toContain('Harness run: members-openai-1');
+    expect(msg).toContain('Harness run: cart-openai-1');
     expect(trailerProblems(msg)).toEqual([]);
   });
 
@@ -92,13 +92,13 @@ describe('commit message', () => {
 
 const TEMPLATE = `# Description
 
-Brief description of the changes made in this pull request
+Please include a summary of the change and why it is needed
 
 <!-- what reviewers should look at first -->
 
-# Ticket Link
+# Related issue
 
-Ticket # | Ticket Title
+Fixes # (issue)
 
 ## Type of change
 
@@ -115,21 +115,21 @@ Ticket # | Ticket Title
 `;
 
 describe('PR template', () => {
-  const c = parseContract(contractFor('members', { Commit: 'fix(members): refetch every Members list after a member is added' }));
+  const c = parseContract(contractFor('cart', { Commit: 'fix(cart): refetch every cart view after an item is added' }));
   const header = parseHeader(c.fields.Commit ?? '');
   if (header === null) throw new Error('fixture header');
   const green = new Map([['standards', 'pass'], ['observed-red', 'pass'], ['tests-green', 'pass']]);
-  const fill = (gates: Map<string, string>) => ({ description: prDescription(c, '1', 'members'), ticket: ticketLine(c, 'members'), header, gates });
+  const fill = (gates: Map<string, string>) => ({ description: prDescription(c, '1', 'cart'), ticket: ticketLine(c, 'cart'), header, gates });
 
   it('replaces the placeholders, ticks only what a gate proved, and leaves the rest to the reviewer', () => {
     const f = fillPrTemplate(TEMPLATE, fill(green));
     expect(f.untouched).toEqual([]);
-    expect(f.body).not.toContain('Brief description of the changes');
-    expect(f.body).not.toContain('Ticket # | Ticket Title');
+    expect(f.body).not.toContain('Please include a summary of the change');
+    expect(f.body).not.toContain('Fixes # (issue)');
     expect(f.body).not.toContain('<!--');
-    expect(f.body).toContain('Test fixture item members');
+    expect(f.body).toContain('Test fixture item cart');
     expect(f.body).toContain('**Metric:** fixture metric (one run): before **1**');
-    expect(f.body).toContain('No ticket: backlog item `members`');
+    expect(f.body).toContain('No ticket: backlog item `cart`');
     expect(f.body).toContain('- [x] Bug fix (non-breaking change which fixes an issue)');
     expect(f.body).toContain('- [ ] New feature');
     expect(f.body).toContain('- [x] I have added tests that prove my fix is effective or that my feature works (observed-red:');
@@ -149,8 +149,8 @@ describe('PR template', () => {
   });
 
   it('a Ticket line in the contract fills the ticket placeholder', () => {
-    const withTicket = parseContract(contractFor('members', { Ticket: 'MYSF-1234 | Members list refresh' }));
-    expect(ticketLine(withTicket, 'members')).toBe('MYSF-1234 | Members list refresh');
+    const withTicket = parseContract(contractFor('cart', { Ticket: 'SHOP-1234 | Cart refresh' }));
+    expect(ticketLine(withTicket, 'cart')).toBe('SHOP-1234 | Cart refresh');
   });
 });
 

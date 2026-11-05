@@ -15,14 +15,14 @@ export const HTTP_DECORATORS = ['Get', 'Post', 'Put', 'Patch', 'Delete', 'All', 
 export interface NestRoute {
   /** HTTP method in upper case (ALL for @All). */
   method: string;
-  /** Joined path, e.g. /admin/badges/:id ('' parts dropped, always one leading slash). */
+  /** Joined path, e.g. /admin/reports/:id ('' parts dropped, always one leading slash). */
   path: string;
   /** Class.method */
   handler: string;
   /** API-relative file and 1-based line of the method. */
   file: string;
   line: number;
-  /** Decorator names on the method and on its class (e.g. AdminOnly, Public, UseGuards). */
+  /** Decorator names on the method and on its class (e.g. UseGuards, Roles, or a codebase's own). */
   methodDecorators: string[];
   classDecorators: string[];
   /** Why the path could not be read exactly (the route is then not comparable). */
@@ -104,19 +104,18 @@ export function routesOf(file: string, text: string): NestRoute[] {
   return out;
 }
 
-/** "GET /admin/badges/:id" with parameter names normalised (renaming :id to :badgeId is not a change). */
+/** "GET /admin/reports/:id" with parameter names normalised (renaming :id to :reportId is not a change). */
 export function routeKey(r: Pick<NestRoute, 'method' | 'path'>): string {
   return `${r.method} ${r.path.replace(/:[A-Za-z0-9_]+/g, ':param')}`;
 }
 
-/** Whether the route is reachable without authentication (@Public on the method or its class). */
-export function isPublic(r: NestRoute): boolean {
-  return r.methodDecorators.includes('Public') || r.classDecorators.includes('Public');
-}
-
-/** Whether the route requires the admin role (@AdminOnly on the method or its class). */
-export function isAdminOnly(r: NestRoute): boolean {
-  return r.methodDecorators.includes('AdminOnly') || r.classDecorators.includes('AdminOnly');
+/**
+ * The first of `names` the route carries, on its method or on its controller class; null when it carries
+ * none. Which names mean "admin only" or "public" differs per codebase, so callers pass them in (the
+ * nest-route-guard check reads them from harness.config.json) instead of this module assuming one set.
+ */
+export function decoratorOf(r: NestRoute, names: readonly string[]): string | null {
+  return names.find((n) => r.methodDecorators.includes(n) || r.classDecorators.includes(n)) ?? null;
 }
 
 /** Admin-facing: an `admin` path segment, or a file under an admin/ directory. */

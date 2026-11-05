@@ -34,6 +34,8 @@ export function createServices(opts: {
   runDir?: string;
   /** The API's profile (layout, runner): computed by the run at preflight. */
   profile?: TargetProfile;
+  /** harness.config.json `checkOptions`, handed to each check as its own CheckContext.options. */
+  checkOptions?: Readonly<Record<string, Record<string, unknown>>>;
 }): CoreServices {
   const { ws, registry, state, logs, exec, harnessRoot, profile } = opts;
   if (profile !== undefined) setActiveLayout(profile);
@@ -67,6 +69,7 @@ export function createServices(opts: {
         harnessRoot,
         logs,
         ...(profile !== undefined ? { layout: profile, stack: profile.stack } : {}),
+        ...(opts.checkOptions !== undefined ? { checkOptions: opts.checkOptions } : {}),
         ...(opts.taskKind !== undefined ? { taskKind: opts.taskKind } : {}),
         ...(base !== undefined ? { base } : {}),
         ...(o?.categories !== undefined ? { categories: o.categories } : {}),

@@ -32,6 +32,7 @@ export const CONFIG: HarnessConfig = {
   limits: { maxReadLines: 160, maxListEntries: 200, maxSearchHits: 40 },
   sandbox: 'auto',
   models: { allow: ['scripted:*'], prices: { 'scripted:*': { input: 0, cachedInput: 0, output: 0 } }, maxRunUsd: 2 },
+  checkOptions: {},
 };
 
 export const GREENFIELD: Task = {

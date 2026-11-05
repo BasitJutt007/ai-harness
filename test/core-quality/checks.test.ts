@@ -265,6 +265,53 @@ describe('createCheckContext', () => {
   });
 });
 
+describe('check options (harness.config.json checkOptions)', () => {
+  /** A check that records the options it was handed, and tries to change them. */
+  function recorder(id: string, seen: Array<[string, unknown]>): CheckPlugin {
+    return {
+      kind: 'check', id, category: 'custom',
+      run: async (c) => {
+        seen.push([id, structuredClone(c.options)]);
+        const names = c.options?.['names'];
+        if (Array.isArray(names)) names.push('Injected');
+        return [pass(id, 'src/a.ts', 1)];
+      },
+    };
+  }
+
+  it('each check gets only its own entry; a check with none gets none', async () => {
+    const seen: Array<[string, unknown]> = [];
+    const checkOptions = { configured: { names: ['RequireAdmin'] }, unrelated: { names: ['Other'] } };
+    await runChecks({ root, checks: [recorder('configured', seen), recorder('plain', seen)], exec, harnessRoot: HARNESS_ROOT, logs, checkOptions });
+    expect(seen).toEqual([['configured', { names: ['RequireAdmin'] }], ['plain', undefined]]);
+  });
+
+  it('a check cannot change the options another run reads (each run gets a copy)', async () => {
+    const seen: Array<[string, unknown]> = [];
+    const checkOptions = { configured: { names: ['RequireAdmin'] } };
+    await runChecks({ root, checks: [recorder('configured', seen)], exec, harnessRoot: HARNESS_ROOT, logs, checkOptions });
+    await runChecks({ root, checks: [recorder('configured', seen)], exec, harnessRoot: HARNESS_ROOT, logs, checkOptions });
+    expect(checkOptions.configured.names).toEqual(['RequireAdmin']);
+    expect(seen.map(([, o]) => o)).toEqual([{ names: ['RequireAdmin'] }, { names: ['RequireAdmin'] }]);
+  });
+
+  it('an inherited key is not an entry: only own keys of checkOptions name a check', async () => {
+    const seen: Array<[string, unknown]> = [];
+    await runChecks({ root, checks: [recorder('toString', seen)], exec, harnessRoot: HARNESS_ROOT, logs, checkOptions: {} });
+    expect(seen).toEqual([['toString', undefined]]);
+  });
+
+  it('services.runChecks hands the run\'s checkOptions through', async () => {
+    const seen: Array<[string, unknown]> = [];
+    const ws = { repoRoot: dirname(root), root, rootRel: 'api' } as unknown as Workspace;
+    const registry: RegistryView = { drivers: [], tools: [], hooks: [], gates: [], checks: [{ plugin: recorder('configured', seen), file: 'p.ts', sha256: '0' }], errors: [] };
+    const state = { turn: 1, tests: [] } as unknown as RunState;
+    const services = createServices({ ws, registry, state, logs, exec, harnessRoot: HARNESS_ROOT, checkOptions: { configured: { names: ['SkipAuth'] } } });
+    await services.runChecks();
+    expect(seen).toEqual([['configured', { names: ['SkipAuth'] }]]);
+  });
+});
+
 describe('services.runChecks during a run', () => {
   it('populates taskKind and base (worktree root, API root, base sha)', async () => {
     const seen: unknown[] = [];

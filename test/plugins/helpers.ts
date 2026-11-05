@@ -145,6 +145,7 @@ export const testConfig: HarnessConfig = {
   limits: { maxReadLines: 5, maxListEntries: 3, maxSearchHits: 2 },
   sandbox: 'auto',
   models: { allow: ['scripted:*'], prices: { 'scripted:*': { input: 0, cachedInput: 0, output: 0 } }, maxRunUsd: 2 },
+  checkOptions: {},
 };
 
 export function emptyRegistry(): RegistryView {

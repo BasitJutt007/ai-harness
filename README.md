@@ -23,22 +23,29 @@ CLI. Everything else is a plugin that registers by being dropped into `plugins/`
 
 Assignment 02 sits on top of the 01 harness: `git log main..feat/assignment-02` starts at `f24e226`,
 after the 01 merge (`85fe886`). It encodes how I work as hooks and checks, adds the briefing's three
-gates, and runs items from my own backlog through them.
+gates, and puts items from my own backlog through them. The harness code names no codebase: what a
+check needs to know about a repository comes from configuration, and real items live outside this
+repository ([below](#where-real-items-live)).
 
 | Deliverable | Where |
 |---|---|
 | How I work, mapped gate by gate | [docs/workflow.md](docs/workflow.md) |
-| Three backlog items | contracts in [docs/contracts/](docs/contracts), the harness's records in [items/](items) (`ledger.jsonl`: proposal, typed yes, metric readings, runs, ship, close), metric scripts in [metrics/](metrics), runs in [runs/](runs) |
+| Backlog items | one contract per item in [docs/contracts/](docs/contracts), the harness's records in [items/](items) (`ledger.jsonl`: proposal, typed yes, metric readings, runs, ship, close), metric scripts in [metrics/](metrics), runs in [runs/](runs). This repository holds only the two 01 demo items (`users-api`, `projects-change`); see [Where real items live](#where-real-items-live) |
 | Learnings note | [docs/learnings.md](docs/learnings.md) |
 | Setup | `npm run setup` (below); the repository holds no secrets |
 
-| Item | Repository | Metric (read by the harness) | Before | After | State |
-|---|---|---|---|---|---|
-| [admin-only-sweep](docs/contracts/admin-only-sweep.md) | vp-business-backend | admin-only routes open to vendor tokens | 10 | not read yet | proposed; awaiting the typed yes |
-| [members-list-stale-after-add](docs/contracts/members-list-stale-after-add.md) | VendorPortal-Admin | Members lists left stale after a member mutation (failed checks of 3) | 1 | not read yet | proposed; awaiting the typed yes |
-| [signals-paged-merge-dedupe](docs/contracts/signals-paged-merge-dedupe.md) | VendorPortal-React | duplicate rows after a refresh at page 2 | 50 | not read yet | proposed; awaiting the typed yes |
-
 `node bin/harness.mjs item status` prints each item's stage from its ledger.
+
+### Where real items live
+
+Real work items are no longer kept in the harness repository: the harness has to work on any web
+repository, and an item's contract, ledger and metric describe the repository it changes. The design
+([docs/design/interactive-session.md](docs/design/interactive-session.md)) keeps them in a
+per-repository state directory outside the harness; that is not built yet. Until it is,
+`HARNESS_ITEMS_ROOT=<dir>` points the item commands and runs at contracts and ledgers in a directory
+outside this repository (Measure scripts are still read from this repository's `metrics/`). The three
+items the harness proposed on 5 November 2026 (none was approved, so none ran) were moved to an
+archive outside the repository on 6 November 2026.
 
 ### The three gates
 
@@ -91,11 +98,14 @@ Each row of [docs/workflow.md](docs/workflow.md) names its mechanism. The ones a
 - **Stacks I work in:** NestJS + Prisma + Jest and React + Vite are profiled next to Express. Each
   check and gate declares its stacks, and the prompt names the stack and the approved contract.
 - **Routes without the access check** (`nest-route-guard`) and **removed or moved routes** (`route-lock`).
+  Which decorators mark a route admin-only or public is the repository's own: `harness.config.json`
+  `checkOptions["nest-route-guard"]` (`adminDecorators`, `publicDecorators`) names them, and without
+  them the rule is n/a with the reason, never a pass.
 - **Type checks that check nothing** (`repo-typecheck` expands solution-style tsconfigs), **lint that
   lints no TypeScript** (`repo-lint`, n/a with the reason), and **builds broken only at deploy** (`vite-build`).
 - **Unbounded queries** (`prisma-unbounded`: every findMany has a take or selects by id).
 - **Large PRs that draw review round-trips** (`diff-budget`: a brownfield change over 400 changed lines,
-  or the task's `limits.maxDiffLines`, is refused; my blocked PRs had a median of 487).
+  or the task's `limits.maxDiffLines`, is refused; the evidence for the budget is in docs/workflow.md).
 - **Commits and PRs that say nothing:** the contract's Commit header is checked at propose and at
   ship. The repository's own commitlint runs confined, and a config that accepts "patch" is reported
   as checking nothing. The repository's PR template is filled from the contract, and a box is ticked
@@ -265,9 +275,9 @@ src/core/        the engine: loop, hook bus, gate runner, context and compaction
 plugins/         drivers/ (claude, openai, scripted)   tools/ (15)   hooks/ (11)   gates/ (11)   checks/ (9)
 templates/       the greenfield scaffold (express-zod)
 samples/         the brownfield sample API (existing-api)
-tasks/           the two 01 task files and the three 02 item task files
+tasks/           the two 01 task files
 governed/        the two governed APIs
-docs/contracts/  one contract per item; items/ the harness's ledger per item; metrics/ the Measure scripts
+docs/contracts/  one contract per demo item; items/ the harness's ledger per item; metrics/ the Measure script
 runs/ tokens/    run evidence and token reports
 ```
 
@@ -337,7 +347,7 @@ Further additions beyond a plain harness:
 - **Known limits:** spec coverage and Contract Lock model Express only. NestJS and React + Vite targets
   get route, type, lint, build and query checks, not the live probes. No Claude run has reached DONE
   yet: the claude driver has answered live requests on claude-haiku-4-5-20251001, and the full re-run
-  waits for the users-api contract's yes. The jest adapter (the backend's runner) has not yet run
+  waits for the users-api contract's yes. The jest adapter has not yet run
   inside a governed run. The Linux sandbox is tested without a live Linux host. The ledger is tamper-evident against hand edits, not against someone who
   recomputes its hash chain: the operator is trusted. Prices in `models.prices` are upper bounds from
   public listings, not the provider's bill.
