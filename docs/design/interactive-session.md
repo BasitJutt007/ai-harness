@@ -133,9 +133,9 @@ gates  scope pass · observed-red pass · tests-green pass · secrets pass · di
 - Chat and reading work in every git repository.
 - Session write policy (session only; file mode keeps the 01 policy): web source and text kinds are
   writable (`.ts .tsx .js .jsx .mjs .cjs .vue .svelte .astro .css .scss .sass .less .html .md .mdx
-  .json .svg .yml/.yaml` under source directories), while the supply-chain deny list stays:
-  `package.json`, lockfiles, `*.config.*`, `tsconfig*`, dot-files and dot-directories, `.env*`, CI
-  and git hooks, `prisma/` and migrations.
+  .json .svg .yml/.yaml`) anywhere in the git-visible tree, while the supply-chain deny list stays
+  absolute: `package.json`, lockfiles, `*.config.*`, `tsconfig*`, dot-files and dot-directories,
+  `.env*`, CI and git hooks, `prisma/` and migrations, `node_modules`, build output.
 - Proof tiers: logic files (`.ts .tsx .js .jsx .mjs .cjs .vue .svelte`) need an observed red first
   when the repository has a supported test runner; without a runner, or for style/markup/text files,
   the edit is allowed but the verdict is `UNPROVEN: no test proves <files>; verify by hand`, never
@@ -166,6 +166,29 @@ suite that covers file mode passes unchanged).
 | Git-visible workspace: `createWorkspace(..., { visibility: 'git' })`, `hidden()` | `src/core/workspace.ts`, the read tools in `plugins/tools/` |
 | In-place writability and the `branch-guard` hook (required for in-place runs) | `src/core/inplace.ts`, `plugins/hooks/branch-guard.ts`, `src/core/hooks.ts` |
 | Explicit confined root, `.git` and `.env*` unreadable inside it | `src/core/sandbox.ts` (`setConfinedRoot`), `src/core/ts-fence.ts` |
+
+Step 4 (any web repo) is in place for in-place runs (`RunContext.inPlace`); file mode keeps the 01
+policy, and every widening has its file-mode twin in the tests.
+
+| Piece | Where |
+|---|---|
+| In-place write policy: web source and text kinds anywhere in the git-visible tree, the supply-chain deny list absolute, git-ignored paths refused (`writePolicyFor`, `inPlaceWritePolicy`, `gitHidden`) | `plugins/lib/path-policy.ts`, `plugins/hooks/path-guard.ts`, `plugins/gates/scope.ts`, `plugins/gates/standards.ts` |
+| Package imports checked in JavaScript and in `.vue`/`.svelte`/`.astro` script blocks (`scriptSource`) | `plugins/lib/dependencies.ts`, `plugins/hooks/dependency-policy.ts` |
+| Web layout (`TargetLayout.codeKinds: 'web'`): JavaScript and components are code, `*.test.js(x)` are tests, test dirs learned from JS tests; `inPlaceProfile`, `targetProfile(ws, { inPlace })` | `src/core/target.ts`, `src/core/testmap.ts`, `src/core/testing.ts`, `src/core/run.ts` (`buildContext`) |
+| Proof tiers: logic needs a red where a supported runner can run a test for it (`RunContext.runner`, `TestRunnerInfo.components`); everything else is allowed and the observed-red gate reports `UNPROVEN: no test proves <files>; verify by hand` | `plugins/lib/proof.ts`, `plugins/hooks/observed-red.ts`, `plugins/gates/observed-red.ts` |
+| Run-start snapshot keeps every governable kind (`.tsx`, `.js(x)`, `.vue`, `.svelte`) | `src/core/initial.ts` |
+| Generic web profile (`stack: 'web'`, in place only): `web-typecheck` (tsc or vue-tsc, confined, n/a without TypeScript), `repo-lint`, no API lock (named in the profile) | `src/core/target.ts`, `src/core/gates.ts`, `plugins/checks/web-typecheck.ts`, `plugins/checks/repo-lint.ts` |
+| Unsupported runners named with the reason: bun, react-scripts/craco, ng, nx, vue-cli-service, ember | `src/core/target.ts` (`WRAPPED_RUNNERS`) |
+| jest: tsconfig paths/baseUrl the config does not map passed as `--moduleNameMapper` | `src/core/target.ts` (`jestPathMapper`), `src/core/testing.ts` |
+| Vite apps under node:test: `import.meta.env` defined for modules under the API root | `src/core/import-meta-env.mjs`, `src/core/import-meta-env-hooks.mjs` |
+| Re-detection keeps tsx for React + Vite trees with node:test files; the brownfield test baseline uses the profile's runner | `src/core/target.ts`, `src/core/test-baseline.ts`, `src/core/run.ts` |
+| vite-build gets the repository's browserslist config as `BROWSERSLIST` (`SandboxPolicy.env`) | `plugins/checks/vite-build.ts`, `src/core/types.ts` |
+| orphans traces imports through JavaScript and component scripts in a web layout | `plugins/gates/orphans.ts` |
+
+Still open for step 4: the session must compute its profile with `targetProfile(ws, { inPlace: true })`
+(buildContext applies the web layout either way, but the generic `web` stack and JavaScript test dirs come
+from that call); a `build` script other than Vite is not run; a `format_file` tool needs a core service for
+a governed write (a tool's `preview()` has no context to run the repository's prettier).
 
 Known limits: on Linux (bwrap) the `.git`/`.env*` masks are the entries found by a bounded walk at
 each call, checked on the generated argv only (no bwrap on the development machine); on macOS the
