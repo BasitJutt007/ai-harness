@@ -288,9 +288,23 @@ export function isTestPath(rel: string, layout: TargetLayout = active): boolean 
   return isScriptPath(rel, layout) && underAny(rel, layout.testSupportRoots) && matchesTestPattern(rel, layout);
 }
 
-/** Test support: any other file inside a dedicated test dir (helpers, fixtures). */
+/** Whether a directory of `rel` (not its file name) has a conventional test directory name (test/, __tests__/, e2e/, ...). */
+export function inConventionalTestDir(rel: string): boolean {
+  return rel.split('/').slice(0, -1).some((seg) => TEST_DIR_RE.test(seg));
+}
+
+/**
+ * Test support: any other file inside a dedicated test dir (helpers, fixtures).
+ *
+ * In a web layout (an in-place run in any web repository) a dedicated test dir may be one learned only
+ * because it lies outside the build (tsconfig include ["src"] and a runner glob 'api/**\/*.test.js' make
+ * api/ one), and such a dir also holds production JavaScript the build never sees. There a file is test
+ * support only when it sits under a conventionally named test directory (TEST_DIR_RE); any other file is
+ * governed code that needs a red, or is named UNPROVEN (plugins/lib/proof.ts). File mode keeps the 01 rule.
+ */
 export function isTestSupportPath(rel: string, layout: TargetLayout = active): boolean {
-  return underAny(rel, layout.testSupportRoots) && !isTestPath(rel, layout);
+  if (!underAny(rel, layout.testSupportRoots) || isTestPath(rel, layout)) return false;
+  return !isWebLayout(layout) || inConventionalTestDir(rel);
 }
 
 /**

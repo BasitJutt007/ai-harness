@@ -2,10 +2,11 @@
  * Proof tiers of an in-place run (a session in any web repository). What can prove an edit decides what
  * the harness asks of it:
  *
- *   red        logic (.ts .tsx .js .jsx .mjs .cjs, and .vue/.svelte where the runner can load them) in a
- *              repository with a supported test runner: the edit needs an observed red first, exactly as
- *              in file mode (the observed-red hook and gate);
- *   unproven   everything else the run changed: logic without a supported runner (or a component kind the
+ *   red        logic (.ts .tsx .js .jsx .mjs .cjs, and .vue/.svelte where the runner can load them) under the
+ *              source roots of a repository with a supported test runner: the edit needs an observed red
+ *              first, exactly as in file mode (the observed-red hook and gate);
+ *   unproven   everything else the run changed: logic outside the source roots (a red only counts for a case
+ *              that uses code under them), logic without a supported runner (or a component kind the
  *              runner cannot load), styles, markup, text and data. The edit is allowed, and the
  *              observed-red gate reports UNPROVEN naming each file ("no test proves <files>; verify by
  *              hand"), so a run with such an edit can never end "Work completed".
@@ -13,6 +14,7 @@
  * File mode has one tier (red): every governed file needs its red, as in 01.
  */
 import { posix } from 'node:path';
+import { activeLayout, isSourcePath, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import type { RunContext } from '../../src/core/plugin-api.ts';
 import { isGovernedSource, isTestFile, isTestSupport, sha256 } from './red.ts';
 
@@ -36,6 +38,9 @@ function kindLabel(rel: string): string {
 export function proofTier(ctx: Pick<RunContext, 'inPlace' | 'runner'>, rel: string): ProofTier {
   if (ctx.inPlace === undefined) return { tier: 'red' };
   if (!isGovernedSource(rel)) return { tier: 'unproven', why: `${kindLabel(rel)}: no test can observe it` };
+  // A red counts only for a case that uses code from the source roots: logic elsewhere (production JavaScript
+  // next to tests in a dir outside the build, a root-level script) could never get one, so it is named instead.
+  if (!isSourcePath(rel, activeLayout())) return { tier: 'unproven', why: `logic outside the source roots (${sourceRootsLabel()}): a red only counts for code under them` };
   const runner = ctx.runner;
   if (runner === undefined) return { tier: 'unproven', why: 'logic, but no test runner was detected for this repository' };
   if (!runner.supported) return { tier: 'unproven', why: `logic, but ${runner.reason ?? `the test runner ${runner.name} is not supported`}` };
