@@ -7,7 +7,7 @@
  * A real git repository with a bare origin stands in for the target; only `gh pr view` is faked.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -327,7 +327,7 @@ describe('the outcome check, hardened', () => {
     expect(r.reasons).toEqual(['no Measure: the outcome cannot be read (the contract says "Measure: none"), so the item cannot close']);
   });
 
-  it('item propose of a "Measure: none" contract records no before value and says the item can never close', async () => {
+  it('item propose refuses a "Measure: none" contract in file mode: such an item could never close', async () => {
     // the clone's origin must be the contract's Repo (fixture/repo)
     mkdirSync(join(base, 'fixture'));
     git(base, 'clone', '-q', '--bare', join(base, 'origin.git'), join(base, 'fixture', 'repo.git'));
@@ -335,11 +335,10 @@ describe('the outcome check, hardened', () => {
     writeContract(root, SLUG, contractFor(SLUG, { Repo: 'fixture/repo', Base: 'main', Measure: 'none', Metric: 'count, main HEAD before: ____ after: ____' }));
     const out: string[] = [];
     const reader = { isTTY: false, ask: async () => null };
-    expect(await cmdItem({ positionals: ['propose', SLUG], flags: new Map([['repo', [repo]]]) }, (l) => out.push(l), { root, harnessRoot: harness, reader }), out.join('\n')).toBe(0);
-    expect(out.join('\n')).toMatch(/Metric {4}count, main HEAD: no Measure \(the contract says "Measure: none"\): the outcome cannot be read, so this item can never close/);
-    const ledger = readLedger(itemPaths(root, SLUG).ledger).entries;
-    expect(ledger.map((e) => e.event.type)).toEqual(['proposed']);
-    expect(ledger[0]?.event).toMatchObject({ type: 'proposed', before: null });
+    expect(await cmdItem({ positionals: ['propose', SLUG], flags: new Map([['repo', [repo]]]) }, (l) => out.push(l), { root, harnessRoot: harness, reader }), out.join('\n')).toBe(1);
+    expect(out.join('\n')).toMatch(/refused: the contract names no Measure \(Measure: none\), so there is no before value to read; an item without one can never close/);
+    const ledgerPath = itemPaths(root, SLUG).ledger;
+    expect(existsSync(ledgerPath) ? readLedger(ledgerPath).entries : []).toEqual([]);
   });
 
   it('a dry run gathers every fact and records nothing', async () => {

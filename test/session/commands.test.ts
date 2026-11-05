@@ -226,7 +226,7 @@ describe('harness item inside the repository', () => {
     expect(lines[1]).toMatch(/^greeting-name\s+approved/);
     const close: string[] = [];
     expect(await cmdItem({ positionals: ['close', 'greeting-name'], flags: new Map() }, (l) => close.push(l), { cwd: r.repo, env })).toBe(1);
-    expect(close.join('\n')).toMatch(/never shipped this item/);
+    expect(close.join('\n')).toMatch(/no Measure: the outcome cannot be read \(the contract says "Measure: none"\)/);
     expect(close.join('\n')).not.toMatch(/--repo <dir> is needed/);
   });
 

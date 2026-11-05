@@ -154,7 +154,7 @@ describe('proposeDrafted', () => {
     expect(status.editable).toBe(true);
     const shipped = status.ledger.entries.find((e) => e.event.type === 'shipped');
     const reasons = preconditions({ status, shipped: shipped !== undefined && shipped.event.type === 'shipped' ? { entry: shipped, event: shipped.event } : null, before: null });
-    expect(reasons.join(' ')).toMatch(/no before value/);
+    expect(reasons.join(' ')).toMatch(/no Measure: the outcome cannot be read/);
   });
 });
 
