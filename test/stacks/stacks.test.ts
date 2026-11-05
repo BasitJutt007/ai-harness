@@ -112,20 +112,28 @@ describe('nest-route-guard: who may call each route', () => {
     ]);
   });
 
-  it('is n/a with the reason when no decorator names are configured, never a pass', async () => {
-    const none = [{ rule: 'nest-route-guard', file: '(project)', status: 'pass', units: { passed: 0, total: 0 }, violations: [], naReason: 'no access decorators configured: set adminDecorators and/or publicDecorators in harness.config.json checkOptions["nest-route-guard"]' }];
-    expect(await guard(READABLE)).toEqual(none);
-    expect(await guard(READABLE, {})).toEqual(none);
-    expect(await guard(READABLE, { adminDecorators: [], publicDecorators: [] })).toEqual(none);
+  it('with no decorator names configured, admin-facing routes are UNPROVEN (never a pass, never n/a)', async () => {
+    const unproven = [{
+      rule: 'nest-route-guard', file: 'src/a.controller.ts', status: 'skip', units: { passed: 0, total: 2 }, violations: [],
+      skipReason: 'GET /admin/reports/:id (AdminReportsController.find) and 1 more admin-facing route(s) are admin-facing, but no access decorators configured: set adminDecorators and/or publicDecorators in harness.config.json checkOptions["nest-route-guard"]',
+    }];
+    expect(await guard(READABLE)).toEqual(unproven);
+    expect(await guard(READABLE, {})).toEqual(unproven);
+    expect(await guard(READABLE, { adminDecorators: [], publicDecorators: [] })).toEqual(unproven);
   });
 
-  it('through the check runner: n/a without checkOptions, FAIL with them', async () => {
+  it('is n/a with the reason only when nothing is configured and the repository has no admin-facing route', async () => {
+    const shops = "@Controller('shops') export class ShopsController { @Get(':id') one() {} @SkipAuth() @Get('health') health() {} }";
+    expect(await guard(shops)).toEqual([{ rule: 'nest-route-guard', file: '(project)', status: 'pass', units: { passed: 0, total: 0 }, violations: [], naReason: 'no access decorators configured: set adminDecorators and/or publicDecorators in harness.config.json checkOptions["nest-route-guard"]' }]);
+  });
+
+  it('through the check runner: UNPROVEN without checkOptions, FAIL with them', async () => {
     const root = tmp();
     put(root, { 'src/a.controller.ts': READABLE });
     const base = { root, checks: [nestRouteGuard], exec, harnessRoot: HARNESS_ROOT, logs: { write: async () => 'x' }, stack: 'nestjs' as const };
     const without = await runChecks(base);
-    expect(without.rules).toMatchObject([{ rule: 'nest-route-guard', status: 'n/a' }]);
-    expect(without.text).toMatch(/nest-route-guard\s+n\/a\s+\(none\)\s+0\/0 routes\s+\(no access decorators configured/);
+    expect(without.rules).toMatchObject([{ rule: 'nest-route-guard', status: 'unproven' }]);
+    expect(without.text).toMatch(/nest-route-guard\s+UNPROVEN\s+src\/a\.controller\.ts\s+skipped: GET \/admin\/reports\/:id .* no access decorators configured/);
     const withOptions = await runChecks({ ...base, checkOptions: { 'nest-route-guard': NAMES } });
     expect(withOptions.rules).toMatchObject([{ rule: 'nest-route-guard', status: 'fail', passed: 3, total: 5 }]);
   });
@@ -145,9 +153,13 @@ describe('nest-route-guard: who may call each route', () => {
     }
   });
 
-  it('only public decorators configured: an admin-facing route is UNPROVEN; a controller without one is judged', async () => {
-    const [admin] = await guard(READABLE, { publicDecorators: ['SkipAuth'] });
-    expect(admin).toMatchObject({ status: 'skip', skipReason: 'GET /admin/reports/:id (AdminReportsController.find) is admin-facing, but no adminDecorators are configured in harness.config.json checkOptions["nest-route-guard"]' });
+  it('only public decorators configured: a public route still FAILS in the same file; only the admin-facing routes are UNPROVEN', async () => {
+    const [judged, admin] = await guard(READABLE, { publicDecorators: ['SkipAuth'] });
+    expect(judged).toMatchObject({ status: 'fail', units: { passed: 2, total: 3 } });
+    expect(judged?.violations.map((v) => v.message)).toEqual(['GET /shops/health (ShopsController.health) is @SkipAuth: callable without authentication']);
+    expect(admin).toMatchObject({ status: 'skip', units: { passed: 0, total: 2 }, skipReason: 'GET /admin/reports/:id (AdminReportsController.find) and 1 more admin-facing route(s) are admin-facing, but no adminDecorators are configured in harness.config.json checkOptions["nest-route-guard"]' });
+    const one = "@Controller('admin/reports') export class AdminReportsController { @Get(':id') find() {} }";
+    expect((await guard(one, { publicDecorators: ['SkipAuth'] }))[0]?.skipReason).toBe('GET /admin/reports/:id (AdminReportsController.find) is admin-facing, but no adminDecorators are configured in harness.config.json checkOptions["nest-route-guard"]');
     const shops = "@Controller('shops') export class ShopsController { @Get(':id') one() {} @SkipAuth() @Get('health') health() {} }";
     const [f] = await guard(shops, { publicDecorators: ['SkipAuth'] });
     expect(f?.status).toBe('fail');
