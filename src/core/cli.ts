@@ -8,6 +8,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
 import { ruleWidth, runChecks, selectChecks } from './checks.ts';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
+import { allowedEnvName, envFileLines, lastEnvLoad, loadEnvFile, recordEnvLoad, type EnvFileResult } from './env-file.ts';
 import { exec } from './exec.ts';
 import { agnosticDiff, AgnosticRunSchema, runVerdict, type AgnosticRun } from './governance.ts';
 import { testMapSummary } from './prompt.ts';
@@ -748,6 +749,18 @@ export async function doctorIsolation(out: Out): Promise<boolean> {
   }
 }
 
+/**
+ * Provider keys (and HARNESS_* settings) from the owner's env file, before any command runs: the names
+ * allowed are the credential variables the driver plugins read (learned from them, so the core names
+ * no provider) and HARNESS_*. Called by bin/harness.mjs only, so tests that call main() never read the
+ * owner's file. The result (key names, never values) is kept for `harness doctor`.
+ */
+export function loadUserEnv(env: NodeJS.ProcessEnv = process.env): EnvFileResult {
+  const result = loadEnvFile({ env, allowed: allowedEnvName(providerVocabulary(HARNESS_ROOT).credentialVars) });
+  recordEnvLoad(result);
+  return result;
+}
+
 async function cmdDoctor(out: Out): Promise<number> {
   let ok = true;
   const major = Number(process.versions.node.split('.')[0]);
@@ -782,6 +795,7 @@ async function cmdDoctor(out: Out): Promise<number> {
     const set = typeof process.env[v] === 'string' && (process.env[v] ?? '').length > 0;
     out(`env       ${set ? 'set ' : 'unset'} ${v}`);
   }
+  for (const line of envFileLines(lastEnvLoad())) out(line);
 
   const git = await toolVersion('git');
   if (git === null) ok = false;
