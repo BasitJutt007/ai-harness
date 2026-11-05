@@ -74,6 +74,18 @@ describe('setConfinedRoot', () => {
       expect(confinedRoot()).toBeNull();
     }
   });
+
+  it("refuses a root that contains the folder of every run's worktree, or the harness scratch (.harness/tmp)", () => {
+    const harnessState = join(HARNESS_ROOT, '.harness');
+    mkdirSync(join(harnessState, 'worktrees'), { recursive: true });
+    mkdirSync(join(harnessState, 'tmp'), { recursive: true });
+    expect(() => setConfinedRoot(harnessState)).toThrow(/sandbox: confined root .* contains .*\.harness\/worktrees; confined code may never read it whole/);
+    expect(() => setConfinedRoot(join(harnessState, 'tmp'))).toThrow(/sandbox: confined root .* contains .*\.harness\/tmp; confined code may never read it whole/);
+    expect(confinedRoot()).toBeNull();
+    // the twin: an ordinary checkout beside them is registered
+    setConfinedRoot(root);
+    expect(confinedRoot()).toBe(root);
+  });
 });
 
 describe('the confined tree', () => {
