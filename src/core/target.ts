@@ -1273,6 +1273,8 @@ export interface LayoutResult {
   /** Packages the non-test files import (framework detection when package.json declares none). */
   bareImports: string[];
   notes: string[];
+  /** Whether the repository's own code has TypeScript files (not declarations, tests or tool configs). */
+  typescriptSources: boolean;
 }
 
 /**
@@ -1350,6 +1352,8 @@ export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {
   });
   const testMatch = (rel: string): boolean => testName.test(rel) || globMatch(rel) || regexes.some((r) => r.test(`/${rel}`));
   const testFiles = tsFiles.filter(testMatch);
+  // TypeScript the repository's own code is written in (not a declaration, a test or a tool's config file).
+  const typescriptSources = all.some((f) => TS_SOURCE_RE.test(f) && !DECL_RE.test(f) && !testMatch(f) && !isToolingConfig(f));
 
   // Candidate test dirs: the static base of each glob, plus the outermost conventionally named dir of each test file.
   const candidates = new Set<string>();
@@ -1426,7 +1430,7 @@ export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {
     resolution,
     ...(web ? { codeKinds: 'web' as const } : {}),
   };
-  return { layout, runner, runnerConfig, entries, pkg, tsInfo, testFiles, bareImports: [...bareImports].sort(), notes };
+  return { layout, runner, runnerConfig, entries, pkg, tsInfo, testFiles, bareImports: [...bareImports].sort(), notes, typescriptSources };
 }
 
 /** Just the layout (checks, contract extraction and `harness check` without a run profile). */
@@ -1481,8 +1485,16 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
         ? 'react-vite'
         : 'unknown';
   // In place (a session) any other repository with a package.json gets the generic web profile instead of
-  // an UNPROVEN run; file mode keeps 'unknown' (its 01 policy never loosens).
-  const stack: Stack = known === 'unknown' && opts.inPlace === true && pkg !== null ? 'web' : known;
+  // an UNPROVEN run; file mode keeps 'unknown' (its 01 policy never loosens). The express, nestjs and
+  // react-vite profiles are TypeScript profiles (tsc, zod-boundary, the route locks read TypeScript): in place
+  // a JavaScript repository (no tsconfig.json, no TypeScript sources) built on one of them gets the generic
+  // web profile too, which names its framework, instead of TypeScript rules over code that has none.
+  const javascriptOnly = analysis.tsInfo === null && !analysis.typescriptSources;
+  const inPlaceWeb = opts.inPlace === true && ((known === 'unknown' && pkg !== null) || (known !== 'unknown' && javascriptOnly));
+  const stack: Stack = inPlaceWeb ? 'web' : known;
+  if (inPlaceWeb && known !== 'unknown') {
+    notes.push(`JavaScript only (no tsconfig.json, no TypeScript sources): the ${known} profile's TypeScript rules do not apply, so the generic web profile does`);
+  }
   const fwName = stack === 'nestjs' ? '@nestjs/core' : stack === 'react-vite' ? 'react' : stack === 'web' ? webFramework(deps, declaredFwName) : declaredFwName;
   const fwPkg = fwName === 'unknown' || fwName === 'none' ? null : resolvePackage(fwName, apiRoot, ctx);
   const framework = { name: fwName, version: fwPkg?.version ?? null, supported: stack !== 'unknown' };
@@ -1490,7 +1502,8 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
     unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: no stack profile (express, nestjs, react-vite) applies, so route extraction, the standards and the contract lock report UNPROVEN`);
   } else if (stack === 'web') {
     notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, both blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
-    if (FRAMEWORKS.includes(fwName)) notes.push(`framework ${fwName} serves an API the harness extracts no routes from: contract changes are not locked; a human verifies them`);
+    const server = FRAMEWORKS.includes(fwName) ? fwName : FRAMEWORKS.includes(declaredFwName) ? declaredFwName : null;
+    if (server !== null) notes.push(`framework ${server} serves an API the harness extracts no routes from: contract changes are not locked; a human verifies them`);
   } else if (stack === 'nestjs') {
     notes.push("stack nestjs: standards are the repository's own (tsc with its tsconfig, its ESLint and Prettier on changed files) plus nest-route-guard; the Nest route lock compares controller routes (method and path), not DTO shapes");
   } else if (stack === 'react-vite') {
