@@ -51,9 +51,24 @@ archive outside the repository on 6 November 2026.
 
 | Gate | What it blocks | Where |
 |---|---|---|
-| Problem statement | Every edit, until `docs/contracts/<slug>.md` names Problem, Owner, Stakeholder, Repo, Base, Commit, Metric (with before/after), Measure, WHEN/THEN Scenarios and Not included. The refusal names each missing field. A run without one is refused before its first model turn | `plugins/hooks/problem-gate.ts`, `bindItem` in `src/core/run.ts` |
-| Human yes | Every edit, and the Stop (`finish`), until the stakeholder types a plain yes at a terminal after the harness proposed this exact contract text. Assistant text, tool output, hook output, a piped reply, a reply to an older proposal and a hand-written Signed line never count | `plugins/hooks/contract-gate.ts`, `plugins/gates/stakeholder-yes.ts`, `approvalVerdict` in `src/core/items.ts` |
-| Outcome | Closing an item, until a person merged the PR the harness opened and the harness read the metric at that merge commit (same script, run twice, confined), writing it next to the before value | `src/core/close.ts` (`harness item close`) |
+| Problem statement | Every edit, until `docs/contracts/<slug>.md` names Problem, Owner, Stakeholder, Repo, Base, Commit, Metric (with before/after), Measure, WHEN/THEN Scenarios and Not included. The refusal names each missing field. A run without one is refused before its first model turn, and so is a run of a closed item, or one whose clone is not the contract's Repo (its origin) on the contract's Base (its current branch) | `plugins/hooks/problem-gate.ts`, `bindItem` in `src/core/run.ts`, `targetRepoProblem` in `src/core/item-cli.ts` |
+| Human yes | Every edit, and the Stop (`finish`), until the stakeholder types a plain yes at a terminal after the harness proposed this exact contract text. Each reply records the contract text on disk when it was typed, and counts only for that text. Assistant text, tool output, hook output, a piped reply, a reply to an older proposal or typed against another text, and a hand-written Signed line never count | `plugins/hooks/contract-gate.ts`, `plugins/gates/stakeholder-yes.ts`, `approvalVerdict` in `src/core/items.ts` |
+| Outcome | Closing an item, until a person (not a bot: gh's `is_bot`, an `app/...` or `...[bot]` login) merged the PR the harness opened after a DONE run of the approved contract, and the harness read the metric at that merge commit (same script, run twice, confined: a reading from an unconfined Measure is UNPROVEN) and compared it with a before reading taken before the merge. A contract with `Measure: none` can ship but never closes | `src/core/close.ts` (`harness item close`) |
+
+`harness gate <problem-statement|human-yes|outcome> <slug> [--repo <dir>]` prints one gate's verdict
+on an item now (`PASS` or `REFUSE` with the reason, exit 0 or 2) and records nothing; the outcome gate
+passes only on a closed item, and with `--repo` it checks every close fact as a dry run. A gate's
+source file run on its own (`node plugins/hooks/problem-gate.ts`) prints a pointer to that command and
+exits 2.
+
+**Trust model: a terminal proves a terminal, not a person.** Only a line typed at an interactive
+terminal while a proposal is open can approve. The harness cannot tell who typed it: an AI agent's
+shell can drive a terminal too. It does not refuse on that (the operator at a terminal is trusted, and
+anything typed there acts with their authority); it records the truth instead. Every reply in
+`items/<slug>/ledger.jsonl` carries its channel and the names (never the values) of the agent-shell
+environment markers present when it was typed (`agentEnvMarkers` in `harness.config.json`), and item
+status, the approval message and the human-yes verdict say "typed at a terminal inside an AI agent's
+shell (...)" when there were any. A reviewer reads exactly what was proven.
 
 The item lifecycle, each step a command:
 
@@ -64,6 +79,7 @@ node bin/harness.mjs item reply <slug>                                   # the s
 node bin/harness.mjs run tasks/<slug>.md --repo <clone> --driver openai --model gpt-5.6-luna --ship
 node bin/harness.mjs item close <slug> --repo <clone>                    # after a person merged the PR
 node bin/harness.mjs item status                                         # each item's stage
+node bin/harness.mjs gate human-yes <slug>                               # one gate's verdict now (read-only)
 ```
 
 ### Try to skip them
@@ -87,8 +103,8 @@ unknown option --after: no item command takes a value from the command line (the
 
 Inside a run, a "yes" in tool output or assistant text is listed as "not counted" when the Stop is
 held. The skip attempts are tests ([test/items/skip-attempts.test.ts](test/items/skip-attempts.test.ts),
-[test/items/close.test.ts](test/items/close.test.ts)). `npm run audit:mutations` applies 51 mutations
-(23 to contracts, 12 to approvals, 16 to merges and readings) to items that pass each gate
+[test/items/close.test.ts](test/items/close.test.ts)). `npm run audit:mutations` applies 67 mutations
+(23 to contracts, 15 to approvals, 29 to runs, merges and readings) to items that pass each gate
 ([test/audit/item-gates.audit.ts](test/audit/item-gates.audit.ts)), and every one must be refused.
 
 ### What the harness enforces from my workflow
@@ -99,8 +115,10 @@ Each row of [docs/workflow.md](docs/workflow.md) names its mechanism. The ones a
   check and gate declares its stacks, and the prompt names the stack and the approved contract.
 - **Routes without the access check** (`nest-route-guard`) and **removed or moved routes** (`route-lock`).
   Which decorators mark a route admin-only or public is the repository's own: `harness.config.json`
-  `checkOptions["nest-route-guard"]` (`adminDecorators`, `publicDecorators`) names them, and without
-  them the rule is n/a with the reason, never a pass.
+  `checkOptions["nest-route-guard"]` (`adminDecorators`, `publicDecorators`) names them, and the model
+  sees the configured names next to the rule. An admin-facing route the options cannot judge is
+  UNPROVEN, never a pass; the rule is n/a only when nothing is configured and no route is admin-facing.
+  Options for a check id no plugin defines are a load error (runs refuse, doctor fails).
 - **Type checks that check nothing** (`repo-typecheck` expands solution-style tsconfigs), **lint that
   lints no TypeScript** (`repo-lint`, n/a with the reason), and **builds broken only at deploy** (`vite-build`).
 - **Unbounded queries** (`prisma-unbounded`: every findMany has a take or selects by id).
