@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { DIGEST_HEADER, DIGEST_HEADER_CHAT, digestTurn, jitView, proseLine, type TranscriptTurn } from '../../src/core/context.ts';
 import { NUDGE, runAgent, type RunAgentOptions } from '../../src/core/loop.ts';
 import { buildContext } from '../../src/core/run.ts';
@@ -47,7 +48,7 @@ class InterruptedStream extends StreamingDriver {
   }
 }
 
-function setup(script: ConstructorParameters<typeof FakeDriver>[0], over: Partial<RunAgentOptions> & { tools?: ToolPlugin<unknown>[]; driver?: FakeDriver } = {}) {
+function setup(script: ConstructorParameters<typeof FakeDriver>[0], over: Omit<Partial<RunAgentOptions>, 'tools' | 'driver'> & { tools?: ToolPlugin<unknown>[]; driver?: FakeDriver } = {}) {
   const tools = over.tools ?? [writeTool(), finishTool()];
   const { ctx, events, logs } = fakeCtx({ tools });
   const store = fakeStore(logs);
@@ -263,6 +264,70 @@ describe('onText: live text', () => {
     expect(seen.slice(1).every((x) => x.attempt === 2)).toBe(true);
     expect(seen.slice(1).map((x) => x.d).join('')).toBe('Hello');
     expect(s.events.some((e) => e.kind === 'error' && /attempt 1\): connection reset mid-stream/.test(e.message))).toBe(true);
+  });
+
+  it('a rate limit thrown by the stream is waited out and the stream resent, as for complete()', async () => {
+    class RateLimited extends StreamingDriver {
+      private limited = false;
+      override async stream(req: ModelRequest, signal: AbortSignal | undefined, onDelta: (t: string) => void): Promise<ModelResponse> {
+        if (!this.limited) {
+          this.limited = true;
+          throw Object.assign(new Error('429 too many requests'), { status: 429, headers: { 'retry-after': '2' } });
+        }
+        return super.stream(req, signal, onDelta);
+      }
+    }
+    const driver = new RateLimited([text('after the wait')]);
+    const waits: number[] = [];
+    const seen: number[] = [];
+    const s = setup([], { driver, yieldOnText: true, sleep: async (ms) => { waits.push(ms); }, onText: (_d, info) => seen.push(info.attempt) });
+    expect((await runAgent(s.opts)).status).toBe('yielded');
+    expect(waits).toEqual([3000]);
+    expect(driver.streamed).toHaveLength(1);
+    expect(new Set(seen)).toEqual(new Set([2]));
+  });
+
+  it('a context overflow thrown by the stream shrinks the request once and streams it again', async () => {
+    class Overflow extends Error {}
+    class Overflowing extends StreamingDriver {
+      private overflowed = false;
+      override async stream(req: ModelRequest, signal: AbortSignal | undefined, onDelta: (t: string) => void): Promise<ModelResponse> {
+        if (!this.overflowed) {
+          this.overflowed = true;
+          throw new Overflow('prompt is too long');
+        }
+        return super.stream(req, signal, onDelta);
+      }
+      errorKind(e: unknown): DriverErrorKind | null {
+        return e instanceof Overflow ? 'context_overflow' : null;
+      }
+    }
+    // A tool whose (compact) result is long: folding a turn into the digest leaves only its first line.
+    const big = 'y'.repeat(4000);
+    const noisy = {
+      kind: 'tool',
+      name: 'run_tests',
+      description: 'run tests',
+      input: z.object({}),
+      effect: 'exec',
+      run: async () => ({ ok: true, summary: `tests: 1 passed\n${big}` }),
+    } as ToolPlugin<unknown>;
+    const history: TranscriptTurn[] = [];
+    const runs = [1, 2, 3].map((n) => reply([{ type: 'text', text: `Running the tests, pass ${n}.` }, call(`t${n}`, 'run_tests', {})]));
+    const first = setup([...runs, text('ok')], { tools: [noisy], history, yieldOnText: true, message: 'run the tests three times' });
+    await runAgent(first.opts);
+    const driver = new Overflowing([text('Still here.')]);
+    const seen: number[] = [];
+    const s = setup([], { tools: [noisy], driver, history, yieldOnText: true, onText: (_d, info) => seen.push(info.attempt) });
+    const r = await runAgent({ ...s.opts, first: first.opts.first, message: 'status?' });
+    expect(r.status).toBe('yielded');
+    expect(driver.streamed).toHaveLength(1);
+    expect(s.events.some((e) => /context overflow: request shrunk once and resent/.test(e.message))).toBe(true);
+    expect(new Set(seen)).toEqual(new Set([2]));
+    // the shrunk request folded every turn but the last and still carries the conversation (keepChat)
+    const sent = (driver.streamed[0]?.messages ?? []).flatMap(texts).join('\n');
+    for (const w of ['run the tests three times', 't1 assistant: Running the tests, pass 1.', 't3 assistant: Running the tests, pass 3.', 'status?']) expect(sent).toContain(w);
+    expect(sent).not.toContain(big);
   });
 
   it('a listener that throws never stops the run (reported once)', async () => {
