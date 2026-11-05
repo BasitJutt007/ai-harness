@@ -10,7 +10,8 @@
  * was already failing at run start still fails the gate; the baseline only lets it say so.
  */
 import { z } from 'zod';
-import { runVitest } from './testing.ts';
+import type { TargetLayout, TestRunnerInfo } from './target.ts';
+import { runTargetTests } from './testing.ts';
 import type { Exec, LogStore, TestBaseline, TestRunReport } from './types.ts';
 
 /** The baseline a run-start report gives; `error` when the runner produced no per-case results. */
@@ -28,11 +29,16 @@ export function testBaselineOf(report: TestRunReport, at: string): TestBaseline 
   };
 }
 
-/** Run the API's whole suite now (before the agent's first turn) and keep what the gates need of it. */
-export async function measureTestBaseline(opts: { root: string; exec: Exec; harnessRoot: string; logs: LogStore }): Promise<TestBaseline> {
+/**
+ * Run the API's whole suite now (before the agent's first turn) and keep what the gates need of it. With the
+ * target's runner and layout (TargetProfile): the baseline must come from the runner the gates will use (a
+ * jest or node:test suite run by the harness's vitest reports nothing comparable); without a profile, the
+ * harness's vitest as before. An unsupported runner runs nothing: the baseline records why (UNPROVEN).
+ */
+export async function measureTestBaseline(opts: { root: string; exec: Exec; harnessRoot: string; logs: LogStore; runner?: TestRunnerInfo; layout?: TargetLayout }): Promise<TestBaseline> {
   const at = new Date().toISOString();
   try {
-    return testBaselineOf(await runVitest({ ...opts, turn: 0 }), at);
+    return testBaselineOf(await runTargetTests({ ...opts, turn: 0 }), at);
   } catch (e) {
     return {
       at,

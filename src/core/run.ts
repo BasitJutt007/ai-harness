@@ -735,7 +735,13 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // tell the skipped/todo (and failing) cases the repository already had from what the run introduces.
   // Kept in state.json, never as a test observation.
   if (task.kind === 'brownfield') {
-    state.testBaseline = await measureTestBaseline({ root: ws.root, exec: ctx.exec, harnessRoot: HARNESS_ROOT, logs: ctx.logs });
+    state.testBaseline = await measureTestBaseline({
+      root: ws.root,
+      exec: ctx.exec,
+      harnessRoot: HARNESS_ROOT,
+      logs: ctx.logs,
+      ...(target.profile !== undefined ? { runner: target.profile.runner, layout: target.profile } : {}),
+    });
     ctx.emit({ kind: 'note', source: 'tests', message: describeTestBaseline(state.testBaseline) });
   }
 
