@@ -332,6 +332,18 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
     expect(streamed(['the quick brown fox jumps over the lazy dog'], 20)).toBe(`${MODEL_GUTTER}the quick brown \n${MODEL_GUTTER}fox jumps over \n${MODEL_GUTTER}the lazy dog\n`);
   });
 
+  it('as fold -s breaks rows: a word that would end on the last column moves down when a space follows it; at the end of the line (the twin) it stays', () => {
+    // 20 columns, a 2-column gutter: "fox jumps over the" is 18 columns, and its space would be the 19th.
+    expect(streamed(['the quick brown fox jumps over the lazy dog'], 20)).toBe(`${MODEL_GUTTER}the quick brown \n${MODEL_GUTTER}fox jumps over \n${MODEL_GUTTER}the lazy dog\n`);
+    expect(streamed(['the quick brown fox jumps over the'], 20)).toBe(`${MODEL_GUTTER}the quick brown \n${MODEL_GUTTER}fox jumps over the\n`);
+    expect(streamed(['the quick brown fox jumps over the\nlazy dog'], 20)).toBe(`${MODEL_GUTTER}the quick brown \n${MODEL_GUTTER}fox jumps over the\n${MODEL_GUTTER}lazy dog\n`);
+    // A harness line breaks the same way: "the quick brown foxy" is 20 columns, the space after it the 21st.
+    const p = capture(false, 20);
+    new Ui(p.out, false).line('the quick brown foxy jumps');
+    new Ui(p.out, false).line('the quick brown foxy');
+    expect(p.text()).toBe('the quick brown \n  foxy jumps\nthe quick brown foxy\n');
+  });
+
   it('only a word longer than a whole row is cut, where the row ends; a word that fits a row moves down whole (the twin)', () => {
     const long = 'x'.repeat(50);
     expect(streamed([`see ${long} end`], 20)).toBe(`${MODEL_GUTTER}see \n${MODEL_GUTTER}${'x'.repeat(18)}\n${MODEL_GUTTER}${'x'.repeat(18)}\n${MODEL_GUTTER}${'x'.repeat(14)} end\n`);

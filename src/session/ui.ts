@@ -13,8 +13,10 @@
  * not only for the model's newlines: when the width is known (a terminal's columns), the harness breaks
  * every row itself before the terminal would (sanitize.ts cellWidth counts a character at the most
  * columns any terminal gives it, tabs become spaces) and writes the gutter again, so padding a line to
- * the width cannot push text to column 0. Rows break at word boundaries, as a terminal app wraps prose
- * (only a word longer than a whole row is cut), and the model's rows come out the same however its
+ * the width cannot push text to column 0. Rows break at word boundaries as `fold -s` breaks them (a
+ * word stays on its row when the space after it fits too, so a word that would end exactly at the
+ * last column with a space after it starts the next row; only a word longer than a whole row is
+ * cut), and the model's rows come out the same however its
  * stream was chunked; a word held while the terminal narrows is placed at the new width (refit), so
  * the rows written after a resize fit it too. A harness line that is too wide, or has a newline
  * inside, continues on an indented row, so agent text it carries (a file name, a gate line) never
@@ -117,9 +119,11 @@ function takeWord(r: RowState): string {
 
 /**
  * `text` (part of one line: no newline; the harness's colour sequences may be in it) appended where `r`
- * stands, broken into rows of at most `cols` columns the way a terminal app wraps prose: at the last
- * space that fits, so a word is never cut; only a word longer than a whole row is cut, where the row
- * ends. Every row this starts begins with `lead` (`leadCells` columns). Nothing is dropped or doubled: a
+ * stands, broken into rows of at most `cols` columns as `fold -s` breaks them: after the last space
+ * that fits on the row, a word staying only when the space after it fits too (a word filling the row
+ * to its last column, with a space after it, starts the next row; at the end of a line it stays), so a
+ * word is never cut; only a word longer than a whole row is cut, where the row ends. Every row this
+ * starts begins with `lead` (`leadCells` columns). Nothing is dropped or doubled: a
  * word moves to the next row together with the space after it, and a space that cannot fit after a word
  * filling a whole row starts the next one. A tab becomes spaces up to its stop (counted from column
  * `tabFrom`). The last word stays held in `r` (takeWord writes it): until a space, the line's end or the
