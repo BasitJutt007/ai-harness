@@ -21,6 +21,10 @@
  *   - `export default` in any form (a declaration modifier or `export { a as default }`): a default export
  *     changes how bundlers, frameworks and CommonJS interop consume the module, and a named export is enough
  *     to test a function;
+ *   - the names `then` (a module namespace with a `then` export is a thenable: `await import()` resolves to
+ *     something else) and `__esModule` (CommonJS interop reads it to decide what the default export is);
+ *   - any export in a module that has an `export * from`: a new local export hides the re-exported name of the
+ *     same name from every importer;
  *   - re-exports (`export * from`, `export { x } from`): they load another module, with its side effects;
  *     `export =`; exporting an imported binding (a re-export too) or an ambient (`declare`) one, which has no
  *     runtime value; a name the module already exports, or one this edit exports twice;
@@ -279,6 +283,12 @@ function sameTree(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((t, i) => t === b[i]);
 }
 
+/** Export names that change how code reading the module as a whole treats it, whatever the binding is. */
+const RESERVED_EXPORTS: ReadonlyMap<string, string> = new Map([
+  ['then', 'a module namespace with a `then` export is a thenable, so `await import()` of the module resolves to whatever `then` passes on instead of the module'],
+  ['__esModule', 'CommonJS interop (a bundler, tsx, jest) reads `__esModule` to decide what a default import of the module is'],
+]);
+
 /** Why two trees that differ only in their comments are not export-only: the first comment that differs. */
 function commentChange(before: string[], after: string[]): string {
   const cb = before.filter((t) => t.startsWith('#') || t.startsWith('?'));
@@ -342,6 +352,10 @@ export function exportOnlyEdit(fileName: string, before: string, after: string):
   if (typeof b === 'string') return no(`the current content: ${b}`);
   if (typeof a === 'string') return no(`the new content: ${a}`);
   if (!ts.isExternalModule(b)) return no('the file is not an ES module yet (no import or export): a first export would change how its top-level names are scoped');
+  const star = b.statements.find((s) => ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined && s.exportClause === undefined);
+  if (star !== undefined) {
+    return no(`line ${lineOf(b, star.getStart(b))} (\`${firstLineOf(star, b)}\`) re-exports every name of another module: a new export of a name it shares would hide the re-exported one from every importer`);
+  }
   const declared = topLevelDeclarations(b);
   const skip = new Set<ts.Node>();
   const addedDeclarations: Declaration[] = [];
@@ -409,6 +423,8 @@ export function exportOnlyEdit(fileName: string, before: string, after: string):
   }
   const all = [...names, ...viaStatements].sort();
   if (all.length === 0) return no('it exports nothing new');
+  const reserved = all.find((n) => RESERVED_EXPORTS.has(n));
+  if (reserved !== undefined) return no(`it exports ${reserved}: ${RESERVED_EXPORTS.get(reserved) ?? ''}`);
   return { ok: true, names: all };
 }
 

@@ -2,9 +2,9 @@
  * Export-only edits (src/core/export-only.ts): the one write a file locked by observed-red takes. Every
  * allowed shape is paired with the refusal next to it: the same `export`, plus one more change of any kind
  * (a body, a constant, an import, a newline that moves a semicolon, a comment a build obeys, the leading
- * whitespace of JSX text), or an export of a kind that is not behaviour-neutral (a default export, a re-export
- * that loads another module, `export =`). The revert base (withExports) and the ESM missing-export message
- * parser are pinned here too.
+ * whitespace of JSX text), or an export that changes how the module is consumed as a whole (a default export,
+ * a re-export that loads another module, `export =`, `then`, `__esModule`, any export next to an
+ * `export * from`). The revert base (withExports) and the ESM missing-export message parser are pinned here too.
  */
 import { describe, expect, it } from 'vitest';
 import { declaresUnexported, exportOnlyEdit, missingNamedExport, withExports } from '../../src/core/export-only.ts';
@@ -120,6 +120,24 @@ describe('refused: anything that is not exactly an added export', () => {
   it('kinds that are not TypeScript or JavaScript modules are never judged export-only', () => {
     expect(exportOnlyEdit('src/App.vue', 'x', 'y')).toMatchObject({ ok: false, why: expect.stringMatching(/not a TypeScript or JavaScript module/) });
     expect(exportOnlyEdit('src/types.d.ts', 'export {};\ninterface A {}\n', 'export {};\nexport interface A {}\n')).toMatchObject({ ok: false });
+  });
+
+  it('an export of `then` or `__esModule` changes how the whole module is consumed; an ordinary name is the twin that passes', () => {
+    const before = "export const ready = true;\nfunction then(resolve: (v: unknown) => void) { resolve(1) }\nconst flag = true;\nfunction go() {}\n";
+    expect(exportOnlyEdit('src/lazy.ts', before, at('function then', 'export function then', before))).toMatchObject({ ok: false, why: expect.stringMatching(/it exports then: a module namespace with a `then` export is a thenable/) });
+    expect(exportOnlyEdit('src/lazy.ts', before, `${before}export { go as then };\n`)).toMatchObject({ ok: false, why: expect.stringMatching(/it exports then/) });
+    expect(exportOnlyEdit('src/lazy.ts', before, `${before}export { flag as __esModule };\n`)).toMatchObject({ ok: false, why: expect.stringMatching(/it exports __esModule: CommonJS interop/) });
+    expect(exportOnlyEdit('src/lazy.ts', before, `${before}export { go, flag };\n`)).toEqual({ ok: true, names: ['flag', 'go'] });
+  });
+
+  it('a module with `export * from`: a new local export would hide the re-exported name; the twin without it passes', () => {
+    const own = "function fmt(n: number) { return 'local:' + n }\nexport const v = fmt.length;\n";
+    const star = `export * from './impl';\n${own}`;
+    expect(exportOnlyEdit('src/fmt.ts', star, at('function fmt', 'export function fmt', star))).toMatchObject({ ok: false, addsExports: true, why: expect.stringMatching(/line 1 \(`export \* from '\.\/impl';`\) re-exports every name of another module/) });
+    expect(exportOnlyEdit('src/fmt.ts', own, at('function fmt', 'export function fmt', own))).toEqual({ ok: true, names: ['fmt'] });
+    // A namespace re-export adds one name of its own, which a new export cannot share: no name is hidden.
+    const ns = `export * as impl from './impl';\n${own}`;
+    expect(exportOnlyEdit('src/fmt.ts', ns, at('function fmt', 'export function fmt', ns))).toEqual({ ok: true, names: ['fmt'] });
   });
 
   it('addsExports tells an attempt at an export-only edit from an unrelated edit', () => {
