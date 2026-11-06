@@ -11,10 +11,11 @@
  *   - the same pre-tool refusal four times in one owner message ends the turn and tells the owner the
  *     agent is stuck; three and then progress goes on; refusals for other paths or reasons never add up.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import standardsGate from '../../plugins/gates/standards.ts';
+import { HARNESS_ROOT } from '../../src/core/config.ts';
 import type { CheckFinding, CheckPlugin, GateStatus, RegistryView, RunEvent } from '../../src/core/types.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import { AUTO_CONTINUE_LIMIT, autoContinue, canonicalCallPath, continueInputEstimate, continueMessage, preToolRefusal, progressKey, RefusalCounter, STUCK_REFUSALS, type ContinueState } from '../../src/session/session.ts';
@@ -385,6 +386,31 @@ describe('a stuck detector', () => {
     expect(ran.out).not.toContain('the agent is stuck');
     expect(ran.driver.used).toBe(6);
     expect(existsSync(join(r.repo, TEST_FILE))).toBe(true);
+  });
+
+  it('observed-red (a repository whose runner the harness can run): the same locked source edit four times is stuck; twin: three, then a test, goes on', async () => {
+    const edit = calls(['write_file', { path: 'src/greeting.ts', content: 'export function greeting(name: string): string {\n  return `Hello, ${name.trim()}`;\n}\n' }]);
+    for (const tries of [STUCK_REFUSALS, STUCK_REFUSALS - 1]) {
+      r?.cleanup();
+      r = webRepo({ extra: { '.gitignore': 'node_modules\n' } });
+      // Its own vitest, as an installed checkout has it (ignored): the source edit then needs an observed red.
+      symlinkSync(join(HARNESS_ROOT, 'node_modules'), join(r.repo, 'node_modules'), 'dir');
+      const ran = await runScripted(r, [
+        calls(['propose_contract', proposal()]),
+        ...Array.from({ length: tries }, () => edit),
+        ...(tries < STUCK_REFUSALS ? [calls(['write_file', { path: TEST_FILE, content: TEST_BODY }])] : []),
+        text('stopped'),
+      ], ['fix the greeting', 'yes'], { registry: await registryWithGates() });
+      expect(ran.out.split('✗ BLOCKED by observed-red: src/greeting.ts is locked'), `tries ${tries}`).toHaveLength(tries + 1);
+      if (tries === STUCK_REFUSALS) {
+        expect(ran.out).toContain('⚠ the agent is stuck: observed-red refused src/greeting.ts 4 times: src/greeting.ts is locked: no covering test has an observed red at its current content. Tell it what to do differently, or /exit.');
+        expect(ran.driver.used).toBe(5);
+      } else {
+        expect(ran.out).not.toContain('the agent is stuck');
+        expect(existsSync(join(r.repo, TEST_FILE))).toBe(true);
+        expect(ran.driver.used).toBe(6);
+      }
+    }
   });
 
   it('twin: refusals for different paths (so different reasons) do not add up, though the hook is the same', async () => {
