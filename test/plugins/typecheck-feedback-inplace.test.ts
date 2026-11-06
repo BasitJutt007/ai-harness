@@ -373,6 +373,45 @@ describe("typecheck-feedback in place: the defaults of the repository's TypeScri
     expect(found('6.0.3', { ...script, 'tsconfig.json': project(MODERN) }, 'src/legacy.ts').r?.errors[0]).toBe(reserved);
   });
 
+  it('target unset: 5.x compiles for ES5 (from a Node module, its matching target), so a private field is an error; 6.x targets the latest', () => {
+    const counter = { 'src/counter.ts': 'export class Counter {\n  #n = 0;\n  next(): number {\n    return ++this.#n;\n  }\n}\n' };
+    const es5 = 'src/counter.ts:2:3 TS18028 Private identifiers are only available when targeting ECMAScript 2015 and higher.';
+    expect(found('5.9.3', { ...counter, 'tsconfig.json': project({ lib: ['ES2022'], noEmit: true, types: [] }) }, 'src/counter.ts').r?.errors).toEqual([es5]);
+    expect(found('6.0.3', { ...counter, 'tsconfig.json': project({ lib: ['ES2022'], noEmit: true, types: [] }) }, 'src/counter.ts').r?.errors).toEqual([]);
+    expect(found('5.9.3', { ...counter, 'tsconfig.json': project({ module: 'node16', lib: ['ES2022'], noEmit: true, types: [] }) }, 'src/counter.ts').r?.errors).toEqual([]);
+  });
+
+  it('module unset: 5.x derives ES2015 from an ES2022 target, which has no import.meta; 6.x derives ES2022', () => {
+    const files = { 'tsconfig.json': project({ target: 'ES2022', lib: ['ES2022', 'DOM'], noEmit: true, types: [] }), 'src/where.ts': 'export const here: string = import.meta.url;\n' };
+    expect(found('5.9.3', files, 'src/where.ts').r?.errors).toEqual([expect.stringMatching(/^src\/where\.ts:1:29 TS1343 The 'import\.meta' meta-property is only allowed when /)]);
+    expect(found('6.0.3', files, 'src/where.ts').r?.errors).toEqual([]);
+  });
+
+  it('moduleResolution unset: 5.x resolves an ES2015 module the Classic way (no package.json types), a CommonJS one the Node10 way; 6.x uses Bundler', () => {
+    const pkg = { 'tiny-pkg/package.json': '{ "name": "tiny-pkg", "version": "1.0.0", "types": "lib/index.d.ts" }\n', 'tiny-pkg/lib/index.d.ts': 'export declare const size: number;\n' };
+    const uses = { 'src/size.ts': "import { size } from 'tiny-pkg';\nexport const doubled: number = size * 2;\n" };
+    const esm = { ...uses, 'tsconfig.json': project({ target: 'ES2022', lib: ['ES2022'], noEmit: true, types: [] }) };
+    expect(found('5.9.3', esm, 'src/size.ts', pkg).r?.errors).toEqual([expect.stringMatching(/^src\/size\.ts:1:22 TS2792 Cannot find module 'tiny-pkg'\./)]);
+    expect(found('6.0.3', esm, 'src/size.ts', pkg).r?.errors).toEqual([]);
+    const cjs = { ...uses, 'tsconfig.json': project({ target: 'ES2022', module: 'commonjs', lib: ['ES2022'], noEmit: true, types: [] }) };
+    expect(found('5.9.3', cjs, 'src/size.ts', pkg).r?.errors).toEqual([]);
+  });
+
+  it('esModuleInterop and allowSyntheticDefaultImports unset: 5.x has neither under CommonJS (synthetic defaults under Bundler); 6.x has both', () => {
+    const legacy = "declare module 'legacy' {\n  function run(): number;\n  namespace run {\n    const version: string;\n  }\n  export = run;\n}\n";
+    const commonjs = { target: 'ES2020', module: 'commonjs', strict: true, noEmit: true, types: [] };
+    const defaultImport = { 'src/legacy.d.ts': legacy, 'src/use.ts': "import run from 'legacy';\nexport const n: number = run();\n" };
+    const namespaceCall = { 'src/legacy.d.ts': legacy, 'src/use.ts': "import * as run from 'legacy';\nexport const n: number = run();\n" };
+    // A default import of an `export =` module needs allowSyntheticDefaultImports.
+    expect(found('5.9.3', { ...defaultImport, 'tsconfig.json': project(commonjs) }, 'src/use.ts').r?.errors).toEqual(["src/use.ts:1:8 TS1259 Module '\"legacy\"' can only be default-imported using the 'esModuleInterop' flag"]);
+    expect(found('6.0.3', { ...defaultImport, 'tsconfig.json': project(commonjs) }, 'src/use.ts').r?.errors).toEqual([]);
+    expect(found('5.9.3', { ...defaultImport, 'tsconfig.json': project({ ...commonjs, esModuleInterop: true }) }, 'src/use.ts').r?.errors).toEqual([]);
+    expect(found('5.9.3', { ...defaultImport, 'tsconfig.json': project({ ...commonjs, module: 'esnext', moduleResolution: 'bundler' }) }, 'src/use.ts').r?.errors).toEqual([]);
+    // Calling a namespace import is allowed only without esModuleInterop.
+    expect(found('5.9.3', { ...namespaceCall, 'tsconfig.json': project(commonjs) }, 'src/use.ts').r?.errors).toEqual([]);
+    expect(found('6.0.3', { ...namespaceCall, 'tsconfig.json': project(commonjs) }, 'src/use.ts').r?.errors).toEqual([expect.stringMatching(/^src\/use\.ts:2:26 TS2349 This expression is not callable\./)]);
+  });
+
   it('5.x has no rootDir check: config/ including ../src with an outDir passes and a real error still shows; 6.x, and a 5.x composite project, record TS6059 as their tsc does', async () => {
     const inSubdirectory = (extra: Record<string, unknown>): Record<string, string> => ({
       'tsconfig.json': JSON.stringify({ files: [], references: [{ path: './config/tsconfig.app.json' }] }),

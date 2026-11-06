@@ -243,16 +243,63 @@ function repoTypeScriptMajor(root: string, fence: TsFence): number | null {
   }
 }
 
+/** TypeScript 5's default target: from a Node `module`, else ES5 (ES3, removed in 5.5, counts as unset). */
+function ts5Target(o: ts.CompilerOptions): ts.ScriptTarget {
+  if (o.target !== undefined && o.target !== ts.ScriptTarget.ES3) return o.target;
+  switch (o.module) {
+    case ts.ModuleKind.Node16:
+    case ts.ModuleKind.Node18:
+      return ts.ScriptTarget.ES2022;
+    case ts.ModuleKind.Node20:
+      return ts.ScriptTarget.ES2023;
+    case ts.ModuleKind.NodeNext:
+      return ts.ScriptTarget.ESNext;
+    default:
+      return ts.ScriptTarget.ES5;
+  }
+}
+
+/** TypeScript 5's default module: ES2015 for an ES2015+ target, else CommonJS. */
+function ts5Module(o: ts.CompilerOptions): ts.ModuleKind {
+  return o.module ?? (ts5Target(o) >= ts.ScriptTarget.ES2015 ? ts.ModuleKind.ES2015 : ts.ModuleKind.CommonJS);
+}
+
+/** TypeScript 5's default moduleResolution: from the module (Classic for ES2015 and later, where 6.0 has Bundler). */
+function ts5Resolution(o: ts.CompilerOptions): ts.ModuleResolutionKind {
+  if (o.moduleResolution !== undefined) return o.moduleResolution;
+  switch (ts5Module(o)) {
+    case ts.ModuleKind.CommonJS:
+      return ts.ModuleResolutionKind.Node10;
+    case ts.ModuleKind.Node16:
+    case ts.ModuleKind.Node18:
+    case ts.ModuleKind.Node20:
+      return ts.ModuleResolutionKind.Node16;
+    case ts.ModuleKind.NodeNext:
+      return ts.ModuleResolutionKind.NodeNext;
+    case ts.ModuleKind.Preserve:
+      return ts.ModuleResolutionKind.Bundler;
+    default:
+      return ts.ModuleResolutionKind.Classic;
+  }
+}
+
+/** Modules under which TypeScript 5 turns esModuleInterop on by default (6.0 turns it on always). */
+const TS5_INTEROP_MODULES: ReadonlySet<ts.ModuleKind> = new Set([ts.ModuleKind.Node16, ts.ModuleKind.Node18, ts.ModuleKind.Node20, ts.ModuleKind.NodeNext, ts.ModuleKind.Preserve]);
+
 /**
  * A project's options as `tsc --noEmit -p <config>` of the repository's TypeScript uses them. The harness's
  * TypeScript 6 changed defaults the repository's older TypeScript still has, so an option the config leaves
- * unset gets the pre-6.0 default (strict off, every visible @types package, unchecked side-effect imports, and
- * no rootDir check: 5.x defaults rootDir to the files' common directory, which holds them all, where 6.0 takes
- * the config's directory, so a config in a subdirectory that includes ../src fails it on every file; the file
- * system root holds them all too, and a composite project kept the config's directory in 5.x as well).
- * The 6.0 option deprecations are silenced, whatever the config's own ignoreDeprecations ("5.0", which 5.x
- * repositories set, silences none of them), because that compiler raises none of them, including for the
- * defaults set here (alwaysStrict false).
+ * unset gets the pre-6.0 default: strict off, every visible @types package, unchecked side-effect imports;
+ * target, module, moduleResolution, esModuleInterop and allowSyntheticDefaultImports derived as 5.x derives
+ * them (ES5, CommonJS or ES2015, Node10 or Classic, no interop outside the Node modes); and no rootDir check
+ * (5.x defaults rootDir to the files' common directory, which holds them all, where 6.0 takes the config's
+ * directory, so a config in a subdirectory that includes ../src fails it on every file; the file system root
+ * holds them all too, and a composite project kept the config's directory in 5.x as well). These follow the
+ * computed defaults of TypeScript 5.9 against 6.0, option by option; what cannot follow is a changed lib
+ * (6.0's `dom` declares more than 5.x's). The 6.0 option deprecations are silenced, whatever the config's own
+ * ignoreDeprecations ("5.0", which 5.x repositories set, silences none of them), because that compiler raises
+ * none of them, including for the defaults set here (alwaysStrict false, target ES5, moduleResolution Node10
+ * or Classic, esModuleInterop false).
  */
 export function repoCompilerOptions(options: ts.CompilerOptions, repoMajor: number): ts.CompilerOptions {
   const out: ts.CompilerOptions = { ...options, noEmit: true };
@@ -261,6 +308,11 @@ export function repoCompilerOptions(options: ts.CompilerOptions, repoMajor: numb
     out.alwaysStrict ??= options.strict === true;
     out.noUncheckedSideEffectImports ??= false;
     out.types ??= ['*'];
+    out.target ??= ts5Target(options);
+    out.module ??= ts5Module(options);
+    out.moduleResolution ??= ts5Resolution(options);
+    out.esModuleInterop ??= TS5_INTEROP_MODULES.has(ts5Module(options));
+    out.allowSyntheticDefaultImports ??= out.esModuleInterop || ts5Module(options) === ts.ModuleKind.System || ts5Resolution(options) === ts.ModuleResolutionKind.Bundler;
     if (options.rootDir === undefined && options.composite !== true) {
       const config = options['configFilePath'];
       out.rootDir = path.parse(path.resolve(typeof config === 'string' ? config : '.')).root;
