@@ -218,6 +218,9 @@ describe('a bounded auto-continue', () => {
   });
 });
 
+/** The standards gate's blocking line for a rule whose check crashed now and ran at the base commit. */
+const UNPROVEN_NOW_LINE = 'repo-lint: UNPROVEN now (skipped: check crashed: eslint timed out after 120s) but proven at the base commit (12/12 files)';
+
 describe('when a message continues by itself (the decision)', () => {
   const failing = { gate: 'standards', status: 'fail' as const, summary: '1 introduced by this run: no-todo x.ts:1:1 TODO comment' };
   const verdict: NonNullable<ContinueState['verdict']> = { kind: 'NOT DONE', trigger: 'turn', reasons: [`gate standards failed: ${failing.summary}`], gates: [failing, { gate: 'scope', status: 'pass', summary: 'ok' }] };
@@ -229,6 +232,9 @@ describe('when a message continues by itself (the decision)', () => {
     for (const g of ['tests-green', 'observed-red']) {
       expect(autoContinue({ ...go, verdict: { ...verdict, reasons: [`gate ${g} failed: x`], gates: [{ gate: g, status: 'fail', summary: 'x' }] } }).go, g).toBe(true);
     }
+    // A finding the run introduced next to a check that could not run now: the agent can act on the finding.
+    const mixed = { ...failing, failing: 2, details: ['introduced (in a file this run changed): no-todo x.ts:1:1  TODO comment', UNPROVEN_NOW_LINE] };
+    expect(autoContinue({ ...go, verdict: { ...verdict, gates: [mixed] } }).go).toBe(true);
   });
 
   it('each twin that must never continue', () => {
@@ -247,6 +253,7 @@ describe('when a message continues by itself (the decision)', () => {
       ['NOT DONE with an UNPROVEN gate too (a missing runner)', { verdict: { ...verdict, reasons: [...verdict.reasons, 'gate tests-green UNPROVEN: no runner'], gates: [failing, { gate: 'tests-green', status: 'unproven', summary: 'no runner' }] } }, /cannot act on/, false],
       ['NOT DONE with the environment (no sandbox)', { verdict: { ...verdict, reasons: [...verdict.reasons, 'isolation: none'] } }, /cannot act on/, false],
       ['a gate the agent does not fix by itself', { verdict: { ...verdict, reasons: ['gate scope failed: x'], gates: [{ gate: 'scope', status: 'fail', summary: 'x' }] } }, /gate scope failed/, false],
+      ['a standards failure made only of a check that could not run now', { verdict: { ...verdict, gates: [{ ...failing, failing: 1, details: [UNPROVEN_NOW_LINE] }] } }, /could not run now/, false],
       ['the limit', { done: AUTO_CONTINUE_LIMIT, previous: 'other' }, /after 2 automatic continues/, true],
       ['no progress', { done: 1, previous: `gate standards failed: ${failing.summary}` }, /same reasons/, true],
       ['no turn left', { turnsLeft: 0 }, /turn budget/, true],
@@ -474,6 +481,49 @@ describe('the session wires the decision (each stop with its twin that continues
         expect(ran.out).not.toContain(CONTINUED(1));
         expect(ran.driver.used).toBe(3);
       } else {
+        expect(ran.out).toContain(CONTINUED(1));
+        expect(ran.out).toContain(WORK_COMPLETED);
+        expect(ran.driver.used).toBe(5);
+      }
+    }
+  });
+
+  it('a standards failure made only of a check that crashed now (a lint timeout): no continue; twin: the same check reporting the run\'s finding continues', async () => {
+    /** The repository's lint: a TODO line is a finding; a file with CRASH in it stands for a lint that cannot finish on this machine. */
+    const lint: CheckPlugin = {
+      kind: 'check', id: 'repo-lint', category: 'lint', unit: 'files',
+      async run(ctx) {
+        const out: CheckFinding[] = [];
+        for (const file of [...ctx.sourceFiles, ...ctx.testFiles]) {
+          const body = await ctx.read(file);
+          if (body.includes('CRASH')) throw new Error('eslint timed out after 120s');
+          const violations = body.split('\n').flatMap((l, i) => (l.includes('TODO') ? [{ location: `${file}:${i + 1}:1`, message: 'TODO comment' }] : []));
+          out.push({ rule: 'repo-lint', file, status: violations.length > 0 ? 'fail' : 'pass', units: { passed: violations.length > 0 ? 0 : 1, total: 1 }, violations });
+        }
+        return out;
+      },
+    };
+    for (const marker of ['CRASH', 'TODO'] as const) {
+      r?.cleanup();
+      r = webRepo();
+      const reg = { ...(await registry()), checks: [{ plugin: lint, file: 'test/repo-lint.ts', sha256: '0'.repeat(64) }] };
+      const ran = await runScripted(r, [
+        calls(['propose_contract', proposal()]),
+        calls(['write_file', { path: TEST_FILE, content: `${TEST_BODY}// ${marker}: an empty name\n` }]),
+        text('Test written.'),
+        calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]),
+        calls(['finish', { summary: 'marker removed' }]),
+        text('never asked'),
+      ], ['fix the greeting', 'yes'], { registry: reg });
+      const first = (ran.runJson['verdicts'] as Array<{ kind: string; reasons: string[] }>)[0];
+      expect(first?.kind, marker).toBe('NOT DONE');
+      if (marker === 'CRASH') {
+        expect(first?.reasons).toEqual([expect.stringMatching(/^gate standards failed: 1 introduced by this run: repo-lint: UNPROVEN now \(skipped: check crashed: eslint timed out after 120s\) but proven at the base commit/)]);
+        expect(ran.out).not.toContain(CONTINUED(1));
+        expect(ran.out).not.toContain(WORK_COMPLETED);
+        expect(ran.driver.used).toBe(3);
+      } else {
+        expect(first?.reasons).toEqual([expect.stringMatching(/^gate standards failed: 2 introduced by this run: repo-lint test\/greeting-name\.test\.ts:8:1 {2}TODO comment/)]);
         expect(ran.out).toContain(CONTINUED(1));
         expect(ran.out).toContain(WORK_COMPLETED);
         expect(ran.driver.used).toBe(5);

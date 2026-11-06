@@ -327,6 +327,27 @@ export function preExistingCountText(c: PreExistingCount): string {
 /** The start of a "human must verify" or detail line about a pre-existing finding (never blocking). */
 export const PRE_EXISTING = 'pre-existing (not blocking';
 
+/** A blocking line about a rule its checker could not prove now but did at the base commit: "<rule>: UNPROVEN now (<why>) but proven at the base commit (<p>/<t> <unit>)". */
+const UNPROVEN_NOW = ': UNPROVEN now (';
+const PROVEN_AT_BASE = ') but proven at the base commit (';
+/** The start of a blocking line about something the run introduced (a violation, with or without a base report). */
+const INTRODUCED_STARTS = ['introduced (', 'changed file: '];
+
+/**
+ * Whether a failed standards result blocks ONLY on rules whose checker could not prove them now though
+ * it did at the base commit (the check crashed or was skipped: a timeout, a missing binary; the environment
+ * or the checker, not a finding the run introduced). Read from the result itself, whose first `failing`
+ * details are what it blocks on; false when it blocks on anything else, or when they are not all listed.
+ * Never part of the gate's decision: the session uses it to tell a failure the agent can act on from one
+ * it cannot.
+ */
+export function blocksOnlyOnUnprovenNow(r: Pick<GateResult, 'status' | 'failing' | 'details'>): boolean {
+  const n = r.failing ?? 0;
+  const d = r.details ?? [];
+  if (r.status !== 'fail' || n === 0 || d.length < n) return false;
+  return d.slice(0, n).every((x) => !INTRODUCED_STARTS.some((s) => x.startsWith(s)) && x.includes(UNPROVEN_NOW) && x.includes(PROVEN_AT_BASE));
+}
+
 /**
  * Prefix the baseline-mode label to a below-100% result and name it under "human must verify". What
  * blocks (the lead) comes before the label, so a reader who sees only the start of the summary sees it.
@@ -434,7 +455,7 @@ async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSum
     const why = unprovenNow.get(r.rule);
     if (why === undefined) continue;
     if (b !== undefined && (b.status === 'pass' || b.status === 'fail')) {
-      const line = `${r.rule}: UNPROVEN now (${why}) but proven at the base commit (${b.passed}/${b.total} ${b.unit})`;
+      const line = `${r.rule}${UNPROVEN_NOW}${why}${PROVEN_AT_BASE}${b.passed}/${b.total} ${b.unit})`;
       blocking.push({ rule: r.rule, detail: line, text: line });
     } else {
       unproven.push(`${r.rule}: ${why} (unproven at the base commit too: the checker cannot prove this API)`);

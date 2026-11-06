@@ -10,7 +10,7 @@ import type { CheckFinding, CheckPlugin, GatePlugin, GateResult, RunContext } fr
 import { runChecks } from '../../src/core/checks.ts';
 import { runGates } from '../../src/core/gates.ts';
 import { honesty, standardsLine } from '../../src/core/run.ts';
-import standardsGate, { BASELINE_KEY, BASELINE_MODE } from '../../plugins/gates/standards.ts';
+import standardsGate, { BASELINE_KEY, BASELINE_MODE, blocksOnlyOnUnprovenNow } from '../../plugins/gates/standards.ts';
 import checkStandards from '../../plugins/tools/check_standards.ts';
 import { brownfieldTask, callTool, greenfieldTask, HARNESS_ROOT, makeHarness, realExec, removeTmp, sha } from './helpers.ts';
 
@@ -519,6 +519,23 @@ describe('check_standards says what the standards gate blocks on (baseline mode)
     expect(lines.at(-1)).toBe('standards gate now: FAIL');
     expect(r.ok).toBe(false);
     expect((await run(standardsGate, h.ctx)).status).toBe('fail');
+  });
+
+  it('the gate\'s result says when it blocks only on rules unproven now (blocksOnlyOnUnprovenNow); twins: an introduced finding, and both', async () => {
+    const unreadableNow = `${base[layout.routes] ?? ''}// UNREADABLE now\n`;
+    const only = await run(standardsGate, (await setup({ standards: 'baseline', base, edits: { [layout.routes]: unreadableNow } })).ctx);
+    expect(only.status).toBe('fail');
+    expect(blocksOnlyOnUnprovenNow(only)).toBe(true);
+    const introduced = await run(standardsGate, (await setup({ standards: 'baseline', base, edits: bad })).ctx);
+    expect(introduced.status).toBe('fail');
+    expect(blocksOnlyOnUnprovenNow(introduced)).toBe(false);
+    const both = await run(standardsGate, (await setup({ standards: 'baseline', base, edits: { [layout.routes]: `${unreadableNow}${route('patch', '/v1/items/:id', false)}\n` } })).ctx);
+    expect(both.status).toBe('fail');
+    expect(both.details?.slice(0, both.failing).some((d) => d.includes(': UNPROVEN now ('))).toBe(true);
+    expect(blocksOnlyOnUnprovenNow(both)).toBe(false);
+    // Not all listed (more blocking lines than details): never read as "only".
+    expect(blocksOnlyOnUnprovenNow({ ...only, failing: (only.details?.length ?? 0) + 1 })).toBe(false);
+    expect(blocksOnlyOnUnprovenNow({ ...only, status: 'unproven' })).toBe(false);
   });
 
   it('no base commit: today\'s report, after a line saying the comparison was unavailable', async () => {

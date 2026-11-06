@@ -56,6 +56,7 @@ import { TokenLedger } from '../core/tokens.ts';
 import type { TranscriptTurn } from '../core/context.ts';
 import type { Driver, Exec, HarnessConfig, HookPlugin, Message, PluginRecord, RegistryView, RunContext, RunEvent, RunState, Task, TestBaseline, ToolEffect, ToolResult, ToolSpec, Workspace } from '../core/types.ts';
 import { createWorkspace, isEnvPath } from '../core/workspace.ts';
+import { blocksOnlyOnUnprovenNow } from '../../plugins/gates/standards.ts';
 import { toApiRel } from '../../plugins/lib/path-policy.ts';
 import { personName, proposeDrafted, proposeImported, readBefore, tildePath, type Proposal, type ProposalEnv } from './contract.ts';
 import type { OwnerInput } from './input.ts';
@@ -290,7 +291,8 @@ export type ContinueDecision = { go: true; key: string } | { go: false; why: str
  * Whether the owner's message goes on by itself: only when the model ended its turn without finish,
  * the tree changed, and the fresh verdict is NOT DONE because of gates the agent can act on
  * (ACTIONABLE_GATES failed, nothing else: no UNPROVEN gate, nothing about the session or the
- * environment). Never with a proposal awaiting its reply, in a read-only session, after the harness
+ * environment, no standards failure made only of checks that could not run now). Never with a
+ * proposal awaiting its reply, in a read-only session, after the harness
  * stopped the turn, after a Ctrl-C, past AUTO_CONTINUE_LIMIT, with the same reasons as the last
  * continue (no progress), with no turn left or when the next request could pass the spend cap.
  * `tell`: the owner hears why (the agent could have gone on but a bound stopped it).
@@ -310,6 +312,10 @@ export function autoContinue(c: ContinueState): ContinueDecision {
   if (failed.length === 0 || v.reasons.length !== failed.length) return no('the verdict has reasons the agent cannot act on (UNPROVEN, the session or the environment)');
   const other = failed.find((g) => !ACTIONABLE_GATES.has(g.gate));
   if (other !== undefined) return no(`gate ${other.gate} failed, which the agent does not fix by itself`);
+  // A standards failure made only of checks that could not run now (crashed, skipped) is the environment's or the checker's.
+  if (failed.some((g) => g.gate === 'standards' && blocksOnlyOnUnprovenNow(g))) {
+    return no('the standards gate fails only because a check could not run now (it crashed or was skipped): not something the agent introduced');
+  }
   if (c.done >= AUTO_CONTINUE_LIMIT) return no(`the gates still say NOT DONE after ${AUTO_CONTINUE_LIMIT} automatic continues; back to you`, true);
   const key = v.reasons.join('\n');
   if (key === c.previous) return no('the gates give the same reasons as before the last continue (no progress); back to you', true);
