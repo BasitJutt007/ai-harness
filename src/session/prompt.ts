@@ -22,9 +22,35 @@ export interface SessionPromptInfo {
   checks: CheckPlugin[];
   /** harness.config.json checkOptions: a configured rule shows its options. */
   checkOptions?: CheckOptionsMap | undefined;
+  /**
+   * Whether a Measure script the model writes can run here (session.ts measureConfinement: only where a
+   * sandbox confines it). Where it cannot, propose_contract refuses any measureScript and that refusal
+   * ends the model's turn, so a writable prompt says to propose with Measure: none instead. Not given:
+   * treated as cannot (the prompt never steers the model into a refusal).
+   */
+  measureScripts?: boolean | undefined;
 }
 
 const GENERIC_ROLE = "You work in a web repository (TypeScript or JavaScript). Follow the repository's own structure, conventions and test setup; paths are relative to the repository root.";
+
+/**
+ * How a writable session's test proves something (sent with every request: a few lines). The test map
+ * follows imports, dynamic import() of a literal path included, so only an importing test can unlock a
+ * source file.
+ */
+const TEST_GUIDANCE = [
+  "- A test covers a source file only by importing it (directly or through its imports; test_map <file> shows which do). A test that reads the file's text or copies its logic proves nothing: observed-red never unlocks the file for it.",
+  '- If the new test passes before the change, it does not reproduce the problem: make it fail for the reason the contract names, then change the code.',
+  '- Stub browser globals and import-time config (window, document, localStorage, import.meta.env) before the module loads: stub, then import() it by its literal path.',
+];
+
+/**
+ * The Measure advice, as propose_contract will answer it here (SessionPromptInfo.measureScripts). It
+ * names the measureScript field and nothing more: what the script prints is said once, in
+ * propose_contract's own description, so the two cannot disagree.
+ */
+const MEASURE_SCRIPT = '- Prefer a measureScript over Measure: none (an item with Measure: none can ship but never close).';
+const MEASURE_NONE = '- No sandbox confines a Measure script here, so propose_contract refuses one: propose with Measure: none (no measureScript; that item can ship but never close).';
 
 export function sessionSystemPrompt(p: SessionPromptInfo): string {
   const have = new Set(p.tools.map((t) => t.name));
@@ -40,6 +66,8 @@ export function sessionSystemPrompt(p: SessionPromptInfo): string {
       ? [
           '- Before your FIRST edit, call propose_contract with the problem, the scenarios (WHEN ... THEN ...), what is not included, the metric and a Conventional Commits header (the harness fills Repo, Base and Stakeholder). Then end your turn and wait: only the line the owner types next at the prompt can approve it. You cannot approve it, and every edit is refused until it is approved.',
           '- After approval, for a change in logic: write a failing test first and run it with run_tests (red), then change the code, run the tests again (green), then call finish. A style, markup or text-only change needs no red test; say so plainly.',
+          ...TEST_GUIDANCE,
+          p.measureScripts === true ? MEASURE_SCRIPT : MEASURE_NONE,
         ]
       : []),
     "- The harness's gates decide whether the work is complete, never you: call finish and let them decide. Never say the work is done, fixed or complete before the gates have said so. If finish is refused, fix what the gate lines name and call finish again.",
