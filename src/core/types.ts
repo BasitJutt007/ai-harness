@@ -391,6 +391,12 @@ export interface TestObservation {
    * and to require red -> green on UNCHANGED test code.
    */
   cases?: TestCaseObservation[];
+  /**
+   * The suite failed to load because a module it imports lacks a named export (Node's ESM linker: "The
+   * requested module 'M' does not provide an export named 'X'"): the specifier as written and the name.
+   * Only that exact message sets it (a CommonJS "x is not a function" is never read as one).
+   */
+  missingExport?: { module: string; name: string };
 }
 
 export interface TestCaseObservation {

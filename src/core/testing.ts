@@ -31,6 +31,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { glob } from 'tinyglobby';
 import { safeEnv } from './exec.ts';
+import { missingNamedExport } from './export-only.ts';
 import { activeLayout, isSourcePath, isWebLayout, scriptGlobs, sourceRootsLabel, versionAtLeast } from './target.ts';
 import type { TargetLayout, TestRunnerInfo } from './target.ts';
 import { graphFiles, importGraph, reachesSource, locatedRed, resolveImport, staticTestCases } from './testmap.ts';
@@ -464,6 +465,12 @@ async function observe(root: string, fr: VitestFileResult, turn: number, at: str
       // Nothing ran: the case's own assertions are the only evidence, so presence-only ones (toBeDefined, ...) do not count.
       const counts = cases.some(countsAsMissingModuleRed);
       return { ...base, status: 'error', validRed: counts, reason: counts ? why : `${why}; ${rejectedCases(cases, where)}` };
+    }
+    // A named import the module does not export: kept whole (never clipped mid-name) and as data, so the
+    // observed-red lock can name the way out (an export-only edit) for the file that declares it.
+    const missingExport = missingNamedExport(stripAnsi(fr.message));
+    if (missingExport !== null) {
+      return { ...base, status: 'error', validRed: false, reason: `suite error: ${stripRoot(root, missingExport.line)}`, missingExport: { module: missingExport.module, name: missingExport.name } };
     }
     const msg = shortMessage(root, fr.message) || 'suite failed to load';
     return { ...base, status: 'error', validRed: false, reason: `suite error: ${msg}` };

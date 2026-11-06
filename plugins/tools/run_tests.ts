@@ -48,7 +48,13 @@ export default defineTool({
     const report = await ctx.services.runTests(files, { isolateFailures: true });
     const red = report.observations.filter((o) => o.validRed).map((o) => o.file);
     const rejected = report.observations.filter((o) => o.status === 'fail' && !o.validRed).map((o) => `${o.file}: ${o.reason}`);
-    const lines = [report.summary, ...rejected, ...(report.diagnosis ?? [])];
+    // A suite that failed to load on a named import the module does not export: the whole message (the summary
+    // line may be clipped) and the way out, which a locked source file takes (an export-only edit).
+    const unexported = report.observations.flatMap((o) => (o.status === 'error' && o.missingExport !== undefined
+      ? [`${o.file} failed to load: the module '${o.missingExport.module}' it imports does not export ${o.missingExport.name}. ` +
+        `If that module declares ${o.missingExport.name}, add \`export\` to that declaration (an export-only edit is allowed even while the file is locked), then run this test again to observe a real assertion.`]
+      : []));
+    const lines = [report.summary, ...rejected, ...unexported, ...(report.diagnosis ?? [])];
     if (files !== undefined && report.observations.length === 0) {
       lines.push(`no test file was collected for ${files.join(', ')}; check the runner's include pattern`);
     }
