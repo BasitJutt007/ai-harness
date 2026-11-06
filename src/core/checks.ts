@@ -152,8 +152,7 @@ export async function runChecks(opts: {
   /** harness.config.json `checkOptions`: each check gets only its own entry, as CheckContext.options. */
   checkOptions?: Readonly<Record<string, Record<string, unknown>>>;
 } & CheckRunInfo): Promise<CheckReport> {
-  // An in-place run's profile has a web layout (inPlaceProfile); file mode never does.
-  const selected = selectChecks(opts.checks, opts.categories, opts.rules, opts.stack, opts.layout !== undefined && isWebLayout(opts.layout));
+  const selected = checksForRun(opts.checks, opts);
   const otherStacks = selectChecks(opts.checks, opts.categories, opts.rules).filter((c) => !selected.includes(c));
   const ctx = await createCheckContext(opts);
   const findings: CheckFinding[] = [];
@@ -189,6 +188,18 @@ export async function runChecks(opts: {
 export function withOptions(ctx: CheckContext, all: Readonly<Record<string, Record<string, unknown>>> | undefined, id: string): CheckContext {
   const own = all !== undefined && Object.hasOwn(all, id) ? all[id] : undefined;
   return own === undefined ? ctx : { ...ctx, options: structuredClone(own) };
+}
+
+/**
+ * The checks a run's gate runs (runChecks) for its stack and layout: selectChecks, in place when the
+ * layout is a web layout (an in-place run's profile has one, inPlaceProfile; file mode's never does).
+ * A session's system prompt lists exactly these, so the model is told of every check the gate runs.
+ */
+export function checksForRun(
+  checks: CheckPlugin[],
+  where: { stack?: Stack | undefined; layout?: TargetLayout | undefined; categories?: string[] | undefined; rules?: string[] | undefined },
+): CheckPlugin[] {
+  return selectChecks(checks, where.categories, where.rules, where.stack, where.layout !== undefined && isWebLayout(where.layout));
 }
 
 /**

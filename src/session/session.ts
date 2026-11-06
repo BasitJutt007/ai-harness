@@ -30,7 +30,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { basename, join } from 'node:path';
-import { selectChecks } from '../core/checks.ts';
+import { checksForRun } from '../core/checks.ts';
 import { HARNESS_ROOT, loadConfig } from '../core/config.ts';
 import { exec as coreExec } from '../core/exec.ts';
 import { missingRequiredHooks } from '../core/hooks.ts';
@@ -1131,7 +1131,9 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
       ...(target.profile !== undefined ? { profile: target.profile } : {}),
     });
     const offered = sessionTools(registry, writability.writable);
-    const checks = selectChecks(registry.checks.map((r) => r.plugin), undefined, undefined, ctx.stack);
+    // The checks the gate runs, chosen as runChecks chooses them (the in-place profile's web layout adds
+    // inPlaceStacks: web-build for express and nestjs), so the model is told of every one of them.
+    const checks = checksForRun(registry.checks.map((r) => r.plugin), { stack: ctx.stack, layout: target.profile });
     const repo = basename(top);
     const runner = target.profile !== undefined ? (target.profile.runner.supported ? target.profile.runner.name : `none supported: ${target.profile.runner.reason ?? target.profile.runner.name}`) : 'unknown';
     const system = sessionSystemPrompt({ repo, branch, writable: writability.writable, reason: writability.reason, stack: ctx.stack ?? 'unknown', runner, tools: offered, checks, checkOptions: config.checkOptions });
