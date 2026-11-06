@@ -28,9 +28,9 @@
  * fence of createTsFence). Services are kept warm (per API root in file mode, per root and project in
  * place), so after the first check only changed files are re-parsed. A check found still running after
  * BUDGET_MS is cancelled and skipped; after MAX_OVERRUNS cancelled checks in a row the hook stays off
- * for that API root (noted once). The budget is not a hard cap: the deadline is looked at between
- * steps (in place: after each project's program, before type-checking) and inside type checking, but
- * building a program cannot be interrupted, so the first (cold) check of a large project, and in place
+ * for that API root (noted once). The budget is not a hard cap: the deadline is looked at inside type
+ * checking and, in place, after each project's program is built, but building a program cannot be
+ * interrupted, so the first (cold) check of a large project, and in place
  * every check of a large checkout (each file's content is read and hashed to find what changed), can
  * take longer than BUDGET_MS before it is cancelled.
  */
@@ -291,7 +291,10 @@ export function checkInPlace(root: string, files: string[], budgetMs = BUDGET_MS
   };
 
   const deadline = performance.now() + budgetMs;
-  /** At the deadline the check is cancelled: between projects here, inside type checking by the cancellation token. */
+  /**
+   * Past the deadline the check is cancelled: here after each project's program is built (the step nothing
+   * else interrupts), and inside type checking by the cancellation token.
+   */
   const inTime = (): void => {
     if (performance.now() > deadline) throw new ts.OperationCanceledException();
   };
@@ -346,7 +349,6 @@ export function checkInPlace(root: string, files: string[], budgetMs = BUDGET_MS
         const first = ts.flattenDiagnosticMessageText(d.messageText, '\n').split('\n')[0] ?? '';
         project.push(errorLine(d.file !== undefined ? relOf(d.file.fileName) : config, { ...d, messageText: first }));
       }
-      inTime();
       for (const { name, rel } of list) errors.push(...fileErrors(svc.ls, name, () => rel));
     }
   } catch (e) {
