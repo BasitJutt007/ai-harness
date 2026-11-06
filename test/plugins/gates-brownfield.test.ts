@@ -454,13 +454,46 @@ describe('check_standards says what the standards gate blocks on (baseline mode)
     expect(sub.summary.split('\n').at(-1)).toMatch(/^the rules this call checked \(zod-boundary\): pass\. The standards gate checks every rule/);
   });
 
-  it('{ all: true } lists every failing line of the report after what blocks', async () => {
+  it('{ all: true } lists the report\'s failing lines after what blocks (a report that lists every violation: no note that it stops)', async () => {
     const h = await setup({ standards: 'baseline', base, edits: bad });
     const r = await callTool(checkStandards, { all: true }, h.ctx);
     const report = await h.ctx.services.runChecks();
     expect(r.summary.startsWith('BLOCKING: 2 introduced by this run')).toBe(true);
-    expect(r.summary.endsWith(`every failing line of the report (pre-existing included):\n${report.compact}`)).toBe(true);
+    expect(r.summary.endsWith(`the standards report's failing lines (pre-existing included):\n${report.compact}`)).toBe(true);
     expect(r.summary).toContain(`${layout.legacy}:1:1  PUT /v0/a/:id: request body is not parsed`);
+    // The default call says what "all" adds; this one has added it.
+    expect((await callTool(checkStandards, {}, h.ctx)).summary).toContain('"all": true adds the report\'s failing lines, pre-existing included');
+    expect(r.summary).not.toContain('"all": true adds');
+  });
+
+  it('more than 20 blocking findings: the default lists 20 and counts the rest; twin: { all: true } lists every one, then the report', async () => {
+    const debt = Array.from({ length: 30 }, (_, i) => `console.log("legacy ${i}");`).join('\n');
+    const owed = api(layout, debt);
+    const many = Array.from({ length: 25 }, (_, i) => `console.log("debug ${i}");`).join('\n');
+    const h = await setup({ standards: 'baseline', base: owed, edits: { [layout.routes]: `${owed[layout.routes] ?? ''}${many}\n` } });
+    const last = `  introduced (in a file this run changed): no-console ${layout.routes}:28:1  console call`;
+    const rule = '  no-console: 2 failing files vs 1 at the base commit';
+    const first = await callTool(checkStandards, {}, h.ctx);
+    const lines = first.summary.split('\n');
+    expect(lines[0]).toBe('BLOCKING: 26 introduced by this run (the standards gate fails until each is fixed):');
+    expect(lines.slice(1, 21).every((l) => l.startsWith('  introduced (in a file this run changed): no-console '))).toBe(true);
+    expect(lines[21]).toBe('  … 6 more (the same call with "all": true lists every blocking line)');
+    expect(first.summary).not.toContain(last);
+    expect(first.summary).not.toContain(rule);
+    expect(lines).toContain('pre-existing, not blocking: no-console 30 in 1 file');
+    const all = await callTool(checkStandards, { all: true }, h.ctx);
+    const allLines = all.summary.split('\n');
+    const blocking = allLines.slice(1, allLines.findIndex((l, i) => i > 0 && !l.startsWith('  ')));
+    expect(blocking).toHaveLength(26);
+    expect(blocking).toContain(last);
+    expect(blocking).toContain(rule);
+    expect(all.summary).not.toContain('more (the same call');
+    // Exactly what the gate blocks on.
+    expect((await run(standardsGate, h.ctx)).failing).toBe(26);
+    // Then the report, saying that it lists only its first violations.
+    const report = await h.ctx.services.runChecks();
+    expect(report.compact).toMatch(/… \d+ more violations/);
+    expect(all.summary.endsWith(`the standards report's failing lines (pre-existing included; it lists the first violations and counts the rest):\n${report.compact}`)).toBe(true);
   });
 
   it('no base commit: today\'s report, after a line saying the comparison was unavailable', async () => {

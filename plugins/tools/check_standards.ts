@@ -1,8 +1,8 @@
 /**
  * check_standards: run the standards checks and say what they mean for this task.
  *
- * Greenfield and brownfield strict (the default): the compact report (every failing line and the summary
- * block), as always.
+ * Greenfield and brownfield strict (the default): the compact report (the failing lines, its first
+ * violations, and the summary block), as always.
  *
  * Brownfield in baseline mode (`standards: baseline`; every interactive session): the whole-API report of a
  * repository with years of debt would bury the few lines the run must fix under thousands it may not. So
@@ -10,8 +10,11 @@
  * the files it changed and those a change caused elsewhere: the gate's own classification, shared through
  * baselineAssessment, never a copy of it), then one line per rule counting the pre-existing findings it does
  * not block on, without listing them. With nothing introduced it says so plainly. Without a base report to
- * compare with, the compact report follows a line saying the comparison was unavailable. `all: true`
- * appends every failing line of the report. The full report stays the raw return (logged, never shorter).
+ * compare with, the compact report follows a line saying the comparison was unavailable. By default it lists
+ * the first MAX_BLOCKING blocking lines and counts the rest; `all: true` lists every blocking line (no cap:
+ * each is something the run must fix), then the compact report (pre-existing included; the report itself
+ * lists its first violations and counts the rest). The full report stays the raw return (logged, never
+ * shorter).
  *
  * With `rules` (a subset) the same classification covers only those rules. The gate checks every rule, so
  * such a call never states the gate's verdict: it says what blocks among the rules it checked and that the
@@ -46,24 +49,31 @@ function statusText(r: GateResult): string {
 /**
  * The baseline-mode lead: what blocks, the rules still UNPROVEN, and the pre-existing findings counted per
  * rule. `subset`: the rules a call checked (null: every rule), named wherever a line would otherwise speak
- * for the whole API.
+ * for the whole API. `all`: every blocking line, none held back (else the first MAX_BLOCKING and a count).
  */
-function baselineLines(f: BaselineFindings, percent: number, subset: string[] | null): string[] {
+function baselineLines(f: BaselineFindings, percent: number, subset: string[] | null, all: boolean): string[] {
   const out: string[] = [];
   const pre = f.preExisting.length;
   const within = subset !== null ? ' in the rules this call checked' : '';
   if (f.blocking.length > 0) {
     out.push(`BLOCKING: ${f.blocking.length} introduced by this run${within} (the standards gate fails until each is fixed):`);
-    for (const b of f.blocking.slice(0, MAX_BLOCKING)) out.push(`  ${line(b.detail)}`);
-    if (f.blocking.length > MAX_BLOCKING) out.push(`  … ${f.blocking.length - MAX_BLOCKING} more (check_standards { "all": true } lists every failing line)`);
+    for (const b of all ? f.blocking : f.blocking.slice(0, MAX_BLOCKING)) out.push(`  ${line(b.detail)}`);
+    if (!all && f.blocking.length > MAX_BLOCKING) out.push(`  … ${f.blocking.length - MAX_BLOCKING} more (the same call with "all": true lists every blocking line)`);
   } else {
     out.push(`nothing this run introduced${within} blocks; ${pre} pre-existing finding${pre === 1 ? ' is' : 's are'} not blocking`);
   }
   for (const u of f.unproven) out.push(`UNPROVEN (never green): ${line(u)}`);
   for (const c of preExistingByRule(f.preExisting)) out.push(`pre-existing, not blocking: ${preExistingCountText(c)}`);
   const over = subset === null ? `over the whole API (base commit ${f.basePercent ?? '?'}%)` : `over the rules this call checked (${subset.join(', ')})`;
-  out.push(`verdict ${percent}% ${over}; only what this run introduced blocks (baseline mode)${pre > 0 ? '; { "all": true } lists every finding' : ''}`);
+  const more = !all && pre > 0 ? '; "all": true adds the report\'s failing lines, pre-existing included' : '';
+  out.push(`verdict ${percent}% ${over}; only what this run introduced blocks (baseline mode)${more}`);
   return out;
+}
+
+/** The compact report under its heading: what it is, and that it lists only its first violations when it does. */
+function reportLines(report: CheckReport): string {
+  const cut = /\n\s*… \d+ more violations/.test(report.compact) ? '; it lists the first violations and counts the rest' : '';
+  return `the standards report's failing lines (pre-existing included${cut}):\n${report.compact}`;
 }
 
 export default defineTool({
@@ -95,8 +105,9 @@ export default defineTool({
     } else if (findings.unavailable !== null) {
       summary = `the comparison with the base commit is unavailable (${line(findings.unavailable)}): violations in files this run changed block, and the others cannot be proven pre-existing. ${verdict}\n${report.compact}`;
     } else {
-      const lead = [...baselineLines(findings, report.verdict.percent, subset), verdict].join('\n');
-      summary = input.all === true ? `${lead}\nevery failing line of the report (pre-existing included):\n${report.compact}` : lead;
+      const all = input.all === true;
+      const lead = [...baselineLines(findings, report.verdict.percent, subset, all), verdict].join('\n');
+      summary = all ? `${lead}\n${reportLines(report)}` : lead;
     }
     return {
       ok,
