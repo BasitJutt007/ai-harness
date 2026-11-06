@@ -73,6 +73,11 @@ export const WORK_COMPLETED = '✔ Work completed: every gate is green. Nothing 
 
 /** Rows one verdict reason may take (it wraps; only past this is it cut). */
 const REASON_ROWS = 4;
+/**
+ * Rows a reason may take on a narrow terminal so its first clause (up to its first "; ": what blocks,
+ * e.g. "N introduced by this run: <first finding>") is shown whole; a longer first clause is cut here.
+ */
+const REASON_LEAD_ROWS = 8;
 /** "A human must verify" lines a verdict block shows (the rest: "… N more"), and rows each may take. */
 const HUMAN_LINES = 6;
 const HUMAN_ROWS = 2;
@@ -438,8 +443,12 @@ export class Ui {
     }
     const head = v.kind === 'NOT DONE' ? this.paint(['red', 'bold'], '✗ NOT DONE') : this.paint(['yellow', 'bold'], '? UNPROVEN');
     this.line(`${head}: the gates, not the model, decide; this work is not complete.`);
-    // A long reason wraps (what blocks comes first in it); only past REASON_ROWS rows is it cut.
-    for (const r of v.reasons.slice(0, 8)) this.wrapped('  - ', r, REASON_ROWS);
+    // A long reason wraps (what blocks comes first in it); only past REASON_ROWS rows is it cut, and never
+    // inside its first clause while that fits in REASON_LEAD_ROWS (a narrow terminal needs more rows for it).
+    for (const r of v.reasons.slice(0, 8)) {
+      const i = r.indexOf('; ');
+      this.wrapped('  - ', r, REASON_ROWS, undefined, i > 0 ? r.slice(0, i + 1) : undefined);
+    }
     if (v.reasons.length > 8) this.line(`  … ${v.reasons.length - 8} more (run.json in the session records)`);
     if (v.humanMustVerify.length > 0) {
       this.line(this.paint('dim', '  a human must verify:'));
@@ -451,14 +460,18 @@ export class Ui {
   /**
    * `text` (one line: control characters removed, whitespace collapsed) after `prefix`, broken into rows
    * of the line width on spaces where it can, continuation rows indented under the text; at most
-   * `maxRows` rows, the last one ending in "…" when more was cut.
+   * `maxRows` rows, the last one ending in "…" when more was cut. `lead`: the start of `text` that must
+   * not be cut, ending in its clause's ";" (all the "…" may take): as many rows as it needs, up to
+   * REASON_LEAD_ROWS.
    */
-  private wrapped(prefix: string, text: string, maxRows: number, style?: Style): void {
+  private wrapped(prefix: string, text: string, maxRows: number, style?: Style, lead?: string): void {
     const width = Math.max(20, this.width - cells(prefix));
-    const rows = wrapLine(clip(text, width * (maxRows + 1)), width);
-    const shown = rows.slice(0, maxRows);
+    const need = lead === undefined ? 0 : wrapLine(clip(lead, width * (REASON_LEAD_ROWS + 1)), width).length;
+    const allowed = Math.max(maxRows, Math.min(need, REASON_LEAD_ROWS));
+    const rows = wrapLine(clip(text, width * (allowed + 1)), width);
+    const shown = rows.slice(0, allowed);
     const last = shown[shown.length - 1];
-    if (rows.length > maxRows && last !== undefined) shown[shown.length - 1] = `${last.slice(0, Math.max(0, last.length - 1))}…`;
+    if (rows.length > allowed && last !== undefined) shown[shown.length - 1] = `${last.slice(0, Math.max(0, last.length - 1))}…`;
     const indent = ' '.repeat(cells(prefix));
     shown.forEach((row, i) => {
       const out = i === 0 ? `${prefix}${row}` : `${indent}${row.trimStart()}`;
