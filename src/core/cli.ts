@@ -1,6 +1,6 @@
 /**
  * `harness` command line. Minimal hand-rolled argument parsing; compact output.
- * Exit codes: 0 success, 1 failure / not green, 2 usage error.
+ * Exit codes: 0 success, 1 failure / not green, 2 usage error (`harness gate`: 64, since its 2 is REFUSE).
  */
 import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
@@ -16,7 +16,7 @@ import { loadRegistry } from './registry.ts';
 import { TURN_EXTENSION_STEP, TURN_LIMIT_BASE, TURN_LIMIT_CAP, TURNS_PER_BEHAVIOUR, TURNS_PER_RESOURCE } from './loop.ts';
 import { RunStore } from './run-store.ts';
 import { detectMechanism, isolationSelfTest, POLICY_SUMMARY, sandboxMode, setSandboxMode } from './sandbox.ts';
-import { cmdGate, cmdItem } from './item-cli.ts';
+import { cmdGate, cmdItem, GATE_USAGE, GATE_USAGE_EXIT } from './item-cli.ts';
 import { executeRun, openRun, resolveRunDir, type RunSummary } from './run.ts';
 import { computeTargetProfile, targetLayout } from './target.ts';
 import { loadTask } from './task.ts';
@@ -91,15 +91,18 @@ commands:
                                   it next to the before value, or refuses. Every run is bound to an
                                   item (--item <slug>, default the task id) and is refused before the
                                   first model turn unless its contract is complete and approved.
-  gate problem-statement|human-yes|outcome <slug> [--repo <dir>]
+  gate problem-statement|human-yes <slug>
+  gate outcome <slug> [--repo <dir>]
                                   one gate's verdict on an item now, as the run's hooks and close
                                   decide it: PASS or REFUSE with the reason (outcome passes only on a
                                   closed item; with --repo it checks every close fact, recording
-                                  nothing). Read-only. exit 0 on PASS, 2 on REFUSE
+                                  nothing; --repo on the other gates is a usage error). Read-only.
+                                  exit 0 on PASS, 2 on REFUSE, 64 on a usage error
   doctor                          environment, plugin load, provider-leak scan and an isolation
                                   self-test (exit 1 if agent code cannot be confined in auto mode)
 
-exit codes: 0 success, 1 failure / not green, 2 usage error, 130 interrupted (143 on SIGTERM).
+exit codes: 0 success, 1 failure / not green, 2 usage error (harness gate: 64, its 2 is REFUSE),
+            130 interrupted (143 on SIGTERM).
 env: HARNESS_RUNS_DIR, HARNESS_TOKENS_DIR override where evidence is written and read
      (run, ship, tokens, agnostic); relative values resolve against the harness root.
      HARNESS_SANDBOX=off|auto overrides harness.config.json "sandbox" (off = agent code runs
@@ -575,10 +578,10 @@ async function cmdShip(p: ParsedArgs, out: Out): Promise<number> {
     out(bad ?? 'ship needs <runId>');
     return 2;
   }
-  const { ctx, registry } = await openRun(runId);
+  const { ctx, registry, targetNotes } = await openRun(runId);
   const { ship } = await import('./ship.ts');
   const remote = one(p, 'remote');
-  const r = await ship({ ctx, registry, dryRun: p.bools.has('dry-run'), ...(remote !== undefined ? { remote } : {}) });
+  const r = await ship({ ctx, registry, targetNotes, dryRun: p.bools.has('dry-run'), ...(remote !== undefined ? { remote } : {}) });
   out(`ship  ${r.status}  branch ${r.branch}${r.commit !== undefined ? `  commit ${r.commit}` : ''}${r.prUrl !== undefined ? `  ${r.prUrl}` : ''}`);
   // A dry run shows the gates it just re-ran fresh (phase ship) before the plan, so the plan is never read without them.
   if (r.status === 'dry-run' && r.gates !== undefined) {
@@ -869,6 +872,11 @@ export async function main(argv: string[], out: Out = (l) => console.log(l)): Pr
   }
   const parsed = parseArgs(rest);
   if ('error' in parsed) {
+    // `harness gate` keeps 2 for REFUSE, so its usage errors (a bad option too) exit GATE_USAGE_EXIT.
+    if (command === 'gate') {
+      out(`${parsed.error}\n${GATE_USAGE}`);
+      return GATE_USAGE_EXIT;
+    }
     out(`${parsed.error}\n\n${USAGE}`);
     return 2;
   }

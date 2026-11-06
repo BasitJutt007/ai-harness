@@ -56,6 +56,8 @@ repository on 6 November 2026.
 | Human yes | Every edit, and the Stop (`finish`), until the stakeholder types a plain yes at a terminal after the harness proposed this exact contract text. Each reply records the contract text on disk when it was typed, and counts only for that text. Assistant text, tool output, hook output, a piped reply, a reply to an older proposal or typed against another text, and a hand-written Signed line never count | `plugins/hooks/contract-gate.ts`, `plugins/gates/stakeholder-yes.ts`, `approvalVerdict` in `src/core/items.ts` |
 | Outcome | Closing an item, until a person (not a bot: gh's `is_bot`, an `app/...` or `...[bot]` login) merged the PR the harness opened after a DONE run of the approved contract, and the harness read the metric at that merge commit (same script, run twice, confined: a reading from an unconfined Measure is UNPROVEN) and compared it with a before reading taken before the merge. A contract with `Measure: none` can ship but never closes | `src/core/close.ts` (`harness item close`) |
 
+A yes recorded before replies carried their contract text no longer counts: `harness item status <slug>` says "a reply recorded without the contract text it answered does not count; type it again: harness item reply <slug>".
+
 `harness gate <problem-statement|human-yes|outcome> <slug> [--repo <dir>]` prints one gate's verdict
 on an item now (`PASS` or `REFUSE` with the reason, exit 0 or 2) and records nothing; the outcome gate
 passes only on a closed item, and with `--repo` it checks every close fact as a dry run. A gate's
@@ -69,7 +71,10 @@ anything typed there acts with their authority); it records the truth instead. E
 `items/<slug>/ledger.jsonl` carries its channel and the names (never the values) of the agent-shell
 environment markers present when it was typed (`agentEnvMarkers` in `harness.config.json`), and item
 status, the approval message and the human-yes verdict say "typed at a terminal inside an AI agent's
-shell (...)" when there were any. A reviewer reads exactly what was proven.
+shell (...)" when there were any. The markers prove neither way. No markers proves nothing: an agent can
+unset them before it types. And a person's own yes, typed in a terminal that inherits an agent's markers
+(one opened from inside an agent's session), is recorded as typed inside an agent's shell. The no-marker
+wording says both. A reviewer reads exactly what was recorded, not who typed it.
 
 The item lifecycle, each step a command:
 

@@ -142,8 +142,8 @@ describe('greenfield users-api (scripted) in a throwaway repo', () => {
 
 describe('ship (the harness ships; never the agent)', () => {
   it('dry run lists the commands and executes none of them', async () => {
-    const { ctx, registry } = await openRun(summary.runId, { runsDir: tmp.runsDir, tokensDir: tmp.tokensDir, exec: execWithoutGh() });
-    const r = await ship({ ctx, registry, dryRun: true });
+    const { ctx, registry, targetNotes } = await openRun(summary.runId, { runsDir: tmp.runsDir, tokensDir: tmp.tokensDir, exec: execWithoutGh() });
+    const r = await ship({ ctx, registry, targetNotes, dryRun: true });
     expect(r.status).toBe('dry-run');
     const plan = r.commands ?? [];
     expect(plan.some((c) => c.includes(' add '))).toBe(true);
@@ -182,8 +182,8 @@ describe('ship (the harness ships; never the agent)', () => {
     execFileSync('git', ['init', '-q', '--bare', bare]);
     git(tmp.repo, ['remote', 'set-url', 'origin', bare]);
     const seen: string[] = [];
-    const { ctx, registry } = await openRun(summary.runDir, { runsDir: tmp.runsDir, tokensDir: tmp.tokensDir, exec: execWithoutGh(seen) });
-    const r = await ship({ ctx, registry, dryRun: false });
+    const { ctx, registry, targetNotes } = await openRun(summary.runDir, { runsDir: tmp.runsDir, tokensDir: tmp.tokensDir, exec: execWithoutGh(seen) });
+    const r = await ship({ ctx, registry, targetNotes, dryRun: false });
     expect(r.status, r.reasons.join('\n')).toBe('committed');
     expect(r.reasons.join(' ')).toMatch(/gh/);
     expect(r.commit).toMatch(/^[0-9a-f]{40}$/);

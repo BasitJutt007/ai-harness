@@ -19,7 +19,7 @@ import { createInterface } from 'node:readline';
 import { closeItem, ledgerFacts, preconditions } from './close.ts';
 import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
-import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
+import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, problemStatementVerdict, proposeItem, readLedger, recordReply, slugProblem, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
 import { provenanceText } from './provenance.ts';
 import { repoCommitlint } from './ship-text.ts';
@@ -31,6 +31,13 @@ type Out = (line: string) => void;
 export interface ItemArgs {
   positionals: string[];
   flags: Map<string, string[]>;
+  /** Options given without a value (--ship, --dry-run, --json, ...): no item or gate command takes one. */
+  bools?: ReadonlySet<string>;
+}
+
+/** The first option that is not `--repo` (a value option or one given without a value), or undefined. */
+function unknownOption(a: ItemArgs): string | undefined {
+  return [...a.flags.keys(), ...(a.bools ?? [])].find((k) => k !== 'repo');
 }
 
 /** Where the stakeholder's reply comes from. The real one reads process.stdin and says whether it is a terminal. */
@@ -209,10 +216,16 @@ export async function cmdItem(
     out(usage);
     return 2;
   }
-  // No option supplies a value, a yes or a close: anything but --repo is refused, never ignored.
-  const unknown = [...a.flags.keys()].find((k) => k !== 'repo');
+  // No option supplies a value, a yes or a close: anything but --repo (with or without a value) is refused, never ignored.
+  const unknown = unknownOption(a);
   if (unknown !== undefined) {
     out(`unknown option --${unknown}: no item command takes a value from the command line (the harness reads the metric and the reply itself)\n${usage}`);
+    return 2;
+  }
+  // A mistyped slug is a usage error, not a refusal of the item.
+  const badSlug = slug === undefined ? null : slugProblem(slug);
+  if (badSlug !== null) {
+    out(`${badSlug}\n${usage}`);
     return 2;
   }
   try {
@@ -232,8 +245,10 @@ export async function cmdItem(
       case 'status': {
         const slugs = slug !== undefined ? [slug] : existsSync(resolve(root, CONTRACTS_DIR)) ? readdirSync(resolve(root, CONTRACTS_DIR)).filter((f) => f.endsWith('.md')).map((f) => f.slice(0, -3)) : [];
         if (slugs.length === 0) out('no items (docs/contracts/ is empty)');
+        // An item outside this repository's session records is read for a file-mode run: its problem-statement
+        // line is the verdict problem-gate and bindItem reach there (and `harness gate problem-statement`).
         for (const s of slugs) {
-          const st = itemStatus(root, s);
+          const st = itemStatus(root, s, { fileMode: repoItem === null });
           out(stageLine(st));
           if (slug !== undefined) {
             for (const l of st.lines) out(`  ${l}`);
@@ -342,6 +357,10 @@ export async function cmdItem(
 export const GATE_NAMES = ['problem-statement', 'human-yes', 'outcome'] as const;
 export type GateName = (typeof GATE_NAMES)[number];
 
+/** `harness gate`'s exit code for a usage error (EX_USAGE): distinct from REFUSE (2), which is a verdict. */
+export const GATE_USAGE_EXIT = 64;
+export const GATE_USAGE = 'usage: harness gate problem-statement|human-yes <slug>, or harness gate outcome <slug> [--repo <dir>]';
+
 /** A gate's verdict on an item now: PASS or REFUSE, with the reason. */
 export interface GateCheck {
   pass: boolean;
@@ -375,27 +394,43 @@ async function outcomeCheck(root: string, slug: string, harnessRoot: string, rep
 export async function gateCheck(gate: GateName, root: string, slug: string, opts: { harnessRoot: string; repoDir?: string; exec?: Exec; harnessMetrics?: boolean }): Promise<GateCheck> {
   if (gate === 'outcome') return outcomeCheck(root, slug, opts.harnessRoot, opts.repoDir, opts.exec ?? coreExec, opts.harnessMetrics ?? false);
   const st = itemStatus(root, slug);
-  if (gate === 'problem-statement') return { pass: st.contract.ok, reason: st.contract.reason };
+  if (gate === 'problem-statement') {
+    // `harness gate` reads the file-mode items root: its verdict is the one a file-mode run's problem-gate reaches.
+    const v = problemStatementVerdict(st.contract, slug, { fileMode: true });
+    return { pass: v.ok, reason: v.reason };
+  }
   if (!st.contract.ok) return { pass: false, reason: `needs a complete contract first: ${st.contract.reason}` };
   return { pass: st.approval?.ok === true, reason: st.approval?.reason ?? 'not proposed' };
 }
 
 /**
- * `harness gate <problem-statement|human-yes|outcome> <slug> [--repo <dir>]`: one gate's verdict on an
- * item, as the run's hooks and the close command decide it. Prints `PASS` or `REFUSE` with the reason;
- * exit 0 on PASS, 2 on REFUSE (and on a usage error). Read-only: nothing is proposed, recorded or closed.
+ * `harness gate problem-statement|human-yes <slug>` and `harness gate outcome <slug> [--repo <dir>]`: one
+ * gate's verdict on an item, as the run's hooks and the close command decide it. Prints `PASS` or `REFUSE`
+ * with the reason; exit 0 on PASS, 2 on REFUSE, and GATE_USAGE_EXIT (64) on a usage error (an unknown gate, a
+ * missing or invalid slug, any option but --repo, with or without a value), so a script never reads a mistyped
+ * command as a verdict. `--repo` is refused where it would do nothing (only the outcome gate reads a clone).
+ * Read-only: nothing is proposed, recorded or closed.
  */
 export async function cmdGate(a: ItemArgs, out: Out, opts: { exec?: Exec; root?: string; harnessRoot?: string; harnessMetrics?: boolean } = {}): Promise<number> {
-  const usage = `usage: harness gate ${GATE_NAMES.join('|')} <slug> [--repo <dir>]`;
   const [gate, slug, ...extra] = a.positionals;
-  const unknown = [...a.flags.keys()].find((k) => k !== 'repo');
+  const unknown = unknownOption(a);
   if (gate === undefined || slug === undefined || extra.length > 0 || unknown !== undefined || !(GATE_NAMES as readonly string[]).includes(gate)) {
-    out(unknown !== undefined ? `unknown option --${unknown}\n${usage}` : usage);
-    return 2;
+    out(unknown !== undefined ? `unknown option --${unknown}\n${GATE_USAGE}` : GATE_USAGE);
+    return GATE_USAGE_EXIT;
+  }
+  // A mistyped slug is a usage error: a script must never read it as a verdict on an item.
+  const badSlug = slugProblem(slug);
+  if (badSlug !== null) {
+    out(`${badSlug}\n${GATE_USAGE}`);
+    return GATE_USAGE_EXIT;
+  }
+  const repoArg = one(a, 'repo');
+  if (repoArg !== undefined && gate !== 'outcome') {
+    out(`--repo does nothing for the ${gate} gate: it reads only the item's contract and ledger (only the outcome gate reads a clone)\n${GATE_USAGE}`);
+    return GATE_USAGE_EXIT;
   }
   const harnessRoot = opts.harnessRoot ?? HARNESS_ROOT;
   const root = opts.root ?? itemsRoot(harnessRoot);
-  const repoArg = one(a, 'repo');
   let v: GateCheck;
   try {
     v = await gateCheck(gate as GateName, root, slug, {

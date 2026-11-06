@@ -57,7 +57,7 @@ async function remoteRefs(remote: string): Promise<Map<string, string>> {
 describe('ship', () => {
   it('refuses a protected branch', async () => {
     const s = await setup('main');
-    const r = await ship({ ctx: ctxFor(s, withGh('missing')), registry: ctxFor(s, withGh('missing')).registry, dryRun: false });
+    const r = await ship({ ctx: ctxFor(s, withGh('missing')), registry: ctxFor(s, withGh('missing')).registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons[0]).toContain('protected branch "main"');
     expect(await git(s.repo, 'rev-parse', 'HEAD')).toBe(s.baseSha);
@@ -66,7 +66,7 @@ describe('ship', () => {
   it('refuses when the branch is the base branch', async () => {
     const s = await setup('feature/x');
     const ctx = makeCtx({ repoRoot: s.repo, rootRel: 'api', task: brownfieldTask(), branch: 'feature/x', baseBranch: 'feature/x', baseSha: s.baseSha, exec: withGh('missing'), gates: [pass] });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons[0]).toContain('is the base branch');
   });
@@ -75,7 +75,7 @@ describe('ship', () => {
     const s = await setup();
     const failing = stubGate('broken', { status: 'fail', summary: 'tests red', details: ['FAIL test/x.test.ts'] });
     const ctx = ctxFor(s, withGh('missing'), [pass, failing]);
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons.join('\n')).toContain('broken');
     expect(r.reasons.join('\n')).toContain('FAIL test/x.test.ts');
@@ -86,13 +86,13 @@ describe('ship', () => {
   it('refuses when no gate passed (unproven is never green)', async () => {
     const s = await setup();
     const ctx = ctxFor(s, withGh('missing'), [stubGate('u', { status: 'unproven', summary: 'skipped' })]);
-    expect((await ship({ ctx, registry: ctx.registry, dryRun: false })).status).toBe('refused');
+    expect((await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false })).status).toBe('refused');
   });
 
   it('dry run plans the exact commands without executing any', async () => {
     const s = await setup();
     const ctx = ctxFor(s, withGh('ok'));
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: true });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: true });
     expect(r.status).toBe('dry-run');
     expect(r.commands?.some((c) => c.includes(`push --no-force -u origin refs/heads/${s.branch}:refs/heads/${s.branch}`))).toBe(true);
     expect(r.commands?.some((c) => c.startsWith('gh pr create --base main --head harness/projects-change'))).toBe(true);
@@ -105,7 +105,7 @@ describe('ship', () => {
     const s = await setup();
     const ghCalls: string[][] = [];
     const ctx = ctxFor(s, withGh('ok', ghCalls));
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: true });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: true });
     expect(r.status).toBe('dry-run');
     expect(ghCalls).toEqual([]);
     expect(r.reasons.join('\n')).toMatch(/PR step depends on gh/);
@@ -134,7 +134,7 @@ describe('ship', () => {
     const ghCalls: string[][] = [];
     const ctx = ctxFor(s, withGh('missing', ghCalls));
     const before = await remoteRefs(s.remote);
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('committed');
     expect(r.reasons.join(' ')).toContain('gh CLI is not installed');
     expect(r.commit).toMatch(/^[0-9a-f]{40}$/);
@@ -163,7 +163,7 @@ describe('ship', () => {
     const s = await setup();
     const ghCalls: string[][] = [];
     const ctx = ctxFor(s, withGh('ok', ghCalls));
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('shipped');
     expect(r.prUrl).toBe('https://example.test/org/repo/pull/7');
     const pr = ghCalls.find((a) => a[0] === 'pr');
@@ -182,7 +182,7 @@ describe('ship', () => {
     const s = await setup();
     await git(s.repo, 'remote', 'remove', 'origin');
     const ctx = ctxFor(s, withGh('ok'));
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('committed');
     expect(r.reasons[0]).toContain('no remote "origin"');
   });
@@ -191,7 +191,7 @@ describe('ship', () => {
     const s = await setup();
     writeFileSync(join(s.repo, 'api', 'src', 'new.ts'), `export const key = "AKIA${'A'.repeat(16)}";\n`);
     const ctx = ctxFor(s, withGh('missing'));
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons.join('\n')).toContain('AWS access key id');
     expect(r.reasons.join('\n')).not.toContain('A'.repeat(16));
@@ -202,7 +202,7 @@ describe('ship', () => {
   it('refuses when the worktree is not on the run branch', async () => {
     const s = await setup();
     const ctx = makeCtx({ repoRoot: s.repo, rootRel: 'api', task: brownfieldTask(), branch: 'harness/other', baseBranch: 'main', baseSha: s.baseSha, exec: withGh('missing'), gates: [pass] });
-    const r = await ship({ ctx, registry: ctx.registry, dryRun: false });
+    const r = await ship({ ctx, registry: ctx.registry, targetNotes: [], dryRun: false });
     expect(r.status).toBe('refused');
     expect(r.reasons[0]).toContain('not the run branch');
   });

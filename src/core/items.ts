@@ -20,7 +20,7 @@
  */
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { operatorProvenance, provenanceText, type OperatorProvenance } from './provenance.ts';
 import { commitHeaderProblems } from './ship-text.ts';
 
@@ -49,8 +49,14 @@ export function itemsRoot(harnessRoot: string, env: NodeJS.ProcessEnv = process.
   return o !== undefined && o.length > 0 ? resolve(harnessRoot, o) : harnessRoot;
 }
 
+/** Why `slug` cannot name an item, or null (the command line checks it before reading anything). */
+export function slugProblem(slug: string): string | null {
+  return SLUG_RE.test(slug) ? null : `invalid item slug "${slug}": use lower-case letters, digits and dashes (2-63 characters)`;
+}
+
 export function itemPaths(harnessRoot: string, slug: string): ItemPaths {
-  if (!SLUG_RE.test(slug)) throw new Error(`invalid item slug "${slug}": use lower-case letters, digits and dashes (2-63 characters)`);
+  const bad = slugProblem(slug);
+  if (bad !== null) throw new Error(bad);
   const dir = join(harnessRoot, ITEMS_DIR, slug);
   return { slug, contract: join(harnessRoot, CONTRACTS_DIR, `${slug}.md`), dir, ledger: join(dir, 'ledger.jsonl') };
 }
@@ -343,6 +349,26 @@ export function contractVerdict(paths: ItemPaths, read: (file: string) => string
   return { ok: false, reason: `${rel} is incomplete: ${parts.join('; ')}`, parse };
 }
 
+/**
+ * Why a contract cannot authorize a run that is not in place (file mode), or null: it says "Measure: none". A
+ * file-mode item exists to be closed on its metric, and without a Measure its outcome can never be read. Only an
+ * interactive session (a run in place) may work under such a contract: it can ship, but it never closes.
+ */
+export function fileModeMeasureProblem(parse: Pick<ContractParse, 'noMeasure'>, slug: string): string | null {
+  if (!parse.noMeasure) return null;
+  return `${CONTRACTS_DIR}/${slug}.md says "Measure: none", but a run outside an interactive session needs a Measure (node metrics/<script>.mjs): without one the item's outcome can never be read, so it could never close`;
+}
+
+/**
+ * The problem-statement verdict where the work happens: the contract's own (contractVerdict), and for a run that
+ * is not in place (file mode) "Measure: none" refused (fileModeMeasureProblem), as problem-gate and bindItem
+ * refuse it. `harness gate problem-statement` and `harness item status` read it, so they can never disagree.
+ */
+export function problemStatementVerdict(contract: ContractVerdict, slug: string, opts: { fileMode: boolean }): { ok: boolean; reason: string } {
+  const noMeasure = opts.fileMode && contract.ok && contract.parse !== null ? fileModeMeasureProblem(contract.parse, slug) : null;
+  return noMeasure !== null ? { ok: false, reason: noMeasure } : { ok: contract.ok, reason: contract.reason };
+}
+
 function readOrNull(file: string): string | null {
   try {
     return readFileSync(file, 'utf8');
@@ -482,6 +508,12 @@ export interface ApprovalVerdict {
   stakeholder: string | null;
   /** Replies that were seen but did not count, with why (shown in refusals). */
   ignored: string[];
+  /**
+   * Seqs of plain yes replies to the latest proposal, typed at a terminal, that record no contract text
+   * (typed before replies recorded one): they never count, and the stakeholder must type the yes again.
+   * Set only when no reply decided the proposal.
+   */
+  retype?: number[];
 }
 
 /**
@@ -503,6 +535,7 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
     return { ok: false, reason: `the contract changed after it was proposed (proposal seq ${latest.seq}): propose it again and get a new yes`, ignored: [], proposal: latest.seq, turn: null, stakeholder };
   }
   const ignored: string[] = [];
+  const retype: number[] = [];
   let decisive: { entry: LedgerEntry; kind: ReplyKind } | null = null;
   for (const e of ledger.entries) {
     if (e.event.type !== 'human_turn') continue;
@@ -530,6 +563,7 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
       ignored.push(ev.contractHash === undefined
         ? `"${quote}" (seq ${e.seq}) does not record the contract text it was typed against`
         : `"${quote}" (seq ${e.seq}) was typed while the contract read differently (${(ev.contractHash ?? 'none').slice(0, 12)}), not the proposed text (${latest.event.contractHash.slice(0, 12)})`);
+      if (ev.contractHash === undefined && classifyReply(ev.text).kind === 'yes') retype.push(e.seq);
       continue;
     }
     const c = classifyReply(ev.text);
@@ -540,7 +574,15 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
     decisive = { entry: e, kind: c.kind };
   }
   if (decisive === null) {
-    return { ok: false, reason: `no typed yes from ${stakeholder} after the proposal (seq ${latest.seq})${ignored.length > 0 ? `; not counted: ${ignored.join('; ')}` : ''}`, ignored, proposal: latest.seq, turn: null, stakeholder };
+    return {
+      ok: false,
+      reason: `no typed yes from ${stakeholder} after the proposal (seq ${latest.seq})${ignored.length > 0 ? `; not counted: ${ignored.join('; ')}` : ''}`,
+      ignored,
+      proposal: latest.seq,
+      turn: null,
+      stakeholder,
+      ...(retype.length > 0 ? { retype } : {}),
+    };
   }
   if (decisive.kind === 'no') {
     const ev = decisive.entry.event;
@@ -555,6 +597,72 @@ export function approvalVerdict(ledger: Ledger, contractHash: string): ApprovalV
 export function openProposal(ledger: Ledger): number | null {
   const p = ledger.entries.filter((e) => e.event.type === 'proposed').at(-1);
   return p === undefined ? null : p.seq;
+}
+
+/** What `harness item status <slug>` says when a yes stopped counting because it records no contract text (ApprovalVerdict.retype). */
+export function retypeLine(slug: string): string {
+  return `a reply recorded without the contract text it answered does not count; type it again: harness item reply ${slug}`;
+}
+
+// ───────────────────────────── runs and ships ─────────────────────────────
+
+/** The item's record of one governed run: executeRun writes it before any ship (a ship needs it on record). */
+export type LedgerRun = Omit<Extract<LedgerEvent, { type: 'run' }>, 'type'>;
+/** The item's record of a ship: the branch pushed, the head commit, the PR the harness opened. */
+export type LedgerShipped = Omit<Extract<LedgerEvent, { type: 'shipped' }>, 'type'>;
+
+/** A `run` verdict that ended DONE: 'DONE', or 'DONE (...)' (the gates decided without a finish call, or a fresh green ship). */
+export function isDoneVerdict(verdict: string): boolean {
+  return /^DONE\b/.test(verdict);
+}
+
+/** The verdict `harness ship` records for a run once every ship-phase gate re-ran fresh and green on its tree. */
+export const SHIP_DONE_VERDICT = 'DONE (harness ship: every ship gate re-ran fresh and green)';
+
+function isDoneRunOf(e: LedgerEntry, run: LedgerRun): boolean {
+  return e.event.type === 'run' && e.event.runId === run.runId && e.event.contractHash === run.contractHash && isDoneVerdict(e.event.verdict);
+}
+
+/**
+ * Why no new work may happen under this item, or null: it is closed. An approval covers the work it was given
+ * for, once; the outcome of that work is recorded, so another run, or another ship, needs a new item. One
+ * wording for every place that refuses it (bindItem, ship, the ledger writer), so they can never disagree.
+ */
+export function closedItemProblem(ledger: Ledger, slug: string): string | null {
+  const closed = ledger.entries.find((e) => e.event.type === 'closed');
+  if (closed === undefined) return null;
+  return `item "${slug}" is closed (ledger seq ${closed.seq}): its approval covered the work that closed it; new work needs a new item (harness item new <slug>)`;
+}
+
+/**
+ * The DONE run a ship stands on, as the ledger's latest entry: the entry already there when the latest entry
+ * is a DONE run of this run id under this contract text, else this `run` record appended now. Throws, writing
+ * nothing, for a run that did not end DONE, a contract text the ledger does not approve (a broken ledger
+ * approves nothing) or a closed item: what it records is exactly what the outcome check accepts (close.ts
+ * shippedRunProblem), for an item whose outcome is not recorded yet.
+ */
+export function recordDoneRun(file: string, run: LedgerRun, now: () => Date = () => new Date()): LedgerEntry {
+  if (!isDoneVerdict(run.verdict)) throw new Error(`run ${run.runId} did not end DONE (${run.verdict}): no ship stands on it`);
+  const ledger = readLedger(file);
+  const approval = approvalVerdict(ledger, run.contractHash);
+  if (!approval.ok) throw new Error(`run ${run.runId} worked under contract text ${run.contractHash.slice(0, 12)}, which is not approved: ${approval.reason}`);
+  const closed = closedItemProblem(ledger, basename(dirname(file)));
+  if (closed !== null) throw new Error(`no ship of run ${run.runId} can be recorded: ${closed}`);
+  const latest = ledger.entries.at(-1);
+  if (latest !== undefined && isDoneRunOf(latest, run)) return latest;
+  return appendLedger(file, { type: 'run', ...run }, now);
+}
+
+/**
+ * The only writer of `shipped` (ship.ts): it goes in immediately after a DONE `run` entry of the same run id
+ * under the approved contract text (recordDoneRun appends that entry when the latest one is not it), so the
+ * outcome check finds the run that cleared what shipped. Throws, writing no `shipped` entry, when that run
+ * cannot be recorded.
+ */
+export function appendShipped(file: string, run: LedgerRun, shipped: LedgerShipped, now: () => Date = () => new Date()): LedgerEntry {
+  if (shipped.runId !== run.runId) throw new Error(`a ship of run ${shipped.runId} cannot stand on the record of run ${run.runId}`);
+  recordDoneRun(file, run, now);
+  return appendLedger(file, { type: 'shipped', ...shipped }, now);
 }
 
 // ───────────────────────────── operations ─────────────────────────────
@@ -575,9 +683,15 @@ export interface ItemStatus {
   lines: string[];
 }
 
-export function itemStatus(root: string, slug: string): ItemStatus {
+/**
+ * The item's stage and one line per gate. `fileMode`: the item is read for a run that is not in place (the
+ * file-mode items root), so its problem-statement line is the verdict problem-gate and bindItem reach there
+ * (problemStatementVerdict); the stage and `editable` say what the contract and the ledger record, either way.
+ */
+export function itemStatus(root: string, slug: string, opts: { fileMode?: boolean } = {}): ItemStatus {
   const paths = itemPaths(root, slug);
   const contract = contractVerdict(paths);
+  const statement = problemStatementVerdict(contract, slug, { fileMode: opts.fileMode === true });
   const ledger = readLedger(paths.ledger);
   const approval = contract.parse !== null && contract.ok ? approvalVerdict(ledger, contract.parse.hash) : null;
   const has = (t: LedgerEvent['type']): boolean => ledger.entries.some((e) => e.event.type === t);
@@ -596,8 +710,10 @@ export function itemStatus(root: string, slug: string): ItemStatus {
   else stage = 'awaiting-yes';
   const editable = contract.ok && approval?.ok === true;
   const lines = [
-    `problem-statement  ${contract.ok ? 'pass' : 'REFUSE'}  ${contract.reason}`,
+    `problem-statement  ${statement.ok ? 'pass' : 'REFUSE'}  ${statement.reason}`,
     `human-yes          ${approval?.ok === true ? 'pass' : 'REFUSE'}  ${approval?.reason ?? 'needs a complete contract first'}`,
+    // A yes typed before replies recorded their contract text stops counting: say why, and what to do.
+    ...(approval !== null && !approval.ok && (approval.retype?.length ?? 0) > 0 ? [`                   ${retypeLine(slug)}`] : []),
   ];
   return { slug, paths, contract, approval, ledger, stage, editable, lines };
 }

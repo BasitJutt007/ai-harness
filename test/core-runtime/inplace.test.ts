@@ -241,4 +241,20 @@ describe('required hooks of an in-place run', () => {
     // file-mode twin: a worktree workspace builds without either
     expect(build({ ws: createWorkspace(repo, '.'), registry: { ...all, hooks: [] } }).inPlace).toBeUndefined();
   });
+
+  it('buildContext refuses an in-place run whose config disables problem-gate (or contract-gate); the full registry builds (the twin)', async () => {
+    const base0 = fakeCtx().ctx;
+    const store = new RunStore(join(base, 'run'), base);
+    const config0 = loadConfig(HARNESS_ROOT);
+    const gitWs = createWorkspace(repo, '.', { visibility: 'git' });
+    const inPlace = { repoTop: repo, branch: 'fix/login' };
+    const build = (registry: RegistryView) => buildContext({ run: base0.run, task: base0.task, ws: gitWs, state: newRunState(), store, mode: base0.mode, config: CONFIG, registry, inPlace });
+    for (const hook of ['problem-gate', 'contract-gate']) {
+      const registry = await loadRegistry({ ...config0, disabled: [hook] }, HARNESS_ROOT);
+      expect(registry.hooks.some((h) => h.plugin.name === hook), hook).toBe(false);
+      expect(() => build(registry), hook).toThrow(new RegExp(`refused: an in-place run needs the ${hook} hook\\(s\\) \\(disabled in harness\\.config\\.json or failed to load\\): nothing would stop an edit without a contract or a stakeholder yes$`));
+    }
+    const full = await loadRegistry(config0, HARNESS_ROOT);
+    expect(build(full).inPlace).toEqual(inPlace);
+  });
 });

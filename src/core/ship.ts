@@ -13,13 +13,29 @@
  * the PR body is the repository's PR template filled from the contract and the ship gates. A message
  * that says nothing, an AI attribution trailer, a commitlint rejection, or template text left
  * untouched refuses the ship before anything is staged.
+ *
+ * The item ledger: a `shipped` entry is written only through items.ts appendShipped, immediately after a
+ * DONE `run` entry of this run under the approved contract text, because the outcome check (close.ts)
+ * closes an item only on a ship that stands on such a run. A run that stopped part-way (its own ledger
+ * entry says NOT DONE) gets that entry here, once every ship gate re-ran fresh and green on its tree with
+ * agent code confined and a supported target profile (UNPROVEN is never DONE). It is recorded right before
+ * the commit, after every check that can still refuse the ship (drift, secret scan), so the ledger never
+ * reads DONE for a ship that refused; a ledger that cannot record it, a contract text no longer approved,
+ * or a closed item ships nothing.
+ *
+ * A ship that stopped after its commit (no remote, a failed push or PR, a ledger that could not record the
+ * ship) is finished by the next ship of the same run: with nothing new to commit, HEAD is that commit (the
+ * harness's, with exactly the message this ship writes, not recorded as shipped yet), so it is pushed, its
+ * PR found or opened, and the ship recorded, on gates that re-ran fresh. Nothing is committed twice.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { passThroughEnv } from './exec.ts';
 import { requiredGates, runGates } from './gates.ts';
-import { appendLedger, approvalVerdict, contractVerdict, itemPaths, readLedger, type ContractParse, type ItemPaths } from './items.ts';
+import { prState } from './close.ts';
+import { appendShipped, approvalVerdict, closedItemProblem, contractVerdict, itemPaths, readLedger, recordDoneRun, SHIP_DONE_VERDICT, type ContractParse, type ItemPaths, type LedgerEntry, type LedgerRun } from './items.ts';
+import { isolationHonesty, isolationInfo } from './sandbox.ts';
 import { commitHeaderProblems, commitMessage, defaultPrBody, fillPrTemplate, findPrTemplate, parseHeader, prDescription, repoCommitlint, ticketLine, trailerProblems } from './ship-text.ts';
 import type { GateOutcome } from './gates.ts';
 import type { ExecResult, ItemBinding, RegistryView, RunContext } from './types.ts';
@@ -41,6 +57,12 @@ export interface ShipOptions {
   ctx: RunContext;
   registry: RegistryView;
   dryRun: boolean;
+  /**
+   * What the run's target profile cannot support, or why there is none (run.ts targetUnproven): a run is never
+   * DONE while any is left, so neither is a ship of it (nothing is recorded, nothing ships). Required: both
+   * callers know the profile (executeRun from preflight, `harness ship` from openRun).
+   */
+  targetNotes: readonly string[];
   /** Remote to push to (default "origin"). */
   remote?: string;
 }
@@ -326,9 +348,13 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
   const text = await shipText(ctx, gates);
   if ('refuse' in text) return refuse(...text.refuse);
 
-  // 4. Plan.
+  // 4. The DONE run this ship stands on (what close needs before the shipped entry), or why there is none.
+  const done = doneRunRecord(ctx, opts.targetNotes);
+  if ('refuse' in done) return refuse(...done.refuse);
+
+  // 5. Plan.
   const addArgs = ['add', '--all', '--', pathspec, ...excludes];
-  const commitArgs = [...NO_HOOKS, '-c', 'user.name=sf-harness', '-c', 'user.email=harness@localhost', 'commit', '-q', '-m', text.message];
+  const commitArgs = [...NO_HOOKS, '-c', `user.name=${HARNESS_AUTHOR.name}`, '-c', `user.email=${HARNESS_AUTHOR.email}`, 'commit', '-q', '-m', text.message];
   const pushArgs = [...NO_HOOKS, 'push', '--no-force', '-u', remote, `refs/heads/${branch}:refs/heads/${branch}`];
   const prArgs = ['pr', 'create', '--base', base, '--head', branch, '--title', text.title, '--body', text.body];
 
@@ -349,7 +375,83 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
     return { status: 'dry-run', branch, reasons: [...notes, ...short], commands: plan, gates: { ok: gates.ok, text: gates.text } };
   }
 
-  // 5. Stage only the API root (refuse if anything outside it is already staged).
+  const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+  /**
+   * The PR an earlier ship of this run opened for the branch: null when gh shows none (one is opened), or why the
+   * one it shows cannot stand for this ship (another head, another base, closed).
+   */
+  const earlierPr = async (sha: string): Promise<{ url: string } | { refuse: string } | null> => {
+    commands.push(formatCommand('gh', ['pr', 'view', branch, '--json', PR_VIEW_FIELDS]));
+    const pr = await prState(branch, repo, ctx.exec);
+    if ('error' in pr) return null;
+    if (pr.headSha !== sha) return { refuse: `the PR for ${branch} (${pr.url}) has head ${pr.headSha.slice(0, 12)}, not ${sha.slice(0, 12)}, the commit the gates just cleared: the ship is not recorded` };
+    if (pr.baseRef !== base) return { refuse: `the PR for ${branch} (${pr.url}) targets ${pr.baseRef}, not ${base}: the ship is not recorded` };
+    if (pr.state !== 'OPEN' && pr.state !== 'MERGED') return { refuse: `the PR for ${branch} (${pr.url}) is ${pr.state}: a closed PR ships nothing, so the ship is not recorded` };
+    return { url: pr.url };
+  };
+
+  /**
+   * Push the commit, open (or, finishing an earlier ship, find) the PR, and record the ship immediately after the
+   * DONE run it stands on (re-recorded if anything came between). Whatever cannot be done is reported as 'committed'.
+   */
+  const publish = async (sha: string, earlier: boolean): Promise<ShipResult> => {
+    const resumed = earlier ? [`finished the ship of ${sha.slice(0, 12)}, the commit an earlier ship of this run made before it stopped; every ship gate re-ran fresh and green on it now`] : [];
+    const committed = (reasons: string[], prUrl?: string): ShipResult => ({ status: 'committed', branch, commit: sha, ...(prUrl !== undefined ? { prUrl } : {}), reasons: [...resumed, ...reasons], commands });
+    // Push the feature branch only, explicit refspec, never force.
+    if (!hasRemote) return committed([`no remote "${remote}": committed ${sha.slice(0, 12)} on ${branch}, not pushed`]);
+    const push = await git(pushArgs);
+    if (push.code !== 0) return committed([`push to ${remote} failed: ${firstLine(push)}`]);
+    // Pull request.
+    const gh = await ghStatus((args) => run('gh', args, false));
+    if (/^head$/i.test(base)) return committed([`pushed ${branch} to ${remote}; the run started from a detached HEAD, so there is no base branch for a PR`]);
+    if (!gh.ok) return committed([`pushed ${branch} to ${remote}; ${gh.why}, so no PR was opened`]);
+    let url: string | undefined;
+    const open = earlier ? await earlierPr(sha) : null;
+    if (open !== null && 'refuse' in open) return committed([`pushed ${branch} to ${remote}; ${open.refuse}`]);
+    if (open !== null) url = open.url;
+    else {
+      const pr = await run('gh', prArgs);
+      if (pr.code !== 0) return committed([`pushed ${branch} to ${remote}; gh pr create failed: ${firstLine(pr)}`]);
+      url = [...pr.stdout.matchAll(/https?:\/\/\S+/g)].map((m) => m[0]).pop();
+    }
+    try {
+      appendShipped(done.ledger, done.run, { runId: ctx.run.id, branch, headSha: sha, base, prUrl: url ?? null });
+    } catch (e) {
+      // The PR is open, but no `shipped` entry stands for it: close refuses until a later ship of this run records it.
+      return committed([`opened ${url ?? 'a PR'}, but the item ledger could not record the ship (${errText(e)}): harness item close refuses this item until it does; once the ledger can take it, harness ship ${ctx.run.id} records this ship (nothing is committed twice)`], url);
+    }
+    return { status: 'shipped', branch, commit: sha, ...(url !== undefined ? { prUrl: url } : {}), reasons: [...resumed, ...(url !== undefined ? [] : ['gh pr create succeeded but printed no URL'])], commands };
+  };
+
+  /**
+   * Nothing to commit: HEAD as the commit of a ship of this run that stopped after committing it (no remote, a
+   * failed push or PR, a ledger that could not record the ship), or null when it is not one (plain nothing to
+   * commit). It must be the harness's commit with exactly the message this ship writes (the contract, the item and
+   * this run id), on one parent, not already recorded as shipped, touching only the API root, and it must pass the
+   * secret scan.
+   */
+  const earlierShipCommit = async (): Promise<{ sha: string } | { refuse: string[] } | null> => {
+    const meta = await git(['log', '-1', '--format=%H%x00%P%x00%an%x00%ae%x00%B', 'HEAD'], false);
+    if (meta.code !== 0) return null;
+    const [sha = '', parents = '', name, email, ...body] = meta.stdout.split('\u0000');
+    if (!/^[0-9a-f]{40}$/.test(sha) || parents.trim() === '' || parents.trim().split(/\s+/).length !== 1) return null;
+    if (name !== HARNESS_AUTHOR.name || email !== HARNESS_AUTHOR.email || normalizeMessage(body.join('\u0000')) !== normalizeMessage(text.message)) return null;
+    const nothing = `nothing to commit under ${pathspec}`;
+    const recorded = readLedger(done.ledger).entries.find((e) => e.event.type === 'shipped' && e.event.headSha === sha);
+    if (recorded !== undefined) return { refuse: [`${nothing}: ${sha.slice(0, 12)}, this run's ship commit, is already recorded as shipped (item ledger seq ${recorded.seq})`] };
+    const files = await git(['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', sha], false);
+    if (files.code !== 0) return { refuse: [`${nothing}; cannot list what ${sha.slice(0, 12)} changes: ${firstLine(files)}`] };
+    const outsideRoot = files.stdout.split('\u0000').filter((p) => p !== '' && prefix !== '' && !p.startsWith(prefix));
+    if (outsideRoot.length > 0) return { refuse: [`${nothing}; ${sha.slice(0, 12)} carries this run's ship message but changes paths outside the API root (${outsideRoot.slice(0, 5).join(', ')}): not a commit a ship makes`] };
+    const diff = await git(['diff', '--no-color', '-U0', `${sha}^`, sha, '--', pathspec]);
+    if (diff.code !== 0) return { refuse: [`${nothing}; could not read the diff of ${sha.slice(0, 12)} for the secret scan: ${firstLine(diff)}`] };
+    const secrets = scanDiffForSecrets(diff.stdout);
+    if (secrets.length > 0) return { refuse: [`possible secrets in ${sha.slice(0, 12)}, the commit an earlier ship of this run made:`, ...secrets.slice(0, 20)] };
+    return { sha };
+  };
+
+  // 6. Stage only the API root (refuse if anything outside it is already staged).
   const pre = await git(['diff', '--cached', '--name-only', '-z'], false);
   if (pre.code !== 0) return refuse(`git diff --cached failed: ${firstLine(pre)}`);
   const outside = pre.stdout.split('\u0000').filter((p) => p !== '' && prefix !== '' && !p.startsWith(prefix));
@@ -358,7 +460,6 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
   if (add.code !== 0) return refuse(`git add failed: ${firstLine(add)}`);
   const staged = await git(['diff', '--cached', '--name-only', '-z'], false);
   const stagedPaths = staged.stdout.split('\u0000').filter((p) => p !== '');
-  if (stagedPaths.length === 0) return refuse(`nothing to commit under ${pathspec}`);
   // The staged tree must be exactly the tree the gates evaluated, and still match the worktree.
   const after = await treeFingerprint(git, repo, [pathspec, ...excludes]);
   const drift = await git(['diff', '--quiet', '--', pathspec, ...excludes], false);
@@ -367,7 +468,20 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
     return refuse('the API root changed while the ship gates were running (something modified files after they were checked); nothing was committed. Re-run ship.');
   }
 
-  // 6. Secret scan of the staged diff.
+  // 7. Nothing to commit: finish a ship of this run that stopped after its commit (on these fresh green gates), or refuse.
+  if (stagedPaths.length === 0) {
+    const earlier = await earlierShipCommit();
+    if (earlier === null) return refuse(`nothing to commit under ${pathspec}`);
+    if ('refuse' in earlier) return refuse(...earlier.refuse);
+    try {
+      recordDoneRun(done.ledger, done.run);
+    } catch (e) {
+      return refuse(`the item ledger could not record the DONE run this ship stands on, so nothing was pushed: ${errText(e)}`);
+    }
+    return publish(earlier.sha, true);
+  }
+
+  // 8. Secret scan of the staged diff.
   const diff = await git(['diff', '--cached', '--no-color', '-U0', '--', pathspec]);
   if (diff.code !== 0) {
     await git(['reset', '-q', '--', pathspec]);
@@ -379,35 +493,55 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
     return refuse(`possible secrets in the staged diff (unstaged again):`, ...secrets.slice(0, 20));
   }
 
-  // 7. Commit as the harness.
-  const commit = await git(commitArgs);
-  if (commit.code !== 0) return refuse(`git commit failed: ${firstLine(commit)}`);
-  const sha = (await git(['rev-parse', 'HEAD'], false)).stdout.trim();
-  const committed = (reasons: string[]): ShipResult => ({ status: 'committed', branch, commit: sha, reasons, commands });
-
-  // 8. Push the feature branch only, explicit refspec, never force.
-  if (!hasRemote) return committed([`no remote "${remote}": committed ${sha.slice(0, 12)} on ${branch}, not pushed`]);
-  const push = await git(pushArgs);
-  if (push.code !== 0) return committed([`push to ${remote} failed: ${firstLine(push)}`]);
-
-  // 9. Pull request.
-  const gh = await ghStatus((args) => run('gh', args, false));
-  if (/^head$/i.test(base)) return committed([`pushed ${branch} to ${remote}; the run started from a detached HEAD, so there is no base branch for a PR`]);
-  if (!gh.ok) return committed([`pushed ${branch} to ${remote}; ${gh.why}, so no PR was opened`]);
-  const pr = await run('gh', prArgs);
-  if (pr.code !== 0) return committed([`pushed ${branch} to ${remote}; gh pr create failed: ${firstLine(pr)}`]);
-  const url = [...pr.stdout.matchAll(/https?:\/\/\S+/g)].map((m) => m[0]).pop();
-  if (ctx.item !== undefined) {
-    appendLedger(itemPaths(ctx.item.root, ctx.item.slug).ledger, { type: 'shipped', runId: ctx.run.id, branch, headSha: sha, base, prUrl: url ?? null });
+  // 9. Record the DONE run, the last step before the commit: every check that can still refuse the ship has
+  //    passed, so the ledger never reads DONE for a ship that refused. A ledger that cannot record it commits nothing.
+  let doneEntry: LedgerEntry;
+  try {
+    doneEntry = recordDoneRun(done.ledger, done.run);
+  } catch (e) {
+    await git(['reset', '-q', '--', pathspec]);
+    return refuse(`the item ledger could not record the DONE run this ship stands on, so nothing was committed (unstaged again): ${errText(e)}`);
   }
-  return {
-    status: 'shipped',
-    branch,
-    commit: sha,
-    ...(url !== undefined ? { prUrl: url } : {}),
-    reasons: url !== undefined ? [] : ['gh pr create succeeded but printed no URL'],
-    commands,
-  };
+
+  // 10. Commit as the harness.
+  const commit = await git(commitArgs);
+  if (commit.code !== 0) return refuse(`git commit failed: ${firstLine(commit)}`, `nothing was committed or shipped; item ledger seq ${doneEntry.seq} records the run DONE, as its ship gates re-ran fresh and green`);
+  const sha = (await git(['rev-parse', 'HEAD'], false)).stdout.trim();
+
+  // 11. Push, PR, and the ship record.
+  return publish(sha, false);
+}
+
+/** Who the harness commits as: ship's commit, and how a later ship of the same run recognizes it. */
+export const HARNESS_AUTHOR = { name: 'sf-harness', email: 'harness@localhost' } as const;
+
+const PR_VIEW_FIELDS = 'url,number,state,mergedAt,mergedBy,mergeCommit,baseRefName,headRefOid';
+
+/** A commit message as git keeps one given with -m (cleanup "whitespace"): trailing spaces, extra blank lines and both ends trimmed. */
+function normalizeMessage(m: string): string {
+  return m.replace(/\r\n?/g, '\n').split('\n').map((l) => l.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * The DONE `run` record a ship of this run writes right before it commits, or why it cannot: every ship gate just
+ * re-ran fresh and green, so the run is DONE under the approved contract text, unless what keeps a run itself from
+ * DONE holds here too (agent code ran unconfined: isolation off or unavailable; the target profile has parts the
+ * harness does not support, or there is none: UNPROVEN is never DONE), the item is closed (its approval was spent
+ * on the work that closed it), or that text is no longer approved.
+ */
+export function doneRunRecord(ctx: RunContext, targetNotes: readonly string[]): { ledger: string; run: LedgerRun } | { refuse: string[] } {
+  const item = ctx.item;
+  if (item === undefined) return { refuse: ['this run is bound to no backlog item: there is no item ledger to record the ship in'] };
+  const iso = isolationHonesty(isolationInfo());
+  if (!iso.proven) return { refuse: [`the ship gates ran agent code without a working sandbox (${iso.line}): UNPROVEN is never DONE, so no DONE run can be recorded and nothing ships`] };
+  if (targetNotes.length > 0) return { refuse: [`the target profile is UNPROVEN (${targetNotes.join('; ')}): a run is never DONE on it, so no DONE run can be recorded and nothing ships`] };
+  const ledger = itemPaths(item.root, item.slug).ledger;
+  const read = readLedger(ledger);
+  const approval = approvalVerdict(read, item.contractHash);
+  if (!approval.ok) return { refuse: [`the contract text this run worked under (${item.contractHash.slice(0, 12)}) is not approved now: ${approval.reason}`] };
+  const closed = closedItemProblem(read, item.slug);
+  if (closed !== null) return { refuse: [`nothing ships: ${closed}`] };
+  return { ledger, run: { runId: ctx.run.id, status: 'ship', verdict: SHIP_DONE_VERDICT, contractHash: item.contractHash } };
 }
 
 export async function ghStatus(gh: (args: string[]) => Promise<ExecResult>): Promise<{ ok: boolean; why: string }> {

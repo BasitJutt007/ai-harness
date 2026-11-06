@@ -37,7 +37,9 @@ export type { TsFence } from './ts-fence.ts';
 export { graphFiles, importGraph, importSpecifiers, resolveImport, scriptKindOf } from './testmap.ts';
 
 /** Backlog items (assignment 02): the contract, the stakeholder's typed yes, and their verdicts (see items.ts). */
-export { approvalVerdict, classifyReply, contractVerdict, itemPaths, itemStatus, parseContract, readLedger } from './items.ts';
+export { approvalVerdict, classifyReply, contractVerdict, fileModeMeasureProblem, itemPaths, itemStatus, parseContract, readLedger } from './items.ts';
+/** Whether a run writes in the owner's checkout (an interactive session), read from its context (see hooks.ts). */
+export { writesInPlace } from './hooks.ts';
 export type { ApprovalVerdict, ContractParse, ContractVerdict, ItemStatus, Ledger, LedgerEntry, LedgerEvent } from './items.ts';
 
 /** Every placeholder the context views render for content left out of the model's view (see context.ts). */

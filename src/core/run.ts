@@ -12,8 +12,8 @@ import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
 import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
-import { missingRequiredHooks, REQUIRED_INPLACE_HOOKS, writesInPlace, type RunPlacement } from './hooks.ts';
-import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
+import { missingRequiredHooks, REQUIRED_HOOKS, REQUIRED_INPLACE_HOOKS, writesInPlace, type RunPlacement } from './hooks.ts';
+import { appendLedger, closedItemProblem, contractVerdict, fileModeMeasureProblem, itemPaths, itemsRoot, itemStatus } from './items.ts';
 import { targetRepoProblem } from './item-cli.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
@@ -105,6 +105,14 @@ function harnessRel(abs: string): string {
 
 // ───────────────────────────── context construction ─────────────────────────────
 
+/** What nothing would stop without these missing required hooks (each kind names its own consequence). */
+function unguardedBy(missing: readonly string[]): string {
+  const out: string[] = [];
+  if (missing.some((m) => (REQUIRED_HOOKS as readonly string[]).includes(m))) out.push('an edit without a contract or a stakeholder yes');
+  if (missing.some((m) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(m))) out.push('a write on a branch other than the working branch the session started on');
+  return out.join(', or ');
+}
+
 export function buildContext(opts: {
   run: RunContext['run'];
   task: Task;
@@ -138,9 +146,11 @@ export function buildContext(opts: {
   if (opts.ws.visibility === 'git' && opts.inPlace === undefined) {
     throw new Error('refused: the workspace is the owner\'s checkout (git visibility) but the run carries no in-place record (the top and the branch it started on), so branch-guard could not re-check a write');
   }
+  // In place, every required hook is required: the item hooks (no edit without a contract and a typed yes) and
+  // branch-guard. A session binds its item later, never through bindItem, so this is where the check stands.
   if (writesInPlace({ ...(opts.inPlace !== undefined ? { inPlace: opts.inPlace } : {}), workspace: opts.ws })) {
-    const missing = missingRequiredHooks(opts.registry.hooks, { inPlace: true }).filter((h) => (REQUIRED_INPLACE_HOOKS as readonly string[]).includes(h));
-    if (missing.length > 0) throw new Error(`refused: an in-place run needs the ${missing.join(', ')} hook (disabled in harness.config.json or failed to load): nothing would re-check the branch before a write`);
+    const missing = missingRequiredHooks(opts.registry.hooks, { inPlace: true });
+    if (missing.length > 0) throw new Error(`refused: an in-place run needs the ${missing.join(', ')} hook(s) (disabled in harness.config.json or failed to load): nothing would stop ${unguardedBy(missing)}`);
   }
   const run = opts.exec ?? exec;
   // In place (a session in any web repository) the layout is a web layout; idempotent when the caller
@@ -202,6 +212,14 @@ export async function targetProfile(ws: Workspace, opts: { inPlace?: boolean } =
   } catch (e) {
     return { error: `target profile could not be computed (template layout assumed): ${errMsg(e)}` };
   }
+}
+
+/**
+ * What the target profile cannot support (its `unsupported` parts), or why there is no profile: each one keeps a
+ * run from DONE (runUnprovenItems), and so a ship from recording one (ship.ts doneRunRecord). Empty = none.
+ */
+export function targetUnproven(target: { profile?: TargetProfile; error?: string }): string[] {
+  return target.profile !== undefined ? [...target.profile.unsupported] : [target.error ?? 'no profile'];
 }
 
 /**
@@ -546,10 +564,11 @@ export function bindItem(slug: string, registry: RegistryView, root: string = it
     throw new Error(`refused before the first model turn (no tokens spent): item "${slug}" (${status.stage})\n${status.lines.map((l) => `           ${l}`).join('\n')}`);
   }
   // An approval covers the work it was given for, once: a closed item's outcome is recorded, and new work needs its own item.
-  const closed = status.ledger.entries.find((e) => e.event.type === 'closed');
-  if (closed !== undefined) {
-    throw new Error(`refused before the first model turn (no tokens spent): item "${slug}" is closed (ledger seq ${closed.seq}): its approval covered the work that closed it; new work needs a new item (harness item new <slug>)`);
-  }
+  const closed = closedItemProblem(status.ledger, slug);
+  if (closed !== null) throw new Error(`refused before the first model turn (no tokens spent): ${closed}`);
+  // "Measure: none" is for an interactive session only (in place): a file-mode item must be closable on its metric.
+  const noMeasure = writesInPlace(where) ? null : fileModeMeasureProblem(status.contract.parse, slug);
+  if (noMeasure !== null) throw new Error(`refused before the first model turn (no tokens spent): item "${slug}": ${noMeasure}`);
   return { slug, root, contractHash: status.contract.parse.hash };
 }
 
@@ -866,24 +885,36 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // What the run itself could not establish blocks DONE like an UNPROVEN gate: agent code ran unconfined
   // (isolation off or unavailable), the target profile has unsupported parts (or none), or the post-loop
   // standards report could not be produced.
-  const runUnproven = runUnprovenItems({
-    isolation,
-    targetNotes: target.profile !== undefined ? target.profile.unsupported : [target.error ?? 'no profile'],
-    checksCrashed: !abortedRun && report === null,
-  });
+  const targetNotes = targetUnproven(target);
+  const runUnproven = runUnprovenItems({ isolation, targetNotes, checksCrashed: !abortedRun && report === null });
   // The gates, not the model, decide: a loop that ran out of turns (or stalled) without calling finish
   // is still DONE when the fresh final gate run is green, labelled so.
   const gatesDecided = !abortedRun && (status === 'max_turns' || status === 'stalled') && final.ok && final.results.length > 0 && runUnproven.length === 0;
   const ok = ((status === 'done' && final.ok) || gatesDecided) && runUnproven.length === 0;
+  const verdictText = gatesDecided
+    ? `DONE (the loop ended ${status} without finish; the fresh final gate run is green)`
+    : ok ? 'DONE' : `NOT DONE (${notDoneReason(status, agent.status, final.ok, runUnproven)})`;
+
+  // The item's own record of the run (its job-store entry: red run, gates, verdict live in runs/<id>/), written
+  // BEFORE any ship: the outcome check closes an item only on a `shipped` entry that comes after a DONE run of
+  // the approved text, so a run whose record cannot be written ships nothing.
+  let ledgerError: string | null = null;
+  try {
+    appendLedger(itemPaths(item.root, item.slug).ledger, { type: 'run', runId, status, verdict: ok && !gatesDecided ? 'DONE' : verdictText, contractHash: item.contractHash });
+  } catch (e) {
+    ledgerError = errMsg(e);
+  }
 
   let shipped: ShipOutcome | undefined;
   if (opts.ship) {
     if (abortedRun || stopRequested()) {
       shipped = { status: 'refused', branch, reasons: ['stopped by signal'] };
+    } else if (ok && ledgerError !== null) {
+      shipped = { status: 'refused', branch, reasons: [`the run could not be recorded in the item ledger (${ledgerError}): a ship needs its DONE run on record before it, so nothing was shipped`] };
     } else if (ok) {
       try {
         const { ship } = await import('./ship.ts');
-        shipped = await ship({ ctx, registry, dryRun: false, ...(opts.remote !== undefined ? { remote: opts.remote } : {}) });
+        shipped = await ship({ ctx, registry, targetNotes, dryRun: false, ...(opts.remote !== undefined ? { remote: opts.remote } : {}) });
       } catch (e) {
         shipped = { status: 'refused', branch, reasons: [`ship crashed: ${errMsg(e)}`] };
       }
@@ -895,8 +926,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   const notes = abortedRun
     ? [final.results.length > 0 || report !== null ? 'run stopped by signal after the loop ended: the remaining post-loop steps did not run' : 'gates and checks: not run because the run was aborted']
     : [];
-  const targetNotes = target.profile !== undefined ? target.profile.unsupported.map((u) => `target: ${u}`) : [`target: ${target.error ?? 'no profile'}`];
-  const h = honesty(task, final.results, report, [...notes, ...targetNotes]);
+  const h = honesty(task, final.results, report, [...notes, ...targetNotes.map((u) => `target: ${u}`)]);
   if (gatesDecided) h.humanMustVerify.unshift(`the model did not call finish (loop ended ${status}); DONE rests on the fresh final gate run alone`);
   const iso = isolationHonesty(isolation);
   (iso.proven ? h.proven : h.unproven).push(iso.line);
@@ -909,9 +939,6 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     state: harnessRel(join(runDir, 'state.json')),
     tokens: harnessRel(tokensPath),
   };
-  const verdictText = gatesDecided
-    ? `DONE (the loop ended ${status} without finish; the fresh final gate run is green)`
-    : ok ? 'DONE' : `NOT DONE (${notDoneReason(status, agent.status, final.ok, runUnproven)})`;
   store.writeJson('run.json', {
     ...runRecordBase,
     model: finalModel,
@@ -969,12 +996,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   ];
   const text = lines.join('\n');
   log(text);
-  // The item's own record of the run (its job-store entry: red run, gates, verdict live in runs/<id>/).
-  try {
-    appendLedger(itemPaths(item.root, item.slug).ledger, { type: 'run', runId, status, verdict: ok && !gatesDecided ? 'DONE' : verdictText, contractHash: item.contractHash });
-  } catch (e) {
-    log(`item       could not record the run in the item ledger: ${errMsg(e)}`);
-  }
+  if (ledgerError !== null) log(`item       could not record the run in the item ledger: ${ledgerError}`);
 
   return {
     runId,
@@ -1026,7 +1048,7 @@ const RecordedItem = z.object({ slug: z.string(), contractHash: z.string() });
 export async function openRun(
   ref: string,
   opts: { runsDir?: string; tokensDir?: string; exec?: Exec } = {},
-): Promise<{ ctx: RunContext; registry: RegistryView; store: RunStore; record: RunRecord }> {
+): Promise<{ ctx: RunContext; registry: RegistryView; store: RunStore; record: RunRecord; targetNotes: string[] }> {
   const dirs = evidenceDirs(loadConfig(HARNESS_ROOT), HARNESS_ROOT, { runsDir: opts.runsDir, tokensDir: opts.tokensDir });
   const config = withEvidenceDirs(loadConfig(HARNESS_ROOT), dirs);
   setSandboxMode(config.sandbox);
@@ -1072,7 +1094,7 @@ export async function openRun(
     ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
     ...(target.profile !== undefined ? { profile: target.profile } : {}),
   });
-  return { ctx, registry, store, record };
+  return { ctx, registry, store, record, targetNotes: targetUnproven(target) };
 }
 
 /** A run id (under runsDir) or a path to a run directory / its run.json → absolute run directory. */

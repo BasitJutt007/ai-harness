@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeItem, outcomeVerdict } from '../../src/core/close.ts';
 import { exec as coreExec } from '../../src/core/exec.ts';
 import { cmdItem, ledgerTypes } from '../../src/core/item-cli.ts';
-import { appendLedger, itemPaths, itemStatus, parseContract, proposeItem, readLedger, recordReply } from '../../src/core/items.ts';
+import { appendLedger, appendShipped, itemPaths, itemStatus, parseContract, proposeItem, readLedger, recordReply } from '../../src/core/items.ts';
 import { readMetric } from '../../src/core/measure.ts';
 import type { Exec } from '../../src/core/types.ts';
 import { contractFor, writeContract } from '../support/items.ts';
@@ -67,7 +67,12 @@ async function approved(): Promise<void> {
 
 type RunRecord = 'done' | 'none' | 'not-done' | 'other-contract' | 'other-run';
 
-/** What a governed run then ship record (a DONE run under the approved text, then the ship), and the branch it pushed (count 3 -> 0). */
+/**
+ * The branch a governed run pushed (count 3 -> 0) and its ledger records. 'done' is what the harness writes:
+ * the run's own entry (executeRun appends it before it ships), then the ship through appendShipped (ship.ts,
+ * the only writer of `shipped`); test/e2e/ship-closes.test.ts checks the real CLI writes exactly this. Every
+ * other shape is a forgery, written by hand, that appendShipped refuses to write.
+ */
 function shipped(record: RunRecord = 'done'): string {
   git(repo, 'checkout', '-q', '-b', 'harness/run-1');
   writeFileSync(join(repo, 'count.txt'), '0\n');
@@ -76,16 +81,24 @@ function shipped(record: RunRecord = 'done'): string {
   const head = git(repo, 'rev-parse', 'HEAD');
   const ledger = itemPaths(root, SLUG).ledger;
   const hash = parseContract(CONTRACT).hash;
-  if (record !== 'none') {
-    appendLedger(ledger, {
-      type: 'run',
-      runId: record === 'other-run' ? 'run-0' : 'run-1',
-      status: record === 'not-done' ? 'max_turns' : 'done',
-      verdict: record === 'not-done' ? 'NOT DONE (final gates not green)' : 'DONE',
-      contractHash: record === 'other-contract' ? parseContract(CONTRACT.replace('main HEAD', 'any HEAD')).hash : hash,
-    });
+  const ship = { runId: 'run-1', branch: 'harness/run-1', headSha: head, base: 'main', prUrl: PR_URL };
+  if (record === 'done') {
+    const run = { runId: 'run-1', status: 'done', verdict: 'DONE', contractHash: hash };
+    appendLedger(ledger, { type: 'run', ...run });
+    appendShipped(ledger, run, ship);
+  } else {
+    if (record !== 'none') {
+      const run = {
+        runId: record === 'other-run' ? 'run-0' : 'run-1',
+        status: record === 'not-done' ? 'max_turns' : 'done',
+        verdict: record === 'not-done' ? 'NOT DONE (final gates not green)' : 'DONE',
+        contractHash: record === 'other-contract' ? parseContract(CONTRACT.replace('main HEAD', 'any HEAD')).hash : hash,
+      };
+      expect(() => appendShipped(ledger, run, ship)).toThrow(); // the harness's own writer refuses this shape
+      appendLedger(ledger, { type: 'run', ...run });
+    }
+    appendLedger(ledger, { type: 'shipped', ...ship });
   }
-  appendLedger(ledger, { type: 'shipped', runId: 'run-1', branch: 'harness/run-1', headSha: head, base: 'main', prUrl: PR_URL });
   git(repo, 'checkout', '-q', 'main');
   return head;
 }

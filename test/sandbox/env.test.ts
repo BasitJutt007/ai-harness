@@ -167,7 +167,7 @@ describe('trusted children: credential-shaped names and values are stripped, loo
       },
     } as unknown as RunContext;
     try {
-      const res = await ship({ ctx, registry: { gates: [] } as unknown as RegistryView, dryRun: true });
+      const res = await ship({ ctx, registry: { gates: [] } as unknown as RegistryView, targetNotes: [], dryRun: true });
       expect(res.status).toBe('refused'); // the fake git said no: nothing else ran
       const opts = calls[0];
       expect(opts?.sandbox).toBeUndefined();

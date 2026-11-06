@@ -4,24 +4,27 @@
  * one mutation; the gate must refuse every mutated item. A mutation that still passes is a bypass: fix
  * the gate, never this list.
  *
- *   problem-statement  every required field removed, emptied, left a placeholder or malformed
+ *   problem-statement  every required field removed, emptied, left a placeholder or malformed, and
+ *                      "Measure: none" in a file-mode run (in place it passes: the twin)
  *   human-yes          every way a "yes" that is not the stakeholder's typed reply could look like one,
  *                      including a yes typed against another contract text (or not saying which)
  *   outcome            every way the merge or the after reading could be missing, stale or not comparable:
  *                      a bot merger by gh's is_bot or its login, a before reading not taken before the
  *                      merge, a shipped line with no DONE run of the approved text behind it, a reading
  *                      from an unconfined Measure, a contract with no Measure
+ *   ship record        every ship the one writer of `shipped` must refuse, writing nothing: a run not DONE,
+ *                      another contract text, another run, a withdrawn yes, a closed item, a broken ledger
  *
  *   npm run audit:mutations
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import contractGate from '../../plugins/hooks/contract-gate.ts';
 import problemGate from '../../plugins/hooks/problem-gate.ts';
 import { outcomeVerdict, type OutcomeFacts, type PrState } from '../../src/core/close.ts';
-import { appendLedger, itemPaths, itemStatus, parseContract, proposeItem, recordReply, writeSigned, type MetricReading } from '../../src/core/items.ts';
+import { appendLedger, appendShipped, itemPaths, itemStatus, parseContract, proposeItem, recordReply, writeSigned, type LedgerEntry, type MetricReading } from '../../src/core/items.ts';
 import type { HookPlugin, ItemBinding, RunContext, ToolCallInfo } from '../../src/core/types.ts';
 import { contractFor, writeContract } from '../support/items.ts';
 
@@ -39,8 +42,10 @@ const SLUG = 'audit-item';
 const write: ToolCallInfo = { id: 'w', tool: 'write_file', effect: 'write', input: { path: 'src/a.ts', content: 'x' }, paths: ['src/a.ts'] };
 const finish: ToolCallInfo = { id: 'f', tool: 'finish', effect: 'control', input: { summary: 'done' }, paths: [] };
 
-async function decide(h: HookPlugin, call: ToolCallInfo, item: ItemBinding, runDir: string): Promise<{ decision: string; reason?: string }> {
-  return (await h.run({ event: 'pre_tool', call }, { item, run: { runDir } } as unknown as RunContext)) as { decision: string; reason?: string };
+/** A hook's decision in a file-mode run (no in-place record), or in place (an interactive session) with `inPlace`. */
+async function decide(h: HookPlugin, call: ToolCallInfo, item: ItemBinding, runDir: string, inPlace?: RunContext['inPlace']): Promise<{ decision: string; reason?: string }> {
+  const ctx = { item, run: { runDir }, ...(inPlace !== undefined ? { inPlace } : {}) };
+  return (await h.run({ event: 'pre_tool', call }, ctx as unknown as RunContext)) as { decision: string; reason?: string };
 }
 
 // ───────────────────────────── problem-statement gate ─────────────────────────────
@@ -65,6 +70,8 @@ const CONTRACT_MUTATIONS: Array<{ name: string; mutate: (t: string) => string; n
   { name: 'Commit "patch"', mutate: setField('Commit', 'patch'), names: /Conventional Commits header/ },
   { name: 'Commit "fix: comment fixes"', mutate: setField('Commit', 'fix: comment fixes'), names: /says nothing/ },
   { name: 'Commit a numbered checkpoint', mutate: setField('Commit', 'chore: checkpoint 12'), names: /numbered checkpoint/ },
+  // A file-mode run (no in-place record) exists to be closed on its metric: "none" is for a session only (twin below).
+  { name: 'Measure: none in a file-mode run', mutate: setField('Measure', 'none'), names: /says "Measure: none", but a run outside an interactive session needs a Measure/ },
 ];
 
 describe('audit: the problem-statement gate refuses every incomplete contract, naming what is missing', () => {
@@ -87,6 +94,14 @@ describe('audit: the problem-statement gate refuses every incomplete contract, n
       expect(v.reason).toMatch(m.names);
     });
   }
+
+  it('in place (an interactive session), a contract with Measure: none passes: it can ship, never close (the twin)', async () => {
+    const text = setField('Measure', 'none')(COMPLETE);
+    const root = tmp();
+    writeContract(root, SLUG, text);
+    const v = await decide(problemGate, write, { slug: SLUG, root, contractHash: parseContract(text).hash }, tmp(), { repoTop: root, branch: 'feat/x' });
+    expect(v.decision).toBe('pass');
+  });
 });
 
 // ───────────────────────────── human-yes gate ─────────────────────────────
@@ -186,10 +201,21 @@ const reading = (sha: string, over: Partial<MetricReading> = {}): MetricReading 
 interface LedgerShape {
   /** The `run` entry before the shipped one: absent, or with these fields changed. */
   run?: 'none' | { runId?: string; verdict?: string; contractHash?: string };
+  /**
+   * A shape the harness never writes: appendShipped refuses it (checked first), or, for no run at all, always
+   * writes the run before `shipped`. Written by hand, as a forged ledger would be.
+   */
+  forged?: true;
   contract?: string;
 }
 
-/** An approved, shipped item with a before reading, a PR merged by a person, and an after reading at the merge. */
+/**
+ * An approved, shipped item with a before reading, a PR merged by a person, and an after reading at the merge.
+ * The baseline ledger is what the harness writes: the run's own entry (executeRun appends it before it ships),
+ * then the ship through appendShipped (ship.ts, the only writer of `shipped`); test/e2e/ship-closes.test.ts
+ * checks the real CLI writes exactly that. A mutated shape is a forgery appendShipped refuses to write, so it is
+ * written by hand, and the audit first checks that the writer does refuse it.
+ */
 function closable(shape: LedgerShape = {}): OutcomeFacts {
   const root = tmp();
   const contract = shape.contract ?? COMPLETE;
@@ -197,10 +223,17 @@ function closable(shape: LedgerShape = {}): OutcomeFacts {
   proposeItem(root, SLUG, { session: 's', before: reading('e'.repeat(40), { value: 3 }) });
   recordReply(root, SLUG, 'yes', 'tty', 's');
   const ledger = itemPaths(root, SLUG).ledger;
-  if (shape.run !== 'none') {
-    appendLedger(ledger, { type: 'run', runId: 'r1', status: 'done', verdict: 'DONE', contractHash: parseContract(contract).hash, ...shape.run });
+  const ship = { runId: 'r1', branch: 'harness/r1', headSha: HEAD, base: 'main', prUrl: 'https://example.test/pull/1' };
+  const run = { runId: 'r1', status: 'done', verdict: 'DONE', contractHash: parseContract(contract).hash, ...(shape.run === 'none' ? {} : shape.run) };
+  // The run's own entry, whatever its verdict, as executeRun writes it before it ships.
+  if (shape.run !== 'none') appendLedger(ledger, { type: 'run', ...run });
+  let entry: LedgerEntry;
+  if (shape.forged === true) {
+    if (shape.run !== 'none') expect(() => appendShipped(ledger, run, ship), 'the harness writer refuses this shape').toThrow();
+    entry = appendLedger(ledger, { type: 'shipped', ...ship });
+  } else {
+    entry = appendShipped(ledger, run, ship);
   }
-  const entry = appendLedger(ledger, { type: 'shipped', runId: 'r1', branch: 'harness/r1', headSha: HEAD, base: 'main', prUrl: 'https://example.test/pull/1' });
   if (entry.event.type !== 'shipped') throw new Error('fixture');
   const pr: PrState = { url: 'https://example.test/pull/1', number: 1, state: 'MERGED', mergedAt: '2026-11-07T10:00:00Z', mergedBy: 'a-person', mergedByBot: false, mergeSha: MERGE, baseRef: 'main', headSha: HEAD };
   return { status: itemStatus(root, SLUG), shipped: { entry, event: entry.event }, before: reading('e'.repeat(40), { value: 3 }), pr, onBase: true, beforeMerge: true, after: { ok: true, reading: reading(MERGE, { value: 0 }) } };
@@ -238,10 +271,10 @@ const OUTCOME_MUTATIONS: Array<{ name: string; mutate: (f: OutcomeFacts) => Outc
 
 /** Ledger shapes: the shipped entry must follow a DONE run of the approved contract text (and the contract must name a Measure). */
 const LEDGER_MUTATIONS: Array<{ name: string; shape: LedgerShape; why: RegExp }> = [
-  { name: 'a shipped line with no run record before it', shape: { run: 'none' }, why: /names run r1, but the ledger holds no record of that run before it/ },
-  { name: 'the run that shipped did not end DONE', shape: { run: { verdict: 'NOT DONE (final gates not green)' } }, why: /did not end DONE/ },
-  { name: 'the run record is of another run', shape: { run: { runId: 'r0' } }, why: /no record of that run/ },
-  { name: 'the run ran under another contract text', shape: { run: { contractHash: '0'.repeat(64) } }, why: /ran under another contract text/ },
+  { name: 'a shipped line with no run record before it', shape: { run: 'none', forged: true }, why: /names run r1, but the ledger holds no record of that run before it/ },
+  { name: 'the run that shipped did not end DONE', shape: { run: { verdict: 'NOT DONE (final gates not green)' }, forged: true }, why: /did not end DONE/ },
+  { name: 'the run record is of another run', shape: { run: { runId: 'r0' }, forged: true }, why: /no record of that run/ },
+  { name: 'the run ran under another contract text', shape: { run: { contractHash: '0'.repeat(64) }, forged: true }, why: /ran under another contract text/ },
   { name: 'the contract says "Measure: none"', shape: { contract: contractFor(SLUG, { Measure: 'none' }) }, why: /no Measure: the outcome cannot be read/ },
 ];
 
@@ -278,4 +311,55 @@ describe('audit: the outcome check closes only on a reading taken after a person
     expect(v.ok).toBe(false);
     expect(v.reasons.join('; ')).toMatch(/no stakeholder yes/);
   });
+});
+
+// ───────────────────────────── the ship record ─────────────────────────────
+
+/**
+ * The one writer of `shipped` (items.ts appendShipped, called by ship) writes it only where the outcome check could
+ * accept it: right after a DONE run of the run that shipped, under the approved contract text, on an item that is
+ * not closed. Each mutation is a ship the writer must refuse, writing nothing (the ledger stays byte for byte).
+ */
+const SHIP_RUN = { runId: 'r1', status: 'ship', verdict: 'DONE (harness ship: every ship gate re-ran fresh and green)', contractHash: parseContract(COMPLETE).hash };
+const SHIP_RECORD = { runId: 'r1', branch: 'harness/r1', headSha: HEAD, base: 'main', prUrl: 'https://example.test/pull/1' };
+const SHIP_MUTATIONS: Array<{ name: string; run?: Partial<typeof SHIP_RUN>; shipped?: Partial<typeof SHIP_RECORD>; before?: (root: string) => void; why: RegExp }> = [
+  { name: 'the run did not end DONE', run: { verdict: 'NOT DONE (final gates not green)' }, why: /did not end DONE/ },
+  { name: 'the run worked under another contract text', run: { contractHash: '0'.repeat(64) }, why: /not approved: the contract changed after it was proposed/ },
+  { name: 'the ship names another run', shipped: { runId: 'r0' }, why: /a ship of run r0 cannot stand on the record of run r1/ },
+  { name: 'the stakeholder said no after the yes', before: (root) => void recordReply(root, SLUG, 'no, wait', 'tty', 's'), why: /not approved: Test Stakeholder did not approve/ },
+  {
+    name: 'the item is closed (its approval covered the work that closed it)',
+    before: (root) => void appendLedger(itemPaths(root, SLUG).ledger, { type: 'closed', before: reading('e'.repeat(40), { value: 3 }), after: reading(MERGE, { value: 0 }), prUrl: SHIP_RECORD.prUrl, mergeSha: MERGE, mergedBy: 'a-person', closeRunId: 'x' }),
+    why: /item "audit-item" is closed \(ledger seq \d+\): its approval covered the work that closed it; new work needs a new item/,
+  },
+  { name: 'the ledger is broken', before: (root) => appendFileSync(itemPaths(root, SLUG).ledger, `${JSON.stringify({ seq: 99, at: 'x', prev: 'x', hash: 'x', event: { type: 'approved' } })}\n`), why: /the item ledger is broken/ },
+];
+
+describe('audit: the ship record is written only where the outcome check could accept it, and nothing otherwise', () => {
+  function approved(): string {
+    const root = tmp();
+    writeContract(root, SLUG, COMPLETE);
+    proposeItem(root, SLUG, { session: 's', before: reading('e'.repeat(40), { value: 3 }) });
+    recordReply(root, SLUG, 'yes', 'tty', 's');
+    return root;
+  }
+  const ledgerText = (root: string): string => readFileSync(itemPaths(root, SLUG).ledger, 'utf8');
+
+  it('a DONE run of the approved text on an open item: the run, then shipped, which the outcome check accepts (the baseline)', () => {
+    const root = approved();
+    const entry = appendShipped(itemPaths(root, SLUG).ledger, SHIP_RUN, SHIP_RECORD);
+    if (entry.event.type !== 'shipped') throw new Error('fixture');
+    const status = itemStatus(root, SLUG);
+    expect(outcomeVerdict({ ...closable(), status, shipped: { entry, event: entry.event } })).toEqual({ ok: true, reasons: [] });
+  });
+
+  for (const m of SHIP_MUTATIONS) {
+    it(`refuses, writing nothing: ${m.name}`, () => {
+      const root = approved();
+      m.before?.(root);
+      const before = ledgerText(root);
+      expect(() => appendShipped(itemPaths(root, SLUG).ledger, { ...SHIP_RUN, ...m.run }, { ...SHIP_RECORD, ...m.shipped })).toThrow(m.why);
+      expect(ledgerText(root)).toBe(before);
+    });
+  }
 });

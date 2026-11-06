@@ -7,7 +7,9 @@
  * their authority); it records, truthfully, what it can see: the channel, and which agent-shell
  * environment markers were present when the reply was recorded (their NAMES only, never values).
  * Item status, the approval message and the human-yes verdict then say, for example, "typed at a
- * terminal inside an AI agent's shell (AI_AGENT)", so a reviewer reads exactly what was proven.
+ * terminal inside an AI agent's shell (AI_AGENT)", so a reviewer reads exactly what was proven. The
+ * markers prove neither way (MARKER_LIMITS): none set proves nothing, since an agent can unset them,
+ * and a person typing in a terminal that inherits an agent's markers is recorded as inside its shell.
  *
  * The marker names come from harness.config.json `agentEnvMarkers` (a trailing `*` matches a prefix);
  * the core itself names only the generic ones (config.ts DEFAULT_AGENT_ENV_MARKERS).
@@ -50,13 +52,20 @@ export function operatorProvenance(env: NodeJS.ProcessEnv = process.env, markers
 }
 
 /**
- * How a reply arrived, in words: "typed at a terminal", "typed at a terminal inside an AI agent's
- * shell (NAMES)", "piped in (not typed at a terminal)", or, for a reply recorded before provenance
- * was kept, says so.
+ * What the markers cannot prove, either way: their absence proves nothing (an agent can unset its own
+ * environment variables before it types), and a person's own yes, typed in a terminal that inherits an
+ * agent's markers (one opened from inside an agent's session), is recorded as typed inside an agent's shell.
+ */
+export const MARKER_LIMITS = "no agent-shell markers were set, which proves nothing: an agent can unset them; and a person's own yes typed in a terminal that inherits agent markers is recorded as typed inside an agent's shell";
+
+/**
+ * How a reply arrived, in words: "typed at a terminal" with what an absent marker set does not prove
+ * (MARKER_LIMITS), "typed at a terminal inside an AI agent's shell (NAMES)", "piped in (not typed at a
+ * terminal)", or, for a reply recorded before provenance was kept, says so.
  */
 export function provenanceText(channel: 'tty' | 'pipe', agentEnv: readonly string[] | undefined): string {
   const how = channel === 'tty' ? 'typed at a terminal' : 'piped in (not typed at a terminal)';
   if (agentEnv === undefined) return `${how} (agent markers not recorded)`;
-  if (agentEnv.length === 0) return how;
+  if (agentEnv.length === 0) return channel === 'tty' ? `${how} (${MARKER_LIMITS})` : how;
   return `${how} inside an AI agent's shell (${agentEnv.join(', ')})`;
 }
