@@ -12,7 +12,7 @@
  *   - a refused re-proposal leaves the files as they were (an accepted one replaces them);
  *   - a Measure's output never reaches a failure reason, the model's line or the ledger (its number does).
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { preconditions } from '../../src/core/close.ts';
@@ -22,7 +22,7 @@ import { appendLedger, itemPaths, itemStatus, parseContract, readLedger, recordR
 import { envEntries, lastNumber, readMetric } from '../../src/core/measure.ts';
 import { detectMechanism } from '../../src/core/sandbox.ts';
 import type { Exec } from '../../src/core/types.ts';
-import { baseRef, defaultBase, draftedContract, incompleteReason, personName, proposeDrafted, proposeImported, readBefore, readingFailureForModel, repoField, repoSlugFromRemote, type ProposalEnv } from '../../src/session/contract.ts';
+import { baseRef, defaultBase, draftedContract, incompleteReason, personName, proposeDrafted, proposeImported, readBefore, readingFailureForModel, replaceFiles, repoField, repoSlugFromRemote, type ProposalEnv } from '../../src/session/contract.ts';
 import { ProposeContractInput, type ProposeContractInputT } from '../../plugins/tools/propose_contract.ts';
 import { git, proposal, webRepo, type WebRepo } from './helpers.ts';
 
@@ -345,6 +345,42 @@ describe('a refused re-proposal changes nothing', () => {
     } finally {
       chmodSync(paths.ledger, 0o600);
     }
+  });
+
+  it('a rename that fails after another succeeded puts the first file back and leaves no temp file (all or nothing)', () => {
+    const dir = join(r.base, 'replace');
+    mkdirSync(join(dir, 'metrics'), { recursive: true });
+    const contract = join(dir, 'contract.md');
+    const script = join(dir, 'metrics', 'x.mjs');
+    writeFileSync(contract, 'old contract\n');
+    let calls = 0;
+    const failSecond = (from: string, to: string): void => {
+      calls += 1;
+      if (calls === 2) throw new Error('EIO: the disk said no');
+      renameSync(from, to);
+    };
+    expect(() => replaceFiles([{ file: contract, content: 'new contract\n' }, { file: script, content: 'console.log(2);\n' }], failSecond)).toThrow(/the disk said no/);
+    expect(readFileSync(contract, 'utf8')).toBe('old contract\n');
+    expect(existsSync(script)).toBe(false);
+    expect([...readdirSync(dir), ...readdirSync(join(dir, 'metrics'))].filter((f) => f.endsWith('.tmp'))).toEqual([]);
+    // The twin: when every rename works, both are replaced, and the undo puts both back.
+    const undo = replaceFiles([{ file: contract, content: 'new contract\n' }, { file: script, content: 'console.log(2);\n' }]);
+    expect(readFileSync(contract, 'utf8')).toBe('new contract\n');
+    expect(readFileSync(script, 'utf8')).toBe('console.log(2);\n');
+    undo();
+    expect(readFileSync(contract, 'utf8')).toBe('old contract\n');
+    expect(existsSync(script)).toBe(false);
+  });
+
+  it('a script path that is a directory: the re-proposal is refused and the contract stays as proposed', async () => {
+    expect((await proposeDrafted(input(), env)).ok).toBe(true);
+    const paths = itemPaths(env.itemsRoot, 'greeting-name');
+    const before = readFileSync(paths.contract, 'utf8');
+    mkdirSync(join(env.itemsRoot, 'metrics', 'greeting-name.mjs'), { recursive: true });
+    const o = await proposeDrafted(input({ problem: 'An edited problem statement for the greeting.', measureScript: V2 }), env);
+    expect(o.ok === false && o.reason).toMatch(/the proposal could not be recorded \(nothing changed\)/);
+    expect(readFileSync(paths.contract, 'utf8')).toBe(before);
+    expect(readLedger(paths.ledger).entries.map((e) => e.event.type)).toEqual(['proposed']);
   });
 
   it('twin: an accepted re-proposal replaces both', async () => {

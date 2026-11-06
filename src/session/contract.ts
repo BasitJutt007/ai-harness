@@ -196,10 +196,16 @@ function slugProblem(itemsRoot: string, slug: string): string | null {
 
 /**
  * Put every file in place, each through a temp file next to it and a rename; returns the undo, which
- * puts back what was there before (or removes a file that was not).
+ * puts back what was there before (or removes a file that was not). All or nothing: when a rename
+ * fails, the files already renamed get their previous content back and the temp files left are
+ * removed, then the error is thrown. `rename` is for tests (default renameSync).
  */
-function replaceFiles(files: Array<{ file: string; content: string }>): () => void {
+export function replaceFiles(files: Array<{ file: string; content: string }>, rename: (from: string, to: string) => void = renameSync): () => void {
   const before = files.map((f) => ({ file: f.file, old: existsSync(f.file) ? readFileSync(f.file, 'utf8') : null }));
+  const putBack = (b: { file: string; old: string | null }): void => {
+    if (b.old === null) rmSync(b.file, { force: true });
+    else writeFileSync(b.file, b.old);
+  };
   const temps: Array<{ tmp: string; file: string }> = [];
   try {
     for (const f of files) {
@@ -212,12 +218,19 @@ function replaceFiles(files: Array<{ file: string; content: string }>): () => vo
     for (const t of temps) rmSync(t.tmp, { force: true });
     throw e;
   }
-  for (const t of temps) renameSync(t.tmp, t.file);
-  return () => {
-    for (const b of before) {
-      if (b.old === null) rmSync(b.file, { force: true });
-      else writeFileSync(b.file, b.old);
+  let renamed = 0;
+  try {
+    for (const t of temps) {
+      rename(t.tmp, t.file);
+      renamed += 1;
     }
+  } catch (e) {
+    for (const b of before.slice(0, renamed)) putBack(b);
+    for (const t of temps.slice(renamed)) rmSync(t.tmp, { force: true });
+    throw e;
+  }
+  return () => {
+    for (const b of before) putBack(b);
   };
 }
 
