@@ -33,7 +33,13 @@
  *   under "human must verify". A rule unproven at the baseline too stays UNPROVEN.
  * - Without a baseline (snapshot or checks failed) violations in changed files block and any other
  *   violation cannot be proven pre-existing: UNPROVEN.
- * - The summary always carries the true whole-API percentage.
+ * - The summary always carries the true whole-API percentage. A failing comparison (either mode) says
+ *   what blocks first: "N introduced by this run: <first finding>; " before the rest, so a reader who
+ *   sees only the start of it sees what to fix. humanMustVerifyBrief counts the pre-existing findings
+ *   per rule (a short view's form); humanMustVerify keeps one line per finding.
+ * - The classification is exported (baselineAssessment): check_standards reports exactly what this gate
+ *   decides in baseline mode, from the same code (over a subset of the rules: what it decides for those
+ *   rules, never presented as the gate's verdict).
  *
  * Both: a skipped rule, an empty standards rule, or zero rules is UNPROVEN, and an n/a rule
  * (nothing to check) is never counted as green.
@@ -236,63 +242,204 @@ function capped(lines: string[], max: number, more: string): string[] {
   return lines.length > max ? [...lines.slice(0, max), `… ${lines.length - max} more (${more})`] : lines;
 }
 
-/** Prefix the baseline-mode label to a below-100% result and name it under "human must verify". */
-function labelled(r: GateResult): GateResult {
-  if (r.status === 'pass' && r.summary.startsWith('verdict 100% (')) return r;
-  const note = `${BASELINE_MODE} (the task opted in with standards: baseline; the standards rules are not proven at 100% over the whole API)`;
-  return { ...r, summary: `${BASELINE_MODE}; ${r.summary}`, humanMustVerify: [note, ...(r.humanMustVerify ?? [])] };
+/** One line (line breaks become spaces), cut to `max` characters with an ellipsis. */
+function oneLine(text: string, max: number): string {
+  const t = text.replace(/\s*[\r\n]+\s*/g, ' ').trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
 }
 
-/** Brownfield (baseline mode, and the non-standards rules in strict mode): block only on what this run introduced versus the base commit's report. */
-async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSummary[], naNote: string): Promise<GateResult> {
+/** How much of the first blocking finding a summary carries (the rest is in the details and the log). */
+const LEAD_FINDING_CHARS = 200;
+
+/** A finding (or a rule result) the standards gate blocks on: something this run introduced. */
+export interface BlockingFinding {
+  rule: string;
+  /** The gate's detail line, e.g. "introduced (in a file this run changed): <text>". */
+  detail: string;
+  /** The finding itself: "rule location  message", or the rule-level line. */
+  text: string;
+}
+
+/** A failing finding the base commit already had: reported, never blocking. */
+export interface PreExistingFinding {
+  rule: string;
+  /** Root-relative file it is attributed to; null when it is not attributable to a file. */
+  file: string | null;
+  where: 'untouched' | 'changed' | 'unattributed';
+  text: string;
+}
+
+/** The lists the baseline-mode verdict is made of (one classification, shared by the gate and check_standards). */
+export interface BaselineFindings {
+  /** Why there is no base report to compare with (null: there is one). */
+  unavailable: string | null;
+  /** What the gate blocks on now (without a base report: the violations in files this run changed). */
+  blocking: BlockingFinding[];
+  /** Matched against the base commit's report: not blocking (empty without a base report). */
+  preExisting: PreExistingFinding[];
+  /** Rules UNPROVEN now that the base commit did not prove either (never green). */
+  unproven: string[];
+  /** The base commit's whole-API percentage (null without a base report). */
+  basePercent: number | null;
+}
+
+/** What a run of the comparison gives its callers: the gate result, what blocks first (its lead), and the lists. */
+interface Assessed {
+  result: GateResult;
+  /** What blocks, said first in the summary ("4 introduced by this run: <first finding>"); null when nothing blocks. */
+  lead: string | null;
+  /** Null when the verdict was decided before any comparison (every rule green, or contradicted). */
+  findings: BaselineFindings | null;
+}
+
+/** Pre-existing findings per rule: how many, in how many files, how many in files this run changed or in none. */
+export interface PreExistingCount {
+  rule: string;
+  count: number;
+  files: number;
+  inChanged: number;
+  unattributed: number;
+}
+
+/** The pre-existing findings counted per rule (rules in order of first appearance). */
+export function preExistingByRule(pre: readonly PreExistingFinding[]): PreExistingCount[] {
+  const by = new Map<string, { count: number; files: Set<string>; inChanged: number; unattributed: number }>();
+  for (const p of pre) {
+    const r = by.get(p.rule) ?? { count: 0, files: new Set<string>(), inChanged: 0, unattributed: 0 };
+    r.count += 1;
+    if (p.file !== null) r.files.add(p.file);
+    if (p.where === 'changed') r.inChanged += 1;
+    if (p.where === 'unattributed') r.unattributed += 1;
+    by.set(p.rule, r);
+  }
+  return [...by].map(([rule, r]) => ({ rule, count: r.count, files: r.files.size, inChanged: r.inChanged, unattributed: r.unattributed }));
+}
+
+/** "nest-route-guard 120 in 31 files" (and how many of them are in files this run changed, or in no file). */
+export function preExistingCountText(c: PreExistingCount): string {
+  const extra = [
+    ...(c.inChanged > 0 ? [`${c.inChanged} in files this run changed`] : []),
+    ...(c.unattributed > 0 ? [`${c.unattributed} not attributable to a file`] : []),
+  ];
+  return `${c.rule} ${c.count} in ${c.files} file${c.files === 1 ? '' : 's'}${extra.length > 0 ? ` (${extra.join(', ')})` : ''}`;
+}
+
+/** The start of a "human must verify" or detail line about a pre-existing finding (never blocking). */
+export const PRE_EXISTING = 'pre-existing (not blocking';
+
+/** A blocking line about a rule its checker could not prove now but did at the base commit: "<rule>: UNPROVEN now (<why>) but proven at the base commit (<p>/<t> <unit>)". */
+const UNPROVEN_NOW = ': UNPROVEN now (';
+const PROVEN_AT_BASE = ') but proven at the base commit (';
+/** The start of a blocking line about something the run introduced (a violation, with or without a base report). */
+const INTRODUCED_STARTS = ['introduced (', 'changed file: '];
+
+/**
+ * Whether a failed standards result blocks ONLY on rules whose checker could not prove them now though
+ * it did at the base commit (the check crashed or was skipped: a timeout, a missing binary; the environment
+ * or the checker, not a finding the run introduced). Read from the result itself, whose first `failing`
+ * details are what it blocks on; false when it blocks on anything else, or when they are not all listed.
+ * Never part of the gate's decision: the session uses it to tell a failure the agent can act on from one
+ * it cannot.
+ */
+export function blocksOnlyOnUnprovenNow(r: Pick<GateResult, 'status' | 'failing' | 'details'>): boolean {
+  const n = r.failing ?? 0;
+  const d = r.details ?? [];
+  if (r.status !== 'fail' || n === 0 || d.length < n) return false;
+  return d.slice(0, n).every((x) => !INTRODUCED_STARTS.some((s) => x.startsWith(s)) && x.includes(UNPROVEN_NOW) && x.includes(PROVEN_AT_BASE));
+}
+
+/**
+ * Prefix the baseline-mode label to a below-100% result and name it under "human must verify". What
+ * blocks (the lead) comes before the label, so a reader who sees only the start of the summary sees it.
+ */
+function labelled(a: Assessed): GateResult {
+  const r = a.result;
+  if (r.status === 'pass' && r.summary.startsWith('verdict 100% (')) return r;
+  const note = `${BASELINE_MODE} (the task opted in with standards: baseline; the standards rules are not proven at 100% over the whole API)`;
+  return {
+    ...r,
+    summary: [...(a.lead !== null ? [a.lead] : []), BASELINE_MODE, r.summary].join('; '),
+    humanMustVerify: [note, ...(r.humanMustVerify ?? [])],
+    ...(r.humanMustVerifyBrief !== undefined ? { humanMustVerifyBrief: [note, ...r.humanMustVerifyBrief] } : {}),
+  };
+}
+
+/** The result with what blocks said first (the non-standards rules of strict mode: no label). */
+function withLead(a: Assessed): GateResult {
+  return a.lead === null ? a.result : { ...a.result, summary: `${a.lead}; ${a.result.summary}` };
+}
+
+/**
+ * Brownfield (baseline mode, and the non-standards rules in strict mode): block only on what this run
+ * introduced versus the base commit's report. `log` false (check_standards) writes no log.
+ */
+async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSummary[], naNote: string, log = true): Promise<Assessed> {
+  const decided = (result: GateResult): Assessed => ({ result, lead: null, findings: null });
   const percent = report.verdict.percent;
   const unprovenNow = new Map<string, string>();
   for (const r of counted) if (r.status === 'unproven') unprovenNow.set(r.rule, `${r.passed}/${r.total} ${r.unit}`);
   for (const f of report.findings) if (f.status === 'skip') unprovenNow.set(f.rule, `skipped: ${f.skipReason ?? 'no reason'}`);
   const failingRules = counted.filter((r) => r.status === 'fail');
   if (unprovenNow.size === 0 && failingRules.length === 0) {
-    if (report.verdict.status !== 'pass') return { status: 'unproven', summary: `verdict ${percent}% with no failing rule to explain it` };
-    return { status: 'pass', summary: `verdict 100% (${counted.length} rules${naNote})` };
+    if (report.verdict.status !== 'pass') return decided({ status: 'unproven', summary: `verdict ${percent}% with no failing rule to explain it` });
+    return decided({ status: 'pass', summary: `verdict 100% (${counted.length} rules${naNote})` });
   }
   if (report.verdict.status === 'pass') {
     const which = [...failingRules.map((r) => `${r.rule} fail`), ...[...unprovenNow].map(([rule, why]) => `${rule} ${why}`)];
-    return { status: 'unproven', summary: `verdict 100% contradicted by ${which.length} rule results`, details: which.slice(0, MAX_DETAILS) };
+    return decided({ status: 'unproven', summary: `verdict 100% contradicted by ${which.length} rule results`, details: which.slice(0, MAX_DETAILS) });
   }
 
   const now = failingItems(report.findings, report.root);
   const cache = new Map<string, boolean>();
   const baseline = await loadBaseline(ctx);
   if (typeof baseline === 'string') {
-    const blocking: string[] = [];
+    const blocking: BlockingFinding[] = [];
     const unknown: string[] = [];
-    for (const it of now) (await changedIn(ctx, it.file, cache) ? blocking : unknown).push(it.text);
+    for (const it of now) {
+      if (await changedIn(ctx, it.file, cache)) blocking.push({ rule: it.rule, detail: `changed file: ${it.text}`, text: it.text });
+      else unknown.push(it.text);
+    }
     const unprovenRules = [...unprovenNow].map(([rule, why]) => `${rule} ${why}`);
+    const findings: BaselineFindings = { unavailable: baseline, blocking, preExisting: [], unproven: unprovenRules, basePercent: null };
     const head = `verdict ${percent}% over the whole API; no baseline (${baseline})`;
-    if (blocking.length > 0) {
-      return { status: 'fail', summary: `${head}: ${blocking.length} violation(s) in files this run changed`, failing: blocking.length, details: capped([...blocking.map((b) => `changed file: ${b}`), ...unknown.map((u) => `unproven (no baseline): ${u}`)], MAX_DETAILS, 'see the standards report') };
+    const first = blocking[0];
+    if (first !== undefined) {
+      return {
+        result: { status: 'fail', summary: head, failing: blocking.length, details: capped([...blocking.map((b) => b.detail), ...unknown.map((u) => `unproven (no baseline): ${u}`)], MAX_DETAILS, 'see the standards report') },
+        lead: `${blocking.length} violation(s) in files this run changed: ${oneLine(first.text, LEAD_FINDING_CHARS)}`,
+        findings,
+      };
     }
     return {
-      status: 'unproven',
-      summary: `${head}: ${unknown.length} violation(s) in files this run did not change cannot be proven pre-existing${unprovenRules.length > 0 ? `; ${unprovenRules.length} rule(s) unproven` : ''}`,
-      details: capped([...unprovenRules, ...unknown.map((u) => `unproven (no baseline): ${u}`)], MAX_DETAILS, 'see the standards report'),
+      result: {
+        status: 'unproven',
+        summary: `${head}: ${unknown.length} violation(s) in files this run did not change cannot be proven pre-existing${unprovenRules.length > 0 ? `; ${unprovenRules.length} rule(s) unproven` : ''}`,
+        details: capped([...unprovenRules, ...unknown.map((u) => `unproven (no baseline): ${u}`)], MAX_DETAILS, 'see the standards report'),
+      },
+      lead: null,
+      findings,
     };
   }
 
   // Multiset of the baseline's violations: each one excuses at most one current violation.
   const remaining = new Map<string, number>();
   for (const it of failingItems(baseline.findings, baseline.root)) remaining.set(it.key, (remaining.get(it.key) ?? 0) + 1);
-  const blocking: string[] = [];
-  const pre: Array<{ text: string; where: 'untouched' | 'changed' | 'unattributed' }> = [];
+  const blocking: BlockingFinding[] = [];
+  const pre: PreExistingFinding[] = [];
   for (const it of now) {
     const changed = await changedIn(ctx, it.file, cache);
     const left = remaining.get(it.key) ?? 0;
     if (left > 0) {
       remaining.set(it.key, left - 1);
-      pre.push({ text: it.text, where: it.file === null ? 'unattributed' : changed ? 'changed' : 'untouched' });
+      pre.push({ rule: it.rule, file: it.file, text: it.text, where: it.file === null ? 'unattributed' : changed ? 'changed' : 'untouched' });
     } else {
-      blocking.push(changed
-        ? `introduced (in a file this run changed): ${it.text}`
-        : `introduced (in a file this run did not change: a change elsewhere caused it): ${it.text}`);
+      blocking.push({
+        rule: it.rule,
+        text: it.text,
+        detail: changed
+          ? `introduced (in a file this run changed): ${it.text}`
+          : `introduced (in a file this run did not change: a change elsewhere caused it): ${it.text}`,
+      });
     }
   }
   const baseRules = new Map(baseline.rules.map((r) => [r.rule, r]));
@@ -302,16 +449,19 @@ async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSum
     // "Pass count went down" net of removed units: more failing units than the base commit had.
     const failedBase = b === undefined ? 0 : b.total - b.passed;
     if (r.status === 'fail' && r.total - r.passed > failedBase) {
-      blocking.push(`${r.rule}: ${r.total - r.passed} failing ${r.unit} vs ${failedBase} at the base commit`);
+      const line = `${r.rule}: ${r.total - r.passed} failing ${r.unit} vs ${failedBase} at the base commit`;
+      blocking.push({ rule: r.rule, detail: line, text: line });
     }
     const why = unprovenNow.get(r.rule);
     if (why === undefined) continue;
     if (b !== undefined && (b.status === 'pass' || b.status === 'fail')) {
-      blocking.push(`${r.rule}: UNPROVEN now (${why}) but proven at the base commit (${b.passed}/${b.total} ${b.unit})`);
+      const line = `${r.rule}${UNPROVEN_NOW}${why}${PROVEN_AT_BASE}${b.passed}/${b.total} ${b.unit})`;
+      blocking.push({ rule: r.rule, detail: line, text: line });
     } else {
       unproven.push(`${r.rule}: ${why} (unproven at the base commit too: the checker cannot prove this API)`);
     }
   }
+  const findings: BaselineFindings = { unavailable: null, blocking, preExisting: pre, unproven, basePercent: baseline.percent };
 
   const untouched = pre.filter((p) => p.where === 'untouched').length;
   const inChanged = pre.filter((p) => p.where === 'changed').length;
@@ -321,27 +471,41 @@ async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSum
     ...(unattributed > 0 ? [`${unattributed} not attributable to a file`] : []),
   ];
   const head = `verdict ${percent}% over the whole API (brownfield: ${untouched} pre-existing violation(s) in untouched files${extra.length > 0 ? `, ${extra.join(', ')}` : ''}; base commit ${baseline.percent}%)`;
-  const preLines = pre.map((p) => `pre-existing (not blocking${p.where === 'changed' ? '; in a file this run changed' : p.where === 'unattributed' ? '; not attributable to a file' : ''}): ${p.text}`);
-  const logPath = await ctx.logs.write('standards-brownfield.txt', [
-    head,
-    ...blocking.map((b) => `BLOCKING  ${b}`),
-    ...unproven.map((u) => `UNPROVEN  ${u}`),
-    ...preLines,
-  ].join('\n'));
-  const human = capped(preLines, MAX_HUMAN, `see ${logPath}`);
-  const verify = human.length > 0 ? { humanMustVerify: human } : {};
-  if (blocking.length > 0) {
-    return { status: 'fail', summary: `${head}: ${blocking.length} introduced by this run`, failing: blocking.length, details: capped([...blocking, ...preLines], MAX_DETAILS, `see ${logPath}`), logPath, ...verify };
+  const preLines = pre.map((p) => `${PRE_EXISTING}${p.where === 'changed' ? '; in a file this run changed' : p.where === 'unattributed' ? '; not attributable to a file' : ''}): ${p.text}`);
+  const logPath = log
+    ? await ctx.logs.write('standards-brownfield.txt', [
+      head,
+      ...blocking.map((b) => `BLOCKING  ${b.detail}`),
+      ...unproven.map((u) => `UNPROVEN  ${u}`),
+      ...preLines,
+    ].join('\n'))
+    : undefined;
+  const more = logPath !== undefined ? `see ${logPath}` : 'see the standards report';
+  const human = capped(preLines, MAX_HUMAN, more);
+  const brief = preExistingByRule(pre).map((c) => `${PRE_EXISTING}): ${preExistingCountText(c)}`);
+  const verify = human.length > 0 ? { humanMustVerify: human, humanMustVerifyBrief: brief } : {};
+  const logged = logPath !== undefined ? { logPath } : {};
+  const first = blocking[0];
+  if (first !== undefined) {
+    return {
+      result: { status: 'fail', summary: head, failing: blocking.length, details: capped([...blocking.map((b) => b.detail), ...preLines], MAX_DETAILS, more), ...logged, ...verify },
+      lead: `${blocking.length} introduced by this run: ${oneLine(first.text, LEAD_FINDING_CHARS)}`,
+      findings,
+    };
   }
   if (unproven.length > 0) {
-    return { status: 'unproven', summary: `${head}: ${unproven.length} rule(s) unproven`, details: capped([...unproven, ...preLines], MAX_DETAILS, `see ${logPath}`), logPath, ...verify };
+    return { result: { status: 'unproven', summary: `${head}: ${unproven.length} rule(s) unproven`, details: capped([...unproven, ...preLines], MAX_DETAILS, more), ...logged, ...verify }, lead: null, findings };
   }
   return {
-    status: 'pass',
-    summary: `${head}; nothing introduced by this run (${counted.length} rules${naNote})`,
-    details: capped(preLines, MAX_DETAILS, `see ${logPath}`),
-    logPath,
-    ...verify,
+    result: {
+      status: 'pass',
+      summary: `${head}; nothing introduced by this run (${counted.length} rules${naNote})`,
+      details: capped(preLines, MAX_DETAILS, more),
+      ...logged,
+      ...verify,
+    },
+    lead: null,
+    findings,
   };
 }
 
@@ -354,7 +518,7 @@ async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSum
 async function brownfieldStrict(ctx: RunContext, report: CheckReport, counted: RuleSummary[], naNote: string): Promise<GateResult> {
   const standardsRules = new Set(report.rules.filter((r) => r.category === STANDARDS).map((r) => r.rule));
   const failingStandards = counted.filter((r) => r.category === STANDARDS && r.status === 'fail');
-  if (failingStandards.length === 0) return brownfield(ctx, report, counted, naNote);
+  if (failingStandards.length === 0) return withLead(await brownfield(ctx, report, counted, naNote));
 
   const percent = report.verdict.percent;
   const now = failingItems(report.findings.filter((f) => standardsRules.has(f.rule)), report.root);
@@ -450,19 +614,52 @@ export default defineGate({
   },
 });
 
-/** The gate's verdict over the checks' report (see the module comment). */
-async function verdictOf(ctx: RunContext, report: CheckReport): Promise<GateResult> {
+/** What every policy starts from: the report's compact lines, its counted (not n/a) rules, and the n/a note. */
+function counting(report: CheckReport): { compact: string[]; counted: RuleSummary[]; naNote: string; zeroRules: () => GateResult; allNa: () => GateResult } {
   const compact = report.compact.split('\n').filter((l) => l.trim() !== '').slice(0, MAX_DETAILS);
-  const { status, percent } = report.verdict;
-  if (report.rules.length === 0) return { status: 'unproven', summary: 'verdict 100% over zero rules: no checks ran, nothing is proven', details: compact };
-
   const counted = report.rules.filter((r) => r.status !== 'n/a');
   const na = report.rules.length - counted.length;
-  const naNote = na > 0 ? `, ${na} n/a` : '';
-  const allNa = (): GateResult => ({ status: 'unproven', summary: `every rule was n/a (${na}): nothing is proven`, details: compact });
+  return {
+    compact,
+    counted,
+    naNote: na > 0 ? `, ${na} n/a` : '',
+    zeroRules: () => ({ status: 'unproven', summary: 'verdict 100% over zero rules: no checks ran, nothing is proven', details: compact }),
+    allNa: () => ({ status: 'unproven', summary: `every rule was n/a (${na}): nothing is proven`, details: compact }),
+  };
+}
+
+/** Baseline mode's verdict over the report (labelled), and the lists it is made of (null when decided without them). */
+async function assessBaseline(ctx: RunContext, report: CheckReport, log: boolean): Promise<{ result: GateResult; findings: BaselineFindings | null }> {
+  const c = counting(report);
+  if (report.rules.length === 0) return { result: c.zeroRules(), findings: null };
+  if (c.counted.length === 0) return { result: c.allNa(), findings: null };
+  const a = await brownfield(ctx, report, c.counted, c.naNote, log);
+  return { result: labelled(a), findings: a.findings };
+}
+
+/**
+ * What the standards gate decides over `report` in baseline mode, and the lists that decision is made
+ * of: the check_standards tool reports exactly this (one classification, never a copy of it). It writes
+ * no log. Null when the task is not a brownfield task in baseline mode (`standards: baseline`).
+ * `subset`: the report covers only some of the rules (check_standards { rules }), so the result judges
+ * those rules alone and is never the gate's verdict; the web profile's whole-gate question (was the
+ * repository's type check or lint counted at all) is not asked of it.
+ */
+export async function baselineAssessment(ctx: RunContext, report: CheckReport, opts: { subset?: boolean } = {}): Promise<{ result: GateResult; findings: BaselineFindings | null } | null> {
+  if (ctx.task.kind !== 'brownfield' || ctx.task.standards !== 'baseline') return null;
+  const a = await assessBaseline(ctx, report, false);
+  return { result: ctx.stack === 'web' && opts.subset !== true ? webStandardsProven(ctx, report, a.result) : a.result, findings: a.findings };
+}
+
+/** The gate's verdict over the checks' report (see the module comment). */
+async function verdictOf(ctx: RunContext, report: CheckReport): Promise<GateResult> {
+  if (ctx.task.kind === 'brownfield' && ctx.task.standards === 'baseline') return (await assessBaseline(ctx, report, true)).result;
+  const { compact, counted, naNote, zeroRules, allNa } = counting(report);
+  const { status, percent } = report.verdict;
+  if (report.rules.length === 0) return zeroRules();
   if (ctx.task.kind === 'brownfield') {
     if (counted.length === 0) return allNa();
-    return ctx.task.standards === 'baseline' ? labelled(await brownfield(ctx, report, counted, naNote)) : brownfieldStrict(ctx, report, counted, naNote);
+    return brownfieldStrict(ctx, report, counted, naNote);
   }
 
   if (status === 'unproven') return { status: 'unproven', summary: 'verdict UNPROVEN (a rule was skipped or had nothing to check)', details: compact };

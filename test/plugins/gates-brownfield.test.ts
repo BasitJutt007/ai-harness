@@ -10,8 +10,9 @@ import type { CheckFinding, CheckPlugin, GatePlugin, GateResult, RunContext } fr
 import { runChecks } from '../../src/core/checks.ts';
 import { runGates } from '../../src/core/gates.ts';
 import { honesty, standardsLine } from '../../src/core/run.ts';
-import standardsGate, { BASELINE_KEY, BASELINE_MODE } from '../../plugins/gates/standards.ts';
-import { brownfieldTask, greenfieldTask, HARNESS_ROOT, makeHarness, realExec, removeTmp, sha } from './helpers.ts';
+import standardsGate, { BASELINE_KEY, BASELINE_MODE, blocksOnlyOnUnprovenNow } from '../../plugins/gates/standards.ts';
+import checkStandards from '../../plugins/tools/check_standards.ts';
+import { brownfieldTask, callTool, greenfieldTask, HARNESS_ROOT, makeHarness, realExec, removeTmp, sha } from './helpers.ts';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -299,6 +300,264 @@ describe('standards gate, brownfield baseline mode (opt-in): pre-existing violat
   });
 });
 
+/**
+ * A repository with debt: 8 pre-existing findings in three untouched legacy files (6 unparsed bodies, 2
+ * console calls), so a whole-API report buries what one run introduces.
+ */
+function indebted(layout: { routes: string; legacy: string; resource: string }): Record<string, string> {
+  const legacy = (consoleCall: boolean, v: string): string => [route('put', `/v0/${v}/:id`, false), route('delete', `/v0/${v}/:id`, false), ...(consoleCall ? ['console.log("legacy");'] : [])].join('\n');
+  return api(layout, legacy(true, 'a'), { 'src/legacy/more.ts': `${legacy(true, 'b')}\n`, 'src/legacy/third.ts': `${legacy(false, 'c')}\n` });
+}
+
+describe('standards gate, baseline mode: the summary says what blocks first', () => {
+  const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
+  const base = indebted(layout);
+  const introduced = `zod-boundary ${layout.routes}:4:1  PATCH /v1/items/:id: request body is not parsed`;
+
+  it('one introduced finding among many pre-existing ones: the count and that finding lead the summary, before the label and the whole-API verdict', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', false)}\n` } });
+    const r = await run(standardsGate, h.ctx);
+    expect(r.status).toBe('fail');
+    expect(r.summary.startsWith(`2 introduced by this run: ${introduced}; ${BASELINE_MODE}; verdict `), r.summary).toBe(true);
+    expect(r.summary).toContain('(brownfield: 8 pre-existing violation(s) in untouched files; base commit ');
+    // The finding and the rule's failing count that went up with it: the finding is the one named first.
+    expect(r.failing).toBe(2);
+    expect(r.details?.slice(0, 2)).toEqual([`introduced (in a file this run changed): ${introduced}`, 'zod-boundary: 7 failing handlers vs 6 at the base commit']);
+    // In brief, one line per rule with a count (what a short view shows) ...
+    expect(r.humanMustVerifyBrief).toEqual([
+      expect.stringMatching(/^baseline mode: below 100% allowed \(the task opted in/),
+      'pre-existing (not blocking): zod-boundary 6 in 3 files',
+      'pre-existing (not blocking): no-console 2 in 2 files',
+    ]);
+    // ... while the records keep every pre-existing finding, one per line, as before.
+    expect(r.humanMustVerify).toHaveLength(9);
+    expect(r.humanMustVerify).toContain(`pre-existing (not blocking): zod-boundary ${layout.legacy}:1:1  PUT /v0/a/:id: request body is not parsed`);
+  });
+
+  it('twin: nothing introduced: no lead, the label first (as before), and still one count line per rule in brief', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', true)}\n` } });
+    const r = await run(standardsGate, h.ctx);
+    expect(r.status).toBe('pass');
+    expect(r.summary.startsWith(`${BASELINE_MODE}; verdict `)).toBe(true);
+    expect(r.summary).not.toContain('introduced by this run:');
+    expect(r.humanMustVerifyBrief?.slice(1)).toEqual([expect.stringContaining('zod-boundary 6 in 3 files'), expect.stringContaining('no-console 2 in 2 files')]);
+  });
+
+  it('without a base commit, a violation in a changed file leads the summary too', async () => {
+    const h = await setup({ standards: 'baseline', base, commit: false, edits: { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', false)}\n` } });
+    const r = await run(standardsGate, h.ctx);
+    expect(r.status).toBe('fail');
+    expect(r.summary.startsWith(`1 violation(s) in files this run changed: ${introduced}; ${BASELINE_MODE}; verdict `), r.summary).toBe(true);
+    expect(r.summary).toContain('no baseline (');
+  });
+
+  it('strict mode: an introduced lint finding leads the summary as well, without the baseline label', async () => {
+    const clean = api(layout, 'export const legacy = 1;', { 'src/legacy/more.ts': 'console.log("old");\n' });
+    const h = await setup({ base: clean, edits: { [layout.routes]: `${clean[layout.routes] ?? ''}console.log("debug");\n` } });
+    const r = await run(standardsGate, h.ctx);
+    expect(r.status).toBe('fail');
+    expect(r.summary.startsWith(`2 introduced by this run: no-console ${layout.routes}:4:1  console call; verdict `), r.summary).toBe(true);
+    expect(r.summary).toContain('(brownfield: 1 pre-existing violation(s) in untouched files');
+    expect(r.summary).not.toContain(BASELINE_MODE);
+  });
+});
+
+describe('check_standards says what the standards gate blocks on (baseline mode)', () => {
+  const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
+  const base = indebted(layout);
+  const bad = { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', false)}\n` };
+  const good = { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', true)}\n` };
+
+  it('leads with the finding this run introduced; the pre-existing ones are one count line per rule, never listed', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: bad });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    expect(r.ok).toBe(false);
+    const lines = r.summary.split('\n');
+    expect(lines.slice(0, 3)).toEqual([
+      'BLOCKING: 2 introduced by this run (the standards gate fails until each is fixed):',
+      `  introduced (in a file this run changed): zod-boundary ${layout.routes}:4:1  PATCH /v1/items/:id: request body is not parsed`,
+      '  zod-boundary: 7 failing handlers vs 6 at the base commit',
+    ]);
+    expect(lines).toContain('pre-existing, not blocking: zod-boundary 6 in 3 files');
+    expect(lines).toContain('pre-existing, not blocking: no-console 2 in 2 files');
+    expect(lines.at(-1)).toBe('standards gate now: FAIL');
+    // Short: not one pre-existing finding is listed.
+    expect(r.summary).not.toMatch(/\/v0\//);
+    expect(r.summary).not.toContain('src/legacy/');
+    expect(lines.length).toBeLessThanOrEqual(7);
+    // The gate's own classification, not a copy: the gate blocks on exactly those lines.
+    const g = await run(standardsGate, h.ctx);
+    expect(g.status).toBe('fail');
+    expect(g.failing).toBe(2);
+    expect(g.details?.slice(0, 2)).toEqual(lines.slice(1, 3).map((l) => l.trim()));
+    // The full report is still the raw return (logged; the --baseline replay), after what blocks.
+    const report = await h.ctx.services.runChecks();
+    expect(r.raw?.startsWith(r.summary)).toBe(true);
+    expect(r.raw).toContain(report.text);
+  });
+
+  it('twin: nothing introduced says so plainly (ok, the gate passes), with the per-rule counts', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: good });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    expect(r.ok).toBe(true);
+    const lines = r.summary.split('\n');
+    expect(lines[0]).toBe('nothing this run introduced blocks; 8 pre-existing findings are not blocking');
+    expect(lines).toContain('pre-existing, not blocking: zod-boundary 6 in 3 files');
+    expect(lines.at(-1)).toBe('standards gate now: pass');
+    expect((await run(standardsGate, h.ctx)).status).toBe('pass');
+  });
+
+  it('a subset of the rules never states the gate\'s verdict: { rules: [no-console] } while the gate fails on zod-boundary', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: bad });
+    const r = await callTool(checkStandards, { rules: ['no-console'] }, h.ctx);
+    const lines = r.summary.split('\n');
+    expect(lines[0]).toBe('nothing this run introduced in the rules this call checked blocks; 2 pre-existing findings are not blocking');
+    expect(lines).toContain('pre-existing, not blocking: no-console 2 in 2 files');
+    expect(r.summary).not.toContain('standards gate now');
+    expect(r.summary).not.toContain('over the whole API');
+    expect(lines.at(-2)).toMatch(/^verdict \d+% over the rules this call checked \(no-console\); only what this run introduced blocks/);
+    expect(lines.at(-1)).toBe('the rules this call checked (no-console): pass. The standards gate checks every rule and was not judged by this call: check_standards without "rules" says what it blocks on');
+    // ok is those rules' own result (as a subset's verdict is in strict mode), never the gate's; the records say so too.
+    expect(r.ok).toBe(true);
+    expect(r.data).toMatchObject({ subset: { rules: ['no-console'], status: 'pass' } });
+    expect(r.data).not.toHaveProperty('gate');
+    expect((await run(standardsGate, h.ctx)).status).toBe('fail');
+    // The same tree over every rule: the gate's own verdict.
+    const every = await callTool(checkStandards, {}, h.ctx);
+    expect(every.ok).toBe(false);
+    expect(every.summary.split('\n').at(-1)).toBe('standards gate now: FAIL');
+  });
+
+  it('twin: a subset that holds the introduced finding lists it as blocking, ok false, and still does not speak for the gate', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: bad });
+    const r = await callTool(checkStandards, { rules: ['zod-boundary'] }, h.ctx);
+    const lines = r.summary.split('\n');
+    expect(lines.slice(0, 2)).toEqual([
+      'BLOCKING: 2 introduced by this run in the rules this call checked (the standards gate fails until each is fixed):',
+      `  introduced (in a file this run changed): zod-boundary ${layout.routes}:4:1  PATCH /v1/items/:id: request body is not parsed`,
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.summary).not.toContain('standards gate now');
+    expect(lines.at(-1)).toMatch(/^the rules this call checked \(zod-boundary\): FAIL\. The standards gate checks every rule and was not judged by this call/);
+    expect(r.data).toMatchObject({ subset: { rules: ['zod-boundary'], status: 'fail' }, blocking: 2 });
+  });
+
+  it('a subset on the web profile judges its own rules (the whole gate\'s "type check or lint counted" is not asked of it); twin: every rule is', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: good, checks: [bodyRule] });
+    const web: RunContext = { ...h.ctx, stack: 'web' };
+    const every = await callTool(checkStandards, {}, web);
+    expect(every.ok).toBe(false);
+    expect(every.summary.split('\n').at(-1)).toMatch(/^standards gate now: UNPROVEN: /);
+    expect((await run(standardsGate, web)).status).toBe('unproven');
+    const sub = await callTool(checkStandards, { rules: ['zod-boundary'] }, web);
+    expect(sub.ok).toBe(true);
+    expect(sub.summary.split('\n').at(-1)).toMatch(/^the rules this call checked \(zod-boundary\): pass\. The standards gate checks every rule/);
+  });
+
+  it('{ all: true } lists the report\'s failing lines after what blocks (a report that lists every violation: no note that it stops)', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: bad });
+    const r = await callTool(checkStandards, { all: true }, h.ctx);
+    const report = await h.ctx.services.runChecks();
+    expect(r.summary.startsWith('BLOCKING: 2 introduced by this run')).toBe(true);
+    expect(r.summary.endsWith(`the standards report's failing lines (pre-existing included):\n${report.compact}`)).toBe(true);
+    expect(r.summary).toContain(`${layout.legacy}:1:1  PUT /v0/a/:id: request body is not parsed`);
+    // The default call says what "all" adds; this one has added it.
+    expect((await callTool(checkStandards, {}, h.ctx)).summary).toContain('"all": true adds the report\'s failing lines, pre-existing included');
+    expect(r.summary).not.toContain('"all": true adds');
+  });
+
+  it('more than 20 blocking findings: the default lists 20 and counts the rest; twin: { all: true } lists every one, then the report', async () => {
+    const debt = Array.from({ length: 30 }, (_, i) => `console.log("legacy ${i}");`).join('\n');
+    const owed = api(layout, debt);
+    const many = Array.from({ length: 25 }, (_, i) => `console.log("debug ${i}");`).join('\n');
+    const h = await setup({ standards: 'baseline', base: owed, edits: { [layout.routes]: `${owed[layout.routes] ?? ''}${many}\n` } });
+    const last = `  introduced (in a file this run changed): no-console ${layout.routes}:28:1  console call`;
+    const rule = '  no-console: 2 failing files vs 1 at the base commit';
+    const first = await callTool(checkStandards, {}, h.ctx);
+    const lines = first.summary.split('\n');
+    expect(lines[0]).toBe('BLOCKING: 26 introduced by this run (the standards gate fails until each is fixed):');
+    expect(lines.slice(1, 21).every((l) => l.startsWith('  introduced (in a file this run changed): no-console '))).toBe(true);
+    expect(lines[21]).toBe('  … 6 more (the same call with "all": true lists every blocking line)');
+    expect(first.summary).not.toContain(last);
+    expect(first.summary).not.toContain(rule);
+    expect(lines).toContain('pre-existing, not blocking: no-console 30 in 1 file');
+    const all = await callTool(checkStandards, { all: true }, h.ctx);
+    const allLines = all.summary.split('\n');
+    const blocking = allLines.slice(1, allLines.findIndex((l, i) => i > 0 && !l.startsWith('  ')));
+    expect(blocking).toHaveLength(26);
+    expect(blocking).toContain(last);
+    expect(blocking).toContain(rule);
+    expect(all.summary).not.toContain('more (the same call');
+    // Exactly what the gate blocks on.
+    expect((await run(standardsGate, h.ctx)).failing).toBe(26);
+    // Then the report, saying that it lists only its first violations.
+    const report = await h.ctx.services.runChecks();
+    expect(report.compact).toMatch(/… \d+ more violations/);
+    expect(all.summary.endsWith(`the standards report's failing lines (pre-existing included; it lists the first violations and counts the rest):\n${report.compact}`)).toBe(true);
+  });
+
+  it('a rule the checker cannot prove now nor at the base commit: nothing blocks, yet never ok, and the gate\'s UNPROVEN is said', async () => {
+    const unreadable = indebted(layout);
+    unreadable[layout.legacy] = `${unreadable[layout.legacy] ?? ''}// UNREADABLE legacy\n`;
+    const h = await setup({ standards: 'baseline', base: unreadable, edits: { [layout.routes]: `${unreadable[layout.routes] ?? ''}${route('patch', '/v1/items/:id', true)}\n` } });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    const lines = r.summary.split('\n');
+    expect(lines[0]).toBe('nothing this run introduced blocks; 8 pre-existing findings are not blocking');
+    expect(lines).toContainEqual(expect.stringMatching(/^UNPROVEN \(never green\): rest-conventions: skipped: check crashed: cannot parse .* \(unproven at the base commit too/));
+    expect(lines.at(-1)).toMatch(/^standards gate now: UNPROVEN: /);
+    expect(r.ok).toBe(false);
+    expect((await run(standardsGate, h.ctx)).status).toBe('unproven');
+  });
+
+  it('twin: a rule the checker proved at the base commit and cannot prove now blocks, and the gate fails', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}// UNREADABLE now\n` } });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    const lines = r.summary.split('\n');
+    expect(lines[0]).toMatch(/^BLOCKING: 1 introduced by this run/);
+    expect(lines[1]).toMatch(/^ {2}rest-conventions: UNPROVEN now \(skipped: check crashed: cannot parse .*\) but proven at the base commit/);
+    expect(lines.some((l) => l.startsWith('UNPROVEN (never green)'))).toBe(false);
+    expect(lines.at(-1)).toBe('standards gate now: FAIL');
+    expect(r.ok).toBe(false);
+    expect((await run(standardsGate, h.ctx)).status).toBe('fail');
+  });
+
+  it('the gate\'s result says when it blocks only on rules unproven now (blocksOnlyOnUnprovenNow); twins: an introduced finding, and both', async () => {
+    const unreadableNow = `${base[layout.routes] ?? ''}// UNREADABLE now\n`;
+    const only = await run(standardsGate, (await setup({ standards: 'baseline', base, edits: { [layout.routes]: unreadableNow } })).ctx);
+    expect(only.status).toBe('fail');
+    expect(blocksOnlyOnUnprovenNow(only)).toBe(true);
+    const introduced = await run(standardsGate, (await setup({ standards: 'baseline', base, edits: bad })).ctx);
+    expect(introduced.status).toBe('fail');
+    expect(blocksOnlyOnUnprovenNow(introduced)).toBe(false);
+    const both = await run(standardsGate, (await setup({ standards: 'baseline', base, edits: { [layout.routes]: `${unreadableNow}${route('patch', '/v1/items/:id', false)}\n` } })).ctx);
+    expect(both.status).toBe('fail');
+    expect(both.details?.slice(0, both.failing).some((d) => d.includes(': UNPROVEN now ('))).toBe(true);
+    expect(blocksOnlyOnUnprovenNow(both)).toBe(false);
+    // Not all listed (more blocking lines than details): never read as "only".
+    expect(blocksOnlyOnUnprovenNow({ ...only, failing: (only.details?.length ?? 0) + 1 })).toBe(false);
+    expect(blocksOnlyOnUnprovenNow({ ...only, status: 'unproven' })).toBe(false);
+  });
+
+  it('no base commit: today\'s report, after a line saying the comparison was unavailable', async () => {
+    const h = await setup({ standards: 'baseline', base, commit: false, edits: bad });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    const report = await h.ctx.services.runChecks();
+    expect(r.ok).toBe(false);
+    expect(r.summary).toMatch(/^the comparison with the base commit is unavailable \(base snapshot failed: .*\): violations in files this run changed block, and the others cannot be proven pre-existing\. standards gate now: FAIL\n/);
+    expect(r.summary.endsWith(`\n${report.compact}`)).toBe(true);
+  });
+
+  it('twin: strict brownfield and greenfield return today\'s compact report exactly (same fixture, same edit)', async () => {
+    for (const kind of ['brownfield', 'greenfield'] as const) {
+      const h = await setup({ kind, base, edits: bad });
+      const r = await callTool(checkStandards, {}, h.ctx);
+      const report = await h.ctx.services.runChecks();
+      expect(r, kind).toMatchObject({ ok: false, summary: report.compact, raw: report.text, data: { verdict: report.verdict, rules: report.rules } });
+      expect(r.summary, kind).toContain('/v0/');
+    }
+  });
+});
+
 describe('standards gate, brownfield strict (the default): 100% over the whole API', () => {
   const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
   const legacy = route('put', '/v0/items/:id', false);
@@ -377,6 +636,26 @@ describe('gate humanMustVerify reaches the honesty report', () => {
     expect(out.results[0]?.humanMustVerify).toEqual(['pre-existing (not blocking): x', 'pre-existing (not blocking): y']);
     const hon = honesty(brownfieldTask(), out.results, null);
     expect(hon.humanMustVerify).toEqual(expect.arrayContaining(['gate:standards: pre-existing (not blocking): x', 'gate:standards: pre-existing (not blocking): y']));
+    // No brief given: none is invented.
+    expect(out.results[0]).not.toHaveProperty('humanMustVerifyBrief');
+  });
+
+  it('runGates keeps the brief form (string items only) next to the full list; honesty still reports the full list', async () => {
+    const h = await makeHarness({ label: 'gates-bf-brief', task: brownfieldTask() });
+    dirs.push(h.dir);
+    const gate: GatePlugin = {
+      kind: 'gate', name: 'standards', phases: ['finish'],
+      run: async () => ({
+        status: 'pass', summary: 'ok',
+        humanMustVerify: ['pre-existing (not blocking): x 1', 'pre-existing (not blocking): x 2'],
+        humanMustVerifyBrief: ['pre-existing (not blocking): x 2 in 1 file', null] as unknown as string[],
+      }),
+    };
+    const out = await runGates([{ plugin: gate, file: 'plugins/gates/standards.ts', sha256: 'x' }], h.ctx, 'finish');
+    expect(out.results[0]?.humanMustVerifyBrief).toEqual(['pre-existing (not blocking): x 2 in 1 file']);
+    const hon = honesty(brownfieldTask(), out.results, null);
+    expect(hon.humanMustVerify).toEqual(expect.arrayContaining(['gate:standards: pre-existing (not blocking): x 1', 'gate:standards: pre-existing (not blocking): x 2']));
+    expect(hon.humanMustVerify.join('\n')).not.toContain('in 1 file');
   });
 
   it('the run summary keeps the true whole-API verdict and says the brownfield gate compares with the base commit', () => {

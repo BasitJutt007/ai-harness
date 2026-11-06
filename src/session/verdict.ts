@@ -34,7 +34,13 @@ export interface SessionVerdict {
   gates: NamedGateResult[];
   gatesOk: boolean;
   standards: string;
+  /** The full honesty report (run.json records it): every pre-existing finding a gate listed included. */
   honesty: Honesty;
+  /**
+   * What a human must verify, in brief (what the verdict block shows): a gate's brief form when it gives
+   * one (the standards gate: one line per rule with a count of its pre-existing findings), else its items
+   * as they are; the harness's own items unchanged.
+   */
   humanMustVerify: string[];
   /** The item the verdict is about (null: none was approved). */
   item: { slug: string; contractHash: string } | null;
@@ -90,6 +96,8 @@ export async function computeVerdict(v: VerdictInputs): Promise<SessionVerdict> 
   if (v.changed.length === 0) session.push('the working tree has no change against the session start commit: there is no work to complete');
   const runUnproven = [...session, ...runUnprovenItems({ isolation: v.isolation, targetNotes: v.targetNotes, checksCrashed: report === null })];
   const h = honesty(ctx.task, final.results, report, v.targetNotes.map((t) => `target: ${t}`));
+  // The same report with each gate's brief form where it gives one: the owner reads one line per rule, not one per finding.
+  const brief = honesty(ctx.task, final.results.map((g) => (g.humanMustVerifyBrief !== undefined ? { ...g, humanMustVerify: g.humanMustVerifyBrief } : g)), report).humanMustVerify;
   const iso = isolationHonesty(v.isolation);
   (iso.proven ? h.proven : h.unproven).push(iso.line);
   for (const s of session) h.unproven.push(`session: ${s}`);
@@ -115,7 +123,7 @@ export async function computeVerdict(v: VerdictInputs): Promise<SessionVerdict> 
     gatesOk: final.ok,
     standards: standardsLine(report, false, ctx.task.kind, ctx.task.kind === 'brownfield' ? ctx.task.standards : undefined),
     honesty: h,
-    humanMustVerify: h.humanMustVerify,
+    humanMustVerify: brief,
     item,
     changed: v.changed,
     fingerprint: v.fingerprint,

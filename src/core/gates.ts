@@ -43,6 +43,9 @@ function normalise(name: string, v: unknown): GateResult {
   if ('humanMustVerify' in v && Array.isArray(v.humanMustVerify)) {
     r.humanMustVerify = v.humanMustVerify.filter((d): d is string => typeof d === 'string');
   }
+  if ('humanMustVerifyBrief' in v && Array.isArray(v.humanMustVerifyBrief)) {
+    r.humanMustVerifyBrief = v.humanMustVerifyBrief.filter((d): d is string => typeof d === 'string');
+  }
   if ('failing' in v && typeof v.failing === 'number' && Number.isInteger(v.failing) && v.failing >= 0) r.failing = v.failing;
   return r;
 }

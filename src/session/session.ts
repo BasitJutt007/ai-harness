@@ -24,6 +24,11 @@
  * what the last verdict judged, every required gate runs again, fresh, and the verdict comes from them,
  * never from the model's words; leaving with work no gate has judged says UNPROVEN and names it. A
  * refusal the model cannot fix (the checkout, the branch, the sandbox, a missing tool) ends its turn.
+ * A turn that ends without finish, changed the tree and got a NOT DONE the agent can act on (the
+ * standards findings it introduced, its tests, its observed red) continues by itself with the verdict's
+ * reasons, at most AUTO_CONTINUE_LIMIT times per owner message (autoContinue says when never). The same
+ * pre-tool refusal (hook, path, reason) STUCK_REFUSALS times within one owner message ends the model's
+ * turn too: the owner is told it is stuck and says what to do differently.
  * The session never commits or pushes; /ship does, when typed.
  */
 import { createHash, randomBytes } from 'node:crypto';
@@ -37,7 +42,7 @@ import { missingRequiredHooks } from '../core/hooks.ts';
 import { saveInitial } from '../core/initial.ts';
 import { inPlaceWritability, branchVerdict, type InPlaceVerdict } from '../core/inplace.ts';
 import { classifyReply, itemStatus, recordReply } from '../core/items.ts';
-import { runAgent, type AgentResult } from '../core/loop.ts';
+import { runAgent, type AgentResult, type AgentStatus } from '../core/loop.ts';
 import { toolSpecs } from '../core/registry.ts';
 import { buildContext, JIT_MODE, loadRegistryOrThrow, targetProfile } from '../core/run.ts';
 import { newRunState, RunStore, serializeState } from '../core/run-store.ts';
@@ -51,6 +56,7 @@ import { TokenLedger } from '../core/tokens.ts';
 import type { TranscriptTurn } from '../core/context.ts';
 import type { Driver, Exec, HarnessConfig, HookPlugin, Message, PluginRecord, RegistryView, RunContext, RunEvent, RunState, Task, TestBaseline, ToolEffect, ToolResult, ToolSpec, Workspace } from '../core/types.ts';
 import { createWorkspace, isEnvPath } from '../core/workspace.ts';
+import { blocksOnlyOnUnprovenNow } from '../../plugins/gates/standards.ts';
 import { toApiRel } from '../../plugins/lib/path-policy.ts';
 import { personName, proposeDrafted, proposeImported, readBefore, tildePath, type Proposal, type ProposalEnv } from './contract.ts';
 import type { OwnerInput } from './input.ts';
@@ -252,6 +258,168 @@ export function environmentHook(stop: (reason: string) => void): PluginRecord<Ho
   };
 }
 
+/** How many times one owner message may continue on its own after a NOT DONE turn verdict. */
+export const AUTO_CONTINUE_LIMIT = 2;
+/** Gates whose failure the agent can act on itself: the standards findings it introduced, its tests, its observed red. */
+export const ACTIONABLE_GATES: ReadonlySet<string> = new Set(['standards', 'tests-green', 'observed-red']);
+
+/** What the harness knows when a model turn ends: whether the same owner message goes on by itself. */
+export interface ContinueState {
+  /** How the loop ended the model's turn ('yielded': it replied without calling finish). */
+  status: AgentStatus;
+  /** The verdict that followed it (null: none ran, the tree did not move). */
+  verdict: Pick<SessionVerdict, 'kind' | 'trigger' | 'reasons' | 'gates'> | null;
+  /** A proposal awaits the owner's reply. */
+  pending: boolean;
+  writable: boolean;
+  /** The harness ended the turn itself (a refusal the model cannot fix, or the agent was stuck). */
+  stopped: boolean;
+  /** The owner pressed Ctrl-C during this message (the turn, the gates, anything). */
+  interrupted: boolean;
+  /** Continues this owner message already had, and the reasons the last one handed over (progressKey). */
+  done: number;
+  previous: string | null;
+  /** Turns left of the message's budget. */
+  turnsLeft: number;
+  /** Why the next request may not be sent (the spend cap), else null. */
+  spend: string | null;
+}
+
+export type ContinueDecision = { go: true; key: string } | { go: false; why: string; tell: boolean };
+
+/**
+ * The verdict's reasons as the no-progress check compares them: a finding that only moved (its line or
+ * column in "file:line:col") or a percentage that moved with it is not progress, so both are masked.
+ * Everything else counts as it is written: a count that went down, another finding, another gate.
+ */
+export function progressKey(reasons: readonly string[]): string {
+  return reasons.join('\n').replace(/(\S):\d+(?::\d+)?(?=[\s,;)]|$)/gm, '$1:#').replace(/\b\d+(?:\.\d+)?%/g, '#%');
+}
+
+/**
+ * Whether the owner's message goes on by itself: only when the model ended its turn without finish,
+ * the tree changed, and the fresh verdict is NOT DONE because of gates the agent can act on
+ * (ACTIONABLE_GATES failed, nothing else: no UNPROVEN gate, nothing about the session or the
+ * environment, no standards failure made only of checks that could not run now). Never with a
+ * proposal awaiting its reply, in a read-only session, after the harness
+ * stopped the turn, after a Ctrl-C, past AUTO_CONTINUE_LIMIT, with the same reasons as the last
+ * continue (no progress), with no turn left or when the next request could pass the spend cap.
+ * `tell`: the owner hears why (the agent could have gone on but a bound stopped it).
+ */
+export function autoContinue(c: ContinueState): ContinueDecision {
+  const no = (why: string, tell = false): ContinueDecision => ({ go: false, why, tell });
+  if (c.status !== 'yielded') return no(`the turn ended ${c.status}`);
+  if (c.interrupted) return no('the owner pressed Ctrl-C');
+  if (c.pending) return no('a proposal awaits the owner\'s reply');
+  if (!c.writable) return no('the session is read-only');
+  if (c.stopped) return no('the harness ended the turn');
+  const v = c.verdict;
+  if (v === null || v.trigger !== 'turn') return no('the turn changed nothing the gates judged');
+  if (v.kind !== 'NOT DONE') return no(`the verdict is ${v.kind}`);
+  const failed = v.gates.filter((g) => g.status === 'fail');
+  // reasons = the failed gates, then UNPROVEN gates and what is unproven about the session or the environment.
+  if (failed.length === 0 || v.reasons.length !== failed.length) return no('the verdict has reasons the agent cannot act on (UNPROVEN, the session or the environment)');
+  const other = failed.find((g) => !ACTIONABLE_GATES.has(g.gate));
+  if (other !== undefined) return no(`gate ${other.gate} failed, which the agent does not fix by itself`);
+  // A standards failure made only of checks that could not run now (crashed, skipped) is the environment's or the checker's.
+  if (failed.some((g) => g.gate === 'standards' && blocksOnlyOnUnprovenNow(g))) {
+    return no('the standards gate fails only because a check could not run now (it crashed or was skipped): not something the agent introduced');
+  }
+  if (c.done >= AUTO_CONTINUE_LIMIT) return no(`the gates still say NOT DONE after ${AUTO_CONTINUE_LIMIT} automatic continues; back to you`, true);
+  const key = progressKey(v.reasons);
+  if (key === c.previous) return no('the gates give the same reasons as before the last continue (no progress); back to you', true);
+  if (c.turnsLeft <= 0) return no('this message\'s turn budget is used up; back to you', true);
+  if (c.spend !== null) return no(c.spend, true);
+  return { go: true, key };
+}
+
+/**
+ * The least the request a continue sends will carry, in input tokens: the last request's input, the reply
+ * that answered it (now part of the history), and the continue message (chars/4). What the spend cap is
+ * checked against before the harness says it continues; the loop checks the real request again.
+ */
+export function continueInputEstimate(last: { actual_input_tokens: number; output_tokens: number } | undefined, message: string): number {
+  return (last?.actual_input_tokens ?? 0) + (last?.output_tokens ?? 0) + Math.ceil(message.length / 4);
+}
+
+/** Detail lines a continue hands over per failed gate (what blocks; never the pre-existing ones). */
+const CONTINUE_DETAILS = 10;
+
+/** What the model is told when its message continues by itself: the verdict's reasons and what blocks. */
+export function continueMessage(v: Pick<SessionVerdict, 'reasons' | 'gates'>, n: number): string {
+  const lines = ['[harness] You ended your turn without calling finish, and the fresh run of every required gate says NOT DONE:'];
+  for (const r of v.reasons) lines.push(`- ${clip(r, 600)}`);
+  for (const g of v.gates.filter((x) => x.status === 'fail')) {
+    const blocking = (g.details ?? []).filter((d) => !d.startsWith('pre-existing') && !d.startsWith('… '));
+    if (blocking.length === 0) continue;
+    lines.push(`gate ${g.gate}:`);
+    for (const d of blocking.slice(0, CONTINUE_DETAILS)) lines.push(`  ${clip(d, 300)}`);
+    if (blocking.length > CONTINUE_DETAILS) lines.push(`  … ${blocking.length - CONTINUE_DETAILS} more`);
+  }
+  lines.push(`Fix these and call finish, or tell the owner plainly why you cannot. (The harness continued this message by itself: ${n} of at most ${AUTO_CONTINUE_LIMIT}.)`);
+  return lines.join('\n');
+}
+
+/** The same pre-tool refusal this many times within one owner message: the agent is stuck, and its turn ends. */
+export const STUCK_REFUSALS = 4;
+
+/** A hook's refusal of a tool call before it ran: which hook, the call's paths, and its reason as the hook gave it. */
+export interface Refusal {
+  hook: string;
+  /** The call's paths, joined ("(no path)" when it had none). */
+  path: string;
+  reason: string;
+}
+
+/**
+ * The pre-tool refusal a recorded event is (a hook's block of a call, before it ran), else null. The
+ * event carries the call's paths as the model spelled them; `canonical` gives each the one form every
+ * spelling of the same file shares ("./package.json", an absolute path, other letter case on a
+ * case-insensitive disk), so the same refusal is counted as the same, however the path was written.
+ */
+export function preToolRefusal(e: RunEvent, canonical: (path: string) => string = (p) => p): Refusal | null {
+  if (e.kind !== 'hook' || e.decision !== 'block') return null;
+  const data = e.data as { event?: unknown; paths?: unknown } | undefined;
+  if (data?.event !== 'pre_tool') return null;
+  const paths = Array.isArray(data.paths) ? data.paths.filter((p): p is string => typeof p === 'string').map(canonical) : [];
+  const own = `${e.source}: `;
+  return { hook: e.source, path: paths.length > 0 ? paths.join(', ') : '(no path)', reason: e.message.startsWith(own) ? e.message.slice(own.length) : e.message };
+}
+
+/**
+ * The form the hooks judge a model-supplied path in (toApiRel: repository-relative POSIX, "./" and
+ * trailing slashes gone, an absolute path inside the checkout made relative, symlinks and letter case
+ * resolved as the disk does); a path it refuses (empty, escaping) stays as written, trimmed.
+ */
+export function canonicalCallPath(ws: Workspace, p: string): string {
+  const r = toApiRel(ws, p);
+  return r.ok ? r.rel : p.trim();
+}
+
+/**
+ * Counts refusals per key: the same hook, the same path, the same reason text. A refusal for another
+ * path or with another reason counts for its own key only, and resets nothing.
+ */
+export class RefusalCounter {
+  private readonly counts = new Map<string, number>();
+
+  /** Counts `r`; how many times this very refusal has happened now. */
+  add(r: Refusal): number {
+    const key = JSON.stringify([r.hook, r.path, r.reason]);
+    const n = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, n);
+    return n;
+  }
+
+  clear(): void {
+    this.counts.clear();
+  }
+}
+
+function firstLineOf(text: string): string {
+  return text.split('\n')[0] ?? '';
+}
+
 /** Remove the run-start copies (initial/) of every session but the newest `keep` (and `current`). */
 export function pruneSessionCopies(sessionsDir: string, current: string, keep: number = KEEP_SESSION_COPIES): string[] {
   let names: string[];
@@ -299,6 +467,10 @@ class Session {
   private interrupts = 0;
   /** A refusal the model cannot fix: its turn ends after the current tool turn. */
   private stop: string | null = null;
+  /** Pre-tool refusals of the current owner message, per hook, path and reason (the stuck detector). */
+  private readonly refusals = new RefusalCounter();
+  /** The same refusal STUCK_REFUSALS times: the agent is stuck, and its turn ends after the current tool turn. */
+  private stuck: (Refusal & { count: number }) | null = null;
   /** Files no gate judged when the session ended. */
   private unjudgedAtExit: string[] = [];
   /** Notes for the model, sent with the owner's next message. */
@@ -443,8 +615,13 @@ class Session {
   onEvent(e: RunEvent): void {
     if (e.kind === 'tool' && e.decision === 'pass' && this.effectOf(e.source) === 'write') this.lastVerdict = null;
     if (e.kind === 'hook' && e.decision === 'block' && ENVIRONMENT_HOOKS.has(e.source)) this.stop ??= e.message.replace(new RegExp(`^${e.source}: `), '');
+    const refused = this.turnRunning ? preToolRefusal(e, (p) => canonicalCallPath(this.s.ctx.workspace, p)) : null;
+    if (refused !== null) {
+      const count = this.refusals.add(refused);
+      if (count >= STUCK_REFUSALS) this.stuck ??= { ...refused, count };
+    }
     // Recorded for the evidence; the session prints these itself.
-    if (e.kind === 'note' && (e.source === 'propose_contract' || e.source === 'takeover')) return;
+    if (e.kind === 'note' && (e.source === 'propose_contract' || e.source === 'takeover' || e.source === 'auto-continue' || e.source === 'stuck')) return;
     this.ui.event(e);
     if (this.turnRunning && (e.kind === 'tool' || e.kind === 'hook')) this.ui.startSpinner('working');
   }
@@ -499,13 +676,83 @@ class Session {
     this.ui.note(`records ${tildePath(s.store.runDir)}  ·  /help for commands`);
   }
 
-  /** One owner message through the governed loop; a verdict after it when the tree changed. */
+  /**
+   * One owner message through the governed loop; a verdict after it when the tree changed. When the
+   * model ended its turn without finish and that verdict is NOT DONE for reasons it can act on, the
+   * harness hands it the reasons and it goes on with the same message, at most AUTO_CONTINUE_LIMIT times
+   * (autoContinue says when never). The message's turn budget covers every continue.
+   */
   private async turn(message: string): Promise<void> {
     const s = this.s;
     const controller = new AbortController();
+    let used = 0;
+    let continues = 0;
+    let previous: string | null = null;
+    let next = message;
+    // The stuck detector counts within one owner message (its continues included).
+    this.refusals.clear();
+    for (;;) {
+      const { result, stopped } = await this.agentTurn(next, controller, s.maxTurns - used);
+      used += result.turns;
+      // The gates judge every change: after an accepted finish, and after any turn that left the tree
+      // different from what the last verdict judged (the model's words are never the verdict).
+      let v: SessionVerdict | null = null;
+      if (result.status === 'done') v = await this.verdict('finish');
+      else if (await this.guarded('checking the working tree', () => this.treeMoved())) v = await this.verdict('turn');
+      const told = v === null ? null : continueMessage(v, continues + 1);
+      const d = autoContinue({
+        status: result.status,
+        verdict: v,
+        pending: this.pending !== null,
+        writable: s.writability.writable,
+        stopped,
+        interrupted: controller.signal.aborted || this.interrupts > 0,
+        done: continues,
+        previous,
+        turnsLeft: s.maxTurns - used,
+        spend: told === null ? null : this.meter.refuseNext(continueInputEstimate(this.ledger.report().turns.at(-1), told), s.ctx.task.limits.maxOutputTokens),
+      });
+      if (d.go && told !== null) {
+        continues += 1;
+        previous = d.key;
+        this.ui.line(this.ui.paint('magenta', `↻ the gates said NOT DONE: the agent continues (${continues}/${AUTO_CONTINUE_LIMIT})`));
+        s.ctx.emit({ kind: 'note', source: 'auto-continue', decision: 'record', message: `continue ${continues}/${AUTO_CONTINUE_LIMIT}: the turn verdict is NOT DONE for reasons the agent can act on; they were handed to it`, data: { reasons: v?.reasons ?? [] } });
+        next = told;
+        continue;
+      }
+      if (!d.go && d.tell) {
+        this.ui.note(`↻ not continued: ${d.why}`);
+        s.ctx.emit({ kind: 'note', source: 'auto-continue', decision: 'pass', message: `not continued: ${d.why}` });
+      }
+      // The model hears this verdict with the owner's next message (a continue already handed it over).
+      if (v !== null && v.kind !== 'DONE') {
+        this.harnessNotes.push(`[harness] After your ${v.trigger === 'finish' ? 'finish' : 'turn'}, the fresh run of every required gate says ${v.kind}: ${v.reasons.slice(0, 4).join('; ')}. The work is not complete; do not say it is.`);
+      }
+      break;
+    }
+    // A proposal is shown last: the next line typed answers it.
+    if (this.pending !== null) this.showProposal(this.pending);
+    this.writeRunJson('running');
+  }
+
+  /** The stuck refusal of the turn that just ended (null: none), cleared. */
+  private takeStuck(): (Refusal & { count: number }) | null {
+    const k = this.stuck;
+    this.stuck = null;
+    return k;
+  }
+
+  /**
+   * The model's part of one owner message (or of a continue): the governed loop with `message`, at most
+   * `maxTurns` turns, cancelled by Ctrl-C through `controller`. Says how it ended; `stopped` is true when
+   * the harness ended it (a refusal the model cannot fix).
+   */
+  private async agentTurn(message: string, controller: AbortController, maxTurns: number): Promise<{ result: AgentResult; stopped: boolean }> {
+    const s = this.s;
     const off = this.input.onInterrupt(() => controller.abort());
     this.turnRunning = true;
     this.stop = null;
+    this.stuck = null;
     this.ui.startSpinner('thinking');
     let attempt = 1;
     let result: AgentResult;
@@ -519,7 +766,7 @@ class Session {
         system: s.system,
         baselineSystem: s.system,
         tools: s.tools,
-        maxTurns: s.maxTurns,
+        maxTurns,
         maxOutputTokens: s.ctx.task.limits.maxOutputTokens,
         spend: { meter: this.meter, allowed: (m) => modelAllowed(s.config.models, m) },
         signal: controller.signal,
@@ -528,7 +775,7 @@ class Session {
         yieldOnText: true,
         keepChat: true,
         skipShadowBaseline: true,
-        yieldAfterTurn: () => this.pending !== null || this.stop !== null,
+        yieldAfterTurn: () => this.pending !== null || this.stop !== null || this.stuck !== null,
         onText: (delta, info) => {
           if (info.attempt !== attempt) {
             attempt = info.attempt;
@@ -545,11 +792,20 @@ class Session {
     }
     this.turns += result.turns;
     s.store.writeJson('state.json', serializeState(s.ctx.state));
+    const k = this.takeStuck();
+    const stopped = this.stop !== null || k !== null;
     if (this.stop !== null) {
       // The model was told in the tool result; the harness ends its turn and says it to the owner itself.
       this.ui.warn(`⏹ the agent stopped: ${clip(this.stop, 400)} (it cannot fix this; you can)`);
       this.harnessNotes.push(`[harness] Your last turn was ended by the harness: ${this.stop}. Nothing you can do with tools fixes this; do not retry it. Tell the owner what is wrong and what they can do.`);
       this.stop = null;
+    }
+    if (k !== null) {
+      // The same refusal again and again: the owner decides what changes, not another retry.
+      const why = clip(firstLineOf(k.reason), 300).replace(/[.\s]+$/, '');
+      this.ui.warn(`⚠ the agent is stuck: ${k.hook} refused ${k.path} ${k.count} times: ${why}. Tell it what to do differently, or /exit.`);
+      this.harnessNotes.push(`[harness] Your last turn was ended by the harness: ${k.hook} refused ${k.path} ${k.count} times with the same reason (${why}). Repeating that call cannot succeed: do not retry it. Read what the owner says next and do something different.`);
+      s.ctx.emit({ kind: 'note', source: 'stuck', decision: 'block', message: `the agent is stuck: ${k.hook} refused ${k.path} ${k.count} times with the same reason; its turn was ended`, data: { hook: k.hook, path: k.path, reason: k.reason, count: k.count } });
     }
     switch (result.status) {
       case 'yielded':
@@ -577,13 +833,7 @@ class Session {
         this.ui.error(`✗ the turn failed: ${result.error ?? 'unknown error'}`);
         break;
     }
-    // The gates judge every change: after an accepted finish, and after any turn that left the tree
-    // different from what the last verdict judged (the model's words are never the verdict).
-    if (result.status === 'done') await this.verdict('finish');
-    else if (await this.guarded('checking the working tree', () => this.treeMoved())) await this.verdict('turn');
-    // A proposal is shown last: the next line typed answers it.
-    if (this.pending !== null) this.showProposal(this.pending);
-    this.writeRunJson('running');
+    return { result, stopped };
   }
 
   /** The changed paths and their content now, or null when git cannot tell. */
@@ -710,9 +960,6 @@ class Session {
     this.lastJudged = v.fingerprint;
     this.verdicts.push(verdictRecord(v));
     s.store.writeJson('gates.json', { phase: 'finish', trigger, ok: v.gatesOk, results: v.gates });
-    if (v.kind !== 'DONE' && trigger !== 'gates') {
-      this.harnessNotes.push(`[harness] After your ${trigger === 'finish' ? 'finish' : 'turn'}, the fresh run of every required gate says ${v.kind}: ${v.reasons.slice(0, 4).join('; ')}. The work is not complete; do not say it is.`);
-    }
     this.writeRunJson('running');
     return v;
   }

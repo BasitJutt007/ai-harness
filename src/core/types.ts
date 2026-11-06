@@ -891,6 +891,12 @@ export interface GateResult {
   /** What the gate saw but neither proved nor blocked on (e.g. pre-existing violations): listed under "human must verify". */
   humanMustVerify?: string[];
   /**
+   * The same items as humanMustVerify in brief: one line per group (e.g. per rule, with a count) for a
+   * short view such as a session's verdict block. A view that has it shows it in place of
+   * humanMustVerify; the records keep humanMustVerify. Never part of a decision.
+   */
+  humanMustVerifyBrief?: string[];
+  /**
    * How many units (tests, violations, changes, ...) a fail/unproven result found failing. Lets the
    * loop measure progress between finish attempts; absent, the number of detail lines stands in.
    */
