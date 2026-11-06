@@ -34,9 +34,10 @@
  *
  * withExports(file, runStart, current) is the observed-red revert check's base for a file that existed at run
  * start: its run-start content plus the exports the current content makes of declarations that existed at run
- * start, appended as `export { … }` (and `export type { … }`) statements and verified export-only against the
- * run-start content. The reverted copy then still loads a test that imports such a declaration, so the case
- * must fail there on what the run-start code DOES, not because an import is missing.
+ * start, appended as `export { … }` (and `export type { … }` for interfaces, type aliases and every export the
+ * current content makes type-only) statements and verified export-only against the run-start content. The
+ * reverted copy then still loads a test that imports such a declaration, so the case must fail there on what
+ * the run-start code DOES, not because an import is missing.
  */
 import ts from 'typescript';
 import { scriptKindOf } from './testmap.ts';
@@ -126,16 +127,17 @@ function exportNames(sf: ts.SourceFile): Set<string> {
   return out;
 }
 
-/** The (local binding, exported name) pairs of a module's own exports: exported declarations and local `export { … }`. */
-function localExports(sf: ts.SourceFile): Array<[string, string]> {
-  const out: Array<[string, string]> = [];
+/** A module's own exports: exported declarations and local `export { … }`, and whether the export is type-only. */
+function localExports(sf: ts.SourceFile): Array<{ local: string; exported: string; typeOnly: boolean }> {
+  const out: Array<{ local: string; exported: string; typeOnly: boolean }> = [];
   for (const s of sf.statements) {
     if (isDeclaration(s) && modifier(s, ts.SyntaxKind.ExportKeyword) !== undefined && modifier(s, ts.SyntaxKind.DefaultKeyword) === undefined) {
-      for (const n of declaredNames(s)) out.push([n, n]);
+      for (const n of declaredNames(s)) out.push({ local: n, exported: n, typeOnly: false });
     } else if (isLocalExportStatement(s)) {
       for (const e of s.exportClause.elements) {
         const local = e.propertyName ?? e.name;
-        if (ts.isIdentifier(local) && ts.isIdentifier(e.name)) out.push([local.text, e.name.text]);
+        // `export type { f }` and `export { type f }` export no runtime value, whatever `f` is.
+        if (ts.isIdentifier(local) && ts.isIdentifier(e.name)) out.push({ local: local.text, exported: e.name.text, typeOnly: s.isTypeOnly || e.isTypeOnly });
       }
     }
   }
@@ -430,7 +432,8 @@ export function exportOnlyEdit(fileName: string, before: string, after: string):
 
 /**
  * The run-start content of `fileName` with the exports `current` makes of its run-start declarations added
- * (one appended `export { … }` statement, and `export type { … }` for interfaces and type aliases), verified
+ * (one appended `export { … }` statement, and `export type { … }` for interfaces, type aliases and what `current`
+ * exports type-only: `export type { f }` keeps `f` a type-only export in the base too), verified
  * export-only against `runStart`; null when `current` exports no such declaration, or either content cannot
  * be judged (the caller then keeps the bare run-start content).
  */
@@ -443,12 +446,12 @@ export function withExports(fileName: string, runStart: string, current: string)
   const values: string[] = [];
   const types: string[] = [];
   const seen = new Set<string>();
-  for (const [local, exported] of localExports(c)) {
+  for (const { local, exported, typeOnly } of localExports(c)) {
     if (exported === 'default' || already.has(exported) || seen.has(exported)) continue;
     const d = declared.get(local);
     if (d === undefined || d.ambient) continue;
     seen.add(exported);
-    (d.typeOnly ? types : values).push(local === exported ? local : `${local} as ${exported}`);
+    (d.typeOnly || typeOnly ? types : values).push(local === exported ? local : `${local} as ${exported}`);
   }
   if (seen.size === 0) return null;
   const added = [

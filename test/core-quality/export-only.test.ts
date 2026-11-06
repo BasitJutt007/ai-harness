@@ -231,6 +231,13 @@ describe('withExports: the revert base keeps the exports the run made of run-sta
     expect(withExports('src/store/x/api.ts', 'function a() {}\n', 'export function a() {}\n')).toBeNull();
   });
 
+  it('a type-only export of a value stays type-only in the base (no runtime export the current copy lacks); its value twin stays a value', () => {
+    const start = 'export const n = 1;\nfunction f() { return 1 }\nfunction g() { return 2 }\n';
+    expect(withExports('src/t.ts', start, `${start}export type { f };\n`)?.content).toBe(`${start}export type { f };\n`);
+    expect(withExports('src/t.ts', start, `${start}export { type f, g };\n`)?.content).toBe(`${start}export { g };\nexport type { f };\n`);
+    expect(withExports('src/t.ts', start, `${start}export { f };\n`)?.content).toBe(`${start}export { f };\n`);
+  });
+
   it('a run-start content without a final newline still gets a statement of its own', () => {
     const start = 'export const a = 1;\nfunction b() { return a }';
     expect(withExports('src/b.ts', start, `${start}\nexport { b };\n`)?.content).toBe(`${start}\nexport { b };\n`);
