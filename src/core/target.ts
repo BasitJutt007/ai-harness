@@ -18,6 +18,7 @@
  * behaviour of the harness's own template.
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import picomatch from 'picomatch';
@@ -182,6 +183,10 @@ export function codeGlobs(layout: TargetLayout = active): string[] {
 }
 /** Directory names that conventionally hold only tests (and their helpers). */
 const TEST_DIR_RE = /^(tests?|__tests__|specs?|e2e|integration|__integration__|__mocks__)$/i;
+/** Directories of test tools' own support code (Cypress, Playwright): never the app's language. */
+const TEST_TOOL_DIR_RE = /^(cypress|playwright|__fixtures__|fixtures)$/i;
+/** Storybook stories: never the app's language either. */
+const STORY_RE = /\.stories\.[cm]?[jt]sx?$/;
 /** Tooling config files: never governed source, never "the code a test exercises". */
 const TOOLING_RE = /(^|\/)[^/]*\.config\.[cm]?[jt]s$|(^|\/)(vitest|vite|jest)\.(workspace|setup)\.[cm]?[jt]s$/;
 const IGNORE_DIRS = ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/.harness/**'];
@@ -288,9 +293,33 @@ export function isTestPath(rel: string, layout: TargetLayout = active): boolean 
   return isScriptPath(rel, layout) && underAny(rel, layout.testSupportRoots) && matchesTestPattern(rel, layout);
 }
 
-/** Test support: any other file inside a dedicated test dir (helpers, fixtures). */
+/**
+ * Directory names that hold only tests and their helpers, never production code: the in-place test-support
+ * rule (isTestSupportPath). Narrower than TEST_DIR_RE, which finds where tests live: `integration/`,
+ * `spec/` and `specs/` are also common names for production code (a payment provider integration, an API
+ * spec module), so a file there is test support only when another of its directories is one of these.
+ */
+const SUPPORT_DIR_RE = /^(tests?|__tests__|__mocks__|__integration__|e2e)$/i;
+
+/** Whether a directory of `rel` (not its file name) is one that holds only tests (test/, __tests__/, e2e/, ...: SUPPORT_DIR_RE). */
+export function inConventionalTestDir(rel: string): boolean {
+  return rel.split('/').slice(0, -1).some((seg) => SUPPORT_DIR_RE.test(seg));
+}
+
+/**
+ * Test support: any other file inside a dedicated test dir (helpers, fixtures).
+ *
+ * In a web layout (an in-place run in any web repository) a dedicated test dir may be one learned only
+ * because it lies outside the build (tsconfig include ["src"] and a runner glob 'api/**\/*.test.js' make
+ * api/ one), and such a dir also holds production JavaScript the build never sees. There a file is test
+ * support only when it sits under a directory that holds only tests (SUPPORT_DIR_RE: test/, __tests__/,
+ * e2e/, ...; never integration/ or spec/, which production code also uses); any other file is governed code
+ * that needs a red, or is named UNPROVEN (plugins/lib/proof.ts). A support file that production code imports
+ * is named UNPROVEN too (unprovenEdits). File mode keeps the 01 rule.
+ */
 export function isTestSupportPath(rel: string, layout: TargetLayout = active): boolean {
-  return underAny(rel, layout.testSupportRoots) && !isTestPath(rel, layout);
+  if (!underAny(rel, layout.testSupportRoots) || isTestPath(rel, layout)) return false;
+  return !isWebLayout(layout) || inConventionalTestDir(rel);
 }
 
 /**
@@ -708,6 +737,11 @@ export interface JestFacts {
   mapper: { state: 'absent' } | { state: 'static'; entries: Record<string, string | string[]> } | { state: 'unknown' };
   /** modulePaths or moduleDirectories is set (or cannot be read): bare imports may already resolve through them. */
   resolvesBare: boolean;
+  /**
+   * The config defines `projects` (or may: it cannot be read whole): each project has its own moduleNameMapper,
+   * which a --moduleNameMapper flag would replace in every project. Absent: no projects.
+   */
+  projects?: boolean;
 }
 
 const VITEST_DEFAULT_INCLUDE = ['**/*.{test,spec}.?(c|m)[jt]s?(x)'];
@@ -885,16 +919,29 @@ function jestFacts(opts: { exact: (k: string) => StaticOption }, rootDir: string
   // node_modules alone is jest's default: only another entry can resolve a baseUrl import.
   const extraDirs = dirs.known && Array.isArray(dirs.value) && dirs.value.every((d) => d === 'node_modules');
   const resolvesBare = !paths.known || paths.value !== undefined || !dirs.known || (dirs.value !== undefined && !extraDirs);
-  if (!root.known || (root.value !== undefined && typeof root.value !== 'string')) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
-  if (!mapper.known) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
-  if (mapper.value === undefined) return { rootDir, mapper: { state: 'absent' }, resolvesBare };
-  if (!isRecord(mapper.value)) return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+  // `projects` set (or not readable: it may be): each project keeps its own map, which no flag may replace.
+  const projectsOpt = opts.exact('projects');
+  const projects = !projectsOpt.known || projectsOpt.value !== undefined ? { projects: true } : {};
+  if (!root.known || (root.value !== undefined && typeof root.value !== 'string')) return { rootDir, mapper: { state: 'unknown' }, resolvesBare, ...projects };
+  if (!mapper.known) return { rootDir, mapper: { state: 'unknown' }, resolvesBare, ...projects };
+  if (mapper.value === undefined) return { rootDir, mapper: { state: 'absent' }, resolvesBare, ...projects };
+  if (!isRecord(mapper.value)) return { rootDir, mapper: { state: 'unknown' }, resolvesBare, ...projects };
   const entries: Record<string, string | string[]> = {};
   for (const [k, v] of Object.entries(mapper.value)) {
     if (typeof v === 'string' || (Array.isArray(v) && v.every((x) => typeof x === 'string'))) entries[k] = v as string | string[];
-    else return { rootDir, mapper: { state: 'unknown' }, resolvesBare };
+    else return { rootDir, mapper: { state: 'unknown' }, resolvesBare, ...projects };
   }
-  return { rootDir, mapper: { state: 'static', entries }, resolvesBare };
+  return { rootDir, mapper: { state: 'static', entries }, resolvesBare, ...projects };
+}
+
+/**
+ * The builtin subpaths under a bare `name` (`fs` -> ['promises'], `path` -> ['posix', 'win32']): what a
+ * baseUrl mapping `^name/(.*)$` would capture from Node. Only the bare builtins count: those reachable only
+ * with the `node:` scheme (node:test/reporters) are never written bare. A directory named like a builtin
+ * without subpaths (`constants/`, `events/`, `http/`) captures nothing of Node's.
+ */
+function builtinSubpaths(name: string): string[] {
+  return builtinModules.filter((m) => m.startsWith(`${name}/`)).map((m) => m.slice(name.length + 1)).sort();
 }
 
 function escapeRe(s: string): string {
@@ -913,6 +960,9 @@ function escapeRe(s: string): string {
 export function jestPathMapper(apiRoot: string, resolution: Pick<ResolutionConfig, 'paths' | 'baseUrl'>, facts: JestFacts): { mapper: Record<string, string | string[]>; added: string[] } | { note: string } | null {
   if (resolution.paths.length === 0 && resolution.baseUrl === null) return null;
   if (facts.mapper.state === 'unknown') return { note: 'jest: its moduleNameMapper (or rootDir) is not static, so tsconfig paths/baseUrl are not added to it; imports through them may not resolve under jest' };
+  if (facts.projects === true) {
+    return { note: "jest: the config defines projects, each with its own moduleNameMapper, which a --moduleNameMapper flag would replace in every project; none is passed, so imports through tsconfig paths/baseUrl a project does not map may not resolve under jest" };
+  }
   const existing = facts.mapper.state === 'static' ? facts.mapper.entries : {};
   const keys = (): RegExp[] => [...Object.keys(existing), ...Object.keys(derived)].flatMap((k) => {
     try {
@@ -948,7 +998,11 @@ export function jestPathMapper(apiRoot: string, resolution: Pick<ResolutionConfi
     for (const name of names) {
       if (name === 'node_modules' || name.startsWith('.') || exists(join(apiRoot, 'node_modules', name))) continue;
       if (covered(`${name}/x`)) continue;
-      derived[`^${escapeRe(name)}/(.*)$`] = fromRoot(posix.join(resolution.baseUrl, name, '$1'));
+      // Never a Node builtin's subpath: `^fs/(.*)$` would capture fs/promises, so the key excludes exactly those
+      // (path/posix, util/types, ...); src/fs/x and src/constants/x are still mapped.
+      const builtin = builtinSubpaths(name);
+      const not = builtin.length > 0 ? `(?!(?:${builtin.map(escapeRe).join('|')})$)` : '';
+      derived[`^${escapeRe(name)}/${not}(.*)$`] = fromRoot(posix.join(resolution.baseUrl, name, '$1'));
     }
   }
   const added = Object.keys(derived);
@@ -1259,6 +1313,8 @@ export interface LayoutResult {
   /** Packages the non-test files import (framework detection when package.json declares none). */
   bareImports: string[];
   notes: string[];
+  /** Whether the repository's own code has TypeScript files (not declarations, tests or tool configs). */
+  typescriptSources: boolean;
 }
 
 /**
@@ -1387,6 +1443,12 @@ export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {
     dedicated.push(d);
   }
   const testSupportRoots = outermost(dedicated);
+  // TypeScript the repository's own code is written in: not a declaration, a test, test support (a helper in a
+  // conventionally named test dir such as e2e/fixtures.ts, a Cypress or Playwright support file, a story) or a
+  // tool's config file. A JavaScript app whose end-to-end helpers are TypeScript is still a JavaScript app.
+  // (Without a tsconfig.json every test dir is a conventionally named one, so the names decide alone.)
+  const typescriptSources = all.some((f) => TS_SOURCE_RE.test(f) && !DECL_RE.test(f) && !testMatch(f) && !isToolingConfig(f)
+    && !f.split('/').slice(0, -1).some((d) => TEST_DIR_RE.test(d) || TEST_TOOL_DIR_RE.test(d)) && !STORY_RE.test(f));
 
   // Source roots: tsconfig rootDir, else its include dirs / explicit files, else the whole root; minus test dirs.
   let sourceRoots: string[];
@@ -1412,7 +1474,7 @@ export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {
     resolution,
     ...(web ? { codeKinds: 'web' as const } : {}),
   };
-  return { layout, runner, runnerConfig, entries, pkg, tsInfo, testFiles, bareImports: [...bareImports].sort(), notes };
+  return { layout, runner, runnerConfig, entries, pkg, tsInfo, testFiles, bareImports: [...bareImports].sort(), notes, typescriptSources };
 }
 
 /** Just the layout (checks, contract extraction and `harness check` without a run profile). */
@@ -1425,6 +1487,38 @@ export async function targetLayout(apiRoot: string): Promise<TargetLayout> {
 const FRAMEWORKS = ['express', 'fastify', '@nestjs/core', 'hono', 'koa', '@hapi/hapi', 'restify', 'polka', 'elysia', 'h3'];
 /** Frontend and meta frameworks the generic web profile names (most specific first). */
 const WEB_FRAMEWORKS = ['next', 'nuxt', '@sveltejs/kit', 'astro', '@remix-run/react', '@angular/core', 'vue', 'svelte', 'solid-js', 'preact', 'lit', 'react'];
+
+/** ESLint config files at a repository's root (flat config first, then the legacy eslintrc forms). */
+export const ESLINT_CONFIGS = ['eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs', 'eslint.config.ts',
+  '.eslintrc.js', '.eslintrc.cjs', '.eslintrc.json', '.eslintrc', '.eslintrc.yml', '.eslintrc.yaml'];
+
+/**
+ * Whether a generic web repository configures a standard the harness can run: a tsconfig.json (web-typecheck)
+ * or an ESLint config (repo-lint). Without either, every standards rule of stack web is n/a, so the standards
+ * gate stays UNPROVEN (a human verifies standards) and "Work completed" cannot be reached.
+ */
+export function webStandardsConfigured(root: string): boolean {
+  return existsSync(join(root, 'tsconfig.json')) || ESLINT_CONFIGS.some((c) => existsSync(join(root, c)));
+}
+
+/**
+ * The unsupported part of a generic web repository without a tsconfig.json or an ESLint config
+ * (webStandardsConfigured): shown in the session banner before the first turn, and carried by every verdict.
+ */
+export const WEB_NO_STANDARDS_NOTE = '"Work completed" cannot be reached in this repository until a linter or a tsconfig.json exists: it configures no type check or lint the harness can run, so the standards gate stays UNPROVEN and a human must verify standards';
+
+/**
+ * The unsupported part of a generic web repository built on a server framework (express, fastify, ...): its
+ * routes can be mounted anywhere, so no rule can tell whether a change touched the API, and no route lock runs
+ * on stack web. Fail closed: every verdict in such a repository is UNPROVEN, as it was when the express profile's
+ * contract lock found no TypeScript routes to read.
+ */
+export function webServerNote(server: string): string {
+  return `framework ${server} serves an API the harness extracts no routes from: contract changes are not locked, so "Work completed" cannot be reached here and a human verifies the API`;
+}
+
+/** Frontend frameworks that also serve API routes chosen by where a file is (plugins/lib/conventions.ts names those files). */
+const FILE_ROUTED_FRAMEWORKS = ['next', 'nuxt', '@sveltejs/kit', 'astro', '@remix-run/react', '@remix-run/dev', '@react-router/dev', '@solidjs/start', 'gatsby'];
 
 /** The framework a generic web repository is built on, for the profile line: a frontend first, then a server, else "none". */
 function webFramework(deps: Record<string, string>, server: string): string {
@@ -1467,16 +1561,30 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
         ? 'react-vite'
         : 'unknown';
   // In place (a session) any other repository with a package.json gets the generic web profile instead of
-  // an UNPROVEN run; file mode keeps 'unknown' (its 01 policy never loosens).
-  const stack: Stack = known === 'unknown' && opts.inPlace === true && pkg !== null ? 'web' : known;
+  // an UNPROVEN run; file mode keeps 'unknown' (its 01 policy never loosens). The express, nestjs and
+  // react-vite profiles are TypeScript profiles (tsc, zod-boundary, the route locks read TypeScript): in place
+  // a JavaScript repository (no tsconfig.json, no TypeScript sources) built on one of them gets the generic
+  // web profile too, which names its framework, instead of TypeScript rules over code that has none.
+  const javascriptOnly = analysis.tsInfo === null && !analysis.typescriptSources;
+  const inPlaceWeb = opts.inPlace === true && ((known === 'unknown' && pkg !== null) || (known !== 'unknown' && javascriptOnly));
+  const stack: Stack = inPlaceWeb ? 'web' : known;
+  if (inPlaceWeb && known !== 'unknown') {
+    notes.push(`JavaScript only (no tsconfig.json, no TypeScript sources): the ${known} profile's TypeScript rules do not apply, so the generic web profile does`);
+  }
   const fwName = stack === 'nestjs' ? '@nestjs/core' : stack === 'react-vite' ? 'react' : stack === 'web' ? webFramework(deps, declaredFwName) : declaredFwName;
   const fwPkg = fwName === 'unknown' || fwName === 'none' ? null : resolvePackage(fwName, apiRoot, ctx);
   const framework = { name: fwName, version: fwPkg?.version ?? null, supported: stack !== 'unknown' };
   if (!framework.supported) {
     unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: no stack profile (express, nestjs, react-vite) applies, so route extraction, the standards and the contract lock report UNPROVEN`);
   } else if (stack === 'web') {
-    notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, both blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
-    if (FRAMEWORKS.includes(fwName)) notes.push(`framework ${fwName} serves an API the harness extracts no routes from: contract changes are not locked; a human verifies them`);
+    // What keeps every verdict here from DONE is `unsupported`, not a note: the session banner shows each
+    // unsupported part before the first turn and the verdict carries it, while notes reach only run.json.
+    if (!webStandardsConfigured(apiRoot)) unsupported.push(WEB_NO_STANDARDS_NOTE);
+    notes.push(`stack web (generic, framework ${fwName}): standards are the repository's own type check (tsc, or vue-tsc where installed, with its tsconfig) and ESLint on what the run changes, plus its Vite build where it has one, each blocking only what the run introduces; tests run with its runner when supported. No stack-specific rule applies`);
+    const server = FRAMEWORKS.includes(fwName) ? fwName : FRAMEWORKS.includes(declaredFwName) ? declaredFwName : null;
+    if (server !== null) unsupported.push(webServerNote(server));
+    const routed = FILE_ROUTED_FRAMEWORKS.find((f) => deps[f] !== undefined);
+    if (routed !== undefined) notes.push(`framework ${routed} serves API routes by file convention (route handlers, server routes, endpoints): the harness locks none of them, so a change to one is named UNPROVEN (a human verifies its contract)`);
   } else if (stack === 'nestjs') {
     notes.push("stack nestjs: standards are the repository's own (tsc with its tsconfig, its ESLint and Prettier on changed files) plus nest-route-guard; the Nest route lock compares controller routes (method and path), not DTO shapes");
   } else if (stack === 'react-vite') {

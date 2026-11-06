@@ -206,7 +206,8 @@ export function buildContext(opts: {
  */
 export async function targetProfile(ws: Workspace, opts: { inPlace?: boolean } = {}): Promise<{ profile?: TargetProfile; error?: string }> {
   try {
-    const inPlace = opts.inPlace === true;
+    // In place is read from the workspace too: only a workspace over the owner's checkout has git visibility.
+    const inPlace = opts.inPlace === true || ws.visibility === 'git';
     const profile = await computeTargetProfile({ apiRoot: ws.root, repoRoot: ws.repoRoot, harnessRoot: HARNESS_ROOT, inPlace });
     return { profile: inPlace ? inPlaceProfile(profile) : profile };
   } catch (e) {

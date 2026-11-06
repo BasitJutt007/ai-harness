@@ -12,12 +12,21 @@
  *
  * In an in-place web layout the graph also holds JavaScript and the `<script>` blocks of .vue / .svelte
  * components: a new helper only a component imports is used, not an orphan, and a new component or
- * JavaScript module nothing imports is one. File mode keeps its TypeScript graph.
+ * JavaScript module nothing imports is one. A file-routed framework loads some files by where they are,
+ * not by an import (a Next.js app/ page or route, pages/, Nuxt pages/ and components/, SvelteKit
+ * src/routes/+page.svelte, Remix app/routes/, Astro src/pages/, ...): a new file there, in a package that
+ * declares the framework, is UNPROVEN ("loaded by the framework by convention; verify by hand"), never an
+ * orphan and never green, unless a test imports it. File mode keeps its TypeScript graph.
  */
 import path from 'node:path';
 import ts from 'typescript';
 import { activeLayout, codeGlobs, defineGate, fileCheckOptions, graphFiles, importGraph, importSpecifiers, isTestFile, isTestSupport, isWebLayout } from '../../src/core/plugin-api.ts';
+import { conventionFramework } from '../lib/conventions.ts';
+import type { ManifestCache } from '../lib/conventions.ts';
 import { dependencyView, scriptSource } from '../lib/dependencies.ts';
+
+/** The conventions live in plugins/lib/conventions.ts (the in-place proof tiers use them too). */
+export { conventionFramework, FRAMEWORK_CONVENTIONS } from '../lib/conventions.ts';
 
 /** The name an import of `p` ends with: its basename without extension (the folder name for an index file). */
 function stem(p: string): string {
@@ -45,11 +54,11 @@ export default defineGate({
   phases: ['finish', 'ship'],
   async run(ctx) {
     const root = ctx.workspace.root;
+    const web = isWebLayout(activeLayout());
     let files: string[];
     const edges = new Map<string, string[]>();
     const unresolved = new Set<string>();
     try {
-      const web = isWebLayout(activeLayout());
       files = graphFiles(await ctx.workspace.list(web ? codeGlobs(activeLayout()) : ['**/*.ts', '**/*.mts', '**/*.cts']));
       const texts = new Map<string, string>();
       // A component's imports are in its <script> blocks (scriptSource); a script is itself.
@@ -80,11 +89,17 @@ export default defineGate({
     const fromExisting = reach(files.filter((f) => ctx.state.initialHashes.has(f) && !isTestFile(f)), edges);
     const orphans: string[] = [];
     const unsure: string[] = [];
+    const conventional: string[] = [];
+    const manifests: ManifestCache = new Map();
     for (const f of created) {
       if (fromTests.has(f) || (!isTestSupport(f) && fromExisting.has(f))) continue;
-      if (unresolved.has(stem(f))) unsure.push(f);
+      // In place, a file-routed framework loads it by where it is: nothing imports it, yet it is no leftover.
+      const framework = web && !isTestSupport(f) ? conventionFramework(root, f, manifests) : null;
+      if (framework !== null) conventional.push(`${f}: loaded by the framework by convention (${framework}); verify by hand`);
+      else if (unresolved.has(stem(f))) unsure.push(f);
       else orphans.push(f);
     }
+    const verify = conventional.length > 0 ? { humanMustVerify: conventional } : {};
     if (orphans.length > 0) {
       return {
         status: 'fail',
@@ -95,17 +110,25 @@ export default defineGate({
               ? `${f}: created under the test root, but no test imports it (directly or through other helpers)`
               : `${f}: created, but neither a test nor code that existed at run start imports it`),
           `Ship commits every file: delete leftovers with delete_file { "path": "${orphans[0] ?? ''}" }, or import them from the test or code that needs them.`,
+          ...conventional.map((c) => `unproven: ${c}`),
         ],
+        ...verify,
       };
     }
-    if (unsure.length > 0) {
+    if (unsure.length > 0 || conventional.length > 0) {
+      const summaries = [
+        ...(unsure.length > 0 ? [`${unsure.length} created file(s) may be imported through a path alias TypeScript could not resolve`] : []),
+        ...(conventional.length > 0 ? [`${conventional.length} created file(s) loaded by the framework by convention; verify by hand`] : []),
+      ];
       return {
         status: 'unproven',
-        summary: `${unsure.length} created file(s) may be imported through a path alias TypeScript could not resolve`,
+        summary: summaries.join('; '),
         details: [
           ...unsure.map((f) => `${f}: no import reaches it`),
-          'Import it with a relative specifier from the test or code that uses it, or delete_file it if it is a leftover.',
+          ...(unsure.length > 0 ? ['Import it with a relative specifier from the test or code that uses it, or delete_file it if it is a leftover.'] : []),
+          ...conventional,
         ],
+        ...verify,
       };
     }
     return { status: 'pass', summary: `${created.length} created files, all imported by a test or by existing code` };

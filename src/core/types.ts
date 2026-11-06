@@ -968,6 +968,11 @@ export interface CheckPlugin {
   kind: 'check';
   /** Stacks this rule applies to (default: every stack). The 01 Express rules declare ['express']. */
   stacks?: Stack[];
+  /**
+   * Stacks this rule also applies to in an in-place run (a session: the profile has a web layout), and never
+   * in file mode, whose reports stay as they were (web-build: express or nestjs in place with a Vite app).
+   */
+  inPlaceStacks?: Stack[];
   /** Rule id printed in reports, e.g. "zod-boundary". */
   id: string;
   /** Grouping: "standards" (the graded four), "orm", "lint", or any custom label. */

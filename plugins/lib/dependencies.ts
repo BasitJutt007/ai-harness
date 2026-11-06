@@ -126,23 +126,91 @@ function requireSpecifiers(rel: string, text: string): string[] {
 
 /** Single-file components and pages whose imports live in `<script>` blocks (and, for .astro, a `---` frontmatter). */
 const COMPONENT_FILE = /\.(?:vue|svelte|astro)$/i;
+/** Documents that embed script: MDX (its ESM import/export blocks) and HTML (its inline module scripts). */
+const MDX_FILE = /\.mdx$/i;
+const HTML_FILE = /\.html?$/i;
+/**
+ * Markdown pages a docs framework compiles: Docusaurus reads .md as MDX by default (its ESM imports work), and
+ * VitePress runs a page's `<script setup>` blocks. Read both ways; reading more than a plain page holds is
+ * safe for a check that only refuses.
+ */
+const MD_FILE = /\.(md|markdown)$/i;
+
+/**
+ * The ESM of an MDX document: every block (lines up to a blank line) that starts with `import` or `export` at
+ * the start of a line, outside fenced code blocks (an import shown as an example in a ``` fence is text, not
+ * code). MDX takes such a line as ESM wherever no paragraph is open (after a blank line, a heading, the
+ * frontmatter's closing `---`, a JSX tag line); reading every such line is a superset, which is what a check
+ * that only refuses needs: an import it reads that MDX would not is at worst refused. (A YAML frontmatter line
+ * at column 0 is a key, `import: x`, which declares no module.)
+ */
+function mdxEsm(text: string): string {
+  const out: string[] = [];
+  let fence: string | null = null;
+  let block: string[] | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence !== null) {
+      if (marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+      continue;
+    }
+    if (block !== null) {
+      if (line.trim() === '') {
+        out.push(block.join('\n'));
+        block = null;
+      } else {
+        block.push(line);
+        continue;
+      }
+    }
+    if (marker !== undefined) {
+      fence = marker;
+      continue;
+    }
+    if (/^(import|export)\b/.test(line)) block = [line];
+  }
+  if (block !== null) out.push(block.join('\n'));
+  return out.join('\n;\n');
+}
+
+/** The content of every `<script ...>` block (a component's, a VitePress page's). */
+function scriptBlocks(text: string): string[] {
+  return [...text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].map((m) => m[1] ?? '');
+}
+
+/** The inline module scripts of an HTML page (`<script type="module">...</script>`); classic scripts cannot import. */
+function htmlModules(text: string): string {
+  return [...text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)]
+    .filter((m) => /\btype\s*=\s*["']?module\b/i.test(m[1] ?? ''))
+    .map((m) => m[2] ?? '')
+    .join('\n;\n');
+}
 
 /**
  * The script a file holds: a script file as it is; for a single-file component (.vue, .svelte) the
- * content of every `<script ...>` block, and for an .astro page its `---` frontmatter as well. Parsing
- * the whole component as TypeScript would miss imports behind its template, so a package import added
- * in a component would go unchecked.
+ * content of every `<script ...>` block, and for an .astro page its `---` frontmatter as well; for an MDX
+ * document its ESM blocks and for an HTML page its inline `<script type="module">` blocks; for a Markdown
+ * page both its MDX-style ESM and its `<script>` blocks outside code fences (MD_FILE). Parsing the whole file
+ * as TypeScript would miss imports behind its template or prose, so a package import added there would go
+ * unchecked.
  */
 export function scriptSource(rel: string, text: string): string {
+  if (MDX_FILE.test(rel)) return mdxEsm(text);
+  if (HTML_FILE.test(rel)) return htmlModules(text);
+  if (MD_FILE.test(rel)) {
+    const outsideFences = text.replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, '');
+    return [mdxEsm(text), ...scriptBlocks(outsideFences)].filter((s) => s !== '').join('\n;\n');
+  }
   if (!COMPONENT_FILE.test(rel)) return text;
-  const blocks = [...text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].map((m) => m[1] ?? '');
+  const blocks = scriptBlocks(text);
   const front = /\.astro$/i.test(rel) ? /^\s*---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] : undefined;
   return [...(front !== undefined ? [front] : []), ...blocks].join('\n;\n');
 }
 
-/** Every module specifier of a script file, or of the script blocks of a component (scriptSource). */
+/** Every module specifier of a script file, or of the script a component or document embeds (scriptSource). */
 export function moduleSpecifiers(rel: string, text: string): string[] {
   const script = scriptSource(rel, text);
-  const name = COMPONENT_FILE.test(rel) ? `${rel}.ts` : rel;
+  const embedded = COMPONENT_FILE.test(rel) || MDX_FILE.test(rel) || HTML_FILE.test(rel) || MD_FILE.test(rel);
+  const name = embedded ? `${rel}.ts` : rel;
   return [...importSpecifiers(name, script), ...requireSpecifiers(name, script)];
 }

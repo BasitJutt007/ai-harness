@@ -9,10 +9,11 @@
  * same canonical path, so a policy decision and the actual write can never refer
  * to different files (`SRC/x.ts`, `test/link.ts -> ../src/x.ts`, ...).
  */
-import { realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
-import { gitHiddenReason, templateManifest } from '../../src/core/plugin-api.ts';
+import { activeLayout, gitHiddenReason, isToolingConfig, templateManifest, underAny } from '../../src/core/plugin-api.ts';
 import type { RunContext, Stack, Task, Workspace } from '../../src/core/plugin-api.ts';
 
 /** Files nobody but the harness may write, in any task kind (API-relative globs, matched case-insensitively). */
@@ -135,28 +136,394 @@ export const INPLACE_WRITABLE_EXTS = [
 ] as const;
 
 /**
- * The supply-chain deny list of an in-place run: absolute (no task scope can re-open it), matched
- * case-insensitively at any depth. It keeps everything the build, the package manager, CI or git runs
- * out of the agent's reach, because in the owner's checkout those run with the owner's credentials:
- * dependency manifests and every lockfile, tool and build configs (`*.config.*`, tsconfig/jsconfig,
- * workspace and deploy configs), dot-files and dot-directories (.env*, .github, .husky, .npmrc, ...),
- * CI and git-hook definitions, the database schema and its migrations, dependencies and build output.
+ * The supply-chain deny list of an in-place run, matched case-insensitively at any depth. No task scope
+ * re-opens it (a task's deny list only narrows the in-place scope further). It keeps what the build, the
+ * package manager, CI, a deploy or git runs out of the agent's reach, because in the owner's checkout those
+ * run with the owner's credentials: dependency manifests and every lockfile, tool and build configs
+ * (`*.config.*`, tsconfig/jsconfig, task runners and build scripts), workspace manifests, deploy configs,
+ * dot-files and dot-directories (.env*, .github, .husky, .npmrc, ...), CI and git-hook definitions, the
+ * database schema and its migrations, dependencies and build output. inPlaceWritePolicy adds what a name
+ * alone cannot say: every file a package.json script names, the tool and deploy names of PACKAGE_LEVEL_DENY
+ * where such a file lives, root-level scripts and data or configuration outside the source roots.
+ *
+ * It is a list of names and rules, not a trace of what tools load: a module a config file imports (a plugin
+ * file vite.config.ts imports from ./build/) is executed by that tool, yet writable unless a rule here or in
+ * inPlaceWritePolicy matches it.
  */
 export const INPLACE_DENY = [
   ...BUILTIN_DENY,
-  // dependency manifests and lockfiles (package.json is in BUILTIN_DENY)
+  // dependency and workspace manifests and lockfiles (package.json is in BUILTIN_DENY)
   '**/npm-shrinkwrap.json', '**/yarn.lock', '**/pnpm-lock.yaml', '**/bun.lock', '**/bun.lockb', '**/deno.lock', '**/*.lock', '**/*-lock.json', '**/*-lock.yaml',
-  // tool, build, workspace and deploy configuration
-  '**/*.config.*', '**/tsconfig*', '**/jsconfig*', '**/pnpm-workspace.y?(a)ml', '**/lerna.json', '**/nx.json', '**/turbo.json',
-  '**/angular.json', '**/project.json', '**/workspace.json', '**/vercel.json', '**/now.json', '**/renovate.json',
-  // CI and git hooks (.github, .gitlab-ci.yml, .circleci, .husky, .travis.yml, ... are dot-entries)
+  '**/package.yaml', '**/package.json5', '**/rush.json', '**/pnpm-workspace.y?(a)ml', '**/lerna.json', '**/nx.json', '**/turbo.json',
+  '**/deno.json', '**/deno.jsonc', '**/bunfig.toml', '**/angular.json', '**/project.json', '**/workspace.json', '**/renovate.json',
+  // tool and build configuration, task runners and build scripts
+  '**/*.config.*', '**/tsconfig*', '**/jsconfig*', '**/Taskfile', '**/Taskfile.*', '**/Makefile', '**/GNUmakefile', '**/*.mk', '**/justfile',
+  '**/gulpfile.*', '**/Gruntfile.*', '**/karma.conf.*', '**/webpack.*.?(c|m)[jt]s', '**/nodemon.json',
+  // deploy configuration (Dockerfile, Dockerfile.dev, api.Dockerfile; never a DockerfilePreview.tsx component)
+  '**/amplify.y?(a)ml', '**/render.y?(a)ml', '**/heroku.y?(a)ml', '**/vercel.json', '**/now.json', '**/netlify.toml', '**/fly.toml',
+  '**/Procfile', '**/Procfile.*', '**/Dockerfile', '**/Dockerfile.*', '**/*.Dockerfile', '**/docker-compose*', '**/compose.y?(a)ml',
+  '**/k8s/**/*.{yml,yaml,json}', '**/helm/**/*.{yml,yaml,json}', '**/.github/**',
+  // CI (.gitlab-ci.yml, .circleci, .travis.yml, ... are dot-entries too)
   '**/azure-pipelines*', '**/bitbucket-pipelines*', '**/appveyor*', '**/cloudbuild*', '**/codemagic*', '**/buildspec*', '**/Jenkinsfile*',
-  '**/docker-compose*', '**/compose.y?(a)ml', '**/lefthook*', '**/githooks/**', '**/git-hooks/**',
+  // git hooks and their managers
+  '**/.husky/**', '**/simple-git-hooks.*', '**/.simple-git-hooks.*', '**/lefthook*', '**/.lefthook*', '**/.lintstagedrc*',
+  '**/lint-staged.config.*', '**/githooks/**', '**/git-hooks/**',
   // database schema and migrations
   '**/prisma/**', '**/*.prisma', '**/migrations/**',
   // dependencies and build output
   '**/build/**', '**/out/**', '**/coverage/**', '**/storybook-static/**', '**/*.min.js', '**/*.min.css',
 ];
+
+/**
+ * Tool and deploy configs whose names source modules share (src/lib/rollup.ts is a data roll-up, src/railway.ts
+ * railway-oriented helpers, src/i18n/app.json a translation): denied where the tool reads them, beside a
+ * package.json (the API root, or a package of the tree) or anywhere outside the source roots, and writable as
+ * source under a source root. Basename globs, matched case-insensitively.
+ */
+export const PACKAGE_LEVEL_DENY = ['rollup.*', 'esbuild.*', 'railway.*', 'serverless.*', 'wrangler.*', 'app.json', 'firebase.json'];
+
+/**
+ * Root-level tooling a source root of '.' (a repository without a tsconfig.json) must not make writable: config
+ * files by another name than *.config.* (wdio.conf.js, gatsby-config.js), framework build hooks (gatsby-node.js,
+ * ember-cli-build.js) and task runners. The app's own root-level entry (app.js, server.js, index.js) is source.
+ */
+const ROOT_TOOLING = ['*.conf.*', '*-config.*', 'gatsby-*', 'ember-cli-build.*', 'Jakefile*', 'Brocfile*'];
+
+// ───────────────────────────── files package.json scripts name ─────────────────────────────
+
+/** Directories never searched for package.json files (dependencies, build output, git). */
+const MANIFEST_SKIP = new Set(['node_modules', 'dist', 'build', 'out', 'coverage', 'storybook-static', 'bower_components']);
+/**
+ * How many directories the package.json search reads at most. Symbolic links are never followed, so the walk
+ * is finite without a depth limit; this only stops a pathological tree, and a search it stops makes the
+ * script files unknown, so nothing is writable in place (fail closed), never a partial list taken as whole.
+ */
+export const MANIFEST_MAX_DIRS = 100_000;
+
+/** Extensions Node and its TypeScript runners try for a module path written without one (`node scripts/setup`). */
+const MODULE_EXTS = ['.js', '.cjs', '.mjs', '.ts', '.mts', '.cts', '.jsx', '.tsx', '.json'];
+/** Commands whose first positional argument is a module file they run (`node setup` runs ./setup.js). */
+const RUNNERS = new Set(['node', 'nodejs', 'tsx', 'ts-node', 'ts-node-esm', 'ts-node-script', 'ts-node-dev', 'tsnd', 'babel-node', 'nodemon', 'node-dev',
+  'bun', 'deno', 'vite-node', 'esno', 'esr', 'jiti', 'sucrase-node', 'swc-node', 'zx']);
+/** Shells: their first positional argument is a file they run as written. */
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'source', '.']);
+/** Words a runner takes before its file (`tsx watch x`, `bun run x`, `deno run x`). */
+const RUNNER_SUBCOMMANDS = new Set(['run', 'watch']);
+/** Flags whose next word is a module the runner loads before the entry (`node -r ./hook`). */
+const MODULE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader']);
+/** Runner flags whose next word is their value, never the entry file (node, tsx, ts-node, ...). */
+const VALUE_FLAGS = new Set([...MODULE_FLAGS, '-C', '--conditions', '--env-file', '--env-file-if-exists', '--input-type', '--title', '--inspect-port',
+  '--watch-path', '--test-reporter', '--test-reporter-destination', '--test-name-pattern', '--test-skip-pattern', '--test-concurrency', '--test-timeout',
+  '--test-shard', '--tsconfig', '-P', '--project', '-O', '--compilerOptions', '--compiler', '--cwd', '--dir']);
+/** nodemon's own value flags (its -e is --ext; node's --watch takes none). */
+const NODEMON_VALUE_FLAGS = new Set(['--watch', '-w', '--ignore', '-i', '--ext', '-e', '--delay', '-d', '--signal', '-s', '--exec', '-x', '--config']);
+/** Runner flags after which no entry file follows: the code is inline (node -e), or the arguments are test files and directories (node --test). */
+const NO_ENTRY_FLAGS = new Set(['-e', '--eval', '-p', '--print', '--test']);
+
+/** One shell word, or an operator that separates commands. */
+type ShellToken = { word: string } | { op: string };
+
+/**
+ * A package.json script split as a POSIX shell would (enough of one): words with their quotes removed (a
+ * quoted value with spaces stays one word: `NODE_OPTIONS='--require ./hook.cjs'`), and the operators that
+ * separate commands (`&&`, `||`, `;`, `|`, `&`, `(`, `)`); redirections end a word.
+ */
+function shellTokens(script: string): ShellToken[] {
+  const out: ShellToken[] = [];
+  let word = '';
+  let quoted = false;
+  const flush = (): void => {
+    if (word !== '' || quoted) out.push({ word });
+    word = '';
+    quoted = false;
+  };
+  for (let i = 0; i < script.length; i += 1) {
+    const c = script[i] ?? '';
+    if (c === "'" || c === '"' || c === '`') {
+      const end = script.indexOf(c, i + 1);
+      word += end < 0 ? script.slice(i + 1) : script.slice(i + 1, end);
+      quoted = true;
+      i = end < 0 ? script.length : end;
+    } else if (c === '\\' && i + 1 < script.length) {
+      word += script[i + 1] ?? '';
+      i += 1;
+    } else if (/\s/.test(c)) {
+      flush();
+    } else if ('&|;()<>'.includes(c)) {
+      flush();
+      const two = script.slice(i, i + 2);
+      const op = two === '&&' || two === '||' ? two : c;
+      i += op.length - 1;
+      if (c !== '<' && c !== '>') out.push({ op });
+    } else {
+      word += c;
+    }
+  }
+  flush();
+  return out;
+}
+
+/** A word that can be a literal file path: no variable, glob or URL. */
+function literal(w: string): boolean {
+  return w !== '' && !w.includes('://') && !/[*?{}[\]$~]/.test(w);
+}
+
+/** Whether a word ends in a file extension (`build.mjs`, `webpack.prod.js`; not `1.2.3`). */
+function hasExtension(w: string): boolean {
+  return /\.[A-Za-z][A-Za-z0-9]*$/.test(path.posix.basename(w));
+}
+
+/** The files a module path written without an extension can be: itself, with each MODULE_EXTS, and as a directory's index. */
+function moduleCandidates(p: string): string[] {
+  const base = p.replace(/\/+$/, '');
+  if (base === '' || base === '.' || base === './') return MODULE_EXTS.map((e) => `index${e}`);
+  return [base, ...MODULE_EXTS.map((e) => base + e), ...MODULE_EXTS.map((e) => `${base}/index${e}`)];
+}
+
+/**
+ * The files a package.json script runs or names, relative to the package's directory: every word that ends
+ * in a file extension (`node scripts/build.mjs`, `--config=webpack.prod.js`, `NODE_OPTIONS='--require
+ * ./hook.cjs'`); the module a runner (node, tsx, ts-node, nodemon, ...) runs or preloads even without an
+ * extension (`node scripts/setup` names scripts/setup.js and its siblings by extension, scripts/setup/index.js
+ * and so on; `node .` the package's `main`); the file a shell or a path-like command runs (`./bin/www`). A
+ * `cd dir &&` before a command resolves what follows against dir. Never a glob, a URL, a variable, a
+ * directory or a bare word (`vite build`, `vitest run src` name no file).
+ */
+export function scriptFileTokens(script: string, main?: string): string[] {
+  const out: string[] = [];
+  /** Where the current command runs, relative to the package ('' = the package; null = unknown after `cd $X`). */
+  let cwd: string | null = '';
+  const saved: Array<string | null> = [];
+  const at = (p: string): string => (cwd === null || cwd === '' ? p : path.posix.join(cwd, p));
+  const exact = (p: string): void => {
+    if (literal(p)) out.push(at(p));
+  };
+  const module = (p: string): void => {
+    if (!literal(p)) return;
+    if (hasExtension(p)) {
+      out.push(at(p));
+      return;
+    }
+    // `node .` runs the package's main (and index.js without one).
+    if (/^\.\/?$/.test(p) && main !== undefined && main !== '.' && main !== './') module(main);
+    for (const c of moduleCandidates(p)) out.push(at(c));
+  };
+  const assignment = /^[A-Za-z_][A-Za-z0-9_]*=/;
+  /** A quoted word with spaces is a command of its own (`nodemon --exec "tsx src/server.ts"`, `sh -c "node x.js"`, `concurrently "node a.js" ...`). */
+  const nested = (w: string): boolean => {
+    if (!/\s/.test(w.trim())) return false;
+    for (const t of scriptFileTokens(w, main)) out.push(at(t));
+    return true;
+  };
+
+  /**
+   * The arguments of one command. `runner`: the runner or shell it is (its first plain argument is the file it
+   * runs), 'options' for the words of an environment value (flags only), null for any other command.
+   */
+  const args = (words: readonly string[], runner: string | null): void => {
+    let entry = runner !== null && runner !== 'options';
+    for (let i = 0; i < words.length; i += 1) {
+      const w = words[i] ?? '';
+      if (w.startsWith('-')) {
+        const eq = w.indexOf('=');
+        const flag = eq < 0 ? w : w.slice(0, eq);
+        const nodemon = runner === 'nodemon';
+        if (runner !== null && !nodemon && NO_ENTRY_FLAGS.has(flag)) entry = false;
+        let value: string | undefined = eq < 0 ? undefined : w.slice(eq + 1);
+        const takesValue = VALUE_FLAGS.has(flag) || (nodemon && NODEMON_VALUE_FLAGS.has(flag));
+        if (value === undefined && runner !== null && takesValue && i + 1 < words.length) {
+          i += 1;
+          value = words[i];
+        }
+        if (value === undefined || nested(value)) continue;
+        // A preloaded module is a local file only when written as a relative path (`-r dotenv/config` is a package).
+        if (MODULE_FLAGS.has(flag) && /^\.\.?\//.test(value)) module(value);
+        else if (hasExtension(value)) exact(value);
+        continue;
+      }
+      if (nested(w)) continue;
+      if (entry && runner !== null && RUNNER_SUBCOMMANDS.has(w)) continue;
+      if (entry) {
+        entry = false;
+        if (runner !== null && SHELLS.has(runner)) exact(w);
+        else module(w);
+        continue;
+      }
+      if (hasExtension(w)) exact(w);
+    }
+  };
+  /** An environment assignment's value: one file name, or node options (NODE_OPTIONS='--require ./hook.cjs'). */
+  const env = (w: string): void => {
+    const parts = w.slice(w.indexOf('=') + 1).split(/\s+/).filter((p) => p !== '');
+    if (parts.some((p) => p.startsWith('-'))) args(parts, 'options');
+    else if (parts.length === 1 && hasExtension(parts[0] ?? '')) exact(parts[0] ?? '');
+  };
+
+  const command = (words: readonly string[]): void => {
+    let i = 0;
+    for (; i < words.length && assignment.test(words[i] ?? ''); i += 1) env(words[i] ?? '');
+    const head = words[i];
+    if (head === undefined) return;
+    if (head === 'cd') {
+      const to = words[i + 1];
+      cwd = to === undefined || cwd === null || !literal(to) || path.posix.isAbsolute(to) ? null : path.posix.normalize(path.posix.join(cwd, to)).replace(/^\.$/, '');
+      return;
+    }
+    // A command written as a path runs that file (./bin/www, scripts/deploy.sh).
+    if (head.includes('/')) exact(head);
+    // A wrapper runs the command after it (npx tsx x, cross-env A=b node x, pnpm exec ts-node x): look through it.
+    const r = words.findIndex((w, k) => k >= i && (RUNNERS.has(path.posix.basename(w)) || SHELLS.has(w)));
+    if (r < 0) {
+      args(words.slice(i + 1), null);
+      return;
+    }
+    for (const w of words.slice(i + 1, r)) {
+      if (assignment.test(w)) env(w);
+      else if (!w.startsWith('-') && !nested(w) && hasExtension(w)) exact(w);
+    }
+    const runner = words[r] ?? '';
+    args(words.slice(r + 1), SHELLS.has(runner) ? runner : path.posix.basename(runner));
+  };
+
+  let words: string[] = [];
+  for (const t of shellTokens(script)) {
+    if ('word' in t) {
+      words.push(t.word);
+      continue;
+    }
+    command(words);
+    words = [];
+    // A subshell's cd ends with it: `(cd web && vite build) && node x.js` runs x.js where the script started.
+    if (t.op === '(') saved.push(cwd);
+    else if (t.op === ')') cwd = saved.pop() ?? '';
+  }
+  command(words);
+  return [...new Set(out)];
+}
+
+/** package.json files under `root` (API-relative POSIX dirs) and whether the search stopped early (why), skipping dependencies, build output and dot-dirs. */
+function manifestDirs(root: string, maxDirs: number): { dirs: string[]; incomplete: string | null } {
+  const out: string[] = [];
+  let seen = 0;
+  let stopped = false;
+  const queue: string[] = [''];
+  for (let rel = queue.shift(); rel !== undefined; rel = queue.shift()) {
+    if (seen >= maxDirs) {
+      stopped = true;
+      break;
+    }
+    seen += 1;
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(rel === '' ? root : path.join(root, rel), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    if (entries.some((e) => e.isFile() && e.name === 'package.json')) out.push(rel);
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith('.') || MANIFEST_SKIP.has(e.name)) continue;
+      queue.push(rel === '' ? e.name : `${rel}/${e.name}`);
+    }
+  }
+  return { dirs: out, incomplete: stopped ? `the search for package.json files stopped after ${maxDirs} directories` : null };
+}
+
+/**
+ * The files package.json scripts name (lower-cased API-relative path -> where it is named), with the
+ * directories that hold a package.json ('' for the API root) and why the list is incomplete (null: it is
+ * whole). An incomplete list refuses every in-place write: what an unread package.json runs is unknown.
+ */
+export interface ScriptFileMap extends ReadonlyMap<string, string> {
+  readonly packageDirs: ReadonlySet<string>;
+  readonly incomplete: string | null;
+}
+
+interface ScriptFiles {
+  named: ScriptFileMap;
+  /** The package.json files read, with the stamp (mtime and size) they had. */
+  stamps: Array<{ file: string; stamp: string }>;
+}
+
+const scriptFilesCache = new Map<string, ScriptFiles>();
+
+function stampOf(file: string): string {
+  try {
+    const st = statSync(file);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return 'missing';
+  }
+}
+
+/**
+ * Every file a package.json script names, under `root` (every package.json of the tree, each script's paths
+ * resolved against its own directory, after any `cd` in the script; scriptFileTokens), lower-cased
+ * API-relative path -> where it is named; with the package directories and, when the search for package.json
+ * files stopped at `maxDirs` directories, why the list is incomplete. Cached per root while the package.json
+ * files it read keep their stamp (no run can write a package.json).
+ */
+export function packageScriptFiles(root: string, opts: { maxDirs?: number } = {}): ScriptFileMap {
+  const maxDirs = opts.maxDirs ?? MANIFEST_MAX_DIRS;
+  const key = `${maxDirs}\u0000${root}`;
+  const cached = scriptFilesCache.get(key);
+  if (cached !== undefined && cached.stamps.every((s) => stampOf(s.file) === s.stamp)) return cached.named;
+  const named = new Map<string, string>();
+  const stamps: ScriptFiles['stamps'] = [];
+  const search = manifestDirs(root, maxDirs);
+  for (const dir of search.dirs) {
+    const file = path.join(root, dir, 'package.json');
+    stamps.push({ file, stamp: stampOf(file) });
+    let pkg: unknown;
+    try {
+      pkg = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      continue;
+    }
+    const field = (k: string): unknown => (typeof pkg === 'object' && pkg !== null ? Reflect.get(pkg, k) : undefined);
+    const scripts = field('scripts');
+    const main = field('main');
+    if (typeof scripts !== 'object' || scripts === null) continue;
+    for (const [name, script] of Object.entries(scripts)) {
+      if (typeof script !== 'string') continue;
+      for (const token of scriptFileTokens(script, typeof main === 'string' ? main : undefined)) {
+        if (path.posix.isAbsolute(token) || /^[A-Za-z]:[\\/]/.test(token)) continue;
+        const rel = path.posix.normalize(path.posix.join(dir === '' ? '.' : dir, token.replace(/\\/g, '/'))).replace(/^(\.\/)+/, '');
+        if (rel === '..' || rel.startsWith('../') || rel === '.') continue;
+        const lower = rel.toLowerCase();
+        if (!named.has(lower)) named.set(lower, `${dir === '' ? '' : `${dir}/`}package.json scripts.${name}`);
+      }
+    }
+  }
+  const map: ScriptFileMap = Object.assign(named, { packageDirs: new Set(search.dirs), incomplete: search.incomplete });
+  scriptFilesCache.set(key, { named: map, stamps });
+  return map;
+}
+
+/** What inPlaceWritePolicy needs beyond the path: the source roots and the files package.json scripts name. */
+export interface InPlaceFacts {
+  /** The API's source roots (TargetLayout.sourceRoots); default: the active layout's. */
+  sourceRoots?: readonly string[];
+  /**
+   * packageScriptFiles of the API root (a plain map: those files, the API root its only package); default:
+   * none known. Its `incomplete` refuses every write; its `packageDirs` anchor the tool and deploy names
+   * PACKAGE_LEVEL_DENY lists.
+   */
+  scriptFiles?: ReadonlyMap<string, string> & Partial<Pick<ScriptFileMap, 'packageDirs' | 'incomplete'>>;
+}
+
+/**
+ * Whether `rel` lies under a source root. A root-level file is under one only when a source root names it
+ * exactly (a tsconfig `files` entry): '.' (no tsconfig) makes every directory a source root, but never the
+ * repository's root-level files, which are its configuration and tooling.
+ */
+function underSourceRoot(rel: string, roots: readonly string[]): boolean {
+  if (!rel.includes('/')) return roots.includes(rel);
+  return roots.some((r) => r === '.' || rel === r || rel.startsWith(`${r}/`));
+}
+
+function rootsLabel(roots: readonly string[]): string {
+  return roots.length === 0 ? 'none' : roots.map((r) => (r === '.' ? 'every directory' : `${r}/`)).join(', ');
+}
 
 /** The extension a write targets, lower-cased (`.d.ts` reads as `.ts`; the deny list owns declarations). */
 function extOf(rel: string): string {
@@ -174,15 +541,37 @@ export function inPlaceWritableKind(rel: string): boolean {
  * the scope of a session is the checkout itself. Git visibility is not decided here (it needs git):
  * path-guard asks gitHidden() before every write, and the scope gate refuses ignored writes at finish.
  */
-export function inPlaceWritePolicy(task: Task, rel: string): PolicyDecision {
+export function inPlaceWritePolicy(task: Task, rel: string, facts: InPlaceFacts = {}): PolicyDecision {
+  const owned = (why: string): PolicyDecision => ({ allowed: false, reason: `${rel} is harness-owned in place (supply chain: ${why})` });
   if (matcher(INPLACE_DENY, true)(rel)) {
-    return {
-      allowed: false,
-      reason: `${rel} is harness-owned in place (supply chain: dependency manifests, lockfiles, tool/build/CI configs, git hooks, dot-files, .env*, prisma/ and migrations, node_modules, build output)`,
-    };
+    return owned('dependency and workspace manifests, lockfiles, tool/build/deploy/CI configs, task runners, git hooks, dot-files, .env*, prisma/ and migrations, node_modules, build output');
+  }
+  const incomplete = facts.scriptFiles?.incomplete;
+  if (incomplete !== undefined && incomplete !== null) {
+    return owned(`${incomplete}, so which files package.json scripts run is unknown and nothing is writable in place`);
+  }
+  const script = facts.scriptFiles?.get(rel.toLowerCase());
+  if (script !== undefined) return owned(`named by ${script}, so the package manager runs it with the owner's credentials`);
+  const roots = facts.sourceRoots ?? activeLayout().sourceRoots;
+  const dir = path.posix.dirname(rel);
+  const base = path.posix.basename(rel);
+  // A tool or deploy name beside a package.json, or outside the source roots, is that tool's config.
+  if (matcher(PACKAGE_LEVEL_DENY, true)(base)) {
+    const packageDir = dir === '.' || facts.scriptFiles?.packageDirs?.has(dir) === true;
+    if (packageDir || !underAny(rel, roots)) return owned(`${base} beside a package.json or outside the source roots (${rootsLabel(roots)}) is a tool or deploy config`);
   }
   if (!inPlaceWritableKind(rel)) {
     return { allowed: false, reason: `${rel} is not a web source or text file; in place only ${INPLACE_WRITABLE_EXTS.join(' ')} files may be written` };
+  }
+  if (!rel.includes('/') && /\.[cm]?js$/i.test(rel) && !underSourceRoot(rel, roots)) {
+    // A source root of '.' (no tsconfig.json) makes the app's own root-level entry source, never its tooling.
+    const tooling = isToolingConfig(rel) || matcher(ROOT_TOOLING, true)(rel);
+    if (!roots.includes('.') || tooling) {
+      return owned(`a root-level script outside the source roots (${rootsLabel(roots)}): tooling the repository's tools load, not source`);
+    }
+  }
+  if (/\.(json|ya?ml)$/i.test(rel) && !underSourceRoot(rel, roots)) {
+    return owned(`data or configuration outside the source roots (${rootsLabel(roots)}): in place a .json, .yml or .yaml file is writable only under them`);
   }
   if (task.kind === 'brownfield' && matcher(task.scope.deny, true)(rel)) {
     return { allowed: false, reason: `${rel} matches the task scope deny list (${task.scope.deny.join(', ')})` };
@@ -191,11 +580,14 @@ export function inPlaceWritePolicy(task: Task, rel: string): PolicyDecision {
 }
 
 /**
- * The write policy of the run `ctx` describes: in place (ctx.inPlace, a session) inPlaceWritePolicy,
- * otherwise (file mode, a worktree run) the 01 policy, unchanged.
+ * The write policy of the run `ctx` describes: in place (ctx.inPlace, a session) inPlaceWritePolicy with the
+ * run's source roots and the files the API's package.json scripts name, otherwise (file mode, a worktree run)
+ * the 01 policy, unchanged. The workspace is required: without its root the script files are unknown, and an
+ * in-place policy that silently lost them would let the agent write what `npm install` runs.
  */
-export function writePolicyFor(ctx: Pick<RunContext, 'task' | 'stack' | 'inPlace'>, rel: string): PolicyDecision {
-  return ctx.inPlace !== undefined ? inPlaceWritePolicy(ctx.task, rel) : writePolicy(ctx.task, rel, ctx.stack);
+export function writePolicyFor(ctx: Pick<RunContext, 'task' | 'stack' | 'inPlace'> & { workspace: Pick<Workspace, 'root'> }, rel: string): PolicyDecision {
+  if (ctx.inPlace === undefined) return writePolicy(ctx.task, rel, ctx.stack);
+  return inPlaceWritePolicy(ctx.task, rel, { sourceRoots: activeLayout().sourceRoots, scriptFiles: packageScriptFiles(ctx.workspace.root) });
 }
 
 /**

@@ -203,10 +203,32 @@ policy, and every widening has its file-mode twin in the tests.
 | vite-build gets the repository's browserslist config as `BROWSERSLIST` (`SandboxPolicy.env`) | `plugins/checks/vite-build.ts`, `src/core/types.ts` |
 | orphans traces imports through JavaScript and component scripts in a web layout | `plugins/gates/orphans.ts` |
 
-Still open for step 4: the session must compute its profile with `targetProfile(ws, { inPlace: true })`
-(buildContext applies the web layout either way, but the generic `web` stack and JavaScript test dirs come
-from that call); a `build` script other than Vite is not run; a `format_file` tool needs a core service for
-a governed write (a tool's `preview()` has no context to run the repository's prettier).
+Any-web-repo policy review fixes (in place only; each refusal has its allowed twin and file mode its own):
+
+| Piece | Where |
+|---|---|
+| A file under a test dir learned only from the build's edge (api/ outside tsconfig include) is test support only under a directory that holds only tests (test/, tests/, `__tests__`/, `__mocks__`/, e2e/; never integration/ or spec/); a changed support file production code imports is named UNPROVEN; logic outside the source roots is proof tier UNPROVEN | `isTestSupportPath` in `src/core/target.ts`, `proofTier` and `unprovenEdits` in `plugins/lib/proof.ts` |
+| Deny list widened: files any package.json script runs (as Node and the shell resolve them: extensionless entries, -r preloads, `node .`, `cd` and quoted commands; every package.json at any depth, and a search stopped by its cap refuses every write), git-hook managers, deploy configs, task runners and build scripts, workspace manifests; root-level .js/.cjs/.mjs (except the app's own entry when the source root is '.') and .json/.yml/.yaml outside the source roots refused | `INPLACE_DENY`, `PACKAGE_LEVEL_DENY`, `scriptFileTokens`, `packageScriptFiles`, `inPlaceWritePolicy`, `writePolicyFor` in `plugins/lib/path-policy.ts` |
+| Tool and deploy names source modules share (rollup.*, esbuild.*, serverless.*, app.json, ...) are denied beside a package.json or outside the source roots only; Dockerfiles by their exact forms; k8s/ and helm/ by their data kinds | `PACKAGE_LEVEL_DENY`, `INPLACE_DENY` in `plugins/lib/path-policy.ts` |
+| A JavaScript-only repository (no tsconfig.json, no TypeScript sources; test helpers, Cypress/Playwright support and stories do not count) gets stack web, its framework named; the session's profile is computed in place (git-visibility workspace) | `computeTargetProfile`, `analyzeLayout` in `src/core/target.ts`, `targetProfile` in `src/core/run.ts` |
+| Stack web lists what keeps every verdict from DONE as unsupported, so the session banner shows it before the first turn: no tsconfig.json or ESLint config ("Work completed" cannot be reached), and a server framework whose routes no lock reads | `WEB_NO_STANDARDS_NOTE`, `webServerNote` in `src/core/target.ts` |
+| A changed or deleted API route of a file-routed framework (Next.js route handlers and pages/api, Nuxt server/, SvelteKit +server, Remix routes, Astro endpoints, Gatsby functions, SolidStart routes) is named UNPROVEN, even when a red proves it | `FRAMEWORK_API_ROUTES` in `plugins/lib/conventions.ts`, `unprovenEdits` in `plugins/lib/proof.ts` |
+| web-typecheck is n/a on the absence of tsconfig.json alone, and n/a when its program covers no file the run changed; stack web without a counted type check or lint is UNPROVEN ("this repository configures no type check or lint the harness can run; a human must verify standards") | `plugins/checks/repo-typecheck.ts`, `plugins/gates/standards.ts`, `plugins/lib/changed-files.ts` |
+| A new file a file-routed framework loads by convention (Next.js, Nuxt, SvelteKit, Remix, Astro, Gatsby, SolidStart) is UNPROVEN, never an orphan, unless a test imports it | `FRAMEWORK_CONVENTIONS` in `plugins/lib/conventions.ts`, `plugins/gates/orphans.ts` |
+| `import.meta.env` is defined under Node's own type stripping ('module-typescript') too | `src/core/import-meta-env-hooks.mjs` |
+| jest: no `--moduleNameMapper` for a config with projects (a profile note instead); a baseUrl key never captures a Node builtin's subpath (`^fs/(?!(?:promises)$)`), and folders such as constants/ or http/ are mapped as before | `jestPathMapper` in `src/core/target.ts` |
+| Package imports checked in .mdx ESM (after the frontmatter or a heading too), .md pages (MDX ESM and `<script setup>`) and .html inline module scripts | `scriptSource` in `plugins/lib/dependencies.ts`, `plugins/hooks/dependency-policy.ts` |
+| web-build: the confined Vite build for stack web, and for express and nestjs in place (`inPlaceStacks`), for any Vite app (a vite config, a script running Vite, or Vite with its index.html; n/a otherwise; blocks only what a run introduces) | `plugins/checks/web-build.ts`, `viteApp` and `viteBuild` in `plugins/checks/vite-build.ts`, `selectChecks` in `src/core/checks.ts` |
+| `unprovenEdits` (the observed-red gate's list of edits no test proves) reads only the changed files (git's answer against the base); a changed binary or huge file is named, not read. The red -> green proof itself still lists and reads every governed file | `unprovenEdits` in `plugins/lib/proof.ts` |
+
+Still open for step 4: a `build` script other than Vite is not run; a `format_file` tool needs a core service for
+a governed write (a tool's `preview()` has no context to run the repository's prettier); the deny list is a list
+of names and rules, so a module a tool's config imports (a plugin file vite.config.ts loads) stays writable
+unless a rule matches it; the session system prompt's "off limits" line does not yet list the files package.json
+scripts name or the data and root-level scripts outside the source roots (the hooks refuse them with the reason);
+the session's check list for the system prompt is selected without `inPlace`, so web-build is not named to the
+model on express or nestjs (it still runs); a `vite build --config <file>` script is built with the default
+config.
 
 Known limits: on Linux (bwrap) the `.git`/`.env*` masks are the entries found by a bounded walk at
 each call (every `.git` at any depth, node_modules not walked), checked on the generated argv only (no

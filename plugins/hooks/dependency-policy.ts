@@ -1,7 +1,9 @@
 /**
  * dependency-policy (pre, write of a script or component): nothing can be installed during a run, so every
- * bare module specifier a write ADDS to a script (TypeScript, and in place JavaScript too) or to the
- * `<script>` blocks of a .vue / .svelte / .astro component (import / export-from / import-equals /
+ * bare module specifier a write ADDS to a script (TypeScript, and in place JavaScript too), to the
+ * `<script>` blocks of a .vue / .svelte / .astro component, to the ESM blocks of an .mdx document (and of a
+ * .md page, with its `<script>` blocks) or to the inline `<script type="module">` blocks of an .html page
+ * (import / export-from / import-equals /
  * dynamic import / require / vi.mock of a literal) must name
  *   - a Node builtin (`node:fs`, `fs`), or
  *   - a package the API's package.json declares (dependencies, devDependencies, peer or optional)
@@ -22,9 +24,11 @@ import { postImage } from '../lib/post-image.ts';
 
 /**
  * Every file kind that can import a package. File mode can only write .ts/.tsx (path-guard), so the
- * JavaScript and component kinds matter in place, where a session may write them.
+ * JavaScript, component and document kinds (MDX ESM, an HTML page's inline module scripts, a Markdown page a
+ * docs framework compiles as MDX or runs the `<script setup>` of) matter in place, where a session may write
+ * them.
  */
-const SCRIPT_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/i;
+const SCRIPT_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro|mdx|md|markdown|html?)$/i;
 /** Packages named in the "available" list at most. */
 const MAX_LISTED = 12;
 
