@@ -14,6 +14,8 @@
  *
  *   npm run audit:mutations
  */
+import { realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import ts from 'typescript';
 import { afterAll, describe, expect, it } from 'vitest';
 import observedRedHook from '../../plugins/hooks/observed-red.ts';
@@ -157,7 +159,8 @@ const SHAPES: Array<[string, (m: Module) => string]> = [
 /** A run where `m.file` exists at run start and no test covers it (locked): in file mode, or in place with a supported runner. */
 async function lockedRun(m: Module): Promise<{ ctx: RunContext }> {
   setActiveLayout(m.inPlace ? WEB : undefined);
-  const h = await makeHarness({ label: 'export-only-audit', task: brownfieldTask(), files: { [m.file]: m.before } });
+  // In the OS temp dir: an in-place run's repository is never inside the harness checkout.
+  const h = await makeHarness({ label: 'export-only-audit', task: brownfieldTask(), files: { [m.file]: m.before }, under: realpathSync(tmpdir()) });
   dirs.push(h.dir);
   h.ctx.state.initialHashes.set(m.file, sha(m.before));
   const ctx: RunContext = m.inPlace ? { ...h.ctx, inPlace: { repoTop: h.dir, branch: 'fix/x' }, runner: { kind: 'vitest', name: 'vitest 5.0.3', supported: true } } : h.ctx;
