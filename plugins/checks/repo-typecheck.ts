@@ -30,24 +30,35 @@ function toPosix(p: string): string {
   return sep === '/' ? p : p.split(sep).join('/');
 }
 
-interface Project {
+/** A project the repository's type check runs `tsc --noEmit -p` on. */
+export interface Project {
   config: string;
   incremental: boolean;
+  /** The config as parsed by this call: its options and the files its `files`/`include` list now. */
+  parsed: ts.ParsedCommandLine;
 }
 
+/**
+ * What projectsOf reads configs through. The gate leaves it out (ts.sys); an in-process caller over
+ * agent-written code passes a fenced host (typecheck-feedback: createTsFence's host).
+ */
+export type ConfigHost = ts.ParseConfigFileHost & { directoryExists(path: string): boolean };
+
 /** tsconfig.json, or every project it references when it is a solution-style config (files: [] + references). */
-export function projectsOf(root: string): { projects: Project[]; problem?: string } {
+export function projectsOf(root: string, host?: ConfigHost): { projects: Project[]; problem?: string } {
+  const sys = (): ts.ParseConfigFileHost => host ?? { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined };
+  const exists = host === undefined ? existsSync : (p: string): boolean => host.fileExists(p) || host.directoryExists(p);
   const top = join(root, 'tsconfig.json');
-  if (!existsSync(top)) return { projects: [], problem: 'no tsconfig.json at the repository root' };
-  const parsed = ts.getParsedCommandLineOfConfigFile(top, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined });
+  if (!exists(top)) return { projects: [], problem: 'no tsconfig.json at the repository root' };
+  const parsed = ts.getParsedCommandLineOfConfigFile(top, {}, sys());
   if (parsed === undefined) return { projects: [], problem: 'tsconfig.json cannot be read' };
   const refs = parsed.projectReferences ?? [];
-  const project = (config: string, p: ts.ParsedCommandLine): Project => ({ config, incremental: p.options.incremental === true || p.options.composite === true });
+  const project = (config: string, p: ts.ParsedCommandLine): Project => ({ config, incremental: p.options.incremental === true || p.options.composite === true, parsed: p });
   if (refs.length > 0 && parsed.fileNames.length === 0) {
     const out: Project[] = [];
     for (const r of refs) {
-      const cfg = existsSync(r.path) && !r.path.endsWith('.json') ? join(r.path, 'tsconfig.json') : r.path;
-      const sub = ts.getParsedCommandLineOfConfigFile(cfg, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined });
+      const cfg = exists(r.path) && !r.path.endsWith('.json') ? join(r.path, 'tsconfig.json') : r.path;
+      const sub = ts.getParsedCommandLineOfConfigFile(cfg, {}, sys());
       if (sub === undefined) return { projects: [], problem: `referenced ${relative(root, cfg)} cannot be read` };
       out.push(project(cfg, sub));
     }
