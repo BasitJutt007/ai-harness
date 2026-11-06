@@ -82,6 +82,8 @@ const GUTTER_CELLS = [...MODEL_GUTTER].reduce((n, ch) => n + cellWidth(ch), 0);
 const CONTINUE = '  ';
 /** Tab stops when a tab is expanded on a terminal. */
 const TAB = 8;
+/** The fewest columns one-line text is clipped to (Ui.width), however narrow the terminal. */
+const MIN_WIDTH = 40;
 /** A colour sequence the harness kept in a rendered line (no width on screen). */
 const SGR_AT = /^\u001b\[[0-9;]*m/;
 
@@ -246,12 +248,13 @@ export class Ui {
   ) {}
 
   /**
-   * The usable line width, what one-line text is clipped to: the columns rows break at (wrapAt: the
-   * terminal's, or 80 on a terminal that reports none) when that is 40 or more, else 100 (a pipe).
+   * The usable line width, what one-line text is clipped to: on a terminal, the columns rows break at
+   * (wrapAt: its own, or 80 when it reports none), and never fewer than 40, so a summary clipped for a
+   * very narrow terminal still says something (it continues on an indented row); on a pipe, 100.
    */
   get width(): number {
     const w = this.wrapAt;
-    return w !== Infinity && w >= 40 ? w : 100;
+    return w === Infinity ? 100 : Math.max(MIN_WIDTH, w);
   }
 
   /**

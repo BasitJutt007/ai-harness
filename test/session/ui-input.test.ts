@@ -497,6 +497,28 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
     expect(wide.text().trimEnd().split('\n')).toHaveLength(1);
     expect(cells(wide.text().trimEnd())).toBe(120);
   });
+
+  it('a terminal narrower than 40 columns clips one-line text to 40 (not to the 100 of a pipe): a tool line takes two rows, not four', () => {
+    const at = (columns: number | undefined, isTTY = true): number => new Ui({ write: () => undefined, isTTY, columns }, false).width;
+    for (const columns of [1, 20, 30, 39, 40]) expect(at(columns), String(columns)).toBe(40);
+    expect(at(41)).toBe(41);
+    expect(at(120)).toBe(120);
+    expect(at(0)).toBe(80);
+    expect(at(undefined, false)).toBe(100);
+    const long = `src/${'deep/'.repeat(40)}file.ts (lines 1-120 of 300)`;
+    const t = capture(true, 30);
+    new Ui(t.out, false, () => 'read').event(ev({ source: 'read_file', decision: 'pass', message: long }));
+    const rows = t.text().replace(/\n$/, '').split('\n');
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => cells(r) <= 30)).toBe(true);
+    expect(rows[1]?.startsWith('  ')).toBe(true);
+    // 40 columns of text in all: the row and its continuation, without the indent.
+    expect(cells(`${rows[0] ?? ''}${(rows[1] ?? '').slice(2)}`)).toBe(40);
+    // The twin: a 40-column terminal shows the same 40 columns on one row.
+    const forty = capture(true, 40);
+    new Ui(forty.out, false, () => 'read').event(ev({ source: 'read_file', decision: 'pass', message: long }));
+    expect(forty.text()).toBe(`${rows[0] ?? ''}${(rows[1] ?? '').slice(2)}\n`);
+  });
 });
 
 describe('on a colour terminal, colour is the harness\'s only', () => {
