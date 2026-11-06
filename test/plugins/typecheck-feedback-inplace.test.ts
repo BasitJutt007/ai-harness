@@ -373,6 +373,16 @@ describe("typecheck-feedback in place: the defaults of the repository's TypeScri
     expect(found('6.0.3', { ...script, 'tsconfig.json': project(MODERN) }, 'src/legacy.ts').r?.errors[0]).toBe(reserved);
   });
 
+  it('libReplacement unset: 5.x takes a lib from an @typescript/lib-* package when one is installed, 6.x ignores it', () => {
+    const replaced = {
+      '@typescript/lib-dom/package.json': '{ "name": "@typescript/lib-dom", "version": "1.0.0", "types": "index.d.ts" }\n',
+      '@typescript/lib-dom/index.d.ts': 'declare const __PINNED_DOM__: string;\n',
+    };
+    const files = { 'tsconfig.json': project({ ...MODERN, lib: ['ES2022', 'DOM'], strict: true }), 'src/page.ts': 'export const marker: string = __PINNED_DOM__;\n' };
+    expect(found('5.9.3', files, 'src/page.ts', replaced).r).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
+    expect(found('6.0.3', files, 'src/page.ts', replaced).r?.errors).toEqual(["src/page.ts:1:31 TS2304 Cannot find name '__PINNED_DOM__'."]);
+  });
+
   it('target unset: 5.x compiles for ES5 (from a Node module, its matching target), so a private field is an error; 6.x targets the latest', () => {
     const counter = { 'src/counter.ts': 'export class Counter {\n  #n = 0;\n  next(): number {\n    return ++this.#n;\n  }\n}\n' };
     const es5 = 'src/counter.ts:2:3 TS18028 Private identifiers are only available when targeting ECMAScript 2015 and higher.';

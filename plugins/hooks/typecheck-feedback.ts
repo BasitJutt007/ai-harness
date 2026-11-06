@@ -289,8 +289,8 @@ const TS5_INTEROP_MODULES: ReadonlySet<ts.ModuleKind> = new Set([ts.ModuleKind.N
 /**
  * A project's options as `tsc --noEmit -p <config>` of the repository's TypeScript uses them. The harness's
  * TypeScript 6 changed defaults the repository's older TypeScript still has, so an option the config leaves
- * unset gets the pre-6.0 default: strict off, every visible @types package, unchecked side-effect imports;
- * target, module, moduleResolution, esModuleInterop and allowSyntheticDefaultImports derived as 5.x derives
+ * unset gets the pre-6.0 default: strict off, every visible @types package, unchecked side-effect imports,
+ * lib replacement packages (@typescript/lib-dom) honoured; target, module, moduleResolution, esModuleInterop and allowSyntheticDefaultImports derived as 5.x derives
  * them (ES5, CommonJS or ES2015, Node10 or Classic, no interop outside the Node modes); and no rootDir check
  * (5.x defaults rootDir to the files' common directory, which holds them all, where 6.0 takes the config's
  * directory, so a config in a subdirectory that includes ../src fails it on every file; the file system root
@@ -308,6 +308,7 @@ export function repoCompilerOptions(options: ts.CompilerOptions, repoMajor: numb
     out.alwaysStrict ??= options.strict === true;
     out.noUncheckedSideEffectImports ??= false;
     out.types ??= ['*'];
+    out.libReplacement ??= true;
     out.target ??= ts5Target(options);
     out.module ??= ts5Module(options);
     out.moduleResolution ??= ts5Resolution(options);
