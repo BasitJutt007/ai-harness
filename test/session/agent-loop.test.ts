@@ -6,10 +6,12 @@
  *     with nothing introduced, no standards reason at all;
  *   - a turn that ends without finish on a NOT DONE the agent can act on continues by itself with the
  *     verdict's reasons, and the agent's fix ends in "Work completed"; never on UNPROVEN, with a proposal
- *     pending, without progress, past the limit (read-only, Ctrl-C, the budget and the spend cap: the
- *     decision's own twins);
+ *     pending, without progress (a finding that only moved is none), past the limit, on a standards
+ *     failure made only of a check that crashed now, after Ctrl-C during the gates, after a stuck turn
+ *     (read-only, the budget and the spend cap: the decision's own twins);
  *   - the same pre-tool refusal four times in one owner message ends the turn and tells the owner the
- *     agent is stuck; three and then progress goes on; refusals for other paths or reasons never add up.
+ *     agent is stuck, however the path is spelled, for path-guard and observed-red alike; three and then
+ *     progress goes on; refusals for other files or reasons never add up.
  */
 import { existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
