@@ -110,6 +110,8 @@ describe.skipIf(detectMechanism() === 'none' && isolationInfo().mode === 'auto')
   it('red before the source edit, then green', () => {
     expect(out).toMatch(/✎ write_file wrote test\/greeting-trim\.test\.ts/);
     expect(out).toMatch(/● run_tests .*1 failed/);
+    // A red test is the model's to act on, never the environment's: the turn goes on to the edit.
+    expect(out).not.toMatch(/⏹ the agent stopped/);
     expect(out).toMatch(/✎ edit_file edited src\/greeting\.ts \(\+1 −1\)/);
     expect(out).toMatch(/● run_tests .*2 passed/);
     expect(out).toMatch(/◆ finish accepted by the gates/);

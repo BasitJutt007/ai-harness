@@ -41,7 +41,7 @@ import { runAgent, type AgentResult } from '../core/loop.ts';
 import { toolSpecs } from '../core/registry.ts';
 import { buildContext, JIT_MODE, loadRegistryOrThrow, targetProfile } from '../core/run.ts';
 import { newRunState, RunStore, serializeState } from '../core/run-store.ts';
-import { isolationInfo, sandboxMode, setConfinedRoot, setSandboxMode, type IsolationInfo } from '../core/sandbox.ts';
+import { isolationInfo, isolationUnavailable, sandboxMode, setConfinedRoot, setSandboxMode, type IsolationInfo } from '../core/sandbox.ts';
 import { modelAllowed, modelPolicyVerdict, normalizeModel, SpendMeter, spendLine, usd } from '../core/spend.ts';
 import { acquireCheckoutLock, repoStateDir, type RepoStateDir } from '../core/state-home.ts';
 import { defaultScopeAllow, profileRecord, type TargetProfile } from '../core/target.ts';
@@ -210,6 +210,48 @@ export function pendingProposalHook(pending: () => string | null): PluginRecord<
   };
 }
 
+/** The start of the message exec raises when no sandbox can confine a command (sandbox.ts isolationUnavailable). */
+const NO_ISOLATION = isolationUnavailable().message.split(':')[0] ?? 'execution isolation unavailable';
+
+/**
+ * Why a run_tests result is the environment's failure, not something the model can fix (null: it is
+ * not): the repository's runner is unsupported or not installed (tests "not run (UNPROVEN)"), or no
+ * sandbox can confine the run. A red test, a runner error or a refused argument is the model's to fix.
+ */
+export function testEnvironmentProblem(result: ToolResult): string | null {
+  if (result.ok) return null;
+  const first = (result.summary.split('\n')[0] ?? '').trim();
+  const notRun = /^tests: not run \(UNPROVEN\): (.+)$/.exec(first);
+  if (notRun !== null) return `the repository's tests cannot run here: ${notRun[1] ?? 'no supported runner'}`;
+  if (result.summary.includes(NO_ISOLATION)) return `the tests cannot run here: ${NO_ISOLATION} (no sandbox confines them on this machine)`;
+  return null;
+}
+
+/**
+ * A session-only post-tool hook on run_tests: a failure the environment caused (testEnvironmentProblem)
+ * tells the model, in the tool result itself, to stop and report, and ends its turn (`stop`).
+ */
+export function environmentHook(stop: (reason: string) => void): PluginRecord<HookPlugin> {
+  return {
+    plugin: {
+      kind: 'hook',
+      name: 'session-environment',
+      description: 'Ends the model\'s turn when run_tests fails for a reason it cannot fix (the runner, the sandbox).',
+      events: ['post_tool'],
+      tools: ['run_tests'],
+      async run(event) {
+        if (event.event !== 'post_tool') return { decision: 'pass' };
+        const why = testEnvironmentProblem(event.result);
+        if (why === null) return { decision: 'pass' };
+        stop(why);
+        return { decision: 'record', note: `${why}. This is not something you can fix: do not retry it. Stop, tell the owner what is wrong and what they can do (for example install the repository's dependencies), and end your turn.` };
+      },
+    },
+    file: 'src/session/session.ts',
+    sha256: '0'.repeat(64),
+  };
+}
+
 /** Remove the run-start copies (initial/) of every session but the newest `keep` (and `current`). */
 export function pruneSessionCopies(sessionsDir: string, current: string, keep: number = KEEP_SESSION_COPIES): string[] {
   let names: string[];
@@ -343,6 +385,11 @@ class Session {
   /** The slug of the proposal awaiting the owner's reply (null: none). */
   get pendingSlug(): string | null {
     return this.pending?.slug ?? null;
+  }
+
+  /** A failure the model cannot fix (environmentHook): its turn ends after this tool turn. */
+  environmentStop(reason: string): void {
+    this.stop ??= reason;
   }
 
   /**
@@ -1067,7 +1114,16 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
       config,
       // The registered hooks, then no write while a proposal awaits its reply, then the session's lazy
       // run-start copy (only for a write every hook passed).
-      registry: { ...registry, hooks: [...registry.hooks, pendingProposalHook(() => session?.pendingSlug ?? null), initialCopyHook({ runDir, top, baseSha, exec, state: () => state })] },
+      registry: {
+        ...registry,
+        hooks: [
+          ...registry.hooks,
+          pendingProposalHook(() => session?.pendingSlug ?? null),
+          initialCopyHook({ runDir, top, baseSha, exec, state: () => state }),
+          // A run_tests failure the environment caused ends the model's turn (post_tool, run_tests only).
+          environmentHook((why) => session?.environmentStop(why)),
+        ],
+      },
       exec,
       inPlace: { repoTop: top, branch },
       session: port,

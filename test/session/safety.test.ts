@@ -23,12 +23,12 @@ import { HARNESS_ROOT, loadConfig } from '../../src/core/config.ts';
 import { appendLedger, itemPaths, itemStatus, readLedger } from '../../src/core/items.ts';
 import { targetProfile } from '../../src/core/run.ts';
 import { newRunState } from '../../src/core/run-store.ts';
-import { detectMechanism } from '../../src/core/sandbox.ts';
+import { detectMechanism, isolationUnavailable } from '../../src/core/sandbox.ts';
 import { exec as coreExec } from '../../src/core/exec.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import type { RunContext } from '../../src/core/types.ts';
 import { sessionSystemPrompt } from '../../src/session/prompt.ts';
-import { initialCopyHook, pruneSessionCopies, runSession } from '../../src/session/session.ts';
+import { initialCopyHook, pruneSessionCopies, runSession, testEnvironmentProblem } from '../../src/session/session.ts';
 import { ScriptedInput } from '../../src/session/input.ts';
 import { BASELINE, calls, fakeRemote, git, ledgerTypes, proposal, realRegistry, registryWithGates, runScripted, SessionDriver, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
 
@@ -311,6 +311,48 @@ describe('a refusal the model cannot fix ends its turn', () => {
     const ran = await runScripted(r, [text('hi')], ['hello']);
     const offered = (ran.driver.requests[0]?.tools ?? []).map((t) => t.name);
     for (const t of ['propose_contract', 'write_file', 'edit_file', 'read_file']) expect(offered, t).toContain(t);
+  });
+
+  it('run_tests where the repository\'s runner is not installed: the tool result tells the model to stop, the turn ends, the owner is told', async () => {
+    const jest = webRepo({ extra: { 'package.json': `${JSON.stringify({ name: 'jest-web', private: true, scripts: { test: 'jest' }, devDependencies: { jest: '^29.7.0' } }, null, 2)}\n` } });
+    try {
+      const ran = await runScripted(
+        jest,
+        [calls(['propose_contract', proposal()]), calls(['run_tests', {}]), text('never asked in that turn'), text('The tests cannot run until the dependencies are installed.')],
+        ['fix the greeting', 'yes', 'what happened?'],
+        { registry: await registryWithGates() },
+      );
+      expect(ran.out).toMatch(/⏹ the agent stopped: the repository's tests cannot run here: unsupported test runner jest: jest is not installed/);
+      // The turn ended right after run_tests: the next request is the owner's next message.
+      expect(ran.driver.requests).toHaveLength(3);
+      const told = JSON.stringify(ran.driver.requests[2]?.messages ?? []);
+      expect(told).toContain('[session-environment] the repository');
+      expect(told).toContain('This is not something you can fix: do not retry it.');
+      expect(told).toContain('[harness] Your last turn was ended by the harness');
+    } finally {
+      jest.cleanup();
+    }
+  });
+
+  it('twin: a run_tests refusal the model can fix (a runner option for a file) leaves the turn running', async () => {
+    const ran = await runScripted(
+      r,
+      [calls(['propose_contract', proposal()]), calls(['run_tests', { files: ['--reporter=./x.ts'] }]), text('I will pass a test file instead.')],
+      ['fix the greeting', 'yes'],
+      { registry: await registryWithGates() },
+    );
+    expect(ran.out).toMatch(/run_tests: "--reporter=\.\/x\.ts" looks like a runner option/);
+    expect(ran.out).not.toMatch(/⏹ the agent stopped/);
+    expect(ran.driver.used).toBe(3);
+  });
+
+  it('which run_tests failures are the environment\'s: an unsupported runner and no sandbox; a red test, a runner error or a refused argument are not', () => {
+    expect(testEnvironmentProblem({ ok: false, summary: "tests: not run (UNPROVEN): unsupported test runner jest: jest is not installed in the target's node_modules (the harness does not ship it)" })).toMatch(/^the repository's tests cannot run here: unsupported test runner jest/);
+    expect(testEnvironmentProblem({ ok: false, summary: `tool run_tests failed: ${isolationUnavailable().message}` })).toMatch(/^the tests cannot run here: execution isolation unavailable/);
+    for (const summary of ['tests: 1 failed, 0 passed (1) in 1 files', 'tests: runner error (exit 1): Cannot find module x\nlog: logs/x', 'run_tests: "--x" looks like a runner option; pass test file paths only. Nothing was run.']) {
+      expect(testEnvironmentProblem({ ok: false, summary }), summary).toBeNull();
+    }
+    expect(testEnvironmentProblem({ ok: true, summary: 'tests: 2 passed (2) in 1 files' })).toBeNull();
   });
 
   it('twin: a refusal the model can fix (a denied path) leaves the turn running: it writes the allowed file next', async () => {
