@@ -32,7 +32,7 @@ import { HARNESS_ROOT } from '../core/config.ts';
 import { passThroughEnv } from '../core/exec.ts';
 import { requiredGates, runGates } from '../core/gates.ts';
 import { branchVerdict } from '../core/inplace.ts';
-import { appendLedger, itemPaths, itemStatus } from '../core/items.ts';
+import { appendShipped, closedItemProblem, itemPaths, itemStatus } from '../core/items.ts';
 import { formatCommand, ghStatus, NO_HOOKS, scanDiffForSecrets, SHIP_ENV_PASS_THROUGH, shipText } from '../core/ship.ts';
 import type { Exec, ExecResult, RunContext } from '../core/types.ts';
 import { isProtectedBranch, normalizeBranch } from '../core/workspace.ts';
@@ -184,6 +184,8 @@ export async function sessionShip(o: SessionShipOptions): Promise<SessionShipRes
   const status = itemStatus(item.root, item.slug);
   if (!status.editable || status.contract.parse === null) return refuse(`item ${item.slug} is not approved (${status.stage}): ${status.lines.join(' | ')}`);
   if (status.contract.parse.hash !== item.contractHash) return refuse(`docs/contracts/${item.slug}.md changed after it was approved: propose it again`);
+  const closed = closedItemProblem(status.ledger, item.slug);
+  if (closed !== null) return refuse(`${closed}: nothing was shipped`);
   const base = (status.contract.parse.fields.Base ?? '').trim();
   const bv = await branchVerdict(top, ctx.config, ctx.exec);
   if (!bv.writable) return refuse(`${bv.reason}; ${bv.fix}`);
@@ -206,8 +208,12 @@ export async function sessionShip(o: SessionShipOptions): Promise<SessionShipRes
     if (pr.code !== 0) return committed([`pushed ${branch} to ${remote}; gh pr create failed: ${firstLine(pr)}`]);
     const url = [...pr.stdout.matchAll(/https?:\/\/\S+/g)].map((m) => m[0]).pop();
     // 9. The run that cleared it, then the shipped entry: close accepts a shipped line only after a DONE run of this text.
-    appendLedger(paths.ledger, { type: 'run', runId: o.sessionId, status: 'done', verdict: 'DONE', contractHash: item.contractHash });
-    appendLedger(paths.ledger, { type: 'shipped', runId: o.sessionId, branch, headSha: sha, base, prUrl: url ?? null });
+    //    The same writer file mode uses (items.ts appendShipped): it refuses a closed item, a withdrawn yes or a broken ledger.
+    try {
+      appendShipped(paths.ledger, { runId: o.sessionId, status: 'done', verdict: 'DONE', contractHash: item.contractHash }, { runId: o.sessionId, branch, headSha: sha, base, prUrl: url ?? null });
+    } catch (e) {
+      return { ...committed([`pushed ${branch} and opened ${url ?? 'the PR'}, but the item ledger did not take the shipped entry: ${(e as Error).message}`]), ...(url !== undefined ? { prUrl: url } : {}) };
+    }
     return { status: 'shipped', branch, commit: sha, ...(url !== undefined ? { prUrl: url } : {}), reasons: url !== undefined ? [] : ['gh pr create succeeded but printed no URL'], commands };
   };
   const paths = itemPaths(item.root, item.slug);

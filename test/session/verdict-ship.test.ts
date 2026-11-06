@@ -10,7 +10,8 @@
  * the item records on the current branch, pushes it without force, opens the PR against the contract's
  * Base (push and gh faked: nothing leaves), and records the session's DONE run before the shipped entry.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendLedger, type MetricReading } from '../../src/core/items.ts';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -25,6 +26,16 @@ beforeEach(() => {
 afterEach(() => r.cleanup());
 
 const TEST_FILE = 'test/greeting-name.test.ts';
+
+/** The ledger of `slug` under a state home (repos/<id>/items/<slug>/ledger.jsonl). */
+function findLedger(home: string, slug: string): string {
+  const repos = join(home, 'repos');
+  for (const id of readdirSync(repos)) {
+    const f = join(repos, id, 'items', slug, 'ledger.jsonl');
+    if (existsSync(f)) return f;
+  }
+  throw new Error(`no ledger for ${slug} under ${repos}`);
+}
 const approveWriteFinish = (over: Record<string, unknown> = {}) => [
   calls(['propose_contract', proposal(over)]),
   calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]),
@@ -155,6 +166,24 @@ describe('/ship', () => {
       expect(committed.includes(p), p).toBe(false);
     }
     expect(committed).toContain('<state-dir>/sessions/');
+  });
+
+  it('refuses an item that closed after its DONE verdict: nothing is committed, pushed or recorded (the open item ships: the test above)', async () => {
+    git(r.repo, 'remote', 'add', 'origin', 'git@github.com:acme/tiny-web.git');
+    const seen: string[] = [];
+    // The owner closes the item from another terminal between the verdict and /ship.
+    const closeIt = (): string => {
+      const file = findLedger(r.home, 'greeting-name');
+      const reading = { value: 1, sha: 'abc', ref: 'development', command: 'node metrics/x.mjs', scriptSha256: 'f'.repeat(64), stdoutSha256: 'e'.repeat(64), excerpt: '' } as unknown as MetricReading;
+      appendLedger(file, { type: 'closed', before: reading, after: reading, prUrl: 'https://example.test/pr/1', mergeSha: 'abc', mergedBy: 'someone', closeRunId: 'c1' });
+      return '/ship';
+    };
+    const ran = await runScripted(r, approveWriteFinish(), ['fix the greeting', 'yes', closeIt], { registry: await registryWithGates(), exec: fakeRemote(seen) });
+    expect(ran.out).toContain(WORK_COMPLETED);
+    expect(ran.out).toMatch(/✗ ship refused: item "greeting-name" is closed \(ledger seq \d+\).*nothing was shipped/);
+    expect(seen.some((c) => c.includes(' push ') || c.startsWith('gh pr create') || c.includes(' commit '))).toBe(false);
+    expect(git(r.repo, 'log', '--oneline').split('\n')).toHaveLength(1);
+    expect(ledgerTypes(ran, 'greeting-name').slice(-1)).toEqual(['closed']);
   });
 
   it('refuses a change the agent did not make (it would ship unjudged), and stages nothing', async () => {
