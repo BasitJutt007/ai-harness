@@ -8,11 +8,12 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { exec as coreExec } from '../../src/core/exec.ts';
 import { cmdItem } from '../../src/core/item-cli.ts';
 import { acquireCheckoutLock, repoStateDir } from '../../src/core/state-home.ts';
 import { ScriptedInput } from '../../src/session/input.ts';
 import { runSession } from '../../src/session/session.ts';
-import type { ModelResponse } from '../../src/core/types.ts';
+import type { Exec, ModelResponse } from '../../src/core/types.ts';
 import { calls, git, ledgerTypes, proposal, realRegistry, registryWithGates, runScripted, SessionDriver, TEST_BODY, text, transcript, webRepo, type WebRepo } from './helpers.ts';
 
 let r: WebRepo;
@@ -94,6 +95,48 @@ describe('Ctrl-C', () => {
     expect(ran.input.prompts).toHaveLength(4);
     expect(ran.runJson['status']).toBe('ended');
   });
+
+  it('during /status, /diff, /gates, /import and /ship a handler hears it and says what finishes first; every command completes', async () => {
+    let armed = false;
+    let input: ScriptedInput | null = null;
+    const fired: boolean[] = [];
+    // The first git command a command runs plays a Ctrl-C (nothing listening would have ended the process).
+    const exec: Exec = (cmd, args, o) => {
+      if (armed && cmd === 'git') {
+        armed = false;
+        fired.push(input?.fireInterrupt() ?? false);
+      }
+      return coreExec(cmd, args, o);
+    };
+    const arm = (line: string) => (): string => {
+      armed = true;
+      return line;
+    };
+    input = new ScriptedInput(['fix it', 'yes', arm('/status'), arm('/diff'), arm('/gates'), arm('/ship'), arm('/import nowhere.md'), 'hello'], 'tty');
+    const ran = await runScripted(r, [calls(['propose_contract', proposal()]), calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]), text('written'), text('still here')], [], { input, exec, registry: await registryWithGates() });
+    expect(fired).toEqual([true, true, true, true, true]);
+    for (const what of ['/status', '/diff', 'the gates', '/ship', '/import']) expect(ran.out).toContain(`finishing ${what} first; Ctrl-C again after it ends to exit`);
+    expect(ran.out).toMatch(/item {5}greeting-name {2}approved/);
+    expect(ran.out).toContain(`new file ${TEST_FILE}`);
+    expect(ran.out).toMatch(/● committed [0-9a-f]{12} on fix\/greeting/);
+    // /ship committed with no remote to push to: the item is held, so another slug is refused before its file is read.
+    expect(ran.out).toMatch(/✗ not proposed: item greeting-name was committed \([0-9a-f]{12}\) but not shipped \(no remote "origin"/);
+    expect(ran.out).toContain('still here');
+    expect(ran.runJson['status']).toBe('ended');
+  });
+
+  it('a Ctrl-C while the harness was busy counts as the first: one more on the empty prompt exits (twin of "once only warns")', async () => {
+    let input: ScriptedInput | null = null;
+    const busy: Exec = (cmd, args, o) => {
+      if (cmd === 'git' && args.includes('symbolic-ref') && input !== null && input.prompts.length === 1) input.fireInterrupt();
+      return coreExec(cmd, args, o);
+    };
+    input = new ScriptedInput(['/status', { interrupt: true }, 'never read'], 'tty');
+    const ran = await runScripted(r, [], [], { input, exec: busy });
+    expect(ran.out).toContain('finishing /status first; Ctrl-C again after it ends to exit');
+    expect(ran.input.prompts).toHaveLength(2);
+    expect(ran.runJson['status']).toBe('ended');
+  });
 });
 
 describe('secrets stay out of reach', () => {
@@ -122,13 +165,13 @@ describe('secrets stay out of reach', () => {
 });
 
 describe('read-only checkouts', () => {
-  it('a protected branch is read-only, says why and the fix; propose_contract is refused', async () => {
+  it('a protected branch is read-only, says why and the fix; propose_contract is not offered (a call is an unknown tool)', async () => {
     const main = webRepo({ branch: 'main' });
     try {
       const ran = await runScripted(main, [calls(['propose_contract', proposal()]), text('Read-only here.')], ['fix the greeting']);
       expect(ran.out).toMatch(/branch main \(read-only\)/);
       expect(ran.out).toContain('read-only: the branch main is protected (harness.config.json protectedBranches); create a working branch: git switch -c <name> (from main). Chat and reading work; every edit is refused.');
-      expect(ran.out).toMatch(/✗ propose_contract: propose_contract refused: this session is read-only/);
+      expect(ran.out).toMatch(/✗ propose_contract: unknown tool/);
       expect(ledgerTypes(ran, 'greeting-name')).toEqual([]);
       expect(ran.runJson).toMatchObject({ writable: false, readOnly: { reason: 'the branch main is protected (harness.config.json protectedBranches)' } });
     } finally {
@@ -194,7 +237,7 @@ describe('starting', () => {
 
   it('a piped owner line is echoed, so a piped transcript reads in order (a terminal echoes it itself)', async () => {
     const piped = await runScripted(r, [text('Hi.')], ['hello'], { channel: 'pipe' });
-    expect(piped.out).toMatch(/› hello\nHi\./);
+    expect(piped.out).toMatch(/› hello\n┆ Hi\./);
     const typed = await runScripted(r, [text('Hi.')], ['hello']);
     expect(typed.out).not.toContain('› hello');
   });

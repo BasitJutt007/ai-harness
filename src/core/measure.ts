@@ -15,10 +15,18 @@
  * - It runs twice. Both runs must exit 0 and print the same number as their last stdout line; a
  *   non-zero exit, a timeout, a non-numeric last line or two different numbers is no reading (fail
  *   closed), and the reason says which.
+ * - What the script prints never leaves this function: a failure says how it failed ("exited 3",
+ *   "printed no number"), never what it printed, and a reading holds the number, the commit, the
+ *   script's and the output's sha256 and the confinement, never the output (`excerpt` is empty). A
+ *   script may be model-written (an interactive session): its output must reach neither the model
+ *   nor a record that is committed and pushed.
+ * - No `.env*` file of the checked-out commit is there when it runs: every one is removed from the
+ *   measure worktree first (and a symlink that points at one), and a reading is refused when one
+ *   cannot be removed.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import { exec as coreExec } from './exec.ts';
 import type { MeasureSpec, MetricReading } from './items.ts';
 import { linkDependencies } from './target.ts';
@@ -27,11 +35,56 @@ import type { Exec, SandboxMechanism } from './types.ts';
 export const MEASURE_TIMEOUT_MS = 300_000;
 export const NUMBER_RE = /^-?\d+(?:\.\d+)?$/;
 
+/** How a Measure run failed (what a caller may repeat to the model: never the output itself). */
+export type MeasureFailure = 'setup' | 'env-files' | 'timeout' | 'exit' | 'no-number' | 'nondeterministic';
+
 /**
  * A reading, or why there is none. `unproven` is set on a reading taken by a Measure that ran unconfined
- * (sandbox off or unavailable): it is recorded, and close refuses it (readingUnproven).
+ * (sandbox off or unavailable): it is recorded, and close refuses it (readingUnproven). A failure's
+ * `reason` never quotes the script's output; `failure` (and `code` for an exit) say how it failed.
  */
-export type MeasureResult = { ok: true; reading: MetricReading; unproven?: string } | { ok: false; reason: string };
+export type MeasureResult = { ok: true; reading: MetricReading; unproven?: string } | { ok: false; reason: string; failure?: MeasureFailure; code?: number | null };
+
+/**
+ * A `.env*` entry (file, directory or link) at any depth of a checked-out tree, or a symlink whose target
+ * is one; node_modules and .git are not walked. Paths relative to `tree`.
+ */
+export function envEntries(tree: string): string[] {
+  const out: string[] = [];
+  const realTree = realpathSync(tree);
+  const walk = (dir: string): void => {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const abs = join(dir, name);
+      if (/^\.env/i.test(name)) {
+        out.push(relative(tree, abs));
+        continue;
+      }
+      if (name === 'node_modules' || name.toLowerCase() === '.git') continue;
+      const st = lstatSync(abs, { throwIfNoEntry: false });
+      if (st === undefined) continue;
+      if (st.isSymbolicLink()) {
+        // A link is judged by where it leads (inside the tree or out of it): a .env* anywhere on that path.
+        let target: string | null = null;
+        try {
+          target = realpathSync(abs);
+        } catch {
+          target = null; // dangling: it reads nothing
+        }
+        if (target !== null && relative(realTree, target).split(sep).concat(target.split(sep)).some((seg) => /^\.env/i.test(seg))) out.push(relative(tree, abs));
+        continue;
+      }
+      if (st.isDirectory()) walk(abs);
+    }
+  };
+  walk(tree);
+  return out.sort();
+}
 
 /** The sandbox mechanisms that confine a Measure run; any other confinement value is no confinement. */
 const CONFINING: ReadonlySet<string> = new Set<SandboxMechanism>(['sandbox-exec', 'bwrap']);
@@ -117,15 +170,15 @@ export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult
   if (!found.ok) {
     // One root that is not the harness: say which (measureScriptPath's single-root wording names the harness).
     const alone = opts.harnessMetrics !== true && resolve(own) !== resolve(opts.harnessRoot);
-    return { ok: false, reason: alone && !/outside metrics/.test(found.reason) ? `Measure script ${opts.measure.script} does not exist in metrics/ under the items root (${own})` : found.reason };
+    return { ok: false, failure: 'setup', reason: alone && !/outside metrics/.test(found.reason) ? `Measure script ${opts.measure.script} does not exist in metrics/ under the items root (${own})` : found.reason };
   }
   const script = found.path;
 
   const rev = await run('git', ['-C', opts.repoDir, 'rev-parse', '--verify', `${opts.ref}^{commit}`], { cwd: opts.repoDir });
-  if (rev.code !== 0) return { ok: false, reason: `cannot resolve ${opts.ref} in ${opts.repoDir}: ${(rev.stderr || rev.stdout).trim()}` };
+  if (rev.code !== 0) return { ok: false, failure: 'setup', reason: `cannot resolve ${opts.ref} in ${opts.repoDir}: ${(rev.stderr || rev.stdout).trim()}` };
   const sha = rev.stdout.trim();
   const top = await run('git', ['-C', opts.repoDir, 'rev-parse', '--show-toplevel'], { cwd: opts.repoDir });
-  if (top.code !== 0) return { ok: false, reason: `${opts.repoDir} is not a git repository` };
+  if (top.code !== 0) return { ok: false, failure: 'setup', reason: `${opts.repoDir} is not a git repository` };
   const repoTop = realpathSync(top.stdout.trim());
 
   const scratch = join(opts.harnessRoot, '.harness', 'measure', `${opts.label}-${sha.slice(0, 12)}-${process.pid}-${Date.now()}`);
@@ -137,7 +190,11 @@ export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult
   copyFileSync(script, copy);
   try {
     const add = await run('git', ['-C', repoTop, 'worktree', 'add', '--detach', tree, sha], { cwd: repoTop });
-    if (add.code !== 0) return { ok: false, reason: `cannot check out ${sha.slice(0, 12)}: ${(add.stderr || add.stdout).trim()}` };
+    if (add.code !== 0) return { ok: false, failure: 'setup', reason: `cannot check out ${sha.slice(0, 12)}: ${(add.stderr || add.stdout).trim()}` };
+    // No secret of the commit is readable by the script: every .env* entry (and a link to one) goes first.
+    for (const rel of envEntries(tree)) rmSync(join(tree, rel), { recursive: true, force: true });
+    const left = envEntries(tree);
+    if (left.length > 0) return { ok: false, failure: 'env-files', reason: `the measure checkout at ${sha.slice(0, 12)} still holds ${left.slice(0, 3).join(', ')} after removing every .env* entry: no reading` };
     linkDependencies(repoTop, '.', tree);
 
     const values: number[] = [];
@@ -151,16 +208,17 @@ export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult
         sandbox: { writable: [tmp], network: 'none' },
       });
       confinement = r.sandbox ?? 'none';
-      if (r.timedOut) return { ok: false, reason: `Measure timed out after ${MEASURE_TIMEOUT_MS / 1000}s at ${sha.slice(0, 12)}` };
-      if (r.code !== 0) return { ok: false, reason: `Measure exited ${String(r.code)} at ${sha.slice(0, 12)}: ${(r.stderr || r.stdout).trim().split('\n').slice(-3).join(' | ')}` };
+      // What the script printed is never quoted: only how it failed.
+      if (r.timedOut) return { ok: false, failure: 'timeout', reason: `Measure timed out after ${MEASURE_TIMEOUT_MS / 1000}s at ${sha.slice(0, 12)}` };
+      if (r.code !== 0) return { ok: false, failure: 'exit', code: r.code, reason: `Measure exited ${String(r.code)} at ${sha.slice(0, 12)} (its output is not shown)` };
       const n = lastNumber(r.stdout);
-      if (n === null) return { ok: false, reason: `Measure printed no number on its last line at ${sha.slice(0, 12)} (got "${r.stdout.trim().split('\n').at(-1) ?? ''}")` };
+      if (n === null) return { ok: false, failure: 'no-number', reason: `Measure printed no number on its last line at ${sha.slice(0, 12)} (its output is not shown)` };
       values.push(n);
       stdout = r.stdout;
     }
-    if (values[0] !== values[1]) return { ok: false, reason: `Measure is not deterministic at ${sha.slice(0, 12)}: two runs printed ${String(values[0])} and ${String(values[1])}` };
-    const excerpt = stdout.trim().split('\n').slice(-6).join('\n');
-    const reading: MetricReading = { value: values[0] ?? Number.NaN, sha, ref: opts.ref, command: opts.measure.text, scriptSha256, stdoutSha256: sha256(stdout), excerpt, confinement };
+    if (values[0] !== values[1]) return { ok: false, failure: 'nondeterministic', reason: `Measure is not deterministic at ${sha.slice(0, 12)}: two runs printed ${String(values[0])} and ${String(values[1])}` };
+    // The number and the reading's metadata only: the output itself stays out of every record.
+    const reading: MetricReading = { value: values[0] ?? Number.NaN, sha, ref: opts.ref, command: opts.measure.text, scriptSha256, stdoutSha256: sha256(stdout), excerpt: '', confinement };
     const unproven = readingUnproven(reading);
     return { ok: true, reading, ...(unproven !== null ? { unproven } : {}) };
   } finally {

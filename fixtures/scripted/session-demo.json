@@ -1,5 +1,5 @@
 {
-  "description": "Interactive session demo (harness chat --driver scripted --driver-opt script=fixtures/scripted/session-demo.json) in the small web repo of fixtures/scripted/session-demo/README.md. Owner lines, in order: hello / names with spaces around them get extra spaces in the greeting, fix it / yes (typed at the terminal). The agent reads, proposes a contract, writes a failing test (red), fixes the source, runs the tests (green) and calls finish; the gates decide.",
+  "description": "Interactive session demo (harness chat --driver scripted --driver-opt script=fixtures/scripted/session-demo.json) in the small web repo of fixtures/scripted/session-demo/README.md. Owner lines, in order: hello / names with spaces around them get extra spaces in the greeting, fix it / yes (typed at the terminal). The agent reads and proposes a contract with a Measure script (the harness fills Repo, Base and Stakeholder, shows the script in full, and runs it for the before value only after the typed yes); then it writes a failing test (red), fixes the source, runs the tests (green) and calls finish; the gates decide.",
   "turns": [
     {
       "text": "Hi! I'm sf-harness, a governed coding agent. I can read this repository, explain it, and change it once you approve a contract. What would you like to do?",
@@ -21,7 +21,6 @@
             "slug": "greeting-trim",
             "problem": "greeting() keeps spaces around the name, so ' Ada ' is greeted as 'Hello,  Ada ' (src/greeting.ts line 2).",
             "owner": "web team",
-            "stakeholder": "the owner at this terminal",
             "metric": { "name": "greeting test files", "window": "per commit" },
             "scenarios": [{ "when": "greeting is called with a name that has spaces around it", "then": "it returns Hello, followed by the name without those spaces" }],
             "notIncluded": ["changing the greeting text itself", "validating empty names"],

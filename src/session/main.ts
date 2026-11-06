@@ -4,6 +4,7 @@
  */
 import type { ParsedArgs } from '../core/cli.ts';
 import { terminalInput } from './input.ts';
+import { stripControls } from './sanitize.ts';
 import { runSession } from './session.ts';
 import type { Output } from './ui.ts';
 
@@ -44,7 +45,7 @@ export async function runSessionCli(p: ParsedArgs, out: (line: string) => void):
       return stdout.columns;
     },
   };
-  const input = terminalInput({ onDropped: () => output.write('\n(the agent is working: that line was not sent. Ctrl-C interrupts the turn)\n') });
+  const input = terminalInput({ notify: (text) => output.write(`\n${stripControls(text)}\n`) });
   try {
     const r = await runSession({
       cwd: process.cwd(),

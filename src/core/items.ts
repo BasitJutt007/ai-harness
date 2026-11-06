@@ -206,6 +206,21 @@ export function parseMeasure(text: string): MeasureSpec | { error: string } {
 
 const SCENARIO_RE = /^\s*WHEN\s+(?<when>.+?)\s+THEN\s+(?<then>.+?)\s*$/;
 
+/**
+ * The control characters in `text` other than `allowed` (C0 and ESC, DEL, C1, the bidirectional
+ * overrides and isolates), as code points such as "U+001B", deduplicated; [] when there are none.
+ */
+export function controlChars(text: string, allowed = '\n\t'): string[] {
+  const found = new Set<string>();
+  for (const ch of text) {
+    if (allowed.includes(ch)) continue;
+    const c = ch.codePointAt(0) ?? 0;
+    const bad = c <= 0x1f || (c >= 0x7f && c <= 0x9f) || c === 0x61c || c === 0x200e || c === 0x200f || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069);
+    if (bad) found.add(`U+${c.toString(16).toUpperCase().padStart(4, '0')}`);
+  }
+  return [...found];
+}
+
 function normalizeForHash(lines: string[]): string {
   const out: string[] = [];
   for (const line of lines) {
@@ -312,6 +327,9 @@ export function parseContract(text: string): ContractParse {
   if (repo !== undefined && !isPlaceholder(repo) && !REPO_RE.test(repo)) problems.push(`Repo must be "<owner>/<name>", or "local:<name>" for a repository without a remote (got "${repo}")`);
   const base = fields.Base?.trim();
   if (base !== undefined && !isPlaceholder(base) && !/^[A-Za-z0-9._/-]+$/.test(base)) problems.push(`Base must be a branch name (got "${base}")`);
+  // What the stakeholder approves must read as it is: no ESC sequence, carriage return or bidi override.
+  const control = controlChars(lines.join('\n'));
+  if (control.length > 0) problems.push(`the contract contains control characters (${control.join(', ')}): remove them, a contract must read as it is`);
 
   const signedRaw = values.get('Signed');
   const signed = signedRaw === undefined ? null : signedRaw.join(' ').trim() || null;

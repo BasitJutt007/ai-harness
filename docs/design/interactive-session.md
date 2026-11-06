@@ -263,3 +263,36 @@ numbering in the transcript (a `cleared` marker separates the two conversations)
 before value is read at `origin/<Base>` when it exists locally, else `<Base>`, else the session's start
 commit (no fetch). The session write policy for any web repo and the proof tiers (build step 4) are not
 part of this step: the existing scope and observed-red rules apply.
+
+Session safety and UX (phase 3; each refusal has its paired twin in `test/session/`; where this table
+and the limits above differ, the table is current):
+
+| Piece | Where |
+|---|---|
+| Nothing the model wrote runs before the yes: propose_contract writes the contract and the Measure script (shown in full in the PROPOSAL box) and reads nothing; the before value is read after the typed yes and recorded as the ledger's `metric` entry (phase before) | `src/session/contract.ts` (`proposeDrafted`, `readBefore`), `Session.reply` in `src/session/session.ts`, `src/session/ui.ts` (`proposal`) |
+| A Measure's output reaches neither the model nor a record: failures say how (`exited N`, `printed no number`), a reading keeps the number and its metadata (`excerpt` empty) | `src/core/measure.ts` (`readMetric`, `MeasureFailure`), `readingFailureForModel` in `src/session/contract.ts`, `test/audit/measure-output.audit.ts` |
+| The measure checkout has no `.env*` entry (nor a link to one); a reading is refused if one remains | `envEntries` in `src/core/measure.ts` |
+| Base resolves only through `refs/remotes/origin/<base>` or `refs/heads/<base>` and must pass `git check-ref-format --branch` (no stash, revision or option) | `baseRef` in `src/session/contract.ts` |
+| A model-written Measure is refused where the sandbox is off or unavailable | `measureConfinement` in `src/session/session.ts` |
+| Stakeholder (and an empty Owner) from `git config user.name`, else the OS user; a Stakeholder the model sends is ignored and the tool result says so | `personName` in `src/session/contract.ts`, `plugins/tools/propose_contract.ts` |
+| A refused (re-)proposal writes nothing: every check runs first, the files go through temp files and are put back if the ledger refuses the entry | `replaceFiles` and `propose` in `src/session/contract.ts` |
+| No control character reaches the terminal (stream, tool, hook and gate lines, proposal box, diffs); a contract or a propose_contract field with one is refused; the model's prose has its own gutter (`┆`) so column 0 is the harness's | `src/session/sanitize.ts`, `src/session/ui.ts`, `controlChars` in `src/core/items.ts` (`parseContract`) |
+| A verdict after every turn that changes the tree (the same code as finish); leaving with unjudged files says UNPROVEN and names them | `Session.turn`, `Session.end` in `src/session/session.ts`, `src/session/verdict.ts` (`VerdictTrigger`) |
+| `/ship` ships only what a DONE verdict judged, byte for byte (git blob ids, checked before the ship gates and on the index), records the session's DONE `run` right before `shipped`, and keeps absolute local paths out of session.json, the commit and the PR | `src/session/ship.ts` (`treeFingerprint`, `scrubPaths`) |
+| Ctrl-C never ends a running session: every awaited command, the baseline and the before reading say what finishes first; exit only at startup; Ctrl-C on a half-typed line only clears it | `src/session/input.ts` (`terminalInput`), `Session.guarded` |
+| Pasted lines are one message (bracketed paste, else a burst window); lines typed while busy are dropped with one notice; a reply read clears the type-ahead | `src/session/input.ts` |
+| A second contract cannot take over the bound item's unshipped work (the same slug can be re-proposed) | `Session.takeOverProblem` |
+| Refusals the model cannot fix (sandbox off, commitlint missing, a read-only checkout, the branch moved) end its turn and are reported to the owner | `Session.stopTurn`, `ENVIRONMENT_HOOKS` in `src/session/session.ts` |
+| A session starts only with path-guard (it keeps writes off ignored and `.env*` files); the profile is computed in place (`targetProfile(ws, { inPlace: true })`); checkOptions reach the rule list; the read-only prompt offers no proposal | `runSession` in `src/session/session.ts`, `src/session/prompt.ts` |
+| State directories are 0700; run.json's `baseBranch` is the contract's Base (null before one); run-start content is copied lazily before a file's first write, and copies older than the last 5 sessions are pruned | `repoStateDir` in `src/core/state-home.ts`, `initialCopyHook` and `pruneSessionCopies` in `src/session/session.ts` |
+| Column 0 is the harness's on every screen row, not only at the model's newlines: when the width is known the Ui breaks each row before the terminal would (each character counted at the most columns any terminal gives it, tabs expanded) and writes the gutter again; a harness line carrying agent text past the width continues on an indented row | `fitRows`, `Ui.writeModel` in `src/session/ui.ts`, `cellWidth` in `src/session/sanitize.ts` |
+| Colour is the harness's only: what `Ui.paint` colours carries a per-process brand the model never sees; a line keeps branded colour codes and strips every other ESC sequence (a conceal code in a file name, a remote's message) | `brandSgr`, `keepBranded` in `src/session/sanitize.ts`, `Ui.render` |
+| The Measure script shown is the script node runs: a lone CR, U+2028, U+2029, any other control or invisible format character is refused (and anything outside printable ASCII in a script the model writes); CRLF is read as LF; the box breaks a script at JavaScript's line terminators and a contract where its parser does | `measureScriptProblem` in `plugins/tools/propose_contract.ts`, `proposeImported` in `src/session/contract.ts`, `Ui.proposal` |
+| No takeover at the yes either: nothing is written while a proposal awaits its reply, and a yes that would bind another item is checked again (if the tree took changes, the reply is not recorded) | `pendingProposalHook`, `Session.reply` in `src/session/session.ts` |
+| A commit `/ship` made and could not push holds the item: another slug is refused while it is on the branch, and `/ship` again pushes that same commit and opens its PR, committing nothing new | `Session.takeOverProblem`, `ShipResume` and `publish` in `src/session/ship.ts` |
+| `scrubPaths` replaces a local root only at path boundaries, in one pass (a checkout at `/app` leaves `src/app/page.tsx` alone) | `scrubPaths` in `src/session/ship.ts` |
+| Bracketed paste is switched off once however the input ends (Ctrl-D, `/exit`, Ctrl-C at startup, process exit) | `terminalInput` in `src/session/input.ts` |
+| A read-only session offers no write tool and no `propose_contract` (a call to one is an unknown tool) | `sessionTools` in `src/session/session.ts` |
+| A proposal's files are replaced all or nothing: a failed rename puts back what was already renamed | `replaceFiles` in `src/session/contract.ts` |
+| A `run_tests` that cannot run (runner unsupported or not installed, no sandbox) ends the model's turn like any refusal it cannot fix; a red test does not | `environmentHook`, `testEnvironmentProblem` in `src/session/session.ts` |
+| A Measure script belongs to one item: a script path another item's contract names is refused, drafted or imported | `scriptClaimedBy` in `src/session/contract.ts` |
