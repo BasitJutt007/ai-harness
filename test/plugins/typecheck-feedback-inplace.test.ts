@@ -198,6 +198,27 @@ describe('typecheck-feedback in place: the project that compiles the file, with 
     expect(noteOf(await writeThenCheck(ctx, 'src/title.ts', 'export const title: number = "t";\n'))).toBe("tsc: 1 error(s): src/title.ts:1:14 TS2322 Type 'string' is not assignable to type 'number'.");
   });
 
+  it('a file one project lists and another imports is checked under both: an error only the importing project raises is recorded; with DOM in both, nothing', async () => {
+    // The app project (DOM) lists src/; the test project (no DOM) lists only test/, whose test imports src/title.ts.
+    // `tsc -p tsconfig.test.json` checks src/title.ts as part of its program, so the gate fails on it there.
+    const solution = JSON.stringify({ files: [], references: [{ path: './tsconfig.app.json' }, { path: './tsconfig.test.json' }] });
+    const app = JSON.stringify({ compilerOptions: { ...BASE_OPTIONS, lib: ['ES2022', 'DOM'], types: [] }, include: ['src'] });
+    const testProject = (lib: string[]): string => JSON.stringify({ compilerOptions: { ...BASE_OPTIONS, lib, types: [] }, include: ['test'] });
+    const files = {
+      'tsconfig.json': solution, 'tsconfig.app.json': app,
+      'src/title.ts': "export const title: string = 'x';\n",
+      'test/title.test.ts': "import { title } from '../src/title';\nexport const shown: string = title;\n",
+    };
+    const usesDom = 'export const title: string = document.title;\n';
+    const noDom = makeRepo({ ...files, 'tsconfig.test.json': testProject(['ES2022']) });
+    expect(checkInPlace(noDom.root, [path.join(noDom.root, 'src', 'title.ts')], COLD)).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
+    expect(noteOf(await writeThenCheck(await contextFor(noDom), 'src/title.ts', usesDom))).toBe("tsc: 1 error(s): src/title.ts:1:30 TS2584 Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.");
+    // The twin: the importing project has DOM too, so neither project rejects the file.
+    const withDom = makeRepo({ ...files, 'tsconfig.test.json': testProject(['ES2022', 'DOM']) });
+    expect(checkInPlace(withDom.root, [path.join(withDom.root, 'src', 'title.ts')], COLD)?.errors).toEqual([]);
+    expect(await writeThenCheck(await contextFor(withDom), 'src/title.ts', usesDom)).toEqual({ decision: 'pass' });
+  });
+
   it("the project's other files are part of its program: an ambient module declaration in src/ applies (the root-config twin reports TS2307)", async () => {
     const repo = makeRepo({ ...SOLUTION_FILES, 'src/assets.d.ts': "declare module '*.svg' {\n  const url: string;\n  export default url;\n}\n" }, { packages: TINY_ENV });
     const usesLogo = "import logo from './logo.svg';\nexport const src: string = logo;\n";

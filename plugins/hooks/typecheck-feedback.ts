@@ -286,6 +286,12 @@ export function checkInPlace(root: string, files: string[], budgetMs = BUDGET_MS
   };
 
   const deadline = performance.now() + budgetMs;
+  /** At the deadline the check is cancelled: between projects here, inside type checking by the cancellation token. */
+  const inTime = (): void => {
+    if (performance.now() > deadline) throw new ts.OperationCanceledException();
+  };
+  // One read and hash per file per check, however many projects' programs contain it.
+  const versions = new Map<string, string>();
   const used = new Set<Service>();
   const serviceOf = (p: Project): Service => {
     let svc = entry.projects.get(p.config);
@@ -299,54 +305,43 @@ export function checkInPlace(root: string, files: string[], budgetMs = BUDGET_MS
       used.add(svc);
       svc.state.options = options;
       svc.state.roots = [...p.parsed.fileNames];
-      svc.state.versions.clear();
+      svc.state.versions = versions;
       svc.state.deadline = deadline;
     }
     return svc;
   };
 
-  // Which projects compile each file, as `tsc -p` of each would: every project that lists it, else every
-  // project whose program imports it. The repository's type check runs every project, so an error under
-  // any of them counts; the same error under two of them is one line.
-  const owned = new Map<Project, Array<{ name: string; rel: string }>>();
-  const own = (p: Project, name: string, abs: string): void => {
-    owned.set(p, [...(owned.get(p) ?? []), { name, rel: relOf(abs) }]);
-  };
-  const unlisted: string[] = [];
-  for (const f of files) {
-    let listed = false;
-    for (const p of found.projects) {
-      const name = spelled(p.parsed.fileNames, f);
-      if (name === undefined) continue;
-      own(p, name, f);
-      listed = true;
-    }
-    if (!listed) unlisted.push(f);
-  }
-  const uncovered: string[] = [];
   const errors: string[] = [];
   const project: string[] = [];
+  const covered = new Set<string>();
   try {
-    for (const f of unlisted) {
-      let imported = false;
-      for (const p of found.projects) {
-        const program = serviceOf(p).ls.getProgram();
-        if (performance.now() > deadline) throw new ts.OperationCanceledException();
-        const name = program === undefined ? undefined : spelled(program.getSourceFiles().map((s) => s.fileName), f);
-        if (name === undefined) continue;
-        own(p, name, f);
-        imported = true;
-      }
-      if (!imported) uncovered.push(relOf(f));
-    }
-    for (const [p, list] of owned) {
+    // Which projects compile each file, as `tsc -p` of each does: every project whose program contains it,
+    // whether the project lists it (files/include) or one of its files imports it (a src/ file the app project
+    // lists AND the test project imports is checked under both). The repository's type check runs every
+    // project, so an error under any of them counts; the same error under two of them is one line.
+    const owned: Array<{ svc: Service; config: string; list: Array<{ name: string; rel: string }> }> = [];
+    for (const p of found.projects) {
       const svc = serviceOf(p);
-      const config = relOf(p.config);
+      const program = svc.ls.getProgram();
+      inTime();
+      if (program === undefined) continue;
+      const names = program.getSourceFiles().map((s) => s.fileName);
+      const list: Array<{ name: string; rel: string }> = [];
+      for (const f of files) {
+        const name = spelled(names, f);
+        if (name === undefined) continue;
+        list.push({ name, rel: relOf(f) });
+        covered.add(f);
+      }
+      if (list.length > 0) owned.push({ svc, config: relOf(p.config), list });
+    }
+    for (const { svc, config, list } of owned) {
       for (const d of svc.ls.getCompilerOptionsDiagnostics()) {
         if (d.category !== ts.DiagnosticCategory.Error) continue;
         const first = ts.flattenDiagnosticMessageText(d.messageText, '\n').split('\n')[0] ?? '';
         project.push(errorLine(d.file !== undefined ? relOf(d.file.fileName) : config, { ...d, messageText: first }));
       }
+      inTime();
       for (const { name, rel } of list) errors.push(...fileErrors(svc.ls, name, () => rel));
     }
   } catch (e) {
@@ -356,7 +351,8 @@ export function checkInPlace(root: string, files: string[], budgetMs = BUDGET_MS
     for (const svc of used) svc.state.deadline = null;
   }
   entry.budget.overruns = 0;
-  return { errors: [...new Set(errors)], project: [...new Set(project)], uncovered: uncovered.sort(), skipped: null };
+  const uncovered = files.filter((f) => !covered.has(f)).map(relOf).sort();
+  return { errors: [...new Set(errors)], project: [...new Set(project)], uncovered, skipped: null };
 }
 
 /** Project-level lines not yet recorded in this run (marks them recorded). */
