@@ -1,9 +1,10 @@
 /**
  * Export-only edits (src/core/export-only.ts): the one write a file locked by observed-red takes. Every
  * allowed shape is paired with the refusal next to it: the same `export`, plus one more change of any kind
- * (a body, a constant, an import, a newline that moves a semicolon), or an export of a kind that is not
- * behaviour-neutral (a default export, a re-export that loads another module, `export =`). The revert base
- * (withExports) and the ESM missing-export message parser are pinned here too.
+ * (a body, a constant, an import, a newline that moves a semicolon, a comment a build obeys, the leading
+ * whitespace of JSX text), or an export of a kind that is not behaviour-neutral (a default export, a re-export
+ * that loads another module, `export =`). The revert base (withExports) and the ESM missing-export message
+ * parser are pinned here too.
  */
 import { describe, expect, it } from 'vitest';
 import { declaresUnexported, exportOnlyEdit, missingNamedExport, withExports } from '../../src/core/export-only.ts';
@@ -46,7 +47,8 @@ describe('allowed: only existing top-level declarations become exported', () => 
     ['a type alias', at('type Cursor', 'export type Cursor'), ['Cursor']],
     ['a local export statement with an alias', `${API}export { appendPage, PAGE_SIZE as pageSize };\n`, ['appendPage', 'pageSize']],
     ['a type-only local export statement', `${API}export type { Cursor };\n`, ['Cursor']],
-    ['several at once, with a comment added (comments are trivia)', at('class Store', '// for tests\nexport class Store', at('function appendPage', 'export function appendPage')), ['Store', 'appendPage']],
+    ['several at once', at('class Store', 'export class Store', at('function appendPage', 'export function appendPage')), ['Store', 'appendPage']],
+    ['a declaration under its doc comment, the comment kept as it is', at('function appendPage', 'export function appendPage'), ['appendPage']],
   ];
   for (const [name, after, names] of cases) {
     it(name, () => {
@@ -123,6 +125,65 @@ describe('refused: anything that is not exactly an added export', () => {
   it('addsExports tells an attempt at an export-only edit from an unrelated edit', () => {
     expect(verdict(at('[...page.items]', '[...prev.items]', at('function appendPage', 'export function appendPage')))).toMatchObject({ ok: false, addsExports: true });
     expect(verdict(at('[...page.items]', '[...prev.items]'))).toMatchObject({ ok: false, addsExports: false });
+  });
+});
+
+describe('comments are compared: builds obey some of them', () => {
+  const ROW = "import React from 'react';\nfunction Row() { return <li>item</li>; }\nexport const n = 1;\n";
+  const exportedRow = at('function Row', 'export function Row', ROW);
+  const BOOT = "import { track } from './track';\nconst id = track('boot');\nfunction f() { return id }\n";
+  const exportedBoot = at('function f', 'export function f', BOOT);
+  const refused: Array<[string, string, string, string, RegExp]> = [
+    ['a JSX pragma (@jsx) added next to the export', 'src/Row.tsx', ROW, `/** @jsx h */\n${exportedRow}`, /adds the comment `\/\*\* @jsx h \*\/`/],
+    ['@jsxRuntime classic added', 'src/Row.tsx', ROW, `/** @jsxRuntime classic */\n${exportedRow}`, /adds the comment `\/\*\* @jsxRuntime classic \*\/`/],
+    ['@jsxImportSource added', 'src/Row.tsx', ROW, `/** @jsxImportSource preact */\n${exportedRow}`, /adds the comment/],
+    ['@jsxFrag added at the end of the file', 'src/Row.tsx', ROW, `${exportedRow}/** @jsxFrag Frag */\n`, /adds the comment `\/\*\* @jsxFrag Frag \*\/`/],
+    ['/*#__PURE__*/ added before a side-effect call', 'src/boot.ts', BOOT, at("track('boot')", "/*#__PURE__*/ track('boot')", exportedBoot), /line 2 .*adds the comment `\/\*#__PURE__\*\/`/],
+    ['/* @__NO_SIDE_EFFECTS__ */ added before the exported function', 'src/boot.ts', BOOT, at('export function f', '/* @__NO_SIDE_EFFECTS__ */ export function f', exportedBoot), /adds the comment `\/\* @__NO_SIDE_EFFECTS__ \*\/`/],
+    ['a plain comment added with an export statement', 'src/boot.ts', BOOT, `${BOOT}// for tests\nexport { f };\n`, /adds the comment `\/\/ for tests`/],
+    ['a comment inside the added export statement', 'src/boot.ts', BOOT, `${BOOT}export { /* tests */ f };\n`, /adds the comment/],
+    ['a comment removed', 'src/boot.ts', at("track('boot')", "/*#__PURE__*/ track('boot')", BOOT), exportedBoot, /removes the comment `\/\*#__PURE__\*\/`/],
+    ['a comment changed', 'src/boot.ts', at("track('boot')", "/* keep */ track('boot')", BOOT), at("track('boot')", "/* @__PURE__ */ track('boot')", exportedBoot), /adds the comment `\/\* @__PURE__ \*\/`/],
+    ['a comment moved to another call on the same line', 'src/boot.ts', "import { track } from './track';\n/*#__PURE__*/ track('a'); track('b');\nfunction f() {}\n", "import { track } from './track';\ntrack('a'); /*#__PURE__*/ track('b');\nexport function f() {}\n", /the comment `\/\*#__PURE__\*\/`/],
+    ['a shebang added', 'src/boot.ts', BOOT, `#!/usr/bin/env node\n${exportedBoot}`, /adds the comment `#!\/usr\/bin\/env node`/],
+  ];
+  for (const [name, file, before, after, why] of refused) {
+    it(`refused: ${name}`, () => {
+      const v = exportOnlyEdit(file, before, after);
+      expect(v).toMatchObject({ ok: false, addsExports: true });
+      if (!v.ok) expect(v.why).toMatch(why);
+    });
+  }
+
+  it('twins that pass: the same exports with every comment where it was (a doc comment, a comment before the added `export` or right after it, a shebang, CRLF inside a comment)', () => {
+    const doc = "import { x } from './x';\n/** Doubles. */\n/* c */ function f() { return x * 2 } // trailing\n// end\n";
+    expect(exportOnlyEdit('src/f.ts', doc, at('function f', 'export function f', doc))).toEqual({ ok: true, names: ['f'] });
+    expect(exportOnlyEdit('src/f.ts', doc, at('/* c */ function f', 'export /* c */ function f', doc))).toEqual({ ok: true, names: ['f'] });
+    expect(exportOnlyEdit('src/f.ts', doc, `${doc}export { f };\n`)).toEqual({ ok: true, names: ['f'] });
+    expect(exportOnlyEdit('src/boot.ts', `#!/usr/bin/env node\n${BOOT}`, `#!/usr/bin/env node\n${exportedBoot}`)).toEqual({ ok: true, names: ['f'] });
+    const block = doc.replace('/** Doubles. */', '/* a\nb */');
+    expect(exportOnlyEdit('src/f.ts', block, at('function f', 'export function f', block).replace(/\n/g, '\r\n'))).toEqual({ ok: true, names: ['f'] });
+    expect(exportOnlyEdit('src/Row.tsx', ROW, exportedRow)).toEqual({ ok: true, names: ['Row'] });
+  });
+});
+
+describe('JSX text is compared whole, leading whitespace included (it is rendered)', () => {
+  const LABEL = "import React from 'react';\nfunction Label() { return <b>total</b>; }\nexport const n = 1;\n";
+  const exported = at('function Label', 'export function Label', LABEL);
+  it('refused: leading whitespace added to JSX text next to the export (and trailing, its old twin)', () => {
+    expect(exportOnlyEdit('src/Label.tsx', LABEL, at('<b>total', '<b>   total', exported))).toMatchObject({ ok: false, why: expect.stringMatching(/line 2 .*changes more than adding `export`/) });
+    expect(exportOnlyEdit('src/Label.tsx', LABEL, at('total</b>', 'total   </b>', exported))).toMatchObject({ ok: false });
+  });
+
+  it('refused: JSX text that starts like a comment, changed; its unchanged twin (`//` and `/* */` in JSX text are text) passes', () => {
+    const link = "import React from 'react';\nfunction A() { return <a href=\"/\">// see http://x.test/*y*/</a>; }\nexport const n = 1;\n";
+    const exp = at('function A', 'export function A', link);
+    expect(exportOnlyEdit('src/A.tsx', link, at('// see', '// saw', exp))).toMatchObject({ ok: false });
+    expect(exportOnlyEdit('src/A.tsx', link, exp)).toEqual({ ok: true, names: ['A'] });
+  });
+
+  it('the twin that passes: the same export with the JSX text untouched', () => {
+    expect(exportOnlyEdit('src/Label.tsx', LABEL, exported)).toEqual({ ok: true, names: ['Label'] });
   });
 });
 

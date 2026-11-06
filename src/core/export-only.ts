@@ -10,9 +10,13 @@
  * exportOnlyEdit(file, before, after) decides it on the TypeScript AST (the parser mode of the file's
  * extension): after removing exactly the `export` modifiers added to existing top-level function, class,
  * const/let/var, enum, interface and type declarations, and the added local `export { a, b as c }` statements
- * (no `from`), the two files must have the same syntax tree token for token: every token's kind and text, and
- * how the tokens nest. Comments and whitespace are ignored; a newline that changes automatic semicolon
- * insertion changes the tree, so it is refused. Refused as well:
+ * (no `from`), the two files must have the same syntax tree token for token: every token's kind and text, how
+ * the tokens nest, and every COMMENT, in order and before the same token (a comment before a removed `export`
+ * counts as before the token that follows it). Comments are compared because builds obey some of them: a JSX
+ * pragma (`@jsx`, `@jsxRuntime`, `@jsxImportSource`, `@jsxFrag`) changes what every JSX element in the file
+ * calls, and `/*#__PURE__*\/` or `@__NO_SIDE_EFFECTS__` lets a bundler drop a call. JSX text is compared whole,
+ * leading whitespace included (it is rendered). Only whitespace between tokens is ignored; a newline that changes
+ * automatic semicolon insertion changes the tree, so it is refused. Refused as well:
  *   - any other change, a new declaration, an export removed or renamed;
  *   - `export default` in any form (a declaration modifier or `export { a as default }`): a default export
  *     changes how bundlers, frameworks and CommonJS interop consume the module, and a named export is enough
@@ -21,8 +25,8 @@
  *     `export =`; exporting an imported binding (a re-export too) or an ambient (`declare`) one, which has no
  *     runtime value; a name the module already exports, or one this edit exports twice;
  *   - a file that does not parse, a kind that is not a TypeScript or JavaScript module (a .d.ts, a .vue file),
- *     and a file that was not an ES module before (its first export would turn a script into a module and
- *     change how its top-level names are scoped).
+ *     a file whose tokens do not account for every character of it, and a file that was not an ES module before
+ *     (its first export would turn a script into a module and change how its top-level names are scoped).
  *
  * withExports(file, runStart, current) is the observed-red revert check's base for a file that existed at run
  * start: its run-start content plus the exports the current content makes of declarations that existed at run
@@ -145,7 +149,28 @@ function parse(fileName: string, text: string): ts.SourceFile | string {
   if (first !== undefined) {
     return `it does not parse (line ${lineOf(sf, first.start ?? 0)}: ${ts.flattenDiagnosticMessageText(first.messageText, ' ')})`;
   }
+  // Every character must belong to exactly one token's span (its leading trivia and its text): then the tree walk
+  // below sees every token and every comment, and nothing in the file can hide between them.
+  if (!tiles(sf)) return "its tokens do not account for every character of it, so it cannot be compared token for token";
   return sf;
+}
+
+/** The leaf tokens of `sf` (and its empty lists) cover the text end to end, each starting where the last one ended. */
+function tiles(sf: ts.SourceFile): boolean {
+  let at = 0;
+  let ok = true;
+  const visit = (n: ts.Node): void => {
+    if (!ok || isJsDoc(n)) return;
+    const kids = n.getChildren(sf).filter((k) => !isJsDoc(k));
+    if (kids.length > 0) {
+      for (const k of kids) visit(k);
+      return;
+    }
+    if (n.pos !== at || n.end < n.pos) ok = false;
+    at = n.end;
+  };
+  visit(sf);
+  return ok && at === sf.text.length;
 }
 
 function lineOf(sf: ts.SourceFile, pos: number): number {
@@ -156,35 +181,118 @@ function isJsDoc(n: ts.Node): boolean {
   return n.kind >= ts.SyntaxKind.FirstJSDocNode && n.kind <= ts.SyntaxKind.LastJSDocNode;
 }
 
+function isJsxText(n: ts.Node): boolean {
+  return n.kind === ts.SyntaxKind.JsxText || n.kind === ts.SyntaxKind.JsxTextAllWhiteSpaces;
+}
+
+/** One scanner for the trivia between tokens (never skipping it). */
+const triviaScanner = ts.createScanner(ts.ScriptTarget.Latest, false);
+
 /**
- * The syntax tree under `node` as a flat list: `(kind … )` around each node's children, `[ … ]` around each
- * list, and `kind:text` for each token (comments and whitespace are trivia, never tokens). Nodes in `skip` are
- * left out; a list emptied by that is left out as a whole, exactly as if it had never had members (a
- * declaration whose only modifier was the skipped `export` has no modifier list).
+ * The comments in text[from, to) (a token's leading trivia), in order, as `#<comment>` with CRLF read as LF (a
+ * shebang counts as one). Whitespace and newlines are dropped; anything else found there is kept as
+ * `?<kind>:<text>`, so nothing between two tokens is ever silently ignored.
  */
-function treeOf(node: ts.Node, sf: ts.SourceFile, skip: ReadonlySet<ts.Node>, out: string[] = []): string[] {
-  if (isJsDoc(node)) return out;
+function commentsIn(text: string, from: number, to: number): string[] {
+  if (to <= from) return [];
+  triviaScanner.setText(text, from, to - from);
+  const out: string[] = [];
+  for (let k = triviaScanner.scan(); k !== ts.SyntaxKind.EndOfFileToken; k = triviaScanner.scan()) {
+    if (k === ts.SyntaxKind.WhitespaceTrivia || k === ts.SyntaxKind.NewLineTrivia) continue;
+    const t = triviaScanner.getTokenText().replace(/\r\n/g, '\n');
+    const comment = k === ts.SyntaxKind.SingleLineCommentTrivia || k === ts.SyntaxKind.MultiLineCommentTrivia || k === ts.SyntaxKind.ShebangTrivia;
+    out.push(comment ? `#${t}` : `?${k}:${t}`);
+  }
+  triviaScanner.setText(undefined);
+  return out;
+}
+
+interface Walk {
+  out: string[];
+  /** Comments of left-out nodes, owed to the next token that is kept. */
+  pending: string[];
+  comments: boolean;
+}
+
+/** The comments of a node left out of the walk: they belong to the next kept token (see treeOf). */
+function carry(node: ts.Node, sf: ts.SourceFile, w: Walk): void {
+  if (!w.comments || isJsDoc(node)) return;
+  const kids = node.getChildren(sf).filter((k) => !isJsDoc(k));
+  if (kids.length > 0) {
+    for (const k of kids) carry(k, sf, w);
+    return;
+  }
+  // A left-out node is an `export` keyword or a whole `export { … }` statement: never JSX text. Were it, its
+  // text is kept as an unknown so that it can only make the comparison fail.
+  if (isJsxText(node)) w.pending.push(`?jsx:${sf.text.slice(node.pos, node.end)}`);
+  else w.pending.push(...commentsIn(sf.text, node.pos, node.kind === ts.SyntaxKind.SyntaxList ? node.end : node.getStart(sf)));
+}
+
+function walk(node: ts.Node, sf: ts.SourceFile, skip: ReadonlySet<ts.Node>, w: Walk): void {
+  if (isJsDoc(node)) return;
+  if (skip.has(node)) {
+    carry(node, sf, w);
+    return;
+  }
   const kids = node.getChildren(sf).filter((k) => !isJsDoc(k));
   if (node.kind === ts.SyntaxKind.SyntaxList) {
-    const kept = kids.filter((k) => !skip.has(k));
-    if (kept.length === 0 && kids.length > 0) return out;
-    out.push('[');
-    for (const k of kept) treeOf(k, sf, skip, out);
-    out.push(']');
-    return out;
+    if (kids.length > 0 && kids.every((k) => skip.has(k))) {
+      for (const k of kids) carry(k, sf, w);
+      return;
+    }
+    if (kids.length === 0) carry(node, sf, w);
+    w.out.push('[');
+    for (const k of kids) walk(k, sf, skip, w);
+    w.out.push(']');
+    return;
   }
   if (kids.length === 0) {
-    out.push(`${node.kind}:${node.getText(sf)}`);
-    return out;
+    // JSX text is rendered as written: its whole span is its text (getText would drop its leading whitespace,
+    // and a `//` in it is text, not a comment). Every other token: the comments before it, then its text.
+    if (isJsxText(node)) {
+      w.out.push(...w.pending, `${node.kind}:${sf.text.slice(node.pos, node.end)}`);
+    } else {
+      w.out.push(...w.pending, ...(w.comments ? commentsIn(sf.text, node.pos, node.getStart(sf)) : []), `${node.kind}:${node.getText(sf)}`);
+    }
+    w.pending = [];
+    return;
   }
-  out.push(`(${node.kind}`);
-  for (const k of kids) if (!skip.has(k)) treeOf(k, sf, skip, out);
-  out.push(')');
-  return out;
+  w.out.push(`(${node.kind}`);
+  for (const k of kids) walk(k, sf, skip, w);
+  w.out.push(')');
+}
+
+/**
+ * The syntax tree under `node` as a flat list: `(kind … )` around each node's children, `[ … ]` around each
+ * list, and for each token the comments before it (`#…`, unless `comments` is false) and `kind:text`. Nodes in
+ * `skip` are left out, their comments passed on to the next token kept; a list emptied by that is left out as
+ * a whole, exactly as if it had never had members (a declaration whose only modifier was the skipped `export`
+ * has no modifier list).
+ */
+function treeOf(node: ts.Node, sf: ts.SourceFile, skip: ReadonlySet<ts.Node>, comments = true): string[] {
+  const w: Walk = { out: [], pending: [], comments };
+  walk(node, sf, skip, w);
+  return [...w.out, ...w.pending];
 }
 
 function sameTree(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((t, i) => t === b[i]);
+}
+
+/** Why two trees that differ only in their comments are not export-only: the first comment that differs. */
+function commentChange(before: string[], after: string[]): string {
+  const cb = before.filter((t) => t.startsWith('#') || t.startsWith('?'));
+  const ca = after.filter((t) => t.startsWith('#') || t.startsWith('?'));
+  let i = 0;
+  while (i < cb.length && i < ca.length && cb[i] === ca[i]) i += 1;
+  const shown = (t: string): string => {
+    const one = t.slice(1).replace(/\s+/g, ' ');
+    return one.length > 60 ? `${one.slice(0, 59)}…` : one;
+  };
+  const what = ca[i] !== undefined && !cb.includes(ca[i] ?? '') ? `adds the comment \`${shown(ca[i] ?? '')}\``
+    : cb[i] !== undefined && !ca.includes(cb[i] ?? '') ? `removes the comment \`${shown(cb[i] ?? '')}\``
+      : `moves the comment \`${shown(ca[i] ?? cb[i] ?? '')}\``;
+  return `${what}: builds obey some comments (a JSX pragma such as @jsx, /*#__PURE__*/), so an export-only edit keeps every comment as it is, before the same token`;
 }
 
 const NONE: ReadonlySet<ts.Node> = new Set();
@@ -206,8 +314,14 @@ function firstLineOf(s: ts.Node, sf: ts.SourceFile): string {
 }
 
 /** Why a statement of `after` with no export-only counterpart in `before` is not an export-only change. */
-function unmatched(s: ts.Statement, after: ts.SourceFile, declared: ReadonlyMap<string, TopLevel>): string {
+function unmatched(s: ts.Statement, after: ts.SourceFile, declared: ReadonlyMap<string, TopLevel>, o: ts.Statement | undefined, before: ts.SourceFile): string {
   const at = `line ${lineOf(after, s.getStart(after))} (\`${firstLineOf(s, after)}\`)`;
+  if (o !== undefined) {
+    // The same tokens as its counterpart (once an added `export` is left out), so only its comments differ.
+    const kw = modifier(s, ts.SyntaxKind.ExportKeyword);
+    const without = kw !== undefined && modifier(o, ts.SyntaxKind.ExportKeyword) === undefined ? new Set([kw]) : NONE;
+    if (sameTree(treeOf(o, before, NONE, false), treeOf(s, after, without, false))) return `${at} ${commentChange(treeOf(o, before, NONE), treeOf(s, after, without))}`;
+  }
   if (ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined) return `${at} re-exports from another module: that loads it, with its side effects`;
   if (ts.isExportAssignment(s)) return `${at} adds ${s.isExportEquals === true ? '`export =`' : 'a default export'}`;
   if (modifier(s, ts.SyntaxKind.DefaultKeyword) !== undefined) return `${at} adds a default export`;
@@ -248,19 +362,23 @@ export function exportOnlyEdit(fileName: string, before: string, after: string):
     }
     const kw = modifier(s, ts.SyntaxKind.ExportKeyword);
     if (kw !== undefined && was !== null && o !== undefined && modifier(o, ts.SyntaxKind.ExportKeyword) === undefined && sameTree(was, treeOf(s, a, new Set([kw])))) {
-      if (!isDeclaration(s)) return no(unmatched(s, a, declared));
-      if (modifier(s, ts.SyntaxKind.DefaultKeyword) !== undefined) return no(unmatched(s, a, declared));
+      if (!isDeclaration(s)) return no(unmatched(s, a, declared, undefined, b));
+      if (modifier(s, ts.SyntaxKind.DefaultKeyword) !== undefined) return no(unmatched(s, a, declared, undefined, b));
       skip.add(kw);
       addedDeclarations.push(s);
       i += 1;
       continue;
     }
-    return no(unmatched(s, a, declared));
+    return no(unmatched(s, a, declared, o, b));
   }
   const left = b.statements[i];
   if (left !== undefined) return no(`it removes or changes line ${lineOf(b, left.getStart(b))} of the current content (\`${firstLineOf(left, b)}\`)`);
   // The source of truth: the whole trees, with exactly the added exports removed, are identical.
-  if (!sameTree(treeOf(b, b, NONE), treeOf(a, a, skip))) return no('the files differ outside their top-level statements');
+  const whole = treeOf(b, b, NONE);
+  const exportsLeftOut = treeOf(a, a, skip);
+  if (!sameTree(whole, exportsLeftOut)) {
+    return no(sameTree(treeOf(b, b, NONE, false), treeOf(a, a, skip, false)) ? `it ${commentChange(whole, exportsLeftOut)}` : 'the files differ outside their top-level statements');
+  }
   const already = exportNames(b);
   const names: string[] = [];
   for (const d of addedDeclarations) {

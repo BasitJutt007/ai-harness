@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import observedRedGate from '../../plugins/gates/observed-red.ts';
 import observedRedHook from '../../plugins/hooks/observed-red.ts';
-import { EXPORT_ONLY_KEY, exportOnlyRecords, exportOnlySinceStart, unlockedSources } from '../../plugins/lib/red.ts';
+import { EXPORT_ONLY_KEY, exportOnlyRecords, exportOnlySinceStart, lockState, unlockedSources } from '../../plugins/lib/red.ts';
 import editFileTool from '../../plugins/tools/edit_file.ts';
 import runTestsTool from '../../plugins/tools/run_tests.ts';
 import writeFileTool from '../../plugins/tools/write_file.ts';
@@ -234,6 +234,18 @@ describe('twins that stay locked: export plus anything else', () => {
     expect(reason(v)).not.toContain('Next: add `export`');
     // An export-only edit is still allowed: it is behaviour-neutral whatever the test imports.
     expect((await h.write(API_FILE, exportedApi)).decision).toBe('record');
+  }, 120_000);
+
+  it('a JSX pragma comment next to the export is refused on a locked component (it redirects every JSX element); the plain export is the twin that passes', async () => {
+    const row = 'src/ui/Row.tsx';
+    const ROW = "import { reset } from '../store/x/api';\n\nfunction h(..._a: unknown[]): string {\n  return 'HIJACKED';\n}\n\nfunction Row() {\n  return <li>{reset().items.length}</li>;\n}\n\nexport const used = [h, Row].length;\n";
+    const h = await harness({ extra: { [row]: ROW } });
+    expect((await lockState(h.ctx, row)).unlocked).toBe(false);
+    const pragma = await h.write(row, `/** @jsxRuntime classic */\n/** @jsx h */\n${ROW.replace('function Row', 'export function Row')}`);
+    expect(pragma.decision).toBe('block');
+    expect(reason(pragma)).toMatch(/This write is not export-only: line 3 [^\n]*adds the comment `\/\*\* @jsxRuntime classic \*\/`: builds obey some comments/);
+    expect(await h.ws.read(row)).toBe(ROW);
+    expect((await h.write(row, ROW.replace('function Row', 'export function Row'))).decision).toBe('record');
   }, 120_000);
 });
 
