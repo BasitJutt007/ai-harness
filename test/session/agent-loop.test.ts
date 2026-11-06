@@ -322,6 +322,18 @@ describe('a stuck detector', () => {
     expect(ran.driver.used).toBe(7);
   });
 
+  it('twin: the count is per owner message: two refusals in one message and two in the next are not stuck', async () => {
+    r = webRepo();
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      refuse('package.json'), refuse('package.json'), text('That file is off limits.'),
+      refuse('package.json'), refuse('package.json'), text('Still off limits.'),
+    ], ['fix the greeting', 'yes', 'try once more'], { registry: await registryWithGates() });
+    expect(ran.out.split('✗ BLOCKED by path-guard: package.json')).toHaveLength(5);
+    expect(ran.out).not.toContain('the agent is stuck');
+    expect(ran.driver.used).toBe(7);
+  });
+
   it('the count is per key: another path or another reason counts on its own and resets nothing; only pre-tool hook blocks count', () => {
     const c = new RefusalCounter();
     const a = { hook: 'observed-red', path: 'src/a.tsx', reason: 'edit refused: no observed red for src/a.tsx' };
