@@ -350,6 +350,24 @@ describe("typecheck-feedback in place: the defaults of the repository's TypeScri
     expect(six.r?.project).toEqual([expect.stringMatching(/^tsconfig\.json TS5101 Option 'baseUrl' is deprecated /)]);
     expect(noteOf(await writeThenCheck(await contextFor(six.repo), 'src/b.ts', 'export const b: number = 2;\n'))).toMatch(/^tsc: 1 error\(s\): tsconfig\.json TS5101 Option 'baseUrl' is deprecated /);
   });
+
+  it('5.x has no rootDir check: config/ including ../src with an outDir passes and a real error still shows; 6.x, and a 5.x composite project, record TS6059 as their tsc does', async () => {
+    const inSubdirectory = (extra: Record<string, unknown>): Record<string, string> => ({
+      'tsconfig.json': JSON.stringify({ files: [], references: [{ path: './config/tsconfig.app.json' }] }),
+      'config/tsconfig.app.json': JSON.stringify({ compilerOptions: { ...MODERN, noEmit: undefined, strict: true, outDir: '../dist', ...extra }, include: ['../src'] }),
+      'src/a.ts': 'export const a = 1;\n',
+    });
+    const importsA = "import { a } from './a';\nexport const b: number = a;\n";
+    const five = found('5.9.3', inSubdirectory({}), 'src/a.ts');
+    expect(five.r).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
+    const ctx = await contextFor(five.repo);
+    expect(await writeThenCheck(ctx, 'src/b.ts', importsA)).toEqual({ decision: 'pass' });
+    expect(noteOf(await writeThenCheck(ctx, 'src/b.ts', importsA.replace('b: number', 'b: string')))).toBe("tsc: 1 error(s): src/b.ts:2:14 TS2322 Type 'number' is not assignable to type 'string'.");
+    // The twins: TypeScript 6 checks rootDir against the config's directory, and so did 5.x for a composite project.
+    for (const [version, extra] of [['6.0.3', {}], ['5.9.3', { composite: true }]] as const) {
+      expect(found(version, inSubdirectory(extra), 'src/a.ts').r?.project).toContainEqual(expect.stringMatching(/^config\/tsconfig\.app\.json TS6059 /));
+    }
+  });
 });
 
 describe('typecheck-feedback in place: the existing guarantees', () => {

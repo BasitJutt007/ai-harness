@@ -246,7 +246,10 @@ function repoTypeScriptMajor(root: string, fence: TsFence): number | null {
 /**
  * A project's options as `tsc --noEmit -p <config>` of the repository's TypeScript uses them. The harness's
  * TypeScript 6 changed defaults the repository's older TypeScript still has, so an option the config leaves
- * unset gets the pre-6.0 default (strict off, every visible @types package, unchecked side-effect imports).
+ * unset gets the pre-6.0 default (strict off, every visible @types package, unchecked side-effect imports, and
+ * no rootDir check: 5.x defaults rootDir to the files' common directory, which holds them all, where 6.0 takes
+ * the config's directory, so a config in a subdirectory that includes ../src fails it on every file; the file
+ * system root holds them all too, and a composite project kept the config's directory in 5.x as well).
  * The 6.0 option deprecations are silenced, whatever the config's own ignoreDeprecations ("5.0", which 5.x
  * repositories set, silences none of them), because that compiler raises none of them, including for the
  * defaults set here (alwaysStrict false).
@@ -258,6 +261,10 @@ export function repoCompilerOptions(options: ts.CompilerOptions, repoMajor: numb
     out.alwaysStrict ??= options.strict === true;
     out.noUncheckedSideEffectImports ??= false;
     out.types ??= ['*'];
+    if (options.rootDir === undefined && options.composite !== true) {
+      const config = options['configFilePath'];
+      out.rootDir = path.parse(path.resolve(typeof config === 'string' ? config : '.')).root;
+    }
     out.ignoreDeprecations = `${HARNESS_TS_MAJOR}.0`;
   }
   return out;
