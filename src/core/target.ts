@@ -1156,7 +1156,9 @@ function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | nu
     const needsTs = testFiles.some((f) => TS_SOURCE_RE.test(f)) || (parsed?.globs ?? []).some((g) => /ts/.test(g));
     const native = Boolean((process.features as { typescript?: unknown }).typescript);
     if ((parsed?.tsx === true || choice.tsxLoader === true || (needsTs && !native)) && !nodeArgs.some((a) => a.includes('tsx'))) {
-      const loader = packageEntry(resolvePackage('tsx', apiRoot, { ...ctx, declared }));
+      // The repository's own tsx first; else the harness's, as for vitest below: a repository outside the
+      // harness checkout (an in-place session) does not find it by walking up from its API root.
+      const loader = packageEntry(resolvePackage('tsx', apiRoot, { ...ctx, declared })) ?? packageEntry(resolvePackage('tsx', ctx.harnessRoot, { harnessRoot: ctx.harnessRoot }));
       if (loader === null) {
         return { kind: 'node-test', name: 'node:test', supported: false, reason: 'node:test with TypeScript needs tsx (or a node with type stripping); neither is available', evidence: choice.evidence };
       }

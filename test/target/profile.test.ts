@@ -3,6 +3,8 @@
  * layouts (property-style table, _variants.ts), and nothing broad enough to un-govern source
  * is ever accepted (negative cases).
  */
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { HARNESS_ROOT } from '../../src/core/config.ts';
@@ -157,6 +159,24 @@ describe('profile: the stack decides which gates apply (assignment 02)', () => {
     expect(withVitest.runner.kind).toBe('vitest');
     const express = (await profileOf({ 'package.json': JSON.stringify({ dependencies: { express: '^5.0.0' } }) })).p;
     expect(express.runner.kind).toBe('vitest');
+  });
+
+  it('a React + Vite repository outside the harness checkout (an in-place session) gets the harness\'s tsx; with no tsx anywhere it is unsupported (the twin)', async () => {
+    const outside = mkdtempSync(join(realpathSync(tmpdir()), 'profile-outside-'));
+    const noTsx = mkdtempSync(join(realpathSync(tmpdir()), 'profile-no-harness-'));
+    try {
+      writeTree(outside, { 'package.json': JSON.stringify({ type: 'module', dependencies: { react: '^19.0.0' }, devDependencies: { vite: '^6.0.0' } }) });
+      const p = await computeTargetProfile({ apiRoot: outside, repoRoot: outside, harnessRoot: HARNESS_ROOT });
+      expect(p.runner).toMatchObject({ kind: 'node-test', supported: true });
+      const loader = (p.runner.nodeArgs ?? []).find((a) => a.includes('tsx')) ?? '';
+      expect(decodeURIComponent(loader)).toContain(realpathSync(HARNESS_ROOT));
+      const twin = await computeTargetProfile({ apiRoot: outside, repoRoot: outside, harnessRoot: noTsx });
+      expect(twin.runner).toMatchObject({ kind: 'node-test', supported: false });
+      expect(twin.runner.reason).toMatch(/needs tsx .*neither is available/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      rmSync(noTsx, { recursive: true, force: true });
+    }
   });
 
   it('React + Vite is the react-vite stack', async () => {
