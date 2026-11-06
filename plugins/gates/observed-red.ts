@@ -13,7 +13,12 @@
  *     fresh scratch copies of the API in equivalent contexts (same parent dir, same-length random names, same
  *     env; see CoreServices.runTestsReverted), one with the current source and one where F ALONE has its
  *     run-start content back (absent, if F is new). Some accepted case (name and body hash) must PASS in the
- *     current copy and FAIL in the reverted one. So the flip is caused by F's own change, not by an edit
+ *     current copy and FAIL in the reverted one: an assertion failure, or, only for a file new in this run (absent
+ *     in the reverted copy), a load failure. A case that only fails to LOAD with an existing F reverted proves no
+ *     behaviour (e.g. it imports a declaration F did not export at run start). For the same reason the reverted
+ *     copy keeps the exports the run made of F's run-start declarations (export-only, verified; DifferentialRun
+ *     .exportsKept): a test importing such a declaration still loads there, and its case has to fail on what the
+ *     run-start code DOES. So the flip is caused by F's own change, not by an edit
  *     elsewhere in the test file (a new mock, a changed file-level constant or helper), another changed file,
  *     the clock, randomness, or where the test runs (a case branching on process.cwd() sees the same kind of
  *     path in both copies). One red case can no longer clear every changed file at once: when several files
@@ -101,9 +106,19 @@ function evidence(test: string, earlier: TestObservation[], fresh: TestObservati
   return greens.length > 0 ? { greens } : gap;
 }
 
-/** The case passes in the current-source copy and fails (or cannot load) in the reverted one. */
-function flipsWithSource(cur: TestObservation | undefined, rev: TestObservation | undefined, c: RedCase): boolean {
-  return passesIn(cur, c) && (rev?.cases ?? []).some((x) => sameCase(x, c) && (x.status === 'fail' || x.status === 'error'));
+/**
+ * The case passes in the current-source copy and fails in the reverted one: on an assertion, or by failing to
+ * load only when the reverted file did not exist at run start (absent there, nothing that imports it can load).
+ * A load failure with an existing file reverted is no behavioural flip.
+ */
+function flipsWithSource(cur: TestObservation | undefined, rev: TestObservation | undefined, c: RedCase, existedAtStart: boolean): boolean {
+  return passesIn(cur, c) && (rev?.cases ?? []).some((x) => sameCase(x, c) && (x.status === 'fail' || (x.status === 'error' && !existedAtStart)));
+}
+
+/** The case only failed to load in the reverted copy (no assertion ran). */
+function onlyLoadFails(rev: TestObservation | undefined, c: RedCase): boolean {
+  const same = (rev?.cases ?? []).filter((x) => sameCase(x, c));
+  return same.length > 0 && same.every((x) => x.status === 'error');
 }
 
 function sameCase(x: TestCaseObservation, c: RedCase): boolean {
@@ -279,6 +294,8 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
   }
   /** Changed files whose own revert flips none of their accepted cases: not proven (never green). */
   const unproven: string[] = [];
+  /** Exports the reverted copies kept (DifferentialRun.exportsKept), for the summary. */
+  const kept: string[] = [];
   if (problems.length === 0 && candidates.size > 0) {
     // Revert check, one changed file at a time: in two equivalent fresh copies F's cases must pass with the
     // current source and fail with F ALONE back at its run-start content. Only F's candidate tests run.
@@ -292,7 +309,10 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
       }
       const cur = new Map(diff.current.observations.map((o) => [o.file, o]));
       const rev = new Map(diff.reverted.observations.map((o) => [o.file, o]));
-      const proven = greens.filter((c) => flipsWithSource(cur.get(c.test), rev.get(c.test), c));
+      const existed = ctx.state.initialHashes.has(f);
+      const names = diff.exportsKept?.[f];
+      if (names !== undefined && names.length > 0) kept.push(`${f}: ${names.join(', ')}`);
+      const proven = greens.filter((c) => flipsWithSource(cur.get(c.test), rev.get(c.test), c, existed));
       if (proven.length > 0) {
         (proven.some((c) => c.edited !== true) ? unchangedProofs : editedProofs).add(f);
         continue;
@@ -301,6 +321,14 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
       if (c === undefined) continue;
       if (!passesIn(cur.get(c.test), c)) {
         problems.push(`${f}: ${c.test}: "${c.name}" does not pass in a fresh copy with the current source (revert check): its pass depends on where or how it runs, not on the source`);
+        continue;
+      }
+      const loadOnly = greens.find((g) => passesIn(cur.get(g.test), g) && onlyLoadFails(rev.get(g.test), g));
+      if (existed && loadOnly !== undefined) {
+        // The reverted copy could not even load the case: no assertion ran, so no behaviour was compared.
+        const why = `${f}: ${loadOnly.test}: "${loadOnly.name}" only fails to LOAD with ${f} at its run-start content (revert check): a load failure is no behavioural flip; some case must fail there on an assertion`;
+        if (changed.length === 1) problems.push(why);
+        else unproven.push(why);
         continue;
       }
       if (changed.length === 1) {
@@ -344,8 +372,9 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
       logPath: report.logPath,
     };
   }
+  const extras = kept.length > 0 ? [`the reverted copies kept the exports the run added (${kept.join('; ')})`] : [];
   return {
     status: 'pass',
-    summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)`,
+    summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)${extras.length > 0 ? `; ${extras.join('; ')}` : ''}`,
   };
 }
