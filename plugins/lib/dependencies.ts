@@ -139,20 +139,16 @@ const MD_FILE = /\.(md|markdown)$/i;
 /**
  * The ESM of an MDX document: every block (lines up to a blank line) that starts with `import` or `export` at
  * the start of a line, outside fenced code blocks (an import shown as an example in a ``` fence is text, not
- * code) and the frontmatter. MDX takes such a line as ESM wherever no paragraph is open (after a blank line, a
- * heading, the frontmatter's closing `---`, a JSX tag line); reading every such line is a superset, which is
- * what a check that only refuses needs: an import it reads that MDX would not is at worst refused.
+ * code). MDX takes such a line as ESM wherever no paragraph is open (after a blank line, a heading, the
+ * frontmatter's closing `---`, a JSX tag line); reading every such line is a superset, which is what a check
+ * that only refuses needs: an import it reads that MDX would not is at worst refused. (A YAML frontmatter line
+ * at column 0 is a key, `import: x`, which declares no module.)
  */
 function mdxEsm(text: string): string {
   const out: string[] = [];
   let fence: string | null = null;
   let block: string[] | null = null;
-  const lines = text.split(/\r?\n/);
-  if (/^---\s*$/.test(lines[0] ?? '')) {
-    const close = lines.findIndex((l, i) => i > 0 && /^---\s*$/.test(l));
-    if (close > 0) lines.splice(0, close + 1);
-  }
-  for (const line of lines) {
+  for (const line of text.split(/\r?\n/)) {
     const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
     if (fence !== null) {
       if (marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length) fence = null;

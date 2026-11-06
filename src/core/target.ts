@@ -1443,11 +1443,12 @@ export async function analyzeLayout(apiRoot: string, opts: { web?: boolean } = {
     dedicated.push(d);
   }
   const testSupportRoots = outermost(dedicated);
-  // TypeScript the repository's own code is written in: not a declaration, a test, test support (a test dir's
-  // helper, e2e/fixtures.ts, a Cypress or Playwright support file, a story) or a tool's config file. A
-  // JavaScript app whose end-to-end helpers are TypeScript is still a JavaScript app.
+  // TypeScript the repository's own code is written in: not a declaration, a test, test support (a helper in a
+  // conventionally named test dir such as e2e/fixtures.ts, a Cypress or Playwright support file, a story) or a
+  // tool's config file. A JavaScript app whose end-to-end helpers are TypeScript is still a JavaScript app.
+  // (Without a tsconfig.json every test dir is a conventionally named one, so the names decide alone.)
   const typescriptSources = all.some((f) => TS_SOURCE_RE.test(f) && !DECL_RE.test(f) && !testMatch(f) && !isToolingConfig(f)
-    && !underAny(f, testSupportRoots) && !f.split('/').slice(0, -1).some((d) => TEST_DIR_RE.test(d) || TEST_TOOL_DIR_RE.test(d)) && !STORY_RE.test(f));
+    && !f.split('/').slice(0, -1).some((d) => TEST_DIR_RE.test(d) || TEST_TOOL_DIR_RE.test(d)) && !STORY_RE.test(f));
 
   // Source roots: tsconfig rootDir, else its include dirs / explicit files, else the whole root; minus test dirs.
   let sourceRoots: string[];
