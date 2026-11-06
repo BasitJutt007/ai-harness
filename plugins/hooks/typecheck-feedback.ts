@@ -11,10 +11,11 @@
  *   (repo-typecheck / web-typecheck) would say. The projects are found as that check finds them
  *   (projectsOf: tsconfig.json, or every project a solution-style tsconfig references), parsed fresh on
  *   every write so a new file matching an `include` counts. A written file is checked in every project
- *   that lists it (real paths compared), else in every project whose program imports it, as `tsc -p`
- *   of each would: with that project's own options (no forced strict; an option it leaves unset keeps
- *   the default of the repository's TypeScript), as part of that project's program (its declaration
- *   files apply). A project's own errors (a `types` entry that does not resolve) are recorded once per run.
+ *   whose program contains it (real paths compared), as `tsc -p` of each does: the projects that list it
+ *   and the projects one of whose files imports it, each with its own options (no forced strict; an
+ *   option it leaves unset keeps the default of the repository's TypeScript), as part of that project's
+ *   program (its declaration files apply). A project's own errors (a `types` entry that does not
+ *   resolve) are recorded once per run.
  *   Nothing is recorded for a written file no project's program includes: the repository's type check
  *   never checks it (a test/ outside every tsconfig, run through a runner that strips types). Not even a
  *   one-line "not covered" note: it asks for no action, and the actions a model would try (moving the
@@ -25,9 +26,13 @@
  * It only ever passes or records: it never blocks (errors are normal in the middle of a change; the
  * gates decide at finish) and never writes a file (the language service only reads, through the read
  * fence of createTsFence). Services are kept warm (per API root in file mode, per root and project in
- * place), so after the first check only changed files are re-parsed. A check still running after
- * BUDGET_MS is cancelled and skipped, so it never slows a run down by more than that; after
- * MAX_OVERRUNS cancelled checks in a row the hook stays off for that API root (noted once).
+ * place), so after the first check only changed files are re-parsed. A check found still running after
+ * BUDGET_MS is cancelled and skipped; after MAX_OVERRUNS cancelled checks in a row the hook stays off
+ * for that API root (noted once). The budget is not a hard cap: the deadline is looked at between
+ * steps (in place: after each project's program, before type-checking) and inside type checking, but
+ * building a program cannot be interrupted, so the first (cold) check of a large project, and in place
+ * every check of a large checkout (each file's content is read and hashed to find what changed), can
+ * take longer than BUDGET_MS before it is cancelled.
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';

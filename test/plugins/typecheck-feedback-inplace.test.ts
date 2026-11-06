@@ -327,6 +327,24 @@ describe('typecheck-feedback in place: the existing guarantees', () => {
     expect(await writeThenCheck(ctx, 'src/slow.ts', "export const n: number = 'two';\n")).toEqual({ decision: 'pass' });
   });
 
+  it('past its deadline a warm check is cancelled wherever it stands (a listed file, a file in no project); within it, the same checks complete', () => {
+    const repo = makeRepo({ ...SOLUTION_FILES, 'src/late.ts': "export const n: number = 'one';\n" }, { packages: TINY_ENV });
+    const listed = path.join(repo.root, 'src', 'late.ts');
+    const unlisted = path.join(repo.root, 'test', 'late.test.ts');
+    mkdirSync(path.dirname(unlisted), { recursive: true });
+    writeFileSync(unlisted, 'export {};\n');
+    // Warm: every project's program is built and checked once, so what follows is the warm path a session takes.
+    expect(checkInPlace(repo.root, [listed], COLD)?.errors).toEqual(["src/late.ts:1:14 TS2322 Type 'string' is not assignable to type 'number'."]);
+    // A deadline already past: the listed file's tiny check would never reach the checker's cancellation points,
+    // and the unlisted file's has no type checking at all, so the hook's own deadline checks must cancel them.
+    // Each is followed by its twin within the budget, which completes (and resets the overrun count, so two
+    // cancellations in a row never switch the root off here).
+    expect(checkInPlace(repo.root, [listed], -1)).toBeNull();
+    expect(checkInPlace(repo.root, [listed], COLD)?.errors).toEqual(["src/late.ts:1:14 TS2322 Type 'string' is not assignable to type 'number'."]);
+    expect(checkInPlace(repo.root, [unlisted], -1)).toBeNull();
+    expect(checkInPlace(repo.root, [unlisted], COLD)?.uncovered).toEqual(['test/late.test.ts']);
+  });
+
   it('reads only inside the fence: a file outside the checkout, imported by absolute path, never reaches the note', async () => {
     const repo = makeRepo(SOLUTION_FILES, { packages: TINY_ENV });
     const outside = mkdtempSync(path.join(tmpdir(), 'tsfeedback-outside-'));
