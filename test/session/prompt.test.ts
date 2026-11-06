@@ -2,7 +2,9 @@
  * What the session's model is told. The standards list in its system prompt is exactly what the gate
  * runs: in place (a web layout) express and nestjs get web-build too (inPlaceStacks), and the prompt
  * says so; the twins (a react-vite session, and file mode's selection for the same repository) list
- * what their gate runs, without web-build.
+ * what their gate runs, without web-build. A writable session is told, in a few lines, what makes a
+ * test prove something (it imports the source; it fails before the change; globals stubbed before the
+ * import) and to prefer a Measure script; a read-only session (it cannot edit) is not.
  */
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,6 +13,9 @@ import { checksForRun, runChecks, selectChecks } from '../../src/core/checks.ts'
 import { exec as coreExec } from '../../src/core/exec.ts';
 import { computeTargetProfile } from '../../src/core/target.ts';
 import type { CheckPlugin, LogStore, PluginRecord, RegistryView } from '../../src/core/types.ts';
+import { toolInputSchema } from '../../src/core/registry.ts';
+import { sessionSystemPrompt } from '../../src/session/prompt.ts';
+import proposeContract from '../../plugins/tools/propose_contract.ts';
 import { realRegistry, registryWithGates, runScripted, text, webRepo, type WebRepo } from './helpers.ts';
 
 /** The rule ids a session system prompt lists under "Standards the gates check". */
@@ -94,5 +99,53 @@ describe('the session prompt lists exactly the checks the gate runs', () => {
     expect(fileModePrompt).toEqual([...ran].sort());
     expect(fileModePrompt).not.toContain('web-build');
     expect(checksForRun(checks, { stack: profile.stack, layout: profile }).map((c) => c.id).sort()).toEqual(fileModePrompt);
+  });
+});
+
+describe('a writable session is told what makes a test prove something; a read-only one is not', () => {
+  const base = { repo: 'tiny-web', branch: 'fix/x', stack: 'web' as const, runner: 'vitest', tools: [], checks: [] };
+  /** The guidance, one pattern per point (generic: nothing about any repository). */
+  const GUIDANCE = [
+    /covers a source file only by importing it .*test_map <file>.*reads the file's text or copies its logic proves nothing/,
+    /passes before the change, it does not reproduce the problem: make it fail for the reason the contract names, then change the code/,
+    /\(window, document, localStorage, import\.meta\.env\) before the module loads: stub, then import\(\) it/,
+    /Prefer a measureScript printing the metric as one number over Measure: none \(that item can ship but never close\)/,
+  ];
+
+  it('the writable prompt carries it, in four short lines', () => {
+    const p = sessionSystemPrompt({ ...base, writable: true, reason: '' });
+    for (const g of GUIDANCE) expect(p).toMatch(g);
+    // Sent with every request: four lines, under 700 characters in all.
+    const lines = p.split('\n').filter((l) => GUIDANCE.some((g) => g.test(l)));
+    expect(lines).toHaveLength(4);
+    expect(lines.join('\n').length).toBeLessThan(700);
+    // Generic: no file, framework or repository of anyone's in it.
+    expect(lines.join('\n')).not.toMatch(/src\/|\.tsx?\b|react|vite|express/i);
+  });
+
+  it('twin: the read-only prompt (it cannot edit) carries none of it, and still never says propose', () => {
+    const p = sessionSystemPrompt({ ...base, writable: false, reason: 'the branch main is protected' });
+    for (const g of GUIDANCE) expect(p).not.toMatch(g);
+    expect(p).not.toMatch(/propos|measureScript|Measure: none/i);
+  });
+
+  it('agrees with propose_contract: the script is optional there, Measure: none when none can measure the metric', () => {
+    const schema = toolInputSchema(proposeContract.input) as { properties?: Record<string, { description?: string }> };
+    const said = schema.properties?.['measureScript']?.description ?? '';
+    expect(said).toMatch(/^Optional: .*prints one line \{"metric":"<name>","value":<number>\}/);
+    expect(said).toMatch(/Omit it when no script can measure the metric \(the contract then says Measure: none\)/);
+  });
+
+  it('in real sessions: a writable checkout\'s requests carry it, a protected branch\'s (read-only) do not', async () => {
+    const w = webRepo();
+    const ro = webRepo({ branch: 'main' });
+    repos.push(w, ro);
+    const writable = await runScripted(w, [text('hi')], ['hello']);
+    const readOnly = await runScripted(ro, [text('hi')], ['hello']);
+    for (const g of GUIDANCE) {
+      expect(writable.driver.requests[0]?.system).toMatch(g);
+      expect(readOnly.driver.requests[0]?.system).not.toMatch(g);
+    }
+    expect(readOnly.driver.requests[0]?.system).toMatch(/read-only/);
   });
 });
