@@ -24,7 +24,7 @@
  * function fails to LOAD, which is no red for a file that existed at run start, and only adding `export` lets
  * it load: without this the lock and the load failure wait on each other forever. Such a write is recorded
  * (recordExportOnly: content hash before and after) and unlocks nothing; the test must then be observed
- * failing on an assertion like any other red.
+ * failing on an assertion like any other red. (Its undo, the exact run-start content again, passes too.)
  */
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
@@ -101,8 +101,9 @@ export function recordExportOnly(state: RunState, r: ExportOnlyRecord): void {
 /**
  * The names a chain of recorded export-only edits exported on the way from `source`'s run-start content to
  * the content with hash `hash`, or null when no such chain exists (a file new in this run never has one). A
- * file whose current content is reached this way only exports declarations it had at run start: what any of
- * its code does is unchanged, so it has no behaviour of its own to prove.
+ * file whose current content is reached this way only exports declarations it had at run start: none of its
+ * own code changed, so it has no red -> green to give, but a new export can still change what code that reads
+ * the module as a whole does, so the observed-red gate never counts such a file as proven (UNPROVEN, named).
  */
 export function exportOnlySinceStart(state: RunState, source: string, hash: string): string[] | null {
   const start = state.initialHashes.get(source);

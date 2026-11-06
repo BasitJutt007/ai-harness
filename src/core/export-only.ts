@@ -4,8 +4,13 @@
  * A test that imports a function its module declares but does not export cannot load (ESM: "The requested
  * module 'M' does not provide an export named 'X'"), and a load failure is no red for a file that existed at
  * run start. The only edit that lets such a test load is adding `export`: a source edit the observed-red lock
- * refuses. An EXPORT-ONLY edit breaks that deadlock without weakening any proof: it only makes existing
- * top-level declarations importable, which changes what other modules can import, never what code does.
+ * refuses. An EXPORT-ONLY edit breaks that deadlock: it only makes existing top-level declarations importable,
+ * so none of the file's own code changes. It is NOT behaviour-neutral in general: a new export changes what
+ * code that reads the module AS A WHOLE does (a registry built from `import * as`, `Object.keys` of a
+ * namespace, a barrel's `export *` that now meets the same name twice, a framework that reads a route
+ * module's exports by name such as `loader`), and a check of one file cannot see that code. So the edit
+ * unlocks nothing and proves nothing: the observed-red gate never counts a file that only gained exports as
+ * proven (it is UNPROVEN by name), and a file that also changed behaviour is proven by its own revert check.
  *
  * exportOnlyEdit(file, before, after) decides it on the TypeScript AST (the parser mode of the file's
  * extension): after removing exactly the `export` modifiers added to existing top-level function, class,

@@ -7,10 +7,12 @@
  * observed-red hook lets exactly that write through while the file is locked (an export-only edit), unlocks
  * nothing with it, and the revert check compares against the run-start content WITH that export, so the
  * proof still needs the case to fail there on an assertion. Every allowance is paired with its refusal:
- * export plus any other change, a new exported declaration, a re-export, a removed export, a second file in
- * the same call that is not export-only, a behaviour edit after the export without a red. A file that only
- * gained exports has nothing to prove (never green on its own). The same flow runs in file mode (the twin of
- * in place). The revert rule itself (a load-only failure is no flip) is pinned in revert-base.test.ts.
+ * export plus any other change, a new exported declaration, a re-export, a removed export, a JSX pragma
+ * comment, a second file in the same call that is not export-only, a behaviour edit after the export without a
+ * red. A file that only gained exports is never green, even next to a proven fix (a new export can change what
+ * code reading the module as a whole does: here a registry built from `import * as`); putting it back to its
+ * run-start content is allowed while it is locked. The same flow runs in file mode (the twin of in place). The
+ * revert rule itself (a load-only failure is no flip) is pinned in revert-base.test.ts.
  */
 import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -232,7 +234,7 @@ describe('twins that stay locked: export plus anything else', () => {
     expect(v.decision).toBe('block');
     expect(reason(v)).toContain(`it imports prependPage from ${API_FILE}, which has no top-level declaration of prependPage to export (an export-only edit can only export what already exists)`);
     expect(reason(v)).not.toContain('Next: add `export`');
-    // An export-only edit is still allowed: it is behaviour-neutral whatever the test imports.
+    // An export-only edit is still allowed whatever the test imports: it changes none of the file's own code.
     expect((await h.write(API_FILE, exportedApi)).decision).toBe('record');
   }, 120_000);
 
@@ -249,15 +251,57 @@ describe('twins that stay locked: export plus anything else', () => {
   }, 120_000);
 });
 
-describe('a file that only gained exports has no behaviour to prove', () => {
-  it('export-only edits alone (a red seen, no fix): UNPROVEN "no source change to prove", naming the file; never green', async () => {
+describe('a file that only gained exports is never green', () => {
+  /** A file read as a whole: src/main.ts builds its commands from the module namespace (Object.keys). */
+  const COMMANDS_FILE = 'src/store/x/commands.ts';
+  const COMMANDS = "export function save(): string {\n  return 'saved';\n}\n\nfunction wipeAll(): string {\n  return 'wiped';\n}\n\nexport const size = wipeAll.length;\n";
+  const REGISTRY = { [COMMANDS_FILE]: COMMANDS, 'src/main.ts': "import * as commands from './store/x/commands';\n\nfor (const name of Object.keys(commands)) document.querySelector('#app')?.append(name);\n" };
+
+  it('export-only edits alone (a red seen, no fix): UNPROVEN "no source change to prove", naming the file and what it exports', async () => {
     const { h } = await deadlocked();
     expect((await h.edit(API_FILE, 'function appendPage', 'export function appendPage')).decision).toBe('record');
     await h.runTests([TEST_FILE]);
     expect(h.latest(TEST_FILE)).toMatchObject({ status: 'fail', validRed: true });
     expect(exportOnlySinceStart(h.ctx.state, API_FILE, sha(exportedApi))).toEqual(['appendPage']);
     const g = await h.gate();
-    expect(g).toMatchObject({ status: 'unproven', summary: `no source change to prove: ${API_FILE} only exports declarations it had at run start (no behaviour to prove)` });
+    expect(g).toMatchObject({ status: 'unproven', summary: 'no source change to prove: the only source changes are exports of declarations the files already had' });
+    expect(g.details?.join('\n')).toContain(`unproven: ${API_FILE}: only gained exports since run start (appendPage): none of its own code changed, but a new export can change what code that reads the module as a whole does`);
+    expect(g.humanMustVerify).toEqual([`${API_FILE}: verify by hand that exporting appendPage changes nothing for code that reads the module as a whole, or put ${API_FILE} back to its run-start content (allowed while it is locked)`]);
+  }, 120_000);
+
+  it('next to a proven fix, a locked file that only gained an export read through a namespace (a new command in the registry) makes the gate UNPROVEN, by name', async () => {
+    const h = await harness({ extra: REGISTRY });
+    // The legit flow on api.ts: export-only, red on an assertion, fix, green.
+    await h.write(TEST_FILE, MERGE_TEST);
+    await h.runTests([TEST_FILE]);
+    expect((await h.edit(API_FILE, 'function appendPage', 'export function appendPage')).decision).toBe('record');
+    await h.runTests([TEST_FILE]);
+    expect((await h.edit(API_FILE, BUG, FIX)).decision).toBe('pass');
+    expect((await h.runTests([TEST_FILE])).ok).toBe(true);
+    // commands.ts is locked (no covering test); exporting wipeAll adds a command to src/main.ts's registry.
+    expect((await lockState(h.ctx, COMMANDS_FILE)).unlocked).toBe(false);
+    expect((await h.edit(COMMANDS_FILE, 'function wipeAll', 'export function wipeAll')).decision).toBe('record');
+    const g = await h.gate();
+    expect(g.status, JSON.stringify(g)).toBe('unproven');
+    expect(g.summary).toContain('1 changed source files went red -> green');
+    expect(g.summary).toContain(`; but ${COMMANDS_FILE} only gained exports, which no test proves; verify by hand or put it back to the run-start content`);
+    expect(g.details?.join('\n')).toContain(`${COMMANDS_FILE}: only gained exports since run start (wipeAll)`);
+    // The way out: put it back to its run-start content (allowed while it is locked); the gate is then green.
+    const back = await h.write(COMMANDS_FILE, COMMANDS);
+    expect(back.decision).toBe('record');
+    expect(note(back)).toBe(`observed-red: ${COMMANDS_FILE} is back at its run-start content (it had only gained exports since run start), allowed while it is locked; it has no change left to prove.`);
+    expect(await h.gate()).toMatchObject({ status: 'pass' });
+  }, 240_000);
+
+  it('twins of the way back, refused while locked: the run-start content plus one more change, and the run-start content over a change that was not export-only', async () => {
+    const h = await harness({ extra: REGISTRY });
+    expect((await h.edit(COMMANDS_FILE, 'function wipeAll', 'export function wipeAll')).decision).toBe('record');
+    const almost = await h.write(COMMANDS_FILE, COMMANDS.replace("return 'wiped'", "return 'gone'"));
+    expect(almost.decision).toBe('block');
+    expect(reason(almost)).toMatch(/^observed-red: src\/store\/x\/commands\.ts is locked/);
+    // Changed behind the hook (no record): its run-start content is not an undo of export-only edits.
+    await h.ws.write(COMMANDS_FILE, COMMANDS.replace("return 'saved'", "return 'kept'"));
+    expect((await h.write(COMMANDS_FILE, COMMANDS)).decision).toBe('block');
   }, 120_000);
 
   it('twin: the same content written behind the hook (no record) is a change that did not pass the hook (fail)', async () => {
