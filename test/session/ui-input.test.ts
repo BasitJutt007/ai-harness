@@ -434,6 +434,28 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
     expect(new Ui({ write: () => undefined, isTTY: true, columns: undefined }, false).wrapAt).toBe(80);
     expect(new Ui({ write: () => undefined, isTTY: false, columns: undefined }, false).wrapAt).toBe(Infinity);
   });
+
+  it('a terminal that reports no columns clips a tool line to the 80 columns it wraps at: one row, not two', () => {
+    const long = `src/${'deep/'.repeat(40)}file.ts (lines 1-120 of 300)`;
+    for (const columns of [0, undefined]) {
+      const t = capture(true, null);
+      t.out.columns = columns;
+      new Ui(t.out, false, () => 'read').event(ev({ source: 'read_file', decision: 'pass', message: long }));
+      const rows = t.text().replace(/\n$/, '').split('\n');
+      expect(rows, String(columns)).toHaveLength(1);
+      expect(cells(rows[0] ?? '')).toBeLessThanOrEqual(80);
+      expect(rows[0]).toMatch(/^● read_file src\/deep\/.*…$/);
+    }
+    // The twins: a pipe keeps its 100-column clip (no rows to break); a terminal's own columns are used as they are.
+    const p = capture(false, null);
+    new Ui(p.out, false, () => 'read').event(ev({ source: 'read_file', decision: 'pass', message: long }));
+    expect(p.text().trimEnd().split('\n')).toHaveLength(1);
+    expect(cells(p.text().trimEnd())).toBe(100);
+    const wide = capture(true, 120);
+    new Ui(wide.out, false, () => 'read').event(ev({ source: 'read_file', decision: 'pass', message: long }));
+    expect(wide.text().trimEnd().split('\n')).toHaveLength(1);
+    expect(cells(wide.text().trimEnd())).toBe(120);
+  });
 });
 
 describe('on a colour terminal, colour is the harness\'s only', () => {

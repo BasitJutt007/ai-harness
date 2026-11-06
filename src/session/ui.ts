@@ -227,10 +227,13 @@ export class Ui {
     private readonly effectOf: (tool: string) => ToolEffect | undefined = () => undefined,
   ) {}
 
-  /** The usable line width (terminal columns, else 100). */
+  /**
+   * The usable line width, what one-line text is clipped to: the columns rows break at (wrapAt: the
+   * terminal's, or 80 on a terminal that reports none) when that is 40 or more, else 100 (a pipe).
+   */
   get width(): number {
-    const c = this.out.columns;
-    return typeof c === 'number' && c >= 40 ? c : 100;
+    const w = this.wrapAt;
+    return w !== Infinity && w >= 40 ? w : 100;
   }
 
   /**
