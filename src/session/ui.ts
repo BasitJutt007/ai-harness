@@ -219,6 +219,18 @@ export function clip(text: string, max: number): string {
   return t.length <= max ? t : `${t.slice(0, Math.max(1, max - 1))}…`;
 }
 
+/**
+ * One-line text for one row of the screen (a tool, hook, gate or verdict line): clip, measured in
+ * columns (cellWidth) instead of UTF-16 units, so text outside printable ASCII (counted two columns
+ * each) is cut as short as it must be, and never inside a surrogate pair. Printable ASCII comes out
+ * exactly as clip gives it: what is kept takes at most `max - 1` columns, then an ellipsis (the
+ * callers' budgets leave room for its two columns).
+ */
+export function clipRow(text: string, max: number): string {
+  const t = stripControls(text).replace(/\s+/g, ' ').trim();
+  return cells(t) <= max ? t : `${t.slice(0, fitUnits(t, Math.max(1, max - 1)))}…`;
+}
+
 /** A Measure script shown in the proposal box. */
 export interface ShownScript {
   /** Where the harness keeps it, relative to the items root (metrics/<file>.mjs). */
@@ -444,34 +456,34 @@ export class Ui {
       const effect = this.effectOf(e.source);
       // A command that ran and failed (a red test run) is information; a refused read or write is not.
       if (e.decision === 'block' && effect === 'exec') {
-        this.line(`${this.paint('yellow', '●')} ${clip(`${e.source} ${e.message}`, w)}`);
+        this.line(`${this.paint('yellow', '●')} ${clipRow(`${e.source} ${e.message}`, w)}`);
         return;
       }
       if (e.decision === 'block') {
-        this.line(this.paint('red', clip(`✗ ${e.source}: ${e.message}`, w)));
+        this.line(this.paint('red', clipRow(`✗ ${e.source}: ${e.message}`, w)));
         return;
       }
       const icon = effect === 'write' ? this.paint('yellow', '✎') : effect === 'control' ? this.paint('magenta', '◆') : this.paint('cyan', '●');
-      this.line(`${icon} ${clip(`${e.source} ${effect === 'write' ? lineCounts(e.message) : e.message}`, w)}`);
+      this.line(`${icon} ${clipRow(`${e.source} ${effect === 'write' ? lineCounts(e.message) : e.message}`, w)}`);
       return;
     }
     if (e.kind === 'hook') {
       const msg = e.message.startsWith(`${e.source}: `) ? e.message.slice(e.source.length + 2) : e.message;
-      if (e.decision === 'block') this.line(this.paint('red', clip(`✗ BLOCKED by ${e.source}: ${msg}`, w)));
-      else if (e.decision === 'record') this.line(this.paint('dim', clip(`  · ${e.source}: ${msg}`, w)));
+      if (e.decision === 'block') this.line(this.paint('red', clipRow(`✗ BLOCKED by ${e.source}: ${msg}`, w)));
+      else if (e.decision === 'record') this.line(this.paint('dim', clipRow(`  · ${e.source}: ${msg}`, w)));
       return;
     }
     if (e.kind === 'note' && e.source === 'finish') {
       const accepted = e.decision === 'pass';
-      this.line(`${this.paint('magenta', '◆')} ${accepted ? 'finish accepted by the gates' : clip(`finish refused: ${e.message.replace(/^FINISH REFUSED\s*/, '')}`, w)}`);
+      this.line(`${this.paint('magenta', '◆')} ${accepted ? 'finish accepted by the gates' : clipRow(`finish refused: ${e.message.replace(/^FINISH REFUSED\s*/, '')}`, w)}`);
       this.flushGates();
       return;
     }
     if (e.kind === 'note') {
-      this.line(this.paint('dim', `  · ${clip(e.message, w - 4)}`));
+      this.line(this.paint('dim', `  · ${clipRow(e.message, w - 4)}`));
       return;
     }
-    if (e.kind === 'error') this.line(this.paint('red', `  ! ${clip(`${e.source}: ${e.message}`, w - 4)}`));
+    if (e.kind === 'error') this.line(this.paint('red', `  ! ${clipRow(`${e.source}: ${e.message}`, w - 4)}`));
   }
 
   /** The gate results buffered since the last flush, on one line. */
@@ -493,7 +505,7 @@ export class Ui {
   /** One line per gate of a fresh run. */
   gateLines(results: NamedGateResult[]): void {
     const w = this.width - 30;
-    for (const r of results) this.line(`  ${stripControls(r.gate).padEnd(16)} ${this.gateStatus(r.status, 9)} ${this.paint('dim', clip(r.summary, Math.max(30, w)))}`);
+    for (const r of results) this.line(`  ${stripControls(r.gate).padEnd(16)} ${this.gateStatus(r.status, 9)} ${this.paint('dim', clipRow(r.summary, Math.max(30, w)))}`);
   }
 
   // ── proposal and verdict ──
@@ -528,18 +540,18 @@ export class Ui {
   verdict(v: VerdictView): void {
     this.line(`${this.paint('dim', 'gates')}  fresh run of every required gate`);
     this.gateLines(v.gates);
-    this.line(`${this.paint('dim', 'standards')}  ${clip(v.standards, this.width - 12)}`);
+    this.line(`${this.paint('dim', 'standards')}  ${clipRow(v.standards, this.width - 12)}`);
     if (v.kind === 'DONE') {
       this.line(this.paint(['green', 'bold'], WORK_COMPLETED));
       return;
     }
     const head = v.kind === 'NOT DONE' ? this.paint(['red', 'bold'], '✗ NOT DONE') : this.paint(['yellow', 'bold'], '? UNPROVEN');
     this.line(`${head}: the gates, not the model, decide; this work is not complete.`);
-    for (const r of v.reasons.slice(0, 8)) this.line(`  - ${clip(r, this.width - 6)}`);
+    for (const r of v.reasons.slice(0, 8)) this.line(`  - ${clipRow(r, this.width - 6)}`);
     if (v.reasons.length > 8) this.line(`  … ${v.reasons.length - 8} more (run.json in the session records)`);
     if (v.humanMustVerify.length > 0) {
       this.line(this.paint('dim', '  a human must verify:'));
-      for (const h of v.humanMustVerify.slice(0, 6)) this.line(this.paint('dim', `    · ${clip(h, this.width - 8)}`));
+      for (const h of v.humanMustVerify.slice(0, 6)) this.line(this.paint('dim', `    · ${clipRow(h, this.width - 8)}`));
     }
   }
 

@@ -10,7 +10,7 @@ import { isSessionCommand } from '../../src/core/cli.ts';
 import { terminalInput } from '../../src/session/input.ts';
 import { runSessionCli } from '../../src/session/main.ts';
 import { cellWidth, stripControls } from '../../src/session/sanitize.ts';
-import { BANNER_LINES, cells, clip, colorEnabled, lineCounts, MODEL_GUTTER, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
+import { BANNER_LINES, cells, clip, clipRow, colorEnabled, lineCounts, MODEL_GUTTER, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
 import type { RunEvent } from '../../src/core/types.ts';
 
 /** An output of `columns` columns (80), or none (null: a pipe, no rows to break). */
@@ -527,6 +527,50 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
     new Ui(wide.out, false, () => 'read').event(ev({ source: 'read_file', decision: 'pass', message: long }));
     expect(wide.text().trimEnd().split('\n')).toHaveLength(1);
     expect(cells(wide.text().trimEnd())).toBe(120);
+  });
+
+  it('one-row lines are clipped by columns, not characters: text outside printable ASCII still takes one row (tool, hook, note, error, gate and verdict lines)', () => {
+    const wide = 'é'.repeat(120);
+    const lines: Array<[string, (ui: Ui) => void, number]> = [
+      ['a tool line', (ui) => ui.event(ev({ source: 'read_file', decision: 'pass', message: `src/${wide}.ts` })), 1],
+      ['a refused write', (ui) => ui.event(ev({ source: 'write_file', decision: 'block', message: `refused ${wide}` })), 1],
+      ['a failed command', (ui) => ui.event(ev({ source: 'run_tests', decision: 'block', message: wide })), 1],
+      ['a hook block', (ui) => ui.event(ev({ kind: 'hook', source: 'scope', decision: 'block', message: `scope: ${wide}` })), 1],
+      ['a hook record', (ui) => ui.event(ev({ kind: 'hook', source: 'scope', decision: 'record', message: `scope: ${wide}` })), 1],
+      ['a refused finish', (ui) => ui.event(ev({ kind: 'note', source: 'finish', decision: 'block', message: `FINISH REFUSED ${wide}` })), 1],
+      ['a note', (ui) => ui.event(ev({ kind: 'note', source: 'loop', message: wide })), 1],
+      ['an error', (ui) => ui.event(ev({ kind: 'error', source: 'loop', message: wide })), 1],
+      ['a gate line', (ui) => ui.gateLines([{ gate: 'tests-green', status: 'fail', summary: wide } as never]), 1],
+      // gates, standards, the NOT DONE head, one reason, "a human must verify:", one item to verify.
+      ['a verdict', (ui) => ui.verdict({ kind: 'NOT DONE', reasons: [wide], gates: [], standards: wide, humanMustVerify: [wide] }), 6],
+    ];
+    const effect = (tool: string): 'read' | 'write' | 'exec' => (tool === 'write_file' ? 'write' : tool === 'run_tests' ? 'exec' : 'read');
+    for (const columns of [0, 80, 120]) {
+      for (const [what, draw, count] of lines) {
+        const t = capture(true, null);
+        t.out.columns = columns;
+        draw(new Ui(t.out, false, effect));
+        const rows = t.text().replace(/\n$/, '').split('\n');
+        expect(rows, `${what} at ${columns} columns`).toHaveLength(count);
+        for (const r of rows) expect(cells(r), `${what} at ${columns}: ${r}`).toBeLessThanOrEqual(columns === 0 ? 80 : columns);
+      }
+    }
+    // Fewer characters than the budget, more columns: still cut (50 "é" are 50 characters and 100 columns).
+    const t = capture(true, 80);
+    new Ui(t.out, false, effect).event(ev({ source: 'read_file', decision: 'pass', message: `src/${'é'.repeat(50)}.ts` }));
+    expect(t.text().replace(/\n$/, '').split('\n')).toHaveLength(1);
+    expect(t.text()).toMatch(/…\n$/);
+  });
+
+  it('twin: printable ASCII is clipped exactly as before (clipRow is clip), and a cut never splits a surrogate pair', () => {
+    const ascii = 'read_file src/pages/orders/list.tsx (lines 1-120 of 300) and more words after it';
+    for (let max = -1; max <= ascii.length + 2; max += 1) expect(clipRow(ascii, max), String(max)).toBe(clip(ascii, max));
+    expect(clipRow('  a  b\nc ', 10)).toBe(clip('  a  b\nc ', 10));
+    // clip cuts UTF-16 units, and here half an emoji; clipRow keeps whole characters within the columns.
+    const emoji = `a${'😀'.repeat(50)}`;
+    expect(clip(emoji, 5)).toMatch(/[\uD800-\uDBFF]…$/);
+    expect(clipRow(emoji, 5)).toBe('a😀…');
+    expect(cells(clipRow(`x ${'中'.repeat(60)}`, 40))).toBeLessThanOrEqual(41);
   });
 
   it('a terminal narrower than 40 columns clips one-line text to 40 (not to the 100 of a pipe): a tool line takes two rows, not four', () => {
