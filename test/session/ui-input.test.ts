@@ -419,6 +419,37 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
     expect(screenRows(line, 30).wrappedByTerminal).toBe(false);
   });
 
+  it('nothing the stream holds is lost at its end: half a surrogate pair is written as it came; completed by the next chunk (the twin), the character is whole', () => {
+    expect(streamed(['ok \uD83D'], 80)).toBe(`${MODEL_GUTTER}ok \uD83D\n`);
+    expect(streamed(['ok \uD83D', '\uDE00'], 80)).toBe(`${MODEL_GUTTER}ok 😀\n`);
+  });
+
+  it('half a surrogate pair held when a harness line comes is never written alone: the character follows the line, whole, in the gutter', () => {
+    const p = capture(true, 80);
+    const ui = new Ui(p.out, false);
+    ui.write('done \uD83D');
+    ui.line('● run_tests tests: 1 passed');
+    ui.write('\uDE00');
+    ui.endStream();
+    expect(p.text()).toBe(`${MODEL_GUTTER}done \n● run_tests tests: 1 passed\n${MODEL_GUTTER}😀\n`);
+    // The twin: a whole character before the line is written before it.
+    const q = capture(true, 80);
+    const whole = new Ui(q.out, false);
+    whole.write('done 😀');
+    whole.line('● run_tests tests: 1 passed');
+    expect(q.text()).toBe(`${MODEL_GUTTER}done 😀\n● run_tests tests: 1 passed\n`);
+  });
+
+  it('a tab in the model\'s prose stops at multiples of 8 counted from the gutter; in a harness line, from column 0 (the twin)', () => {
+    expect(streamed(['ab\tc'], 80)).toBe(`${MODEL_GUTTER}ab${' '.repeat(6)}c\n`);
+    expect(streamed(['abcdefgh\ti'], 80)).toBe(`${MODEL_GUTTER}abcdefgh${' '.repeat(8)}i\n`);
+    const p = capture(false, 80);
+    const ui = new Ui(p.out, false);
+    ui.line('ab\tc');
+    ui.line('abcdefgh\ti');
+    expect(p.text()).toBe(`ab${' '.repeat(6)}c\nabcdefgh${' '.repeat(8)}i\n`);
+  });
+
   it('twin: a held word that still fits after the resize (to its last column, or a wider terminal) stays where it was', () => {
     const url = 'https://example.test/'.padEnd(40, 'p');
     for (const to of [50, 120]) {
