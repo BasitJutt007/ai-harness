@@ -246,8 +246,10 @@ function repoTypeScriptMajor(root: string, fence: TsFence): number | null {
 /**
  * A project's options as `tsc --noEmit -p <config>` of the repository's TypeScript uses them. The harness's
  * TypeScript 6 changed defaults the repository's older TypeScript still has, so an option the config leaves
- * unset gets the pre-6.0 default (strict off, every visible @types package, unchecked side-effect imports)
- * and the 6.0 option deprecations are silenced, as that compiler would not raise them.
+ * unset gets the pre-6.0 default (strict off, every visible @types package, unchecked side-effect imports).
+ * The 6.0 option deprecations are silenced, whatever the config's own ignoreDeprecations ("5.0", which 5.x
+ * repositories set, silences none of them), because that compiler raises none of them, including for the
+ * defaults set here (alwaysStrict false).
  */
 export function repoCompilerOptions(options: ts.CompilerOptions, repoMajor: number): ts.CompilerOptions {
   const out: ts.CompilerOptions = { ...options, noEmit: true };
@@ -256,7 +258,7 @@ export function repoCompilerOptions(options: ts.CompilerOptions, repoMajor: numb
     out.alwaysStrict ??= options.strict === true;
     out.noUncheckedSideEffectImports ??= false;
     out.types ??= ['*'];
-    out.ignoreDeprecations ??= `${HARNESS_TS_MAJOR}.0`;
+    out.ignoreDeprecations = `${HARNESS_TS_MAJOR}.0`;
   }
   return out;
 }

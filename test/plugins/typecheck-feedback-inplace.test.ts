@@ -327,6 +327,31 @@ describe('typecheck-feedback in place: nothing configured, nothing recorded', ()
   });
 });
 
+describe("typecheck-feedback in place: the defaults of the repository's TypeScript", () => {
+  const MODERN = { target: 'ES2022', module: 'ESNext', moduleResolution: 'bundler', lib: ['ES2022'], noEmit: true, types: [] };
+  const project = (options: Record<string, unknown>, include = ['src']): string => JSON.stringify({ compilerOptions: options, include });
+  /** What checkInPlace finds for `file` in a repository of `files` on that TypeScript version (cold budget). */
+  const found = (version: string, files: Record<string, string>, file: string, packages: Record<string, string> = {}) => {
+    const repo = makeRepo(files, { typescript: version, packages });
+    return { repo, r: checkInPlace(repo.root, [path.join(repo.root, file)], COLD) };
+  };
+
+  it('a 5.x repository\'s ignoreDeprecations "5.0" lets no 6.0 deprecation through; a 6.x repository with it gets them, as its own tsc does', async () => {
+    // strict unset: the hook itself sets alwaysStrict false (5.x's default), an option 6.0 deprecates.
+    const quiet = found('5.9.3', { 'tsconfig.json': project({ ...MODERN, ignoreDeprecations: '5.0' }), 'src/a.ts': 'export const a: number = 1;\n' }, 'src/a.ts');
+    expect(quiet.r).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
+    // baseUrl: deprecated by 6.0, not by 5.x.
+    const withBaseUrl = { 'tsconfig.json': project({ ...MODERN, strict: true, baseUrl: '.', ignoreDeprecations: '5.0' }), 'src/a.ts': 'export const a: number = 1;\n' };
+    const five = found('5.9.3', withBaseUrl, 'src/a.ts');
+    expect(five.r).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
+    expect(await writeThenCheck(await contextFor(five.repo), 'src/b.ts', 'export const b: number = 2;\n')).toEqual({ decision: 'pass' });
+    // The twin: on TypeScript 6 the same config fails its own type check, so the feedback says so.
+    const six = found('6.0.3', withBaseUrl, 'src/a.ts');
+    expect(six.r?.project).toEqual([expect.stringMatching(/^tsconfig\.json TS5101 Option 'baseUrl' is deprecated /)]);
+    expect(noteOf(await writeThenCheck(await contextFor(six.repo), 'src/b.ts', 'export const b: number = 2;\n'))).toMatch(/^tsc: 1 error\(s\): tsconfig\.json TS5101 Option 'baseUrl' is deprecated /);
+  });
+});
+
 describe('typecheck-feedback in place: the existing guarantees', () => {
   it('never blocks and never writes: the file on disk is exactly what the tool wrote', async () => {
     const repo = makeRepo(SOLUTION_FILES, { packages: TINY_ENV });
