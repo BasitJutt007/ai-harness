@@ -391,6 +391,12 @@ export interface TestObservation {
    * and to require red -> green on UNCHANGED test code.
    */
   cases?: TestCaseObservation[];
+  /**
+   * The suite failed to load because a module it imports lacks a named export (Node's ESM linker: "The
+   * requested module 'M' does not provide an export named 'X'"): the specifier as written and the name.
+   * Only that exact message sets it (a CommonJS "x is not a function" is never read as one).
+   */
+  missingExport?: { module: string; name: string };
 }
 
 export interface TestCaseObservation {
@@ -677,8 +683,10 @@ export interface CoreServices {
    * dependency links): `current` holds the workspace as it is, `reverted` the same except that every path in
    * `revert` has its run-start content again (or is absent, if it did not exist at run start). The governed
    * files are the only difference, so a case that passes in one and fails in the other does so because of them,
-   * not because of where or how it runs. Observations are NOT recorded in RunState. Throws when a run-start
-   * content is unavailable.
+   * not because of where or how it runs. A reverted file keeps the exports its current content makes of its
+   * run-start declarations (export-only, verified: src/core/export-only.ts withExports), so a test that imports
+   * such a declaration still loads there (DifferentialRun.exportsKept). Observations are NOT recorded in
+   * RunState. Throws when a run-start content is unavailable.
    */
   runTestsReverted(files: string[], revert: string[]): Promise<DifferentialRun>;
 }
@@ -689,6 +697,11 @@ export interface DifferentialRun {
   current: TestRunReport;
   /** The same with the reverted paths at their run-start content. */
   reverted: TestRunReport;
+  /**
+   * Reverted paths whose reverted copy kept exports the run added to run-start declarations, with those
+   * names (absent when none did): the reverted content is the run-start content plus exactly these exports.
+   */
+  exportsKept?: Record<string, string[]>;
 }
 
 /**

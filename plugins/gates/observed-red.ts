@@ -13,7 +13,12 @@
  *     fresh scratch copies of the API in equivalent contexts (same parent dir, same-length random names, same
  *     env; see CoreServices.runTestsReverted), one with the current source and one where F ALONE has its
  *     run-start content back (absent, if F is new). Some accepted case (name and body hash) must PASS in the
- *     current copy and FAIL in the reverted one. So the flip is caused by F's own change, not by an edit
+ *     current copy and FAIL in the reverted one: an assertion failure, or, only for a file new in this run (absent
+ *     in the reverted copy), a load failure. A case that only fails to LOAD with an existing F reverted proves no
+ *     behaviour (e.g. it imports a declaration F did not export at run start). For the same reason the reverted
+ *     copy keeps the exports the run made of F's run-start declarations (export-only, verified; DifferentialRun
+ *     .exportsKept): a test importing such a declaration still loads there, and its case has to fail on what the
+ *     run-start code DOES. So the flip is caused by F's own change, not by an edit
  *     elsewhere in the test file (a new mock, a changed file-level constant or helper), another changed file,
  *     the clock, randomness, or where the test runs (a case branching on process.cwd() sees the same kind of
  *     path in both copies). One red case can no longer clear every changed file at once: when several files
@@ -25,6 +30,17 @@
  * edited case whose test file reads its environment, path, the clock or randomness (process.cwd/env,
  * __dirname, import.meta, Date, Math.random, ...) is not accepted at all: such a file can behave differently
  * between runs for reasons other than the source.
+ *
+ * A changed file whose current content a chain of recorded export-only edits leads to from its run-start content
+ * (plugins/lib/red.ts exportOnlySinceStart) only exports declarations it already had: none of its own code
+ * changed, so there is no red -> green to ask of it, but it is NEVER green either. A new export can change what
+ * code that reads the module as a whole does (a registry built from `import * as` and Object.keys, a barrel's
+ * `export *` that now meets the same name twice, a framework that reads a route module's exports by name), and
+ * no test of the file can see that code, nor can the import graph (a file-system router imports nothing). So
+ * each such file makes the gate UNPROVEN, named with what it exports, and the way out: put it back to its
+ * run-start content (the observed-red hook allows that write while it is locked) or verify by hand. A file that
+ * gained exports AND changed behaviour is an ordinary changed file, proven by its own revert check (whose base
+ * keeps the exports, so the flip comes from the behaviour change).
  *
  * Never green without evidence: a run that changed no governed source file has nothing to prove (UNPROVEN); a
  * governed file that existed at run start and is gone now counts as changed (deleted); an inverted case
@@ -39,8 +55,8 @@
 import ts from 'typescript';
 import { activeLayout, codeGlobs, defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import type { DifferentialRun, GateResult, RunContext, TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
-import { unprovenEdits, unprovenLine, type UnprovenEdit } from '../lib/proof.ts';
-import { isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
+import { fileList, unprovenEdits, unprovenLine, type UnprovenEdit } from '../lib/proof.ts';
+import { exportOnlySinceStart, isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
 
 /** What is missing for one covering test, from least to most progress (the gate reports the most advanced one). */
 const RANK = ['never red', 'only a missing-module red (the file existed at run start)', 'only a missing-module red on presence-only assertions (toBeDefined, toBeTruthy, ...): assert a value', 'red only on constants', 'red only in cases that use nothing from the source', 'edited after red', 'still failing'] as const;
@@ -101,9 +117,19 @@ function evidence(test: string, earlier: TestObservation[], fresh: TestObservati
   return greens.length > 0 ? { greens } : gap;
 }
 
-/** The case passes in the current-source copy and fails (or cannot load) in the reverted one. */
-function flipsWithSource(cur: TestObservation | undefined, rev: TestObservation | undefined, c: RedCase): boolean {
-  return passesIn(cur, c) && (rev?.cases ?? []).some((x) => sameCase(x, c) && (x.status === 'fail' || x.status === 'error'));
+/**
+ * The case passes in the current-source copy and fails in the reverted one: on an assertion, or by failing to
+ * load only when the reverted file did not exist at run start (absent there, nothing that imports it can load).
+ * A load failure with an existing file reverted is no behavioural flip.
+ */
+function flipsWithSource(cur: TestObservation | undefined, rev: TestObservation | undefined, c: RedCase, existedAtStart: boolean): boolean {
+  return passesIn(cur, c) && (rev?.cases ?? []).some((x) => sameCase(x, c) && (x.status === 'fail' || (x.status === 'error' && !existedAtStart)));
+}
+
+/** The case only failed to load in the reverted copy (no assertion ran). */
+function onlyLoadFails(rev: TestObservation | undefined, c: RedCase): boolean {
+  const same = (rev?.cases ?? []).filter((x) => sameCase(x, c));
+  return same.length > 0 && same.every((x) => x.status === 'error');
 }
 
 function sameCase(x: TestCaseObservation, c: RedCase): boolean {
@@ -164,6 +190,27 @@ export function withUnprovenEdits(r: GateResult, edits: readonly UnprovenEdit[])
   return { ...r, details: [...(r.details ?? []), ...lines.map((l) => `unproven: ${l}`)], humanMustVerify: [...(r.humanMustVerify ?? []), ...human] };
 }
 
+/** A changed file whose only change since run start is recorded export-only edits, and the names it gained. */
+export interface ExportOnlyFile {
+  file: string;
+  names: string[];
+}
+
+/**
+ * The gate's verdict with the files that only gained exports folded in: never green. A pass or n/a becomes
+ * UNPROVEN naming them; a fail or UNPROVEN keeps its status and lists them too (see the module comment).
+ */
+export function withExportOnlyFiles(r: GateResult, files: readonly ExportOnlyFile[]): GateResult {
+  if (files.length === 0) return r;
+  const lines = files.map((f) => `${f.file}: only gained exports since run start (${f.names.join(', ')}): none of its own code changed, but a new export can change what code that reads the module as a whole does (a namespace import, \`export *\`, a framework that reads exports by name), and no test proves that`);
+  const human = files.map((f) => `${f.file}: verify by hand that exporting ${f.names.join(', ')} changes nothing for code that reads the module as a whole, or put ${f.file} back to its run-start content (allowed while it is locked)`);
+  const line = `${fileList(files.map((f) => f.file))} only gained exports, which no test proves; verify by hand or put ${files.length === 1 ? 'it' : 'them'} back to the run-start content`;
+  if (r.status === 'pass' || r.status === 'n/a') {
+    return { status: 'unproven', summary: r.status === 'pass' ? `${r.summary}; but ${line}` : line, details: lines, humanMustVerify: human, failing: files.length };
+  }
+  return { ...r, details: [...(r.details ?? []), ...lines.map((l) => `unproven: ${l}`)], humanMustVerify: [...(r.humanMustVerify ?? []), ...human] };
+}
+
 export default defineGate({
   name: 'observed-red',
   description: 'Every changed source file has a covering test case seen red by the harness runner that now passes and fails again with the original source.',
@@ -176,12 +223,17 @@ export default defineGate({
     } catch (e) {
       return { status: 'unproven', summary: `could not inspect changes: ${e instanceof Error ? e.message : String(e)}` };
     }
-    return withUnprovenEdits(await redGreen(ctx, new Set(edits.map((e) => e.file))), edits);
+    const exportOnly: ExportOnlyFile[] = [];
+    const proof = await redGreen(ctx, new Set(edits.map((e) => e.file)), exportOnly);
+    return withUnprovenEdits(withExportOnlyFiles(proof, exportOnly), edits);
   },
 });
 
-/** The red -> green proof over every changed governed file except `unprovable` (see the module comment). */
-async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promise<GateResult> {
+/**
+ * The red -> green proof over every changed governed file except `unprovable` and the files that only gained
+ * exports, which it appends to `exportOnly` for the caller to report (never green: see the module comment).
+ */
+async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>, exportOnly: ExportOnlyFile[]): Promise<GateResult> {
   const earlier = ctx.state.tests.slice();
   const reds = earlier.filter((o) => o.validRed);
   let changed: string[];
@@ -193,7 +245,12 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
     deleted = new Set<string>();
     for (const f of files.filter(isGovernedSource)) {
       const content = await ctx.workspace.read(f);
-      if (content !== null && sha256(content) !== ctx.state.initialHashes.get(f)) changedSet.add(f);
+      if (content === null) continue;
+      const hash = sha256(content);
+      if (hash === ctx.state.initialHashes.get(f)) continue;
+      const names = unprovable.has(f) ? null : exportOnlySinceStart(ctx.state, f, hash);
+      if (names !== null) exportOnly.push({ file: f, names });
+      else changedSet.add(f);
     }
     // A governed file that existed at run start and is gone now changed too (deleted).
     for (const f of ctx.state.initialHashes.keys()) {
@@ -206,6 +263,7 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
   } catch (e) {
     return { status: 'unproven', summary: `could not inspect changes: ${e instanceof Error ? e.message : String(e)}` };
   }
+  exportOnly.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
   if (changed.length === 0 && unprovable.size > 0) return NOTHING_TO_PROVE;
   if (reds.length === 0) {
     return {
@@ -217,8 +275,10 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
   if (changed.length === 0) {
     return {
       status: 'unproven',
-      summary: 'no source change to prove: no governed source file changed in this run',
-      details: ['A red -> green proof needs a source change; a run that only edits tests (or nothing) proves no behaviour.'],
+      summary: exportOnly.length > 0
+        ? 'no source change to prove: the only source changes are exports of declarations the files already had'
+        : 'no source change to prove: no governed source file changed in this run',
+      details: ['A red -> green proof needs a source change; a run that only edits tests (or nothing), or only exports existing declarations, proves no behaviour.'],
     };
   }
   let report: TestRunReport;
@@ -279,6 +339,8 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
   }
   /** Changed files whose own revert flips none of their accepted cases: not proven (never green). */
   const unproven: string[] = [];
+  /** Exports the reverted copies kept (DifferentialRun.exportsKept), for the summary. */
+  const kept: string[] = [];
   if (problems.length === 0 && candidates.size > 0) {
     // Revert check, one changed file at a time: in two equivalent fresh copies F's cases must pass with the
     // current source and fail with F ALONE back at its run-start content. Only F's candidate tests run.
@@ -292,7 +354,10 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
       }
       const cur = new Map(diff.current.observations.map((o) => [o.file, o]));
       const rev = new Map(diff.reverted.observations.map((o) => [o.file, o]));
-      const proven = greens.filter((c) => flipsWithSource(cur.get(c.test), rev.get(c.test), c));
+      const existed = ctx.state.initialHashes.has(f);
+      const names = diff.exportsKept?.[f];
+      if (names !== undefined && names.length > 0) kept.push(`${f}: ${names.join(', ')}`);
+      const proven = greens.filter((c) => flipsWithSource(cur.get(c.test), rev.get(c.test), c, existed));
       if (proven.length > 0) {
         (proven.some((c) => c.edited !== true) ? unchangedProofs : editedProofs).add(f);
         continue;
@@ -301,6 +366,14 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
       if (c === undefined) continue;
       if (!passesIn(cur.get(c.test), c)) {
         problems.push(`${f}: ${c.test}: "${c.name}" does not pass in a fresh copy with the current source (revert check): its pass depends on where or how it runs, not on the source`);
+        continue;
+      }
+      const loadOnly = greens.find((g) => passesIn(cur.get(g.test), g) && onlyLoadFails(rev.get(g.test), g));
+      if (existed && loadOnly !== undefined) {
+        // The reverted copy could not even load the case: no assertion ran, so no behaviour was compared.
+        const why = `${f}: ${loadOnly.test}: "${loadOnly.name}" only fails to LOAD with ${f} at its run-start content (revert check): a load failure is no behavioural flip; some case must fail there on an assertion`;
+        if (changed.length === 1) problems.push(why);
+        else unproven.push(why);
         continue;
       }
       if (changed.length === 1) {
@@ -344,8 +417,9 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
       logPath: report.logPath,
     };
   }
+  const extras = kept.length > 0 ? [`the reverted copies kept the exports the run added (${kept.join('; ')})`] : [];
   return {
     status: 'pass',
-    summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)`,
+    summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)${extras.length > 0 ? `; ${extras.join('; ')}` : ''}`,
   };
 }

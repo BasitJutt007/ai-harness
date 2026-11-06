@@ -38,6 +38,10 @@ export type { TsFence } from './ts-fence.ts';
 /** The import graph over the API's .ts files (see testmap.ts), for plugins that reason about what imports what. */
 export { graphFiles, importGraph, importSpecifiers, resolveImport, scriptKindOf } from './testmap.ts';
 
+/** Export-only edits (see export-only.ts): the one write a file locked by observed-red takes, and the revert base it implies. */
+export { declaresUnexported, exportOnlyEdit, missingNamedExport, withExports } from './export-only.ts';
+export type { ExportOnlyVerdict } from './export-only.ts';
+
 /** Backlog items (assignment 02): the contract, the stakeholder's typed yes, and their verdicts (see items.ts). */
 export { approvalVerdict, classifyReply, contractVerdict, controlChars, fileModeMeasureProblem, itemPaths, itemStatus, parseContract, readLedger } from './items.ts';
 /** Whether a run writes in the owner's checkout (an interactive session), read from its context (see hooks.ts). */

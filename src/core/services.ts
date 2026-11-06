@@ -12,6 +12,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { runChecks } from './checks.ts';
+import { withExports } from './export-only.ts';
 import { readInitial } from './initial.ts';
 import { activeLayout, linkDependencies, setActiveLayout } from './target.ts';
 import type { TargetLayout, TargetProfile } from './target.ts';
@@ -81,6 +82,7 @@ export function createServices(opts: {
     },
     async runTestsReverted(files, revert) {
       const overrides = new Map<string, string | null>();
+      const exportsKept: Record<string, string[]> = {};
       for (const rel of revert) {
         const hash = state.initialHashes.get(rel);
         if (hash === undefined) {
@@ -89,7 +91,13 @@ export function createServices(opts: {
         }
         const content = opts.runDir === undefined ? null : await readInitial(opts.runDir, hash);
         if (content === null) throw new Error(`run-start content of ${rel} is not available`);
-        overrides.set(rel, content);
+        // The exports the run made of run-start declarations stay (export-only, verified against the run-start
+        // content): a test importing such a declaration still loads in the reverted copy, so its case has to
+        // fail there on what the run-start code does, never only because an import is missing.
+        const current = await ws.read(rel);
+        const base = current === null ? null : withExports(rel, content, current);
+        if (base !== null) exportsKept[rel] = base.names;
+        overrides.set(rel, base?.content ?? content);
       }
       // Two scratch copies under the harness's own tmp dir, each mirroring the worktree's layout from its top
       // (<copy>/<rootRel>) with the same node_modules links at every level and the ancestors' package.json /
@@ -117,12 +125,13 @@ export function createServices(opts: {
       try {
         const currentRoot = await build(new Map());
         const revertedRoot = await build(overrides);
+        const kept = Object.keys(exportsKept).length > 0 ? { exportsKept } : {};
         if ((randomBytes(1)[0] ?? 0) % 2 === 0) {
           const current = await run(currentRoot);
-          return { current, reverted: await run(revertedRoot) };
+          return { current, reverted: await run(revertedRoot), ...kept };
         }
         const reverted = await run(revertedRoot);
-        return { current: await run(currentRoot), reverted };
+        return { current: await run(currentRoot), reverted, ...kept };
       } finally {
         await rm(parent, { recursive: true, force: true });
       }

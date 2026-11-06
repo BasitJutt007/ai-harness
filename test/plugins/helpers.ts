@@ -5,7 +5,7 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { glob } from 'tinyglobby';
@@ -198,8 +198,10 @@ export async function makeHarness(opts: {
   services?: Partial<CoreServices>;
   registry?: RegistryView;
   exec?: Exec;
+  /** Parent of the temp dir (default: the harness's .harness/tmp); an in-place fixture lives outside the checkout. */
+  under?: string;
 }): Promise<FakeHarness> {
-  const dir = await makeTmp(opts.label);
+  const dir = opts.under !== undefined ? await mkdtemp(path.join(opts.under, `plugins-${opts.label}-`)) : await makeTmp(opts.label);
   const rootRel = opts.rootRel ?? 'api';
   const ws = fakeWorkspace(dir, rootRel);
   await mkdir(ws.root, { recursive: true });
