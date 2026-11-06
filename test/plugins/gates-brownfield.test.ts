@@ -326,8 +326,8 @@ describe('standards gate, baseline mode: the summary says what blocks first', ()
     // In brief, one line per rule with a count (what a short view shows) ...
     expect(r.humanMustVerifyBrief).toEqual([
       expect.stringMatching(/^baseline mode: below 100% allowed \(the task opted in/),
-      expect.stringMatching(/^pre-existing \(not blocking\): zod-boundary 6 in 3 files \(see .*standards-brownfield[^)]*\)$/),
-      expect.stringMatching(/^pre-existing \(not blocking\): no-console 2 in 2 files \(see .*standards-brownfield[^)]*\)$/),
+      'pre-existing (not blocking): zod-boundary 6 in 3 files',
+      'pre-existing (not blocking): no-console 2 in 2 files',
     ]);
     // ... while the records keep every pre-existing finding, one per line, as before.
     expect(r.humanMustVerify).toHaveLength(9);

@@ -455,7 +455,7 @@ async function brownfield(ctx: RunContext, report: CheckReport, counted: RuleSum
     : undefined;
   const more = logPath !== undefined ? `see ${logPath}` : 'see the standards report';
   const human = capped(preLines, MAX_HUMAN, more);
-  const brief = preExistingByRule(pre).map((c) => `${PRE_EXISTING}): ${preExistingCountText(c)}${logPath !== undefined ? ` (${more})` : ''}`);
+  const brief = preExistingByRule(pre).map((c) => `${PRE_EXISTING}): ${preExistingCountText(c)}`);
   const verify = human.length > 0 ? { humanMustVerify: human, humanMustVerifyBrief: brief } : {};
   const logged = logPath !== undefined ? { logPath } : {};
   const first = blocking[0];

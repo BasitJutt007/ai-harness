@@ -71,6 +71,12 @@ export interface VerdictView {
 
 export const WORK_COMPLETED = '✔ Work completed: every gate is green. Nothing was committed; /diff shows the change, /ship ships it.';
 
+/** Rows one verdict reason may take (it wraps; only past this is it cut). */
+const REASON_ROWS = 4;
+/** "A human must verify" lines a verdict block shows (the rest: "… N more"), and rows each may take. */
+const HUMAN_LINES = 6;
+const HUMAN_ROWS = 2;
+
 /** What starts every row of the model's prose (the harness writes it; a harness line never starts with it). */
 export const MODEL_GUTTER = '┆ ';
 const GUTTER_CELLS = [...MODEL_GUTTER].reduce((n, ch) => n + cellWidth(ch), 0);
@@ -432,12 +438,32 @@ export class Ui {
     }
     const head = v.kind === 'NOT DONE' ? this.paint(['red', 'bold'], '✗ NOT DONE') : this.paint(['yellow', 'bold'], '? UNPROVEN');
     this.line(`${head}: the gates, not the model, decide; this work is not complete.`);
-    for (const r of v.reasons.slice(0, 8)) this.line(`  - ${clip(r, this.width - 6)}`);
+    // A long reason wraps (what blocks comes first in it); only past REASON_ROWS rows is it cut.
+    for (const r of v.reasons.slice(0, 8)) this.wrapped('  - ', r, REASON_ROWS);
     if (v.reasons.length > 8) this.line(`  … ${v.reasons.length - 8} more (run.json in the session records)`);
     if (v.humanMustVerify.length > 0) {
       this.line(this.paint('dim', '  a human must verify:'));
-      for (const h of v.humanMustVerify.slice(0, 6)) this.line(this.paint('dim', `    · ${clip(h, this.width - 8)}`));
+      for (const h of v.humanMustVerify.slice(0, HUMAN_LINES)) this.wrapped('    · ', h, HUMAN_ROWS, 'dim');
+      if (v.humanMustVerify.length > HUMAN_LINES) this.line(this.paint('dim', `    … ${v.humanMustVerify.length - HUMAN_LINES} more (run.json in the session records)`));
     }
+  }
+
+  /**
+   * `text` (one line: control characters removed, whitespace collapsed) after `prefix`, broken into rows
+   * of the line width on spaces where it can, continuation rows indented under the text; at most
+   * `maxRows` rows, the last one ending in "…" when more was cut.
+   */
+  private wrapped(prefix: string, text: string, maxRows: number, style?: Style): void {
+    const width = Math.max(20, this.width - cells(prefix));
+    const rows = wrapLine(clip(text, width * (maxRows + 1)), width);
+    const shown = rows.slice(0, maxRows);
+    const last = shown[shown.length - 1];
+    if (rows.length > maxRows && last !== undefined) shown[shown.length - 1] = `${last.slice(0, Math.max(0, last.length - 1))}…`;
+    const indent = ' '.repeat(cells(prefix));
+    shown.forEach((row, i) => {
+      const text = `${i === 0 ? prefix : indent}${i === 0 ? row : row.trimStart()}`;
+      this.line(style === undefined ? text : this.paint(style, text));
+    });
   }
 
   /** A unified diff, coloured; its control characters removed first (file content is the agent's). */

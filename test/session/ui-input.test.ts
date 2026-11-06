@@ -104,6 +104,33 @@ describe('lines', () => {
     }
   });
 
+  it('a long verdict reason wraps onto indented rows with its end intact; a short one is one row (the twin)', () => {
+    const tail = 'verdict 17% over the whole API (brownfield: 2629 pre-existing violation(s) in untouched files; base commit 17%)';
+    const long = `gate standards failed: 4 introduced by this run: repo-lint src/x.spec.ts:4:41 prettier/prettier: Insert ","; baseline mode: below 100% allowed; ${tail}`;
+    const p = capture(false, null);
+    new Ui(p.out, false).verdict({ kind: 'NOT DONE', reasons: [long, 'gate scope failed: 1 file outside the scope'], gates: [], standards: 'FAIL 17%', humanMustVerify: [] });
+    const lines = p.text().split('\n');
+    const at = lines.findIndex((l) => l.startsWith('  - gate standards failed: 4 introduced by this run: repo-lint src/x.spec.ts:4:41'));
+    expect(at).toBeGreaterThan(-1);
+    const rows = [lines[at] ?? '', ...lines.slice(at + 1, lines.findIndex((l) => l.startsWith('  - gate scope')))];
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(100);
+    for (const row of rows.slice(1)) expect(row).toMatch(/^ {4}\S/);
+    expect(rows.map((l) => l.trim()).join(' ')).toBe(`- ${long}`);
+    expect(lines).toContain('  - gate scope failed: 1 file outside the scope');
+  });
+
+  it('a reason past four rows is cut on the fourth with "…"; more than six human-verify lines end in "… N more"', () => {
+    const p = capture(false, null);
+    const human = Array.from({ length: 9 }, (_, i) => `item ${i}`);
+    new Ui(p.out, false).verdict({ kind: 'UNPROVEN', reasons: ['word '.repeat(200)], gates: [], standards: 'pass', humanMustVerify: human });
+    const rows = p.text().split('\n').filter((l) => /^ {2}- word|^ {4}word/.test(l));
+    expect(rows).toHaveLength(4);
+    expect(rows[3]?.endsWith('…')).toBe(true);
+    expect(p.text()).toContain('    · item 5\n    … 3 more (run.json in the session records)');
+    expect(p.text()).not.toContain('item 6');
+  });
+
   it('clip and wrap keep lines inside the width', () => {
     expect(clip('a  b\nc', 10)).toBe('a b c');
     expect(clip('abcdefghijk', 5)).toBe('abcd…');
