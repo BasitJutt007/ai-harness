@@ -4,7 +4,8 @@
  * says so; the twins (a react-vite session, and file mode's selection for the same repository) list
  * what their gate runs, without web-build. A writable session is told, in a few lines, what makes a
  * test prove something (it imports the source; it fails before the change; globals stubbed before the
- * import) and to prefer a Measure script; a read-only session (it cannot edit) is not.
+ * import) and to prefer a Measure script where a sandbox confines one (where none does, propose_contract
+ * refuses a script and the prompt says Measure: none); a read-only session (it cannot edit) is not.
  */
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -13,10 +14,12 @@ import { checksForRun, runChecks, selectChecks } from '../../src/core/checks.ts'
 import { exec as coreExec } from '../../src/core/exec.ts';
 import { computeTargetProfile } from '../../src/core/target.ts';
 import type { CheckPlugin, LogStore, PluginRecord, RegistryView } from '../../src/core/types.ts';
+import { lastNumber } from '../../src/core/measure.ts';
 import { toolInputSchema } from '../../src/core/registry.ts';
 import { sessionSystemPrompt } from '../../src/session/prompt.ts';
+import type { SessionDeps } from '../../src/session/session.ts';
 import proposeContract from '../../plugins/tools/propose_contract.ts';
-import { realRegistry, registryWithGates, runScripted, text, webRepo, type WebRepo } from './helpers.ts';
+import { calls, proposal, realRegistry, registryWithGates, runScripted, text, webRepo, type WebRepo } from './helpers.ts';
 
 /** The rule ids a session system prompt lists under "Standards the gates check". */
 function listedRules(system: string): string[] {
@@ -103,20 +106,22 @@ describe('the session prompt lists exactly the checks the gate runs', () => {
 });
 
 describe('a writable session is told what makes a test prove something; a read-only one is not', () => {
-  const base = { repo: 'tiny-web', branch: 'fix/x', stack: 'web' as const, runner: 'vitest', tools: [], checks: [] };
+  const base = { repo: 'tiny-web', branch: 'fix/x', stack: 'web' as const, runner: 'vitest', tools: [], checks: [], measureScripts: true };
   /** The guidance, one pattern per point (generic: nothing about any repository). */
   const GUIDANCE = [
     /covers a source file only by importing it .*test_map <file>.*reads the file's text or copies its logic proves nothing/,
     /passes before the change, it does not reproduce the problem: make it fail for the reason the contract names, then change the code/,
     /\(window, document, localStorage, import\.meta\.env\) before the module loads: stub, then import\(\) it/,
-    /Prefer a measureScript printing the metric as one number over Measure: none \(that item can ship but never close\)/,
   ];
+  /** The Measure line where a sandbox confines a Measure script the model writes, and where none does. */
+  const PREFER = /^- Prefer a measureScript over Measure: none \(an item with Measure: none can ship but never close\)\.$/m;
+  const NONE = /^- No sandbox confines a Measure script here, so propose_contract refuses one: propose with Measure: none \(no measureScript; that item can ship but never close\)\.$/m;
 
   it('the writable prompt carries it, in four short lines', () => {
     const p = sessionSystemPrompt({ ...base, writable: true, reason: '' });
-    for (const g of GUIDANCE) expect(p).toMatch(g);
+    for (const g of [...GUIDANCE, PREFER]) expect(p).toMatch(g);
     // Sent with every request: four lines, under 700 characters in all.
-    const lines = p.split('\n').filter((l) => GUIDANCE.some((g) => g.test(l)));
+    const lines = p.split('\n').filter((l) => [...GUIDANCE, PREFER].some((g) => g.test(l)));
     expect(lines).toHaveLength(4);
     expect(lines.join('\n').length).toBeLessThan(700);
     // Generic: no file, framework or repository of anyone's in it.
@@ -124,16 +129,41 @@ describe('a writable session is told what makes a test prove something; a read-o
   });
 
   it('twin: the read-only prompt (it cannot edit) carries none of it, and still never says propose', () => {
-    const p = sessionSystemPrompt({ ...base, writable: false, reason: 'the branch main is protected' });
-    for (const g of GUIDANCE) expect(p).not.toMatch(g);
-    expect(p).not.toMatch(/propos|measureScript|Measure: none/i);
+    for (const measureScripts of [true, false]) {
+      const p = sessionSystemPrompt({ ...base, measureScripts, writable: false, reason: 'the branch main is protected' });
+      for (const g of [...GUIDANCE, PREFER, NONE]) expect(p).not.toMatch(g);
+      expect(p).not.toMatch(/propos|measureScript|Measure: none/i);
+    }
   });
 
-  it('agrees with propose_contract: the script is optional there, Measure: none when none can measure the metric', () => {
+  it('a Measure script is preferred only where one can run: where no sandbox confines it (or nobody said), the prompt says Measure: none', () => {
+    const where = (measureScripts: boolean | undefined): string => sessionSystemPrompt({ ...base, measureScripts, writable: true, reason: '' });
+    expect(where(true)).toMatch(PREFER);
+    expect(where(true)).not.toMatch(NONE);
+    for (const cannot of [false, undefined]) {
+      expect(where(cannot), String(cannot)).toMatch(NONE);
+      expect(where(cannot), String(cannot)).not.toMatch(PREFER);
+      // The rest of the guidance is the same either way, and the line stays short.
+      for (const g of GUIDANCE) expect(where(cannot)).toMatch(g);
+      expect(where(cannot).split('\n').find((l) => NONE.test(l))?.length ?? 999).toBeLessThan(200);
+    }
+  });
+
+  it('agrees with propose_contract: the prompt names its measureScript field and leaves the script\'s output to its description, a shape the harness reads', () => {
     const schema = toolInputSchema(proposeContract.input) as { properties?: Record<string, { description?: string }> };
     const said = schema.properties?.['measureScript']?.description ?? '';
+    expect(Object.keys(schema.properties ?? {})).toContain('measureScript');
     expect(said).toMatch(/^Optional: .*prints one line \{"metric":"<name>","value":<number>\}/);
     expect(said).toMatch(/Omit it when no script can measure the metric \(the contract then says Measure: none\)/);
+    // What the description asks the script to print is what the harness reads the number from (measure.ts).
+    const shape = /\{"metric":"<name>","value":<number>\}/.exec(said)?.[0] ?? '';
+    expect(lastNumber(shape.replace('<name>', 'greeting tests passing').replace('<number>', '3'))).toBe(3);
+    // The prompt names the field and says nothing of the output, so it cannot drift from that description.
+    for (const measureScripts of [true, false]) {
+      const line = sessionSystemPrompt({ ...base, measureScripts, writable: true, reason: '' }).split('\n').find((l) => /measureScript/.test(l)) ?? '';
+      expect(line, String(measureScripts)).toMatch(/\bmeasureScript\b/);
+      expect(line, String(measureScripts)).not.toMatch(/print|number|value|\{|json/i);
+    }
   });
 
   it('in real sessions: a writable checkout\'s requests carry it, a protected branch\'s (read-only) do not', async () => {
@@ -142,10 +172,31 @@ describe('a writable session is told what makes a test prove something; a read-o
     repos.push(w, ro);
     const writable = await runScripted(w, [text('hi')], ['hello']);
     const readOnly = await runScripted(ro, [text('hi')], ['hello']);
-    for (const g of GUIDANCE) {
+    for (const g of [...GUIDANCE, PREFER]) {
       expect(writable.driver.requests[0]?.system).toMatch(g);
       expect(readOnly.driver.requests[0]?.system).not.toMatch(g);
     }
+    expect(readOnly.driver.requests[0]?.system).not.toMatch(NONE);
     expect(readOnly.driver.requests[0]?.system).toMatch(/read-only/);
+  });
+
+  it('in real sessions the Measure line is what propose_contract then does: Measure: none exactly where a script is refused and the turn stops', async () => {
+    const script = 'console.log(JSON.stringify({ metric: "greeting tests passing", value: 1 }));\n';
+    const cases: Array<[string, Partial<SessionDeps>, Record<string, string>, boolean]> = [
+      ['a sandbox confines it (sandbox-exec)', {}, {}, true],
+      ['no sandbox works on this machine', { isolation: { mode: 'auto', mechanism: 'none', policy: 'test' } }, {}, false],
+      ['the sandbox is turned off', {}, { HARNESS_SANDBOX: 'off' }, false],
+    ];
+    for (const [how, extra, env, runs] of cases) {
+      const r = webRepo();
+      repos.push(r);
+      const s = await runScripted(r, [calls(['propose_contract', proposal({ measureScript: script })]), text('done')], ['fix the greeting'], { extra: { ...extra, env: { ...r.env, ...env } } });
+      const system = s.driver.requests[0]?.system ?? '';
+      expect(PREFER.test(system), how).toBe(runs);
+      expect(NONE.test(system), how).toBe(!runs);
+      // The advice and propose_contract's answer agree: a script is preferred iff it reaches the owner's box.
+      expect(/the agent stopped: a Measure script you write runs only where the sandbox confines it/.test(s.out), how).toBe(!runs);
+      expect(/PROPOSAL greeting-name/.test(s.out), how).toBe(runs);
+    }
   });
 });

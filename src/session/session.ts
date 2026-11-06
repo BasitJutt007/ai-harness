@@ -1136,7 +1136,10 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
     const checks = checksForRun(registry.checks.map((r) => r.plugin), { stack: ctx.stack, layout: target.profile });
     const repo = basename(top);
     const runner = target.profile !== undefined ? (target.profile.runner.supported ? target.profile.runner.name : `none supported: ${target.profile.runner.reason ?? target.profile.runner.name}`) : 'unknown';
-    const system = sessionSystemPrompt({ repo, branch, writable: writability.writable, reason: writability.reason, stack: ctx.stack ?? 'unknown', runner, tools: offered, checks, checkOptions: config.checkOptions });
+    // One answer to "may a Measure script the model writes run here?": propose_contract refuses a script
+    // where it may not, and the prompt says so, so the model is never steered into that refusal.
+    const confined = measureConfinement(isolation, env);
+    const system = sessionSystemPrompt({ repo, branch, writable: writability.writable, reason: writability.reason, stack: ctx.stack ?? 'unknown', runner, tools: offered, checks, checkOptions: config.checkOptions, measureScripts: confined.ok });
     const meter = new SpendMeter(config.models.maxRunUsd, policy.price, normalizeModel(driver.model));
     const ledger = new TokenLedger({ runId: sid, task: task.id, driver: driver.name, model: driver.model, counter: driver.tokenCounter, mode: 'jit' });
     ui.stopSpinner();
@@ -1168,7 +1171,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
         startedAt,
         lockNote: lock.tookOver !== undefined ? `took over a stale session lock (pid ${lock.tookOver.pid} is gone)` : null,
         person,
-        confined: measureConfinement(isolation, env),
+        confined,
         startFingerprint,
       },
       driver,
