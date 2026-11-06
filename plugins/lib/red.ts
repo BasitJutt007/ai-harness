@@ -25,6 +25,18 @@
  * it load: without this the lock and the load failure wait on each other forever. Such a write is recorded
  * (recordExportOnly: content hash before and after) and unlocks nothing; the test must then be observed
  * failing on an assertion like any other red. (Its undo, the exact run-start content again, passes too.)
+ *
+ * How a test reaches a function the module does not have yet decides whether its failure is a red, by design:
+ *   - a named import (`import { f } from '../src/m'`) of a name m does not export fails to LOAD (Node's ESM
+ *     linker): no red for an existing m (see above); when m declares f, the lock names the export-only way out;
+ *     when m has no f at all, the new function belongs in a new module (a missing module is a red for it);
+ *   - a namespace import (`import * as m` ... `m.f()`) or a property read loads, and the CASE fails on a
+ *     TypeError (f is not a function): a red like any failing case, and the revert check counts the same
+ *     failure in the reverted copy. A new function is new behaviour, so this is sound. Vitest and jest compile
+ *     a named import to a property read, so under them a missing named import behaves like this case too (and
+ *     the revert check's base keeps the exports the run made, so a function that only gained `export` still
+ *     has to flip on what it does). Only the exact ESM linker message is read as a missing export: "x is not a
+ *     function" has many causes and is never guessed at.
  */
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';

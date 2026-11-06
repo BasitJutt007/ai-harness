@@ -316,6 +316,30 @@ describe('a file that only gained exports is never green', () => {
   }, 120_000);
 });
 
+describe('how a test reaches a function the module does not have yet (documented in plugins/lib/red.ts)', () => {
+  it('a namespace import: the case fails on a TypeError, a red; the new function is written and proven like any behaviour (the named-import twin fails to load: see above)', async () => {
+    const h = await harness();
+    const ns = [
+      "import { test } from 'node:test';",
+      "import assert from 'node:assert/strict';",
+      "import * as api from '../src/store/x/api';",
+      '',
+      "test('prepending a page puts its items first', () => {",
+      "  assert.deepEqual((api as unknown as { prependPage: (a: unknown, b: unknown) => { items: string[] } }).prependPage({ items: ['a'], next: null }, { items: ['b'], next: null }).items, ['b', 'a']);",
+      '});',
+      '',
+    ].join('\n');
+    await h.write(TEST_FILE, ns);
+    await h.runTests([TEST_FILE]);
+    expect(h.latest(TEST_FILE)).toMatchObject({ status: 'fail', validRed: true });
+    expect(h.latest(TEST_FILE)?.missingExport).toBeUndefined();
+    const added = `${API}export function prependPage(prev: Page, page: Page): Page {\n  return { items: [...page.items, ...prev.items], next: prev.next };\n}\n`;
+    expect((await h.write(API_FILE, added)).decision).toBe('pass');
+    expect((await h.runTests([TEST_FILE])).ok).toBe(true);
+    expect(await h.gate()).toMatchObject({ status: 'pass' });
+  }, 180_000);
+});
+
 describe('file mode (the twin of in place): the same deadlock, the same way out', () => {
   it('export-only edit while locked -> red on an assertion -> fix -> green -> the gate passes with the export-only base', async () => {
     const { h, res } = await deadlocked({ fileMode: true });
