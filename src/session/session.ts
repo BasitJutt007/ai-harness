@@ -347,14 +347,29 @@ export interface Refusal {
   reason: string;
 }
 
-/** The pre-tool refusal a recorded event is (a hook's block of a call, before it ran), else null. */
-export function preToolRefusal(e: RunEvent): Refusal | null {
+/**
+ * The pre-tool refusal a recorded event is (a hook's block of a call, before it ran), else null. The
+ * event carries the call's paths as the model spelled them; `canonical` gives each the one form every
+ * spelling of the same file shares ("./package.json", an absolute path, other letter case on a
+ * case-insensitive disk), so the same refusal is counted as the same, however the path was written.
+ */
+export function preToolRefusal(e: RunEvent, canonical: (path: string) => string = (p) => p): Refusal | null {
   if (e.kind !== 'hook' || e.decision !== 'block') return null;
   const data = e.data as { event?: unknown; paths?: unknown } | undefined;
   if (data?.event !== 'pre_tool') return null;
-  const paths = Array.isArray(data.paths) ? data.paths.filter((p): p is string => typeof p === 'string') : [];
+  const paths = Array.isArray(data.paths) ? data.paths.filter((p): p is string => typeof p === 'string').map(canonical) : [];
   const own = `${e.source}: `;
   return { hook: e.source, path: paths.length > 0 ? paths.join(', ') : '(no path)', reason: e.message.startsWith(own) ? e.message.slice(own.length) : e.message };
+}
+
+/**
+ * The form the hooks judge a model-supplied path in (toApiRel: repository-relative POSIX, "./" and
+ * trailing slashes gone, an absolute path inside the checkout made relative, symlinks and letter case
+ * resolved as the disk does); a path it refuses (empty, escaping) stays as written, trimmed.
+ */
+export function canonicalCallPath(ws: Workspace, p: string): string {
+  const r = toApiRel(ws, p);
+  return r.ok ? r.rel : p.trim();
 }
 
 /**
@@ -576,8 +591,8 @@ class Session {
   onEvent(e: RunEvent): void {
     if (e.kind === 'tool' && e.decision === 'pass' && this.effectOf(e.source) === 'write') this.lastVerdict = null;
     if (e.kind === 'hook' && e.decision === 'block' && ENVIRONMENT_HOOKS.has(e.source)) this.stop ??= e.message.replace(new RegExp(`^${e.source}: `), '');
-    const refused = preToolRefusal(e);
-    if (refused !== null && this.turnRunning) {
+    const refused = this.turnRunning ? preToolRefusal(e, (p) => canonicalCallPath(this.s.ctx.workspace, p)) : null;
+    if (refused !== null) {
       const count = this.refusals.add(refused);
       if (count >= STUCK_REFUSALS) this.stuck ??= { ...refused, count };
     }

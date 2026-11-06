@@ -16,7 +16,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import standardsGate from '../../plugins/gates/standards.ts';
 import type { CheckFinding, CheckPlugin, GateStatus, RegistryView, RunEvent } from '../../src/core/types.ts';
-import { AUTO_CONTINUE_LIMIT, autoContinue, continueMessage, preToolRefusal, RefusalCounter, STUCK_REFUSALS, type ContinueState } from '../../src/session/session.ts';
+import { createWorkspace } from '../../src/core/workspace.ts';
+import { AUTO_CONTINUE_LIMIT, autoContinue, canonicalCallPath, continueMessage, preToolRefusal, RefusalCounter, STUCK_REFUSALS, type ContinueState } from '../../src/session/session.ts';
 import { WORK_COMPLETED } from '../../src/session/ui.ts';
 import { calls, proposal, realRegistry, registryWithGates, REQUIRED_STANDINS, gate, runScripted, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
 
@@ -297,6 +298,30 @@ describe('a stuck detector', () => {
     expect(readFileSync(join(ran.dir, 'events.jsonl'), 'utf8')).toContain('"source":"stuck"');
   });
 
+  it('the same refusal however the path is spelled ("package.json", "./package.json", its absolute path) is one key: stuck at the fourth', async () => {
+    r = webRepo();
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      refuse('package.json'), refuse('./package.json'), refuse(join(r.repo, 'package.json')), refuse('./package.json'),
+      text('never asked'),
+    ], ['fix the greeting', 'yes'], { registry: await registryWithGates() });
+    expect(ran.out.split('✗ BLOCKED by path-guard: package.json is harness-owned in place')).toHaveLength(5);
+    expect(ran.out).toMatch(STUCK);
+    expect(ran.driver.used).toBe(5);
+  });
+
+  it('twin: two files spelled two ways each, two refusals per file: not stuck (the spellings merge, the files do not)', async () => {
+    r = webRepo();
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      refuse('package.json'), refuse('./tsconfig.json'), refuse('./package.json'), refuse(join(r.repo, 'tsconfig.json')),
+      text('Both are off limits.'),
+    ], ['fix the greeting', 'yes'], { registry: await registryWithGates() });
+    expect(ran.out.split('✗ BLOCKED by path-guard:')).toHaveLength(5);
+    expect(ran.out).not.toContain('the agent is stuck');
+    expect(ran.driver.used).toBe(6);
+  });
+
   it('twin: three identical refusals, then progress: the turn goes on', async () => {
     r = webRepo();
     const ran = await runScripted(r, [
@@ -350,5 +375,22 @@ describe('a stuck detector', () => {
     expect(preToolRefusal(ev({ decision: 'record' }))).toBeNull();
     expect(preToolRefusal(ev({ data: { event: 'post_tool', paths: ['x'] } }))).toBeNull();
     expect(preToolRefusal(ev({ kind: 'tool' }))).toBeNull();
+    // The key takes each path in its canonical form; without one given, as written.
+    expect(preToolRefusal(ev({ data: { event: 'pre_tool', paths: ['./x', 'y/'] } }), (p) => p.replace(/^\.\//, '').replace(/\/$/, ''))?.path).toBe('x, y');
+    expect(preToolRefusal(ev({ data: { event: 'pre_tool', paths: ['./x'] } }))?.path).toBe('./x');
+  });
+
+  it('the canonical form of a call path: every spelling of one file is one form; other files, and paths no hook resolves, stay apart', async () => {
+    r = webRepo();
+    const ws = createWorkspace(r.repo, '.');
+    const one = ['package.json', './package.json', 'src/../package.json', join(r.repo, 'package.json'), ' package.json ', 'package.json/'].map((p) => canonicalCallPath(ws, p));
+    expect(new Set(one)).toEqual(new Set(['package.json']));
+    // Letter case: one form only where the disk itself does not tell the cases apart.
+    const insensitive = existsSync(join(r.repo, 'PACKAGE.JSON'));
+    expect(canonicalCallPath(ws, 'PACKAGE.json')).toBe(insensitive ? 'package.json' : 'PACKAGE.json');
+    expect(canonicalCallPath(ws, './src/greeting.ts')).toBe('src/greeting.ts');
+    expect(canonicalCallPath(ws, 'test/package.json')).toBe('test/package.json');
+    expect(canonicalCallPath(ws, '../outside.txt')).toBe('../outside.txt');
+    expect(canonicalCallPath(ws, '/etc/hosts')).toBe('/etc/hosts');
   });
 });
