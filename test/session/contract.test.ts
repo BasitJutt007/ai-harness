@@ -504,6 +504,35 @@ describe('proposeImported (/import)', () => {
     expect(o.ok === false && o.reason).toMatch(/put hand\.mjs next to the contract/);
   });
 
+  it('a Measure script path another item\'s contract names is refused, both ways in, and that item\'s script stays as it was', async () => {
+    expect((await proposeDrafted(input({ measureScript: COUNT_SRC }), env)).ok).toBe(true);
+    const dir = join(r.base, 'drafts');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'hand-made.md'), draftedContract(input({ slug: 'hand-made' }), { repo: 'acme/tiny-web', base: 'development', measure: 'node metrics/greeting-name.mjs' }));
+    writeFileSync(join(dir, 'greeting-name.mjs'), "console.log('999');\n");
+    const imported = await proposeImported(join(dir, 'hand-made.md'), r.base, env);
+    expect(imported.ok === false && imported.reason).toMatch(/metrics\/greeting-name\.mjs is the Measure script of item greeting-name in this repository's records/);
+    expect(readFileSync(join(env.itemsRoot, 'metrics', 'greeting-name.mjs'), 'utf8')).toBe(COUNT_SRC);
+    expect(existsSync(itemPaths(env.itemsRoot, 'hand-made').contract)).toBe(false);
+    // The other way round: an imported item holds metrics/footer-text.mjs, so a drafted footer-text with a script is refused.
+    writeFileSync(join(dir, 'other.md'), draftedContract(input({ slug: 'other' }), { repo: 'acme/tiny-web', base: 'development', measure: 'node metrics/footer-text.mjs' }));
+    writeFileSync(join(dir, 'footer-text.mjs'), "console.log('5');\n");
+    expect((await proposeImported(join(dir, 'other.md'), r.base, env)).ok).toBe(true);
+    const drafted = await proposeDrafted(input({ slug: 'footer-text', measureScript: "console.log('6');\n" }), env);
+    expect(drafted.ok === false && drafted.reason).toMatch(/metrics\/footer-text\.mjs is the Measure script of item other/);
+    expect(readFileSync(join(env.itemsRoot, 'metrics', 'footer-text.mjs'), 'utf8')).toBe("console.log('5');\n");
+  });
+
+  it('twin: a script path no other contract names is written; re-proposing an item keeps its own script path', async () => {
+    expect((await proposeDrafted(input({ measureScript: COUNT_SRC }), env)).ok).toBe(true);
+    expect((await proposeDrafted(input({ problem: 'An edited problem statement for the greeting.', measureScript: COUNT_SRC }), env)).ok).toBe(true);
+    const dir = join(r.base, 'drafts');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'hand-made.md'), draftedContract(input({ slug: 'hand-made' }), { repo: 'acme/tiny-web', base: 'development', measure: 'node metrics/hand.mjs' }));
+    writeFileSync(join(dir, 'hand.mjs'), "console.log('7');\n");
+    expect((await proposeImported(join(dir, 'hand-made.md'), r.base, env)).ok).toBe(true);
+  });
+
   it('a hand-written contract with an escape sequence, or a Base that is no branch, is refused', async () => {
     const dir = join(r.base, 'drafts');
     mkdirSync(dir, { recursive: true });

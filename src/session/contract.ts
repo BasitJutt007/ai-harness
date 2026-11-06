@@ -18,12 +18,13 @@
  *
  * Fail closed: an incomplete contract, a commit header the repository's commitlint rejects (or cannot
  * check), a Base that is not a branch here or on origin, a model-written Measure where no sandbox
- * confines it, a slug already shipped or closed: each is refused with the reason, and nothing is
+ * confines it, a Measure script that does not read as node runs it, a script path another item's
+ * contract already names, a slug already shipped or closed: each is refused with the reason, and nothing is
  * written. Every check runs before the first write; the contract and the script are written through
  * temp files and kept only when the ledger takes the proposal (otherwise the previous files come back).
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { appendLedger, CONTRACTS_DIR, itemPaths, itemStatus, parseContract, proposeItem, SLUG_RE, writeMetricValues, type ContractParse, type MetricReading } from '../core/items.ts';
@@ -195,6 +196,33 @@ function slugProblem(itemsRoot: string, slug: string): string | null {
 }
 
 /**
+ * The other item whose contract names `script` (metrics/<file>.mjs) as its Measure, or null. Writing
+ * that file for this item would replace the other item's script, and its close would then fail on
+ * the script's hash: a Measure script belongs to one item.
+ */
+export function scriptClaimedBy(itemsRoot: string, script: string, slug: string): string | null {
+  const dir = join(itemsRoot, CONTRACTS_DIR);
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.endsWith('.md')).sort();
+  } catch {
+    return null;
+  }
+  for (const n of names) {
+    const other = n.slice(0, -'.md'.length);
+    if (other === slug) continue;
+    let text: string;
+    try {
+      text = readFileSync(join(dir, n), 'utf8');
+    } catch {
+      continue;
+    }
+    if (parseContract(text).measure?.script === script) return other;
+  }
+  return null;
+}
+
+/**
  * Put every file in place, each through a temp file next to it and a rename; returns the undo, which
  * puts back what was there before (or removes a file that was not). All or nothing: when a rename
  * fails, the files already renamed get their previous content back and the temp files left are
@@ -245,6 +273,10 @@ async function propose(env: ProposalEnv, slug: string, text: string, parse: Cont
   // Not installed, timed out, no rule report: the checkout's problem, not the model's.
   if (lint.status === 'unproven') return { ok: false, environment: true, reason: `commit header "${header}" cannot be checked: ${lint.summary}` };
   notes.push(`commit header: ${lint.summary}`);
+  if (script !== null) {
+    const claimed = scriptClaimedBy(env.itemsRoot, script.path, slug);
+    if (claimed !== null) return { ok: false, reason: `${script.path} is the Measure script of item ${claimed} in this repository's records: writing it for ${slug} would replace that item's script (and its close would fail). Name another file in the Measure line, or choose another slug` };
+  }
   const paths = itemPaths(env.itemsRoot, slug);
   const writes = [{ file: paths.contract, content: text }, ...(script !== null ? [{ file: join(env.itemsRoot, script.path), content: script.text }] : [])];
   let entry: ReturnType<typeof proposeItem>;
