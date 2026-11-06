@@ -31,6 +31,11 @@
  * __dirname, import.meta, Date, Math.random, ...) is not accepted at all: such a file can behave differently
  * between runs for reasons other than the source.
  *
+ * A changed file whose current content a chain of recorded export-only edits leads to from its run-start content
+ * (plugins/lib/red.ts exportOnlySinceStart) only exports declarations it already had: nothing any code does
+ * changed, so it has no behaviour of its own to prove; it is named, and a run whose only change it is stays
+ * UNPROVEN ("no source change to prove").
+ *
  * Never green without evidence: a run that changed no governed source file has nothing to prove (UNPROVEN); a
  * governed file that existed at run start and is gone now counts as changed (deleted); an inverted case
  * (`it.fails` / `test.failing`) is never red or green; and a missing-module red only counts for a new file when
@@ -45,7 +50,7 @@ import ts from 'typescript';
 import { activeLayout, codeGlobs, defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import type { DifferentialRun, GateResult, RunContext, TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
 import { unprovenEdits, unprovenLine, type UnprovenEdit } from '../lib/proof.ts';
-import { isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
+import { exportOnlySinceStart, isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
 
 /** What is missing for one covering test, from least to most progress (the gate reports the most advanced one). */
 const RANK = ['never red', 'only a missing-module red (the file existed at run start)', 'only a missing-module red on presence-only assertions (toBeDefined, toBeTruthy, ...): assert a value', 'red only on constants', 'red only in cases that use nothing from the source', 'edited after red', 'still failing'] as const;
@@ -202,13 +207,19 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
   let changed: string[];
   let deleted: Set<string>;
   let map: TestMap;
+  /** Changed files that only exported run-start declarations (recorded export-only edits): nothing to prove. */
+  const exportOnly: string[] = [];
   try {
     const files = await ctx.workspace.list(codeGlobs(activeLayout()));
     const changedSet = new Set<string>();
     deleted = new Set<string>();
     for (const f of files.filter(isGovernedSource)) {
       const content = await ctx.workspace.read(f);
-      if (content !== null && sha256(content) !== ctx.state.initialHashes.get(f)) changedSet.add(f);
+      if (content === null) continue;
+      const hash = sha256(content);
+      if (hash === ctx.state.initialHashes.get(f)) continue;
+      if (!unprovable.has(f) && exportOnlySinceStart(ctx.state, f, hash) !== null) exportOnly.push(f);
+      else changedSet.add(f);
     }
     // A governed file that existed at run start and is gone now changed too (deleted).
     for (const f of ctx.state.initialHashes.keys()) {
@@ -221,7 +232,8 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
   } catch (e) {
     return { status: 'unproven', summary: `could not inspect changes: ${e instanceof Error ? e.message : String(e)}` };
   }
-  if (changed.length === 0 && unprovable.size > 0) return NOTHING_TO_PROVE;
+  const exportOnlyNote = exportOnly.length > 0 ? `${exportOnly.sort().join(', ')} only export${exportOnly.length === 1 ? 's' : ''} declarations ${exportOnly.length === 1 ? 'it' : 'they'} had at run start (no behaviour to prove)` : '';
+  if (changed.length === 0 && unprovable.size > 0) return exportOnly.length > 0 ? { ...NOTHING_TO_PROVE, summary: `${NOTHING_TO_PROVE.summary}; ${exportOnlyNote}` } : NOTHING_TO_PROVE;
   if (reds.length === 0) {
     return {
       status: 'fail',
@@ -232,8 +244,10 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
   if (changed.length === 0) {
     return {
       status: 'unproven',
-      summary: 'no source change to prove: no governed source file changed in this run',
-      details: ['A red -> green proof needs a source change; a run that only edits tests (or nothing) proves no behaviour.'],
+      summary: exportOnly.length > 0
+        ? `no source change to prove: ${exportOnlyNote}`
+        : 'no source change to prove: no governed source file changed in this run',
+      details: ['A red -> green proof needs a source change; a run that only edits tests (or nothing), or only exports existing declarations, proves no behaviour.'],
     };
   }
   let report: TestRunReport;
@@ -372,7 +386,10 @@ async function redGreen(ctx: RunContext, unprovable: ReadonlySet<string>): Promi
       logPath: report.logPath,
     };
   }
-  const extras = kept.length > 0 ? [`the reverted copies kept the exports the run added (${kept.join('; ')})`] : [];
+  const extras = [
+    ...(kept.length > 0 ? [`the reverted copies kept the exports the run added (${kept.join('; ')})`] : []),
+    ...(exportOnly.length > 0 ? [exportOnlyNote] : []),
+  ];
   return {
     status: 'pass',
     summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)${extras.length > 0 ? `; ${extras.join('; ')}` : ''}`,
