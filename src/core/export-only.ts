@@ -1,0 +1,347 @@
+/**
+ * Export-only edits: the way out of the observed-red deadlock of a module-private function.
+ *
+ * A test that imports a function its module declares but does not export cannot load (ESM: "The requested
+ * module 'M' does not provide an export named 'X'"), and a load failure is no red for a file that existed at
+ * run start. The only edit that lets such a test load is adding `export`: a source edit the observed-red lock
+ * refuses. An EXPORT-ONLY edit breaks that deadlock without weakening any proof: it only makes existing
+ * top-level declarations importable, which changes what other modules can import, never what code does.
+ *
+ * exportOnlyEdit(file, before, after) decides it on the TypeScript AST (the parser mode of the file's
+ * extension): after removing exactly the `export` modifiers added to existing top-level function, class,
+ * const/let/var, enum, interface and type declarations, and the added local `export { a, b as c }` statements
+ * (no `from`), the two files must have the same syntax tree token for token: every token's kind and text, and
+ * how the tokens nest. Comments and whitespace are ignored; a newline that changes automatic semicolon
+ * insertion changes the tree, so it is refused. Refused as well:
+ *   - any other change, a new declaration, an export removed or renamed;
+ *   - `export default` in any form (a declaration modifier or `export { a as default }`): a default export
+ *     changes how bundlers, frameworks and CommonJS interop consume the module, and a named export is enough
+ *     to test a function;
+ *   - re-exports (`export * from`, `export { x } from`): they load another module, with its side effects;
+ *     `export =`; exporting an imported binding (a re-export too) or an ambient (`declare`) one, which has no
+ *     runtime value; a name the module already exports, or one this edit exports twice;
+ *   - a file that does not parse, a kind that is not a TypeScript or JavaScript module (a .d.ts, a .vue file),
+ *     and a file that was not an ES module before (its first export would turn a script into a module and
+ *     change how its top-level names are scoped).
+ *
+ * withExports(file, runStart, current) is the observed-red revert check's base for a file that existed at run
+ * start: its run-start content plus the exports the current content makes of declarations that existed at run
+ * start, appended as `export { … }` (and `export type { … }`) statements and verified export-only against the
+ * run-start content. The reverted copy then still loads a test that imports such a declaration, so the case
+ * must fail there on what the run-start code DOES, not because an import is missing.
+ */
+import ts from 'typescript';
+import { scriptKindOf } from './testmap.ts';
+
+/** The verdict of exportOnlyEdit: the names the edit exports (sorted), or why it is not export-only. */
+export type ExportOnlyVerdict =
+  | { ok: true; names: string[] }
+  | {
+    ok: false;
+    why: string;
+    /** The edit adds an `export` somewhere (an attempt at an export-only edit), for a precise refusal. */
+    addsExports: boolean;
+  };
+
+const MODULE_FILE = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
+const DECLARATION_FILE = /\.d\.[cm]?tsx?$/i;
+
+type Declaration = ts.FunctionDeclaration | ts.ClassDeclaration | ts.VariableStatement | ts.EnumDeclaration | ts.InterfaceDeclaration | ts.TypeAliasDeclaration;
+
+function isDeclaration(s: ts.Node): s is Declaration {
+  return ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s) || ts.isVariableStatement(s) || ts.isEnumDeclaration(s)
+    || ts.isInterfaceDeclaration(s) || ts.isTypeAliasDeclaration(s);
+}
+
+function modifier(s: ts.Node, kind: ts.SyntaxKind): ts.Node | undefined {
+  return ts.canHaveModifiers(s) ? s.modifiers?.find((m) => m.kind === kind) : undefined;
+}
+
+function bindingNames(n: ts.BindingName): string[] {
+  if (ts.isIdentifier(n)) return [n.text];
+  return n.elements.flatMap((e) => (ts.isOmittedExpression(e) ? [] : bindingNames(e.name)));
+}
+
+/** The names a top-level declaration declares (a function or class without a name declares none). */
+function declaredNames(s: Declaration): string[] {
+  if (ts.isVariableStatement(s)) return s.declarationList.declarations.flatMap((d) => bindingNames(d.name));
+  return s.name === undefined ? [] : [s.name.text];
+}
+
+/** A local `export { … }` statement: named exports of this module's own bindings, no `from`. */
+function isLocalExportStatement(s: ts.Node): s is ts.ExportDeclaration & { exportClause: ts.NamedExports } {
+  return ts.isExportDeclaration(s) && s.moduleSpecifier === undefined && s.exportClause !== undefined && ts.isNamedExports(s.exportClause);
+}
+
+interface TopLevel {
+  /** Every declaration of the name is an interface or a type alias (no runtime value). */
+  typeOnly: boolean;
+  /** Some declaration of the name is ambient (`declare`): it has no runtime value of its own. */
+  ambient: boolean;
+}
+
+/** The module's top-level declarations of the kinds an export-only edit may export, by name. */
+function topLevelDeclarations(sf: ts.SourceFile): Map<string, TopLevel> {
+  const out = new Map<string, TopLevel>();
+  for (const s of sf.statements) {
+    if (!isDeclaration(s)) continue;
+    const typeOnly = ts.isInterfaceDeclaration(s) || ts.isTypeAliasDeclaration(s);
+    const ambient = modifier(s, ts.SyntaxKind.DeclareKeyword) !== undefined;
+    for (const name of declaredNames(s)) {
+      const prev = out.get(name);
+      out.set(name, { typeOnly: (prev?.typeOnly ?? true) && typeOnly, ambient: (prev?.ambient ?? false) || ambient });
+    }
+  }
+  return out;
+}
+
+function exportName(n: ts.ModuleExportName): string {
+  return n.text;
+}
+
+/** Every name the module exports ('default' for a default export, '=' for `export =`); `export *` adds none. */
+function exportNames(sf: ts.SourceFile): Set<string> {
+  const out = new Set<string>();
+  for (const s of sf.statements) {
+    if (ts.isExportAssignment(s)) out.add(s.isExportEquals === true ? '=' : 'default');
+    else if (ts.isExportDeclaration(s)) {
+      const clause = s.exportClause;
+      if (clause === undefined) continue;
+      if (ts.isNamespaceExport(clause)) out.add(exportName(clause.name));
+      else for (const e of clause.elements) out.add(exportName(e.name));
+    } else if (modifier(s, ts.SyntaxKind.ExportKeyword) !== undefined) {
+      if (modifier(s, ts.SyntaxKind.DefaultKeyword) !== undefined) out.add('default');
+      else if (isDeclaration(s)) for (const n of declaredNames(s)) out.add(n);
+      else if ((ts.isModuleDeclaration(s) || ts.isImportEqualsDeclaration(s)) && ts.isIdentifier(s.name)) out.add(s.name.text);
+    }
+  }
+  return out;
+}
+
+/** The (local binding, exported name) pairs of a module's own exports: exported declarations and local `export { … }`. */
+function localExports(sf: ts.SourceFile): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  for (const s of sf.statements) {
+    if (isDeclaration(s) && modifier(s, ts.SyntaxKind.ExportKeyword) !== undefined && modifier(s, ts.SyntaxKind.DefaultKeyword) === undefined) {
+      for (const n of declaredNames(s)) out.push([n, n]);
+    } else if (isLocalExportStatement(s)) {
+      for (const e of s.exportClause.elements) {
+        const local = e.propertyName ?? e.name;
+        if (ts.isIdentifier(local) && ts.isIdentifier(e.name)) out.push([local.text, e.name.text]);
+      }
+    }
+  }
+  return out;
+}
+
+/** The file parsed in its extension's parser mode, or why it cannot be judged. */
+function parse(fileName: string, text: string): ts.SourceFile | string {
+  if (!MODULE_FILE.test(fileName) || DECLARATION_FILE.test(fileName)) return `${fileName} is not a TypeScript or JavaScript module`;
+  const sf = ts.createSourceFile(fileName, text, { languageVersion: ts.ScriptTarget.Latest, jsDocParsingMode: ts.JSDocParsingMode.ParseNone }, true, scriptKindOf(fileName));
+  // The parser's own syntax errors (internal but stable; their absence is never assumed: fail closed).
+  const diagnostics = (sf as unknown as { parseDiagnostics?: unknown }).parseDiagnostics;
+  if (!Array.isArray(diagnostics)) return 'its syntax cannot be checked';
+  const first = diagnostics[0] as ts.Diagnostic | undefined;
+  if (first !== undefined) {
+    return `it does not parse (line ${lineOf(sf, first.start ?? 0)}: ${ts.flattenDiagnosticMessageText(first.messageText, ' ')})`;
+  }
+  return sf;
+}
+
+function lineOf(sf: ts.SourceFile, pos: number): number {
+  return sf.getLineAndCharacterOfPosition(pos).line + 1;
+}
+
+function isJsDoc(n: ts.Node): boolean {
+  return n.kind >= ts.SyntaxKind.FirstJSDocNode && n.kind <= ts.SyntaxKind.LastJSDocNode;
+}
+
+/**
+ * The syntax tree under `node` as a flat list: `(kind … )` around each node's children, `[ … ]` around each
+ * list, and `kind:text` for each token (comments and whitespace are trivia, never tokens). Nodes in `skip` are
+ * left out; a list emptied by that is left out as a whole, exactly as if it had never had members (a
+ * declaration whose only modifier was the skipped `export` has no modifier list).
+ */
+function treeOf(node: ts.Node, sf: ts.SourceFile, skip: ReadonlySet<ts.Node>, out: string[] = []): string[] {
+  if (isJsDoc(node)) return out;
+  const kids = node.getChildren(sf).filter((k) => !isJsDoc(k));
+  if (node.kind === ts.SyntaxKind.SyntaxList) {
+    const kept = kids.filter((k) => !skip.has(k));
+    if (kept.length === 0 && kids.length > 0) return out;
+    out.push('[');
+    for (const k of kept) treeOf(k, sf, skip, out);
+    out.push(']');
+    return out;
+  }
+  if (kids.length === 0) {
+    out.push(`${node.kind}:${node.getText(sf)}`);
+    return out;
+  }
+  out.push(`(${node.kind}`);
+  for (const k of kids) if (!skip.has(k)) treeOf(k, sf, skip, out);
+  out.push(')');
+  return out;
+}
+
+function sameTree(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((t, i) => t === b[i]);
+}
+
+const NONE: ReadonlySet<ts.Node> = new Set();
+
+/** How many top-level statements re-export from another module (`export * from`, `export { x } from`). */
+function reExports(sf: ts.SourceFile): number {
+  return sf.statements.filter((s) => ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined).length;
+}
+
+/** `after` exports a name `before` does not, or re-exports more: the edit tries to add an export. */
+function addsAnExport(before: ts.SourceFile, after: ts.SourceFile): boolean {
+  const had = exportNames(before);
+  return [...exportNames(after)].some((n) => !had.has(n)) || reExports(after) > reExports(before);
+}
+
+function firstLineOf(s: ts.Node, sf: ts.SourceFile): string {
+  const line = s.getText(sf).split('\n')[0] ?? '';
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+}
+
+/** Why a statement of `after` with no export-only counterpart in `before` is not an export-only change. */
+function unmatched(s: ts.Statement, after: ts.SourceFile, declared: ReadonlyMap<string, TopLevel>): string {
+  const at = `line ${lineOf(after, s.getStart(after))} (\`${firstLineOf(s, after)}\`)`;
+  if (ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined) return `${at} re-exports from another module: that loads it, with its side effects`;
+  if (ts.isExportAssignment(s)) return `${at} adds ${s.isExportEquals === true ? '`export =`' : 'a default export'}`;
+  if (modifier(s, ts.SyntaxKind.DefaultKeyword) !== undefined) return `${at} adds a default export`;
+  if (isDeclaration(s) && declaredNames(s).some((n) => !declared.has(n))) return `${at} adds a new declaration`;
+  if (ts.isModuleDeclaration(s) || ts.isImportEqualsDeclaration(s)) return `${at} is not a function, class, variable, enum, interface or type declaration`;
+  return `${at} changes more than adding \`export\``;
+}
+
+/**
+ * Whether `after` differs from `before` only by exporting existing top-level declarations (see the module
+ * comment for the exact rule and everything it refuses).
+ */
+export function exportOnlyEdit(fileName: string, before: string, after: string): ExportOnlyVerdict {
+  const b = parse(fileName, before);
+  const a = parse(fileName, after);
+  const addsExports = typeof a !== 'string' && (typeof b === 'string' || addsAnExport(b, a));
+  const no = (why: string): ExportOnlyVerdict => ({ ok: false, why, addsExports });
+  if (typeof b === 'string') return no(`the current content: ${b}`);
+  if (typeof a === 'string') return no(`the new content: ${a}`);
+  if (!ts.isExternalModule(b)) return no('the file is not an ES module yet (no import or export): a first export would change how its top-level names are scoped');
+  const declared = topLevelDeclarations(b);
+  const skip = new Set<ts.Node>();
+  const addedDeclarations: Declaration[] = [];
+  const addedStatements: Array<ts.ExportDeclaration & { exportClause: ts.NamedExports }> = [];
+  // Statement by statement: equal, an added local `export { … }`, or equal once its added `export` modifier is removed.
+  let i = 0;
+  for (const s of a.statements) {
+    const o = b.statements[i];
+    const was = o === undefined ? null : treeOf(o, b, NONE);
+    if (was !== null && sameTree(was, treeOf(s, a, NONE))) {
+      i += 1;
+      continue;
+    }
+    if (isLocalExportStatement(s)) {
+      skip.add(s);
+      addedStatements.push(s);
+      continue;
+    }
+    const kw = modifier(s, ts.SyntaxKind.ExportKeyword);
+    if (kw !== undefined && was !== null && o !== undefined && modifier(o, ts.SyntaxKind.ExportKeyword) === undefined && sameTree(was, treeOf(s, a, new Set([kw])))) {
+      if (!isDeclaration(s)) return no(unmatched(s, a, declared));
+      if (modifier(s, ts.SyntaxKind.DefaultKeyword) !== undefined) return no(unmatched(s, a, declared));
+      skip.add(kw);
+      addedDeclarations.push(s);
+      i += 1;
+      continue;
+    }
+    return no(unmatched(s, a, declared));
+  }
+  const left = b.statements[i];
+  if (left !== undefined) return no(`it removes or changes line ${lineOf(b, left.getStart(b))} of the current content (\`${firstLineOf(left, b)}\`)`);
+  // The source of truth: the whole trees, with exactly the added exports removed, are identical.
+  if (!sameTree(treeOf(b, b, NONE), treeOf(a, a, skip))) return no('the files differ outside their top-level statements');
+  const already = exportNames(b);
+  const names: string[] = [];
+  for (const d of addedDeclarations) {
+    const at = `line ${lineOf(a, d.getStart(a))}`;
+    if (modifier(d, ts.SyntaxKind.DeclareKeyword) !== undefined) return no(`${at} exports an ambient (declare) declaration, which has no runtime value`);
+    const declaredHere = declaredNames(d);
+    if (declaredHere.length === 0) return no(`${at} exports a declaration without a name`);
+    for (const n of declaredHere) {
+      if (already.has(n)) return no(`${at} exports ${n}, which the module already exports`);
+      if (!names.includes(n)) names.push(n);
+    }
+  }
+  const viaStatements = new Set<string>();
+  for (const s of addedStatements) {
+    const at = `line ${lineOf(a, s.getStart(a))}`;
+    for (const e of s.exportClause.elements) {
+      const local = e.propertyName ?? e.name;
+      if (!ts.isIdentifier(local) || !ts.isIdentifier(e.name)) return no(`${at} exports a string-named binding`);
+      const exported = e.name.text;
+      if (exported === 'default') return no(`${at} adds a default export`);
+      const d = declared.get(local.text);
+      if (d === undefined) return no(`${at} exports ${local.text}, which is not a top-level function, class, variable, enum, interface or type declaration of this module (an imported binding would be a re-export)`);
+      if (d.ambient) return no(`${at} exports ${local.text}, an ambient (declare) declaration with no runtime value`);
+      if (already.has(exported)) return no(`${at} exports ${exported}, which the module already exports`);
+      if (names.includes(exported) || viaStatements.has(exported)) return no(`${at} exports ${exported} twice`);
+      viaStatements.add(exported);
+    }
+  }
+  const all = [...names, ...viaStatements].sort();
+  if (all.length === 0) return no('it exports nothing new');
+  return { ok: true, names: all };
+}
+
+/**
+ * The run-start content of `fileName` with the exports `current` makes of its run-start declarations added
+ * (one appended `export { … }` statement, and `export type { … }` for interfaces and type aliases), verified
+ * export-only against `runStart`; null when `current` exports no such declaration, or either content cannot
+ * be judged (the caller then keeps the bare run-start content).
+ */
+export function withExports(fileName: string, runStart: string, current: string): { content: string; names: string[] } | null {
+  const s = parse(fileName, runStart);
+  const c = parse(fileName, current);
+  if (typeof s === 'string' || typeof c === 'string' || !ts.isExternalModule(s)) return null;
+  const declared = topLevelDeclarations(s);
+  const already = exportNames(s);
+  const values: string[] = [];
+  const types: string[] = [];
+  const seen = new Set<string>();
+  for (const [local, exported] of localExports(c)) {
+    if (exported === 'default' || already.has(exported) || seen.has(exported)) continue;
+    const d = declared.get(local);
+    if (d === undefined || d.ambient) continue;
+    seen.add(exported);
+    (d.typeOnly ? types : values).push(local === exported ? local : `${local} as ${exported}`);
+  }
+  if (seen.size === 0) return null;
+  const added = [
+    ...(values.length > 0 ? [`export { ${values.join(', ')} };`] : []),
+    ...(types.length > 0 ? [`export type { ${types.join(', ')} };`] : []),
+  ];
+  const content = `${runStart}${runStart.endsWith('\n') || runStart === '' ? '' : '\n'}${added.join('\n')}\n`;
+  const v = exportOnlyEdit(fileName, runStart, content);
+  return v.ok ? { content, names: v.names } : null;
+}
+
+/**
+ * The missing named export a suite failed to load on (Node's ESM linker: "The requested module 'M' does not
+ * provide an export named 'X'"): the specifier as written and the name, else null. Only that exact message
+ * counts: a CommonJS "x is not a function" has many causes and is never read as a missing export.
+ */
+export function missingNamedExport(message: string): { module: string; name: string; line: string } | null {
+  const m = /The requested module '([^']+)' does not provide an export named '([^']+)'/.exec(message);
+  if (m?.[1] === undefined || m[2] === undefined) return null;
+  const line = /^.*does not provide an export named '[^']+'.*$/m.exec(message)?.[0]?.trim() ?? m[0];
+  return { module: m[1], name: m[2], line };
+}
+
+/** `name` is a top-level declaration of `text` (a module of `fileName`'s kind) that the module does not export. */
+export function declaresUnexported(fileName: string, text: string, name: string): boolean {
+  const sf = parse(fileName, text);
+  if (typeof sf === 'string') return false;
+  const d = topLevelDeclarations(sf).get(name);
+  return d !== undefined && !d.ambient && !exportNames(sf).has(name);
+}
