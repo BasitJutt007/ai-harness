@@ -165,13 +165,13 @@ describe('secrets stay out of reach', () => {
 });
 
 describe('read-only checkouts', () => {
-  it('a protected branch is read-only, says why and the fix; propose_contract is refused', async () => {
+  it('a protected branch is read-only, says why and the fix; propose_contract is not offered (a call is an unknown tool)', async () => {
     const main = webRepo({ branch: 'main' });
     try {
       const ran = await runScripted(main, [calls(['propose_contract', proposal()]), text('Read-only here.')], ['fix the greeting']);
       expect(ran.out).toMatch(/branch main \(read-only\)/);
       expect(ran.out).toContain('read-only: the branch main is protected (harness.config.json protectedBranches); create a working branch: git switch -c <name> (from main). Chat and reading work; every edit is refused.');
-      expect(ran.out).toMatch(/✗ propose_contract: propose_contract refused: this session is read-only/);
+      expect(ran.out).toMatch(/✗ propose_contract: unknown tool/);
       expect(ledgerTypes(ran, 'greeting-name')).toEqual([]);
       expect(ran.runJson).toMatchObject({ writable: false, readOnly: { reason: 'the branch main is protected (harness.config.json protectedBranches)' } });
     } finally {

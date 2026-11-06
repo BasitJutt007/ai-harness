@@ -932,6 +932,18 @@ class Session {
   }
 }
 
+/**
+ * The tools a session offers the model. A read-only session offers none that writes (effect 'write')
+ * or proposes a contract: nothing invites the model to try what the session would refuse, and a call
+ * to one anyway is an unknown tool.
+ */
+export function sessionTools(registry: Pick<RegistryView, 'tools'>, writable: boolean): ToolSpec[] {
+  const all = toolSpecs(registry.tools, 'brownfield', { session: true });
+  if (writable) return all;
+  const changes = new Set(registry.tools.filter((t) => t.plugin.effect === 'write' || t.plugin.name === 'propose_contract').map((t) => t.plugin.name));
+  return all.filter((t) => !changes.has(t.name));
+}
+
 /** Whether a Measure the model writes may run here: only where the sandbox confines it. */
 export function measureConfinement(isolation: IsolationInfo, env: NodeJS.ProcessEnv): ProposalEnv['confined'] {
   if (isolation.mode === 'off' || sandboxMode(env) === 'off' || sandboxMode() === 'off') {
@@ -1062,7 +1074,7 @@ export async function runSession(deps: SessionDeps): Promise<SessionResult> {
       onEvent: (e) => session?.onEvent(e),
       ...(target.profile !== undefined ? { profile: target.profile } : {}),
     });
-    const offered = toolSpecs(registry.tools, 'brownfield', { session: true });
+    const offered = sessionTools(registry, writability.writable);
     const checks = selectChecks(registry.checks.map((r) => r.plugin), undefined, undefined, ctx.stack);
     const repo = basename(top);
     const runner = target.profile !== undefined ? (target.profile.runner.supported ? target.profile.runner.name : `none supported: ${target.profile.runner.reason ?? target.profile.runner.name}`) : 'unknown';

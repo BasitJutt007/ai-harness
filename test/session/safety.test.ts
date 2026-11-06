@@ -4,8 +4,9 @@
  *     git-visible file is); a session will not start without path-guard;
  *   - a second contract cannot take over the bound item's unshipped work (the same slug, edited, can be
  *     proposed again; another slug once the work is gone);
- *   - a refusal the model cannot fix (sandbox off, the branch moved, a read-only checkout) ends its turn
- *     and the harness tells the owner; one it can fix (a denied path) does not;
+ *   - a refusal the model cannot fix (sandbox off, the branch moved) ends its turn and the harness tells
+ *     the owner; one it can fix (a denied path) does not; a read-only checkout offers no tool that writes
+ *     or proposes (a writable one does);
  *   - the state directories are owner-only; run.json's baseBranch is the contract's Base (none before
  *     one); the read-only prompt never offers a proposal; checkOptions reach the rule list;
  *   - nothing is copied at startup: a file's run-start content is kept right before its first write,
@@ -288,15 +289,28 @@ describe('a refusal the model cannot fix ends its turn', () => {
     expect(existsSync(join(r.repo, 'test', 'other.test.ts'))).toBe(false);
   });
 
-  it('a read-only checkout: propose_contract is refused and the turn ends', async () => {
+  it('a read-only checkout offers no tool that writes or proposes; one called anyway is an unknown tool, and nothing is proposed or written', async () => {
     const main = webRepo({ branch: 'main' });
     try {
-      const ran = await runScripted(main, [calls(['propose_contract', proposal()]), text('never asked in that turn')], ['fix the greeting']);
-      expect(ran.out).toMatch(/⏹ the agent stopped: this session is read-only/);
-      expect(ran.driver.used).toBe(1);
+      const ran = await runScripted(main, [calls(['propose_contract', proposal()], ['write_file', { path: TEST_FILE, content: TEST_BODY }]), text('I cannot change anything here.')], ['fix the greeting']);
+      const offered = (ran.driver.requests[0]?.tools ?? []).map((t) => t.name);
+      for (const t of ['propose_contract', 'write_file', 'edit_file', 'append_file', 'delete_file']) expect(offered, t).not.toContain(t);
+      for (const t of ['read_file', 'search_code', 'list_files']) expect(offered, t).toContain(t);
+      expect(ran.runJson['toolsOffered']).toEqual(offered);
+      expect(ran.out).toMatch(/✗ propose_contract: unknown tool/);
+      expect(ran.out).toMatch(/✗ write_file: unknown tool/);
+      expect(ran.out).not.toContain('┌ PROPOSAL');
+      expect(existsSync(join(main.repo, TEST_FILE))).toBe(false);
+      expect(ledgerTypes(ran, 'greeting-name')).toEqual([]);
     } finally {
       main.cleanup();
     }
+  });
+
+  it('twin: a writable checkout offers propose_contract and the write tools', async () => {
+    const ran = await runScripted(r, [text('hi')], ['hello']);
+    const offered = (ran.driver.requests[0]?.tools ?? []).map((t) => t.name);
+    for (const t of ['propose_contract', 'write_file', 'edit_file', 'read_file']) expect(offered, t).toContain(t);
   });
 
   it('twin: a refusal the model can fix (a denied path) leaves the turn running: it writes the allowed file next', async () => {
