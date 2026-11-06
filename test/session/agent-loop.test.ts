@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import standardsGate from '../../plugins/gates/standards.ts';
 import type { CheckFinding, CheckPlugin, GateStatus, RegistryView, RunEvent } from '../../src/core/types.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
-import { AUTO_CONTINUE_LIMIT, autoContinue, canonicalCallPath, continueMessage, preToolRefusal, RefusalCounter, STUCK_REFUSALS, type ContinueState } from '../../src/session/session.ts';
+import { AUTO_CONTINUE_LIMIT, autoContinue, canonicalCallPath, continueMessage, preToolRefusal, progressKey, RefusalCounter, STUCK_REFUSALS, type ContinueState } from '../../src/session/session.ts';
 import { ScriptedInput } from '../../src/session/input.ts';
 import { WORK_COMPLETED } from '../../src/session/ui.ts';
 import { calls, proposal, realRegistry, registryWithGates, REQUIRED_STANDINS, gate, runScripted, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
@@ -175,6 +175,25 @@ describe('a bounded auto-continue', () => {
     expect(ran.input.prompts.at(-1)).toBe('reply › ');
   });
 
+  it('twin: the agent only moves its finding to another line (no progress): it stops after one continue, and says why', async () => {
+    r = webRepo({ extra: DEBT });
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      calls(['write_file', { path: TEST_FILE, content: WITH_TODO }]),
+      text('Test written.'),
+      calls(['write_file', { path: TEST_FILE, content: `${TEST_BODY}\n// TODO: cover an empty name\n` }]),
+      text('Moved the note.'),
+      text('never asked'),
+    ], ['fix the greeting', 'yes'], { registry: await registry() });
+    expect(ran.out.split(CONTINUED(1))).toHaveLength(2);
+    expect(ran.out).not.toContain(CONTINUED(2));
+    expect(ran.out).toContain('↻ not continued: the gates give the same reasons as before the last continue (no progress); back to you');
+    expect(ran.driver.used).toBe(5);
+    const reasons = (ran.runJson['verdicts'] as Array<{ reasons: string[] }>).map((v) => v.reasons[0] ?? '');
+    expect(reasons[0]).toContain('no-todo test/greeting-name.test.ts:8:4  TODO comment');
+    expect(reasons[1]).toContain('no-todo test/greeting-name.test.ts:9:4  TODO comment');
+  });
+
   it('twin: the same reasons after a continue (no progress): it stops after one, and says why', async () => {
     r = webRepo();
     const ran = await runScripted(r, [
@@ -227,7 +246,7 @@ describe('when a message continues by itself (the decision)', () => {
   const go: ContinueState = { status: 'yielded', verdict, pending: false, writable: true, stopped: false, interrupted: false, done: 0, previous: null, turnsLeft: 30, spend: null };
 
   it('an actionable NOT DONE after a turn that changed the tree continues', () => {
-    expect(autoContinue(go)).toEqual({ go: true, key: `gate standards failed: ${failing.summary}` });
+    expect(autoContinue(go)).toEqual({ go: true, key: 'gate standards failed: 1 introduced by this run: no-todo x.ts:# TODO comment' });
     expect(autoContinue({ ...go, done: AUTO_CONTINUE_LIMIT - 1, previous: 'other reasons' }).go).toBe(true);
     for (const g of ['tests-green', 'observed-red']) {
       expect(autoContinue({ ...go, verdict: { ...verdict, reasons: [`gate ${g} failed: x`], gates: [{ gate: g, status: 'fail', summary: 'x' }] } }).go, g).toBe(true);
@@ -255,7 +274,8 @@ describe('when a message continues by itself (the decision)', () => {
       ['a gate the agent does not fix by itself', { verdict: { ...verdict, reasons: ['gate scope failed: x'], gates: [{ gate: 'scope', status: 'fail', summary: 'x' }] } }, /gate scope failed/, false],
       ['a standards failure made only of a check that could not run now', { verdict: { ...verdict, gates: [{ ...failing, failing: 1, details: [UNPROVEN_NOW_LINE] }] } }, /could not run now/, false],
       ['the limit', { done: AUTO_CONTINUE_LIMIT, previous: 'other' }, /after 2 automatic continues/, true],
-      ['no progress', { done: 1, previous: `gate standards failed: ${failing.summary}` }, /same reasons/, true],
+      ['no progress', { done: 1, previous: progressKey([`gate standards failed: ${failing.summary}`]) }, /same reasons/, true],
+      ['no progress: the finding only moved (another line and column)', { done: 1, previous: progressKey([`gate standards failed: ${failing.summary.replace('x.ts:1:1', 'x.ts:9:4')}`]) }, /same reasons/, true],
       ['no turn left', { turnsLeft: 0 }, /turn budget/, true],
       ['the spend cap', { spend: 'spend cap: the next request could pass the cap' }, /spend cap/, true],
     ];
@@ -266,6 +286,24 @@ describe('when a message continues by itself (the decision)', () => {
       expect(d.why, what).toMatch(why);
       expect(d.tell, what).toBe(tell);
     }
+  });
+
+  it('no progress: a finding that only moved, or a percentage that moved with it, is the same; twins: a count that went down, another finding, another gate', () => {
+    const at = (loc: string, n = 2, pct = 17): string => `gate standards failed: ${n} introduced by this run: no-todo test/x.test.ts:${loc} TODO comment; baseline mode: below 100% allowed; verdict ${pct}% over the whole API (brownfield: 34 pre-existing violation(s) in untouched files; base commit 18%)`;
+    expect(progressKey([at('8:4')])).toBe(progressKey([at('9:4')]));
+    expect(progressKey([at('8:4')])).toBe(progressKey([at('8:12', 2, 16)]));
+    expect(progressKey([at('8')])).toBe(progressKey([at('80')]));
+    expect(progressKey([at('8:4', 2)])).not.toBe(progressKey([at('8:4', 1)]));
+    expect(progressKey([at('8:4')])).not.toBe(progressKey([at('8:4').replace('test/x.test.ts', 'test/y.test.ts')]));
+    expect(progressKey([at('8:4')])).not.toBe(progressKey([at('8:4'), 'gate tests-green failed: 1 of 2 tests failed in 1 files']));
+    expect(progressKey(['gate tests-green failed: 2 of 3 tests failed'])).not.toBe(progressKey(['gate tests-green failed: 1 of 3 tests failed']));
+    // Decided on it: a moved finding stops the second continue; a count that went down goes on.
+    const v = (reason: string): ContinueState['verdict'] => ({ ...verdict, reasons: [reason] });
+    const first = autoContinue({ ...go, verdict: v(at('8:4')) });
+    expect(first.go).toBe(true);
+    const previous = first.go ? first.key : null;
+    expect(autoContinue({ ...go, done: 1, previous, verdict: v(at('9:4')) })).toMatchObject({ go: false, why: expect.stringMatching(/no progress/) });
+    expect(autoContinue({ ...go, done: 1, previous, verdict: v(at('9:4', 1)) }).go).toBe(true);
   });
 
   it('the message hands over the reasons and what blocks, never the pre-existing findings', () => {

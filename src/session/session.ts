@@ -276,7 +276,7 @@ export interface ContinueState {
   stopped: boolean;
   /** The owner pressed Ctrl-C during this message (the turn, the gates, anything). */
   interrupted: boolean;
-  /** Continues this owner message already had, and the reasons the last one handed over. */
+  /** Continues this owner message already had, and the reasons the last one handed over (progressKey). */
   done: number;
   previous: string | null;
   /** Turns left of the message's budget. */
@@ -286,6 +286,15 @@ export interface ContinueState {
 }
 
 export type ContinueDecision = { go: true; key: string } | { go: false; why: string; tell: boolean };
+
+/**
+ * The verdict's reasons as the no-progress check compares them: a finding that only moved (its line or
+ * column in "file:line:col") or a percentage that moved with it is not progress, so both are masked.
+ * Everything else counts as it is written: a count that went down, another finding, another gate.
+ */
+export function progressKey(reasons: readonly string[]): string {
+  return reasons.join('\n').replace(/(\S):\d+(?::\d+)?(?=[\s,;)]|$)/gm, '$1:#').replace(/\b\d+(?:\.\d+)?%/g, '#%');
+}
 
 /**
  * Whether the owner's message goes on by itself: only when the model ended its turn without finish,
@@ -317,7 +326,7 @@ export function autoContinue(c: ContinueState): ContinueDecision {
     return no('the standards gate fails only because a check could not run now (it crashed or was skipped): not something the agent introduced');
   }
   if (c.done >= AUTO_CONTINUE_LIMIT) return no(`the gates still say NOT DONE after ${AUTO_CONTINUE_LIMIT} automatic continues; back to you`, true);
-  const key = v.reasons.join('\n');
+  const key = progressKey(v.reasons);
   if (key === c.previous) return no('the gates give the same reasons as before the last continue (no progress); back to you', true);
   if (c.turnsLeft <= 0) return no('this message\'s turn budget is used up; back to you', true);
   if (c.spend !== null) return no(c.spend, true);
