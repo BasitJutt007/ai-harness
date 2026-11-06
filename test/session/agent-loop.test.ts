@@ -18,6 +18,7 @@ import standardsGate from '../../plugins/gates/standards.ts';
 import type { CheckFinding, CheckPlugin, GateStatus, RegistryView, RunEvent } from '../../src/core/types.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
 import { AUTO_CONTINUE_LIMIT, autoContinue, canonicalCallPath, continueMessage, preToolRefusal, RefusalCounter, STUCK_REFUSALS, type ContinueState } from '../../src/session/session.ts';
+import { ScriptedInput } from '../../src/session/input.ts';
 import { WORK_COMPLETED } from '../../src/session/ui.ts';
 import { calls, proposal, realRegistry, registryWithGates, REQUIRED_STANDINS, gate, runScripted, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
 
@@ -392,5 +393,91 @@ describe('a stuck detector', () => {
     expect(canonicalCallPath(ws, 'test/package.json')).toBe('test/package.json');
     expect(canonicalCallPath(ws, '../outside.txt')).toBe('../outside.txt');
     expect(canonicalCallPath(ws, '/etc/hosts')).toBe('/etc/hosts');
+  });
+});
+
+/**
+ * What the session hands the decision, at the session level: each case where the decision alone would
+ * continue (an introduced TODO, the turn ended without finish, the tree changed) but something the session
+ * knows must stop it, with its twin that continues.
+ */
+describe('the session wires the decision (each stop with its twin that continues)', () => {
+  /** The agent writes a test with a TODO and ends its turn; on a continue it removes the TODO and calls finish. */
+  const fixesOnContinue = (before: Array<ReturnType<typeof text>> = []) => [
+    calls(['propose_contract', proposal()]),
+    calls(['write_file', { path: TEST_FILE, content: WITH_TODO }]),
+    ...before,
+    text('Test written.'),
+    calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]),
+    calls(['finish', { summary: 'test added, TODO removed' }]),
+    text('never asked'),
+  ];
+
+  it('Ctrl-C while the gates judge the turn: no continue, the prompt comes back with the verdict; twin without it continues', async () => {
+    for (const ctrlC of [true, false]) {
+      r?.cleanup();
+      r = webRepo();
+      const input = new ScriptedInput(['fix the greeting', 'yes'], 'tty');
+      const reg = await registry();
+      const scope = gate('scope');
+      // The owner presses Ctrl-C while the scope gate runs, after the model's turn ended (only after the TODO was written).
+      scope.plugin.run = async () => {
+        if (ctrlC && readFileSync(join(r?.repo ?? '', TEST_FILE), 'utf8').includes('TODO')) input.fireInterrupt();
+        return { status: 'pass', summary: 'scope ok (test stand-in)' };
+      };
+      const ran = await runScripted(r, fixesOnContinue(), [], { registry: { ...reg, gates: reg.gates.map((g) => (g.plugin.name === 'scope' ? scope : g)) }, input });
+      expect(ran.out, `ctrlC ${ctrlC}`).toMatch(/✗ NOT DONE/);
+      if (ctrlC) {
+        expect(ran.out).toContain('finishing the gates first');
+        expect(ran.out).not.toContain(CONTINUED(1));
+        expect(ran.out).not.toContain(WORK_COMPLETED);
+        expect(ran.driver.used).toBe(3);
+      } else {
+        expect(ran.out).toContain(CONTINUED(1));
+        expect(ran.out).toContain(WORK_COMPLETED);
+        expect(ran.driver.used).toBe(5);
+      }
+    }
+  });
+
+  it('a stuck turn that changed the tree (an actionable NOT DONE): no continue; twin with three refusals ends by itself and continues', async () => {
+    for (const refusals of [STUCK_REFUSALS, STUCK_REFUSALS - 1]) {
+      r?.cleanup();
+      r = webRepo();
+      const steps = refusals === STUCK_REFUSALS
+        ? [calls(['propose_contract', proposal()]), calls(['write_file', { path: TEST_FILE, content: WITH_TODO }]), ...Array.from({ length: refusals }, () => refuse('package.json')), text('never asked')]
+        : fixesOnContinue(Array.from({ length: refusals }, () => refuse('package.json')));
+      const ran = await runScripted(r, steps, ['fix the greeting', 'yes'], { registry: await registry() });
+      expect(ran.out, `refusals ${refusals}`).toMatch(/✗ NOT DONE/);
+      if (refusals === STUCK_REFUSALS) {
+        expect(ran.out).toMatch(STUCK);
+        expect(ran.out).not.toContain(CONTINUED(1));
+        expect(ran.driver.used).toBe(6);
+      } else {
+        expect(ran.out).not.toContain('the agent is stuck');
+        expect(ran.out).toContain(CONTINUED(1));
+        expect(ran.out).toContain(WORK_COMPLETED);
+        expect(ran.driver.used).toBe(8);
+      }
+    }
+  });
+
+  it('NOT DONE from an introduced finding and an UNPROVEN gate (a missing runner): no continue; twin with the gate green continues', async () => {
+    for (const tests of ['unproven', 'pass'] as const) {
+      r?.cleanup();
+      r = webRepo();
+      const ran = await runScripted(r, fixesOnContinue(), ['fix the greeting', 'yes'], { registry: await registry({ 'tests-green': tests }) });
+      expect(ran.out, tests).toMatch(/✗ NOT DONE/);
+      expect(ran.out).toContain('gate standards failed: 2 introduced by this run');
+      if (tests === 'unproven') {
+        expect(ran.out).toContain('gate tests-green UNPROVEN');
+        expect(ran.out).not.toContain(CONTINUED(1));
+        expect(ran.driver.used).toBe(3);
+      } else {
+        expect(ran.out).toContain(CONTINUED(1));
+        expect(ran.out).toContain(WORK_COMPLETED);
+        expect(ran.driver.used).toBe(5);
+      }
+    }
   });
 });
