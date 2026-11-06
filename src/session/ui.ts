@@ -16,12 +16,13 @@
  * the width cannot push text to column 0. Rows break at word boundaries as `fold -s` breaks them (a
  * word stays on its row when the space after it fits too, so a word that would end exactly at the
  * last column with a space after it starts the next row; only a word longer than a whole row is
- * cut), and the model's rows come out the same however its
- * stream was chunked; a word held while the terminal narrows is placed at the new width (refit), so
- * the rows written after a resize fit it too. A harness line that is too wide, or has a newline
- * inside, continues on an indented row, so agent text it carries (a file name, a gate line) never
- * takes column 0 either.
- * Nothing reaches the terminal with an ESC sequence or a control character in it
+ * cut), and the model's rows come out the same however its stream was chunked; a word held while the
+ * terminal narrows is placed at the new width (refit), so the rows written after a resize fit it too.
+ * On a terminal, a held word is shown once the stream has been quiet a moment (the model may be
+ * streaming a tool call's arguments); if it then has to move, the harness erases the columns it
+ * showed, so the screen is the same. A harness line that is too wide, or has a newline inside,
+ * continues on an indented row, so agent text it carries (a file name, a gate line) never takes
+ * column 0 either. Nothing reaches the terminal with an ESC sequence or a control character in it
  * (sanitize.ts): not the model's prose, a tool summary, a hook or gate line, the proposal box or a diff;
  * on a colour terminal only the colours the harness painted itself (Ui.paint) survive in a line.
  * A pipe has no rows: there, lines are not broken.
@@ -86,6 +87,8 @@ const CONTINUE = '  ';
 const TAB = 8;
 /** The fewest columns one-line text is clipped to (Ui.width), however narrow the terminal. */
 const MIN_WIDTH = 40;
+/** How long the model's stream must be quiet before the word it holds is shown (Ui.showHeld). */
+export const SHOW_HELD_AFTER_MS = 300;
 /** A colour sequence the harness kept in a rendered line (no width on screen). */
 const SGR_AT = /^\u001b\[[0-9;]*m/;
 
@@ -250,6 +253,12 @@ export class Ui {
   private strip = new StreamStripper();
   /** A chunk that ended inside a surrogate pair: its first half, held until the second arrives. */
   private halfPair = '';
+  /**
+   * What of the held word is already on the screen (showHeld: the stream went quiet), the cursor right
+   * after it. Not placed: emitModel erases it when the word ends up elsewhere.
+   */
+  private shownEarly = '';
+  private showTimer: NodeJS.Timeout | null = null;
   private spinnerTimer: NodeJS.Timeout | null = null;
   private spinnerFrame = 0;
   private spinnerShown = false;
@@ -313,6 +322,43 @@ export class Ui {
       s = s.slice(0, -1);
     }
     this.writeModel(s);
+    // The model may now stream a tool call's arguments for a long time: show the held word if it stays quiet.
+    if (this.out.isTTY) {
+      if (this.showTimer !== null) clearTimeout(this.showTimer);
+      this.showTimer = setTimeout(() => this.showHeld(), SHOW_HELD_AFTER_MS);
+      this.showTimer.unref?.();
+    }
+  }
+
+  /**
+   * The stream has been quiet for SHOW_HELD_AFTER_MS: the held word is shown where it stands, though it
+   * is not placed yet (more of it may come, and then not fit). Only on a terminal, only printable ASCII
+   * (one column each on every terminal, so the columns to erase are known exactly), and only when it
+   * ends before the row's last column (no pending wrap). emitModel erases it if it ends up elsewhere.
+   */
+  private showHeld(): void {
+    this.showTimer = null;
+    const r = this.model;
+    if (this.atLineStart || r.word.length <= this.shownEarly.length) return;
+    if (!/^[\x20-\x7e]+$/.test(r.word) || r.col + r.wordCells >= this.wrapAt) return;
+    this.out.write(r.word.slice(this.shownEarly.length));
+    this.shownEarly = r.word;
+  }
+
+  /**
+   * The model's next output. What showHeld put on the screen of the held word is not written twice: when
+   * `out` places the word where it was shown, `out` goes on from there; when the word went elsewhere (a
+   * new row, cut, refit), its shown columns are erased first (cursor back, erase to the end of the row),
+   * so the screen is what it would be had nothing been shown early.
+   */
+  private emitModel(out: string): void {
+    if (out.length === 0) return;
+    const shown = this.shownEarly;
+    this.shownEarly = '';
+    if (shown.length === 0) this.out.write(out);
+    else if (out.startsWith(shown)) {
+      if (out.length > shown.length) this.out.write(out.slice(shown.length));
+    } else this.out.write(`\u001b[${shown.length}D\u001b[K${out}`);
   }
 
   /**
@@ -341,7 +387,7 @@ export class Ui {
       // A pipe has no rows: the prose is written as it came.
       out += cols === Infinity ? takeWord(this.model) + piece : breakRows(this.model, piece, cols, gutter, GUTTER_CELLS, GUTTER_CELLS);
     }
-    if (out.length > 0) this.out.write(out);
+    this.emitModel(out);
   }
 
   /** The gutter as written on this output (dim on a colour terminal). */
@@ -354,12 +400,16 @@ export class Ui {
    * refit), then a newline (when the line has anything on it).
    */
   private endModelLine(): void {
+    if (this.showTimer !== null) {
+      clearTimeout(this.showTimer);
+      this.showTimer = null;
+    }
     if (this.atLineStart) {
       takeWord(this.model);
       return;
     }
     const fitted = refit(this.model, this.wrapAt, this.modelGutter(), GUTTER_CELLS);
-    this.out.write(`${fitted}${takeWord(this.model)}\n`);
+    this.emitModel(`${fitted}${takeWord(this.model)}\n`);
     this.atLineStart = true;
   }
 

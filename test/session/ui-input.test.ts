@@ -5,12 +5,12 @@
  * never approve), read in order to the end.
  */
 import { PassThrough } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isSessionCommand } from '../../src/core/cli.ts';
 import { terminalInput } from '../../src/session/input.ts';
 import { runSessionCli } from '../../src/session/main.ts';
 import { cellWidth, stripControls } from '../../src/session/sanitize.ts';
-import { BANNER_LINES, cells, clip, clipRow, colorEnabled, lineCounts, MODEL_GUTTER, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
+import { BANNER_LINES, cells, clip, clipRow, colorEnabled, lineCounts, MODEL_GUTTER, SHOW_HELD_AFTER_MS, Ui, WORK_COMPLETED, wrapLine } from '../../src/session/ui.ts';
 import type { RunEvent } from '../../src/core/types.ts';
 
 /** An output of `columns` columns (80), or none (null: a pipe, no rows to break). */
@@ -473,6 +473,102 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
       // "┆ Opening " is 10 columns and the word 40: it ends on column 50, on the row it started.
       expect(p.text(), String(to)).toBe(`${MODEL_GUTTER}Opening ${url}\n`);
     }
+  });
+
+  describe('a held word is shown when the stream goes quiet (the model may be streaming a tool call)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** The rows a terminal shows for `out`: colour dropped; newline, carriage return, cursor back and erase to the end of the row acted on. */
+    function screen(out: string): string[] {
+      const rows: string[][] = [[]];
+      let col = 0;
+      const text = out.replace(/\u001b\[[0-9;]*m/g, '');
+      for (let i = 0; i < text.length; ) {
+        const back = /^\u001b\[(\d+)D/.exec(text.slice(i));
+        const row = rows[rows.length - 1] ?? [];
+        if (back !== null) {
+          col = Math.max(0, col - Number(back[1]));
+          i += back[0].length;
+        } else if (text.startsWith('\u001b[K', i)) {
+          row.length = Math.min(row.length, col);
+          i += 3;
+        } else if (text[i] === '\n') {
+          rows.push([]);
+          col = 0;
+          i += 1;
+        } else if (text[i] === '\r') {
+          col = 0;
+          i += 1;
+        } else {
+          const ch = String.fromCodePoint(text.codePointAt(i) ?? 32);
+          row[col] = ch;
+          col += 1;
+          i += ch.length;
+        }
+      }
+      return rows.map((r) => r.join(''));
+    }
+
+    it('after a quiet moment the held word is on the screen; before it (the twin), it is not yet', () => {
+      vi.useFakeTimers();
+      const t = capture(true, 80);
+      const ui = new Ui(t.out, false);
+      ui.write('Now I will write the failing te');
+      ui.write('st.');
+      vi.advanceTimersByTime(SHOW_HELD_AFTER_MS - 1);
+      expect(t.text()).toBe(`${MODEL_GUTTER}Now I will write the failing `);
+      vi.advanceTimersByTime(1);
+      expect(t.text()).toBe(`${MODEL_GUTTER}Now I will write the failing test.`);
+      // The tool line that follows does not write it again: the bytes are those of a stream never paused.
+      ui.line('✎ write_file src/example.test.ts (+12)');
+      expect(t.text()).toBe(`${MODEL_GUTTER}Now I will write the failing test.\n✎ write_file src/example.test.ts (+12)\n`);
+    });
+
+    it('a shown word that grows past the row\'s end moves to the next row: its shown columns are erased, and the screen is that of a stream never paused', () => {
+      vi.useFakeTimers();
+      const t = capture(true, 20);
+      const ui = new Ui(t.out, false);
+      ui.write('fox jumps over th');
+      vi.advanceTimersByTime(SHOW_HELD_AFTER_MS);
+      expect(screen(t.text())).toEqual([`${MODEL_GUTTER}fox jumps over th`]);
+      ui.write('em all');
+      ui.endStream();
+      const once = streamed(['fox jumps over them all'], 20);
+      expect(screen(t.text())).toEqual(screen(once));
+      expect(screen(t.text())).toEqual([`${MODEL_GUTTER}fox jumps over `, `${MODEL_GUTTER}them all`, '']);
+      // A word longer than a row, shown and then cut where the row ends: the same screen too.
+      const u = capture(true, 20);
+      const long = new Ui(u.out, false);
+      long.write(`see ${'x'.repeat(10)}`);
+      vi.advanceTimersByTime(SHOW_HELD_AFTER_MS);
+      long.write(`${'x'.repeat(30)} end`);
+      long.endStream();
+      expect(screen(u.text())).toEqual(screen(streamed([`see ${'x'.repeat(40)} end`], 20)));
+    });
+
+    it('twin: nothing is shown early on a pipe, for a word outside printable ASCII, or for one that would end on the row\'s last column', () => {
+      vi.useFakeTimers();
+      const cases: Array<[string, boolean, number | null, string]> = [
+        ['a pipe', false, null, 'held word'],
+        ['an output with columns that is not a terminal', false, 80, 'held word'],
+        ['a word outside printable ASCII', true, 80, 'held café'],
+        // 20 columns: "┆ held " is 7 columns, and 13 more end on the 20th.
+        ['a word ending on the last column', true, 20, `held ${'w'.repeat(13)}`],
+      ];
+      for (const [what, isTTY, columns, text] of cases) {
+        const t = capture(isTTY, columns);
+        const ui = new Ui(t.out, false);
+        ui.write(text);
+        vi.advanceTimersByTime(SHOW_HELD_AFTER_MS * 10);
+        const held = text.slice(text.indexOf(' ') + 1);
+        if (columns === null) expect(t.text(), what).toBe(`${MODEL_GUTTER}${text}`);
+        else expect(t.text(), what).toBe(`${MODEL_GUTTER}held `);
+        ui.endStream();
+        expect(t.text(), what).toBe(`${MODEL_GUTTER}held ${held}\n`);
+      }
+    });
   });
 
   it('a harness line breaks at a space too; its continuation rows are indented, and nothing is lost', () => {
