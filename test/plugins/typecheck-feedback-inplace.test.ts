@@ -351,6 +351,28 @@ describe("typecheck-feedback in place: the defaults of the repository's TypeScri
     expect(noteOf(await writeThenCheck(await contextFor(six.repo), 'src/b.ts', 'export const b: number = 2;\n'))).toMatch(/^tsc: 1 error\(s\): tsconfig\.json TS5101 Option 'baseUrl' is deprecated /);
   });
 
+  it('types unset: 5.x loads every visible @types package, so a node:test file its project includes is clean; 6.x loads none and records the import', () => {
+    const { types: _none, ...noTypes } = MODERN;
+    const files = { 'tsconfig.json': project(noTypes, ['src', 'test']), 'src/add.ts': SOLUTION_FILES['src/add.ts'], 'test/add.test.ts': NODE_TEST };
+    expect(found('5.9.3', files, 'test/add.test.ts', FAKE_NODE_TYPES).r).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
+    expect(found('6.0.3', files, 'test/add.test.ts', FAKE_NODE_TYPES).r?.errors[0]).toMatch(/^test\/add\.test\.ts:1:22 TS(2591|2580|2307) /);
+  });
+
+  it('noUncheckedSideEffectImports unset: 5.x lets an undeclared stylesheet import pass, 6.x records it', () => {
+    const files = { 'tsconfig.json': project({ ...MODERN, strict: true }), 'src/styles.css': 'body { margin: 0; }\n', 'src/main.ts': "import './styles.css';\nexport const ready = true;\n" };
+    expect(found('5.9.3', files, 'src/main.ts').r).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
+    expect(found('6.0.3', files, 'src/main.ts').r?.errors).toEqual(["src/main.ts:1:8 TS2882 Cannot find module or type declarations for side-effect import of './styles.css'."]);
+  });
+
+  it('alwaysStrict follows strict in 5.x: a script using a strict-mode reserved word passes with strict unset; strict on, or 6.x, records it', () => {
+    // A script (no import or export), so only alwaysStrict decides whether it is strict-mode code.
+    const script = { 'src/legacy.ts': 'var static = 1;\nvar total: number = static;\n' };
+    const reserved = "src/legacy.ts:1:5 TS1212 Identifier expected. 'static' is a reserved word in strict mode.";
+    expect(found('5.9.3', { ...script, 'tsconfig.json': project(MODERN) }, 'src/legacy.ts').r?.errors).toEqual([]);
+    expect(found('5.9.3', { ...script, 'tsconfig.json': project({ ...MODERN, strict: true }) }, 'src/legacy.ts').r?.errors[0]).toBe(reserved);
+    expect(found('6.0.3', { ...script, 'tsconfig.json': project(MODERN) }, 'src/legacy.ts').r?.errors[0]).toBe(reserved);
+  });
+
   it('5.x has no rootDir check: config/ including ../src with an outDir passes and a real error still shows; 6.x, and a 5.x composite project, record TS6059 as their tsc does', async () => {
     const inSubdirectory = (extra: Record<string, unknown>): Record<string, string> => ({
       'tsconfig.json': JSON.stringify({ files: [], references: [{ path: './config/tsconfig.app.json' }] }),
