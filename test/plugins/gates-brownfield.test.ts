@@ -496,6 +496,31 @@ describe('check_standards says what the standards gate blocks on (baseline mode)
     expect(all.summary.endsWith(`the standards report's failing lines (pre-existing included; it lists the first violations and counts the rest):\n${report.compact}`)).toBe(true);
   });
 
+  it('a rule the checker cannot prove now nor at the base commit: nothing blocks, yet never ok, and the gate\'s UNPROVEN is said', async () => {
+    const unreadable = indebted(layout);
+    unreadable[layout.legacy] = `${unreadable[layout.legacy] ?? ''}// UNREADABLE legacy\n`;
+    const h = await setup({ standards: 'baseline', base: unreadable, edits: { [layout.routes]: `${unreadable[layout.routes] ?? ''}${route('patch', '/v1/items/:id', true)}\n` } });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    const lines = r.summary.split('\n');
+    expect(lines[0]).toBe('nothing this run introduced blocks; 8 pre-existing findings are not blocking');
+    expect(lines).toContainEqual(expect.stringMatching(/^UNPROVEN \(never green\): rest-conventions: skipped: check crashed: cannot parse .* \(unproven at the base commit too/));
+    expect(lines.at(-1)).toMatch(/^standards gate now: UNPROVEN: /);
+    expect(r.ok).toBe(false);
+    expect((await run(standardsGate, h.ctx)).status).toBe('unproven');
+  });
+
+  it('twin: a rule the checker proved at the base commit and cannot prove now blocks, and the gate fails', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: { [layout.routes]: `${base[layout.routes] ?? ''}// UNREADABLE now\n` } });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    const lines = r.summary.split('\n');
+    expect(lines[0]).toMatch(/^BLOCKING: 1 introduced by this run/);
+    expect(lines[1]).toMatch(/^ {2}rest-conventions: UNPROVEN now \(skipped: check crashed: cannot parse .*\) but proven at the base commit/);
+    expect(lines.some((l) => l.startsWith('UNPROVEN (never green)'))).toBe(false);
+    expect(lines.at(-1)).toBe('standards gate now: FAIL');
+    expect(r.ok).toBe(false);
+    expect((await run(standardsGate, h.ctx)).status).toBe('fail');
+  });
+
   it('no base commit: today\'s report, after a line saying the comparison was unavailable', async () => {
     const h = await setup({ standards: 'baseline', base, commit: false, edits: bad });
     const r = await callTool(checkStandards, {}, h.ctx);
