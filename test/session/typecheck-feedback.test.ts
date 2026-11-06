@@ -6,7 +6,9 @@
  * there for ~20 turns); the same import in a test file the app project includes (src/) is recorded, as the
  * repository's type check would report it.
  */
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { checkInPlace } from '../../plugins/hooks/typecheck-feedback.ts';
 import { calls, proposal, runScripted, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
 
 const OPTIONS = { target: 'ES2022', module: 'ESNext', moduleResolution: 'bundler', allowImportingTsExtensions: true, lib: ['ES2022', 'DOM'], strict: true, noEmit: true, types: [] };
@@ -31,6 +33,9 @@ const INSIDE = 'src/greeting-name.test.ts';
 
 describe('typecheck-feedback in a session', () => {
   it('a node:test file in no tsconfig project gets no type note; the same import in src/ (the app project) is recorded', async () => {
+    // Warm the app project's language service with a cold budget (the registry loads this same module), so
+    // the session's own checks, under BUDGET_MS, are warm ones a loaded machine cannot cancel.
+    expect(checkInPlace(r.repo, [join(r.repo, 'src', 'greeting.ts')], 60_000)).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
     const ran = await runScripted(
       r,
       [

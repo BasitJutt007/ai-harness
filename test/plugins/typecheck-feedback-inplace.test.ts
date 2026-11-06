@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import typecheckFeedback, { checkInPlace, MAX_OVERRUNS } from '../../plugins/hooks/typecheck-feedback.ts';
+import typecheckFeedback, { checkFiles, checkInPlace, MAX_OVERRUNS } from '../../plugins/hooks/typecheck-feedback.ts';
 import writeFile from '../../plugins/tools/write_file.ts';
 import type { HookVerdict, RunContext } from '../../src/core/plugin-api.ts';
 import { callInfo, callTool, fakeWorkspace, makeHarness, removeTmp, sha } from './helpers.ts';
@@ -94,6 +94,14 @@ const noteOf = (v: HookVerdict): string => (v.decision === 'record' ? v.note : '
 /** Cold checks parse the TypeScript libs: a generous budget so a loaded machine cannot flake the assertions. */
 const COLD = 60_000;
 
+/**
+ * Warm a file-mode service for `repo` with a cold budget, so the hook's own check (BUDGET_MS) that follows is
+ * a warm one: a loaded machine cannot turn the twin's expected note into a cancelled check.
+ */
+function warmFileMode(repo: Repo): void {
+  expect(checkFiles(repo.root, [path.join(repo.root, 'src', 'add.ts')], COLD)).not.toBeNull();
+}
+
 describe('typecheck-feedback in place: the project that compiles the file, with its own options', () => {
   it('a test file no tsconfig project includes gets no type errors (the gate does not check it); the file-mode twin keeps the root-config check', async () => {
     const repo = makeRepo(SOLUTION_FILES, { packages: TINY_ENV });
@@ -106,6 +114,7 @@ describe('typecheck-feedback in place: the project that compiles the file, with 
 
     // File mode (the 01 rubric): the root tsconfig.json's options with every strict flag forced, as before.
     const fileMode = await contextFor(repo, { fileMode: true });
+    warmFileMode(repo);
     const twin = await writeThenCheck(fileMode, 'test/add.test.ts', NODE_TEST);
     expect(noteOf(twin)).toMatch(/^tsc: \d+ error\(s\): test\/add\.test\.ts:1:22 TS25(80|91) Cannot find name 'node:test'/);
   });
@@ -124,6 +133,9 @@ describe('typecheck-feedback in place: the project that compiles the file, with 
     const repo = makeRepo({ ...SOLUTION_FILES, 'tsconfig.json': withTests, 'tsconfig.test.json': testProject }, { packages: { ...TINY_ENV, ...FAKE_NODE_TYPES } });
     const ctx = await contextFor(repo);
     expect(checkInPlace(repo.root, [path.join(repo.root, 'src', 'add.ts')], COLD)?.errors).toEqual([]);
+    // The clean twin, with a cold budget (it also warms the test project for the hook's checks below).
+    await callTool(writeFile, { path: 'test/add.test.ts', content: NODE_TEST }, ctx);
+    expect(checkInPlace(repo.root, [path.join(repo.root, 'test', 'add.test.ts')], COLD)).toEqual({ errors: [], project: [], uncovered: [], skipped: null });
     expect(await writeThenCheck(ctx, 'test/add.test.ts', NODE_TEST)).toEqual({ decision: 'pass' });
     const bad = NODE_TEST.replace('add(1, 2)', "add(1, 'two')");
     expect(noteOf(await writeThenCheck(ctx, 'test/add.test.ts', bad))).toBe("tsc: 1 error(s): test/add.test.ts:6:23 TS2345 Argument of type 'string' is not assignable to parameter of type 'number'.");
@@ -136,6 +148,7 @@ describe('typecheck-feedback in place: the project that compiles the file, with 
     expect(checkInPlace(repo.root, [path.join(repo.root, 'src', 'add.ts')], COLD)?.errors).toEqual([]);
     expect(await writeThenCheck(ctx, 'src/first.ts', first)).toEqual({ decision: 'pass' });
     const fileMode = await contextFor(repo, { fileMode: true });
+    warmFileMode(repo);
     expect(noteOf(await writeThenCheck(fileMode, 'src/first.ts', first))).toMatch(/^tsc: 1 error\(s\): src\/first\.ts:3:10 TS18048 /);
   });
 
@@ -192,13 +205,14 @@ describe('typecheck-feedback in place: the project that compiles the file, with 
     expect(checkInPlace(repo.root, [path.join(repo.root, 'src', 'add.ts')], COLD)?.errors).toEqual([]);
     expect(await writeThenCheck(ctx, 'src/logo-src.ts', usesLogo)).toEqual({ decision: 'pass' });
     const fileMode = await contextFor(repo, { fileMode: true });
+    warmFileMode(repo);
     expect(noteOf(await writeThenCheck(fileMode, 'src/logo-src.ts', usesLogo))).toMatch(/src\/logo-src\.ts:1:18 TS2307 /);
   });
 
   it('a file outside every include that a project file imports is in that program: its error is recorded; an unimported one is not', async () => {
     const repo = makeRepo({ ...SOLUTION_FILES, 'src/main.ts': "import { label } from '../shared/label';\nexport const shown: string = label;\n", 'shared/label.ts': "export const label: string = 'ok';\n" }, { packages: TINY_ENV });
     const ctx = await contextFor(repo);
-    expect(checkInPlace(repo.root, [path.join(repo.root, 'src', 'main.ts')], COLD)?.errors).toEqual([]);
+    expect(checkInPlace(repo.root, [path.join(repo.root, 'shared', 'label.ts')], COLD)?.errors).toEqual([]);
     expect(noteOf(await writeThenCheck(ctx, 'shared/label.ts', 'export const label: string = 42;\n'))).toBe("tsc: 1 error(s): shared/label.ts:1:14 TS2322 Type 'number' is not assignable to type 'string'.");
     // The twin: a file next to it that nothing imports is in no program.
     expect(await writeThenCheck(ctx, 'shared/unused.ts', 'export const unused: string = 42;\n')).toEqual({ decision: 'pass' });
@@ -233,6 +247,7 @@ describe('typecheck-feedback in place: nothing configured, nothing recorded', ()
     expect(await writeThenCheck(ctx, 'src/bad.ts', bad)).toEqual({ decision: 'pass' });
     expect(checkInPlace(repo.root, [path.join(repo.root, 'src', 'bad.ts')], COLD)?.skipped).toMatch(/no tsconfig\.json/);
     const fileMode = await contextFor(repo, { fileMode: true });
+    warmFileMode(repo);
     expect(noteOf(await writeThenCheck(fileMode, 'src/bad.ts', bad))).toMatch(/^tsc: 1 error\(s\): src\/bad\.ts:1:14 TS2322 /);
   });
 
@@ -297,6 +312,7 @@ describe('typecheck-feedback in place: the existing guarantees', () => {
     cleanups.push(async () => rmSync(outside, { recursive: true, force: true }));
     writeFileSync(path.join(outside, 'secret.ts'), 'export interface Leaked { CANARY_INPLACE_FEEDBACK_51c3: number }\n');
     const ctx = await contextFor(repo);
+    expect(checkInPlace(repo.root, [path.join(repo.root, 'src', 'add.ts')], COLD)?.errors).toEqual([]);
     const v = await writeThenCheck(ctx, 'src/probe.ts', `import type { Leaked } from '${path.join(outside, 'secret.ts')}';\nexport const n: Leaked = {};\n`);
     expect(noteOf(v)).not.toContain('CANARY_INPLACE_FEEDBACK_51c3');
     expect(noteOf(v)).toMatch(/src\/probe\.ts:1:29 TS2307 /);
