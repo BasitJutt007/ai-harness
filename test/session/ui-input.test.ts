@@ -391,6 +391,47 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
     expect(t.text()).toMatch(new RegExp(`^${MODEL_GUTTER}Checking the files\\n\\r. working`));
   });
 
+  it('the terminal narrows while a word is held: the word is placed as if it had arrived at the new width, so no row written after the resize is wider', () => {
+    const url = 'https://example.test/'.padEnd(40, 'p');
+    /** "Opening <url>" streamed at 80 columns, the terminal narrowed to `to`, then `after`: the rows written. */
+    const resized = (to: number, after: (ui: Ui) => void): string => {
+      const p = capture(true, 80);
+      const ui = new Ui(p.out, false);
+      ui.write(`Opening ${url}`);
+      p.out.columns = to;
+      after(ui);
+      return p.text();
+    };
+    const cases: Array<[string, (ui: Ui) => void, string]> = [
+      ['more prose', (ui) => { ui.write(' and more words after it'); ui.endStream(); }, ' and more words after it'],
+      ['a newline', (ui) => { ui.write('\nnext line'); ui.endStream(); }, '\nnext line'],
+      ['the end of the stream', (ui) => ui.endStream(), ''],
+    ];
+    for (const [how, after, rest] of cases) {
+      const out = resized(30, after);
+      // Exactly the rows of the same text streamed at 30 columns ("Opening " fits both widths).
+      expect(out, how).toBe(streamed([`Opening ${url}${rest}`], 30));
+      expect(screenRows(out, 30).wrappedByTerminal, how).toBe(false);
+    }
+    // A harness line writes the held word first, at the new width too.
+    const line = resized(30, (ui) => ui.line('● run_tests tests: 1 passed'));
+    expect(line).toBe(`${streamed([`Opening ${url}`], 30)}● run_tests tests: 1 passed\n`);
+    expect(screenRows(line, 30).wrappedByTerminal).toBe(false);
+  });
+
+  it('twin: a held word that still fits after the resize (to its last column, or a wider terminal) stays where it was', () => {
+    const url = 'https://example.test/'.padEnd(40, 'p');
+    for (const to of [50, 120]) {
+      const p = capture(true, 80);
+      const ui = new Ui(p.out, false);
+      ui.write(`Opening ${url}`);
+      p.out.columns = to;
+      ui.endStream();
+      // "┆ Opening " is 10 columns and the word 40: it ends on column 50, on the row it started.
+      expect(p.text(), String(to)).toBe(`${MODEL_GUTTER}Opening ${url}\n`);
+    }
+  });
+
   it('a harness line breaks at a space too; its continuation rows are indented, and nothing is lost', () => {
     const p = capture(false, 80);
     const msg = "harness: typed at a terminal inside an AI agent's shell (AI_AGENT, CLAUDECODE, CLAUDE_CODE_ENTRYPOINT): approvals are refused here";

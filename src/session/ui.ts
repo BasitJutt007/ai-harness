@@ -15,8 +15,10 @@
  * columns any terminal gives it, tabs become spaces) and writes the gutter again, so padding a line to
  * the width cannot push text to column 0. Rows break at word boundaries, as a terminal app wraps prose
  * (only a word longer than a whole row is cut), and the model's rows come out the same however its
- * stream was chunked. A harness line that is too wide, or has a newline inside, continues on an
- * indented row, so agent text it carries (a file name, a gate line) never takes column 0 either.
+ * stream was chunked; a word held while the terminal narrows is placed at the new width (refit), so
+ * the rows written after a resize fit it too. A harness line that is too wide, or has a newline
+ * inside, continues on an indented row, so agent text it carries (a file name, a gate line) never
+ * takes column 0 either.
  * Nothing reaches the terminal with an ESC sequence or a control character in it
  * (sanitize.ts): not the model's prose, a tool summary, a hook or gate line, the proposal box or a diff;
  * on a colour terminal only the colours the harness painted itself (Ui.paint) survive in a line.
@@ -171,6 +173,22 @@ function breakRows(r: RowState, text: string, cols: number, lead: string, leadCe
 }
 
 /**
+ * The word `r` holds, made to fit `cols` again before anything is written after it: the terminal may
+ * have narrowed since the word was held (it fit the old width; written whole now, the terminal would
+ * wrap it and put text at column 0). It is placed as if it had arrived at this width (breakRows): moved
+ * to a new row, and cut where the row ends when it is longer than a whole row. While the width stays,
+ * a held word always fits where it stands, and nothing changes.
+ */
+function refit(r: RowState, cols: number, lead: string, leadCells: number): string {
+  if (r.col + r.wordCells <= cols) return '';
+  const word = r.word;
+  r.word = '';
+  r.wordCells = 0;
+  // A word holds no space and no tab, so no tab stop is counted here.
+  return breakRows(r, word, cols, lead, leadCells, leadCells);
+}
+
+/**
  * A rendered line (only the harness's colour sequences, newlines and tabs left in it) broken into rows
  * of at most `cols` columns at word boundaries (breakRows): every row after the first starts with
  * `indent`, so nothing the line carries lands at column 0 when a terminal would otherwise wrap it. On a
@@ -287,8 +305,9 @@ export class Ui {
   private writeModel(show: string): void {
     if (show.length === 0) return;
     const cols = this.wrapAt;
-    const gutter = this.render(this.paint('dim', MODEL_GUTTER));
-    let out = '';
+    const gutter = this.modelGutter();
+    // The word held back fits the width it was held at; the terminal may be narrower now.
+    let out = this.atLineStart ? '' : refit(this.model, cols, gutter, GUTTER_CELLS);
     for (const piece of show.split(/(\n)/)) {
       if (piece === '\n') {
         out += `${takeWord(this.model)}\n`;
@@ -307,11 +326,22 @@ export class Ui {
     if (out.length > 0) this.out.write(out);
   }
 
-  /** The model's current line ended: its held word written, then a newline (when the line has anything on it). */
+  /** The gutter as written on this output (dim on a colour terminal). */
+  private modelGutter(): string {
+    return this.render(this.paint('dim', MODEL_GUTTER));
+  }
+
+  /**
+   * The model's current line ended: its held word written (made to fit the width the terminal has now,
+   * refit), then a newline (when the line has anything on it).
+   */
   private endModelLine(): void {
-    const word = takeWord(this.model);
-    if (this.atLineStart) return;
-    this.out.write(`${word}\n`);
+    if (this.atLineStart) {
+      takeWord(this.model);
+      return;
+    }
+    const fitted = refit(this.model, this.wrapAt, this.modelGutter(), GUTTER_CELLS);
+    this.out.write(`${fitted}${takeWord(this.model)}\n`);
     this.atLineStart = true;
   }
 
