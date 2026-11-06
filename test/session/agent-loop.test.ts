@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import standardsGate from '../../plugins/gates/standards.ts';
 import type { CheckFinding, CheckPlugin, GateStatus, RegistryView, RunEvent } from '../../src/core/types.ts';
 import { createWorkspace } from '../../src/core/workspace.ts';
-import { AUTO_CONTINUE_LIMIT, autoContinue, canonicalCallPath, continueMessage, preToolRefusal, progressKey, RefusalCounter, STUCK_REFUSALS, type ContinueState } from '../../src/session/session.ts';
+import { AUTO_CONTINUE_LIMIT, autoContinue, canonicalCallPath, continueInputEstimate, continueMessage, preToolRefusal, progressKey, RefusalCounter, STUCK_REFUSALS, type ContinueState } from '../../src/session/session.ts';
 import { ScriptedInput } from '../../src/session/input.ts';
 import { WORK_COMPLETED } from '../../src/session/ui.ts';
 import { calls, proposal, realRegistry, registryWithGates, REQUIRED_STANDINS, gate, runScripted, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
@@ -304,6 +304,12 @@ describe('when a message continues by itself (the decision)', () => {
     const previous = first.go ? first.key : null;
     expect(autoContinue({ ...go, done: 1, previous, verdict: v(at('9:4')) })).toMatchObject({ go: false, why: expect.stringMatching(/no progress/) });
     expect(autoContinue({ ...go, done: 1, previous, verdict: v(at('9:4', 1)) }).go).toBe(true);
+  });
+
+  it('the spend check of a continue counts the last request, the reply that answered it and the message; twin: before any request, the message alone', () => {
+    const message = 'x'.repeat(400);
+    expect(continueInputEstimate({ actual_input_tokens: 5000, output_tokens: 1200 }, message)).toBe(5000 + 1200 + 100);
+    expect(continueInputEstimate(undefined, message)).toBe(100);
   });
 
   it('the message hands over the reasons and what blocks, never the pre-existing findings', () => {

@@ -333,6 +333,15 @@ export function autoContinue(c: ContinueState): ContinueDecision {
   return { go: true, key };
 }
 
+/**
+ * The least the request a continue sends will carry, in input tokens: the last request's input, the reply
+ * that answered it (now part of the history), and the continue message (chars/4). What the spend cap is
+ * checked against before the harness says it continues; the loop checks the real request again.
+ */
+export function continueInputEstimate(last: { actual_input_tokens: number; output_tokens: number } | undefined, message: string): number {
+  return (last?.actual_input_tokens ?? 0) + (last?.output_tokens ?? 0) + Math.ceil(message.length / 4);
+}
+
 /** Detail lines a continue hands over per failed gate (what blocks; never the pre-existing ones). */
 const CONTINUE_DETAILS = 10;
 
@@ -701,7 +710,7 @@ class Session {
         done: continues,
         previous,
         turnsLeft: s.maxTurns - used,
-        spend: told === null ? null : this.meter.refuseNext(this.lastInputTokens() + Math.ceil(told.length / 4), s.ctx.task.limits.maxOutputTokens),
+        spend: told === null ? null : this.meter.refuseNext(continueInputEstimate(this.ledger.report().turns.at(-1), told), s.ctx.task.limits.maxOutputTokens),
       });
       if (d.go && told !== null) {
         continues += 1;
@@ -731,11 +740,6 @@ class Session {
     const k = this.stuck;
     this.stuck = null;
     return k;
-  }
-
-  /** The input tokens of the last request sent (what the next one will be at least). */
-  private lastInputTokens(): number {
-    return this.ledger.report().turns.at(-1)?.actual_input_tokens ?? 0;
   }
 
   /**
