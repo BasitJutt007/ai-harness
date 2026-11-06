@@ -11,7 +11,8 @@ import { runChecks } from '../../src/core/checks.ts';
 import { runGates } from '../../src/core/gates.ts';
 import { honesty, standardsLine } from '../../src/core/run.ts';
 import standardsGate, { BASELINE_KEY, BASELINE_MODE } from '../../plugins/gates/standards.ts';
-import { brownfieldTask, greenfieldTask, HARNESS_ROOT, makeHarness, realExec, removeTmp, sha } from './helpers.ts';
+import checkStandards from '../../plugins/tools/check_standards.ts';
+import { brownfieldTask, callTool, greenfieldTask, HARNESS_ROOT, makeHarness, realExec, removeTmp, sha } from './helpers.ts';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -358,6 +359,80 @@ describe('standards gate, baseline mode: the summary says what blocks first', ()
     expect(r.summary.startsWith(`2 introduced by this run: no-console ${layout.routes}:4:1  console call; verdict `), r.summary).toBe(true);
     expect(r.summary).toContain('(brownfield: 1 pre-existing violation(s) in untouched files');
     expect(r.summary).not.toContain(BASELINE_MODE);
+  });
+});
+
+describe('check_standards says what the standards gate blocks on (baseline mode)', () => {
+  const layout = LAYOUTS[0] ?? { routes: '', legacy: '', resource: '' };
+  const base = indebted(layout);
+  const bad = { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', false)}\n` };
+  const good = { [layout.routes]: `${base[layout.routes] ?? ''}${route('patch', '/v1/items/:id', true)}\n` };
+
+  it('leads with the finding this run introduced; the pre-existing ones are one count line per rule, never listed', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: bad });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    expect(r.ok).toBe(false);
+    const lines = r.summary.split('\n');
+    expect(lines.slice(0, 3)).toEqual([
+      'BLOCKING: 2 introduced by this run (the standards gate fails until each is fixed):',
+      `  introduced (in a file this run changed): zod-boundary ${layout.routes}:4:1  PATCH /v1/items/:id: request body is not parsed`,
+      '  zod-boundary: 7 failing handlers vs 6 at the base commit',
+    ]);
+    expect(lines).toContain('pre-existing, not blocking: zod-boundary 6 in 3 files');
+    expect(lines).toContain('pre-existing, not blocking: no-console 2 in 2 files');
+    expect(lines.at(-1)).toBe('standards gate now: FAIL');
+    // Short: not one pre-existing finding is listed.
+    expect(r.summary).not.toMatch(/\/v0\//);
+    expect(r.summary).not.toContain('src/legacy/');
+    expect(lines.length).toBeLessThanOrEqual(7);
+    // The gate's own classification, not a copy: the gate blocks on exactly those lines.
+    const g = await run(standardsGate, h.ctx);
+    expect(g.status).toBe('fail');
+    expect(g.failing).toBe(2);
+    expect(g.details?.slice(0, 2)).toEqual(lines.slice(1, 3).map((l) => l.trim()));
+    // The full report is still the raw return (logged; the --baseline replay), after what blocks.
+    const report = await h.ctx.services.runChecks();
+    expect(r.raw?.startsWith(r.summary)).toBe(true);
+    expect(r.raw).toContain(report.text);
+  });
+
+  it('twin: nothing introduced says so plainly (ok, the gate passes), with the per-rule counts', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: good });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    expect(r.ok).toBe(true);
+    const lines = r.summary.split('\n');
+    expect(lines[0]).toBe('nothing this run introduced blocks; 8 pre-existing findings are not blocking');
+    expect(lines).toContain('pre-existing, not blocking: zod-boundary 6 in 3 files');
+    expect(lines.at(-1)).toBe('standards gate now: pass');
+    expect((await run(standardsGate, h.ctx)).status).toBe('pass');
+  });
+
+  it('{ all: true } lists every failing line of the report after what blocks', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: bad });
+    const r = await callTool(checkStandards, { all: true }, h.ctx);
+    const report = await h.ctx.services.runChecks();
+    expect(r.summary.startsWith('BLOCKING: 2 introduced by this run')).toBe(true);
+    expect(r.summary.endsWith(`every failing line of the report (pre-existing included):\n${report.compact}`)).toBe(true);
+    expect(r.summary).toContain(`${layout.legacy}:1:1  PUT /v0/a/:id: request body is not parsed`);
+  });
+
+  it('no base commit: today\'s report, after a line saying the comparison was unavailable', async () => {
+    const h = await setup({ standards: 'baseline', base, commit: false, edits: bad });
+    const r = await callTool(checkStandards, {}, h.ctx);
+    const report = await h.ctx.services.runChecks();
+    expect(r.ok).toBe(false);
+    expect(r.summary).toMatch(/^the comparison with the base commit is unavailable \(base snapshot failed: .*\): violations in files this run changed block, and the others cannot be proven pre-existing\. standards gate now: FAIL\n/);
+    expect(r.summary.endsWith(`\n${report.compact}`)).toBe(true);
+  });
+
+  it('twin: strict brownfield and greenfield return today\'s compact report exactly (same fixture, same edit)', async () => {
+    for (const kind of ['brownfield', 'greenfield'] as const) {
+      const h = await setup({ kind, base, edits: bad });
+      const r = await callTool(checkStandards, {}, h.ctx);
+      const report = await h.ctx.services.runChecks();
+      expect(r, kind).toMatchObject({ ok: false, summary: report.compact, raw: report.text, data: { verdict: report.verdict, rules: report.rules } });
+      expect(r.summary, kind).toContain('/v0/');
+    }
   });
 });
 
