@@ -461,8 +461,8 @@ export class Ui {
     if (rows.length > maxRows && last !== undefined) shown[shown.length - 1] = `${last.slice(0, Math.max(0, last.length - 1))}…`;
     const indent = ' '.repeat(cells(prefix));
     shown.forEach((row, i) => {
-      const text = `${i === 0 ? prefix : indent}${i === 0 ? row : row.trimStart()}`;
-      this.line(style === undefined ? text : this.paint(style, text));
+      const out = i === 0 ? `${prefix}${row}` : `${indent}${row.trimStart()}`;
+      this.line(style === undefined ? out : this.paint(style, out));
     });
   }
 

@@ -33,7 +33,12 @@
  *   under "human must verify". A rule unproven at the baseline too stays UNPROVEN.
  * - Without a baseline (snapshot or checks failed) violations in changed files block and any other
  *   violation cannot be proven pre-existing: UNPROVEN.
- * - The summary always carries the true whole-API percentage.
+ * - The summary always carries the true whole-API percentage. A failing comparison (either mode) says
+ *   what blocks first: "N introduced by this run: <first finding>; " before the rest, so a reader who
+ *   sees only the start of it sees what to fix. humanMustVerifyBrief counts the pre-existing findings
+ *   per rule (a short view's form); humanMustVerify keeps one line per finding.
+ * - The classification is exported (baselineAssessment): check_standards reports exactly what this gate
+ *   decides in baseline mode, from the same code.
  *
  * Both: a skipped rule, an empty standards rule, or zero rules is UNPROVEN, and an n/a rule
  * (nothing to check) is never counted as green.

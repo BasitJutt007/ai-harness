@@ -353,7 +353,8 @@ export function preToolRefusal(e: RunEvent): Refusal | null {
   const data = e.data as { event?: unknown; paths?: unknown } | undefined;
   if (data?.event !== 'pre_tool') return null;
   const paths = Array.isArray(data.paths) ? data.paths.filter((p): p is string => typeof p === 'string') : [];
-  return { hook: e.source, path: paths.length > 0 ? paths.join(', ') : '(no path)', reason: e.message.replace(new RegExp(`^${e.source}: `), '') };
+  const own = `${e.source}: `;
+  return { hook: e.source, path: paths.length > 0 ? paths.join(', ') : '(no path)', reason: e.message.startsWith(own) ? e.message.slice(own.length) : e.message };
 }
 
 /**
