@@ -256,12 +256,10 @@ export function lockedReason(lock: LockState): string {
     const { name, declared } = unexported.missingExport;
     const run = `run_tests { "files": ${JSON.stringify([unexported.test])} }`;
     next = declared
-      ? `${unexported.test} failed to load: it imports ${name} from ${path}, which declares ${name} but does not export it, and a load failure is not a red for a file that existed at run start.
-` +
+      ? `${unexported.test} failed to load: it imports ${name} from ${path}, which declares ${name} but does not export it, and a load failure is not a red for a file that existed at run start.\n` +
         `Next: add \`export\` to the existing declaration of ${name} in ${path}. An export-only edit (adding \`export\` to existing top-level declarations and changing nothing else) is allowed while the file is locked; it unlocks nothing. ` +
         `Then ${run} to observe the case fail on an assertion, which unlocks ${path} for the fix.`
-      : `${unexported.test} failed to load: it imports ${name} from ${path}, which has no top-level declaration of ${name} to export (an export-only edit can only export what already exists).
-` +
+      : `${unexported.test} failed to load: it imports ${name} from ${path}, which has no top-level declaration of ${name} to export (an export-only edit can only export what already exists).\n` +
         `Next: test the behaviour through what ${path} exports, or put new code in a new module (a missing module counts as red for a file that did not exist at run start), then ${run} again.`;
   } else if (lock.existedAtStart && lock.tests.some((t) => t.loadRedOnly)) {
     next =
