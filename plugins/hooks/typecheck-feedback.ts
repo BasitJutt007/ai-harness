@@ -15,7 +15,8 @@
  *   and the projects one of whose files imports it, each with its own options (no forced strict; an
  *   option it leaves unset keeps the default of the repository's TypeScript), as part of that project's
  *   program (its declaration files apply). A project's own errors (a `types` entry that does not
- *   resolve) are recorded once per run.
+ *   resolve) are recorded once per run, each when a note first shows it: they come first, but leave room
+ *   for one of the written files' own errors (see inPlaceLines).
  *   Nothing is recorded for a written file no project's program includes: the repository's type check
  *   never checks it (a test/ outside every tsconfig, run through a runner that strips types). Not even a
  *   one-line "not covered" note: it asks for no action, and the actions a model would try (moving the
@@ -53,7 +54,7 @@ const MAX_SERVICES = 3;
 const MAX_LINES = 3;
 const MAX_MESSAGE = 160;
 const TS_FILE = /\.(?:[cm]?ts|tsx)$/;
-/** scratch key: the project-level error lines already recorded in this run (in place). */
+/** scratch key: the project-level error lines a note has shown in this run (in place). */
 const NOTED_KEY = 'typecheck-feedback.project-errors';
 const HARNESS_TS_MAJOR = Number(ts.versionMajorMinor.split('.')[0]);
 
@@ -362,13 +363,20 @@ export function checkInPlace(root: string, files: string[], budgetMs = BUDGET_MS
   return { errors: [...new Set(errors)], project: [...new Set(project)], uncovered, skipped: null };
 }
 
-/** Project-level lines not yet recorded in this run (marks them recorded). */
-function firstTimeInRun(state: RunState, lines: string[]): string[] {
+/**
+ * The lines of an in-place note, in order. First the project errors no note has shown in this run (they explain
+ * the file errors they cause), but at most MAX_LINES - 1 of them while the written files have errors of their
+ * own, so one of those always shows; then the file errors; then the project errors the window had no room for
+ * (counted in "+n more"). Only the project lines this note shows are marked shown: the rest come on a later write.
+ */
+function inPlaceLines(state: RunState, r: Pick<InPlaceCheck, 'errors' | 'project'>): string[] {
   const v = state.scratch.get(NOTED_KEY);
   const noted = new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-  const fresh = lines.filter((l) => !noted.has(l));
-  if (fresh.length > 0) state.scratch.set(NOTED_KEY, [...noted, ...fresh].sort());
-  return fresh;
+  const fresh = r.project.filter((l) => !noted.has(l));
+  const room = r.errors.length > 0 ? MAX_LINES - 1 : MAX_LINES;
+  const shown = fresh.slice(0, room);
+  if (shown.length > 0) state.scratch.set(NOTED_KEY, [...noted, ...shown].sort());
+  return [...shown, ...r.errors, ...fresh.slice(room)];
 }
 
 /** The record note for a list of error lines (at most MAX_LINES lines), or null when there are none. */
@@ -405,7 +413,7 @@ export default defineHook({
       let errors: string[] | null;
       if (inPlace) {
         const r = checkInPlace(root, files);
-        errors = r === null ? null : [...firstTimeInRun(ctx.state, r.project), ...r.errors];
+        errors = r === null ? null : inPlaceLines(ctx.state, r);
       } else {
         errors = checkFiles(root, files);
       }

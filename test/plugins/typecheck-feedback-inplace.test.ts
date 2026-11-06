@@ -249,6 +249,27 @@ describe('typecheck-feedback in place: types from a symlinked node_modules, unde
     expect(await writeThenCheck(ctx, 'src/name.ts', 'export const appName: string = __APP_NAME__;\n')).toEqual({ decision: 'pass' });
   });
 
+  it('more project errors than the window holds: each shows once over the run, and the written file\'s own error shows on the first write', async () => {
+    const missing = JSON.stringify({ compilerOptions: { ...BASE_OPTIONS, lib: ['ES2022'], types: ['m1', 'm2', 'm3', 'm4'] }, include: ['src'] });
+    const repo = makeRepo({ 'tsconfig.json': missing, 'src/a.ts': 'export {};\n' });
+    const ctx = await contextFor(repo);
+    expect(checkInPlace(repo.root, [path.join(repo.root, 'src', 'a.ts')], COLD)?.project).toHaveLength(4);
+    const lost = (m: string): string => `tsconfig.json TS2688 Cannot find type definition file for '${m}'.`;
+    const own = "src/b.ts:1:14 TS2322 Type 'string' is not assignable to type 'number'.";
+    const first = noteOf(await writeThenCheck(ctx, 'src/b.ts', "export const b: number = 'x';\n"));
+    expect(first).toBe(`tsc: 5 error(s): ${lost('m1')}\n  ${lost('m2')}\n  ${own} (+2 more)`);
+    const second = noteOf(await writeThenCheck(ctx, 'src/b.ts', "export const b: number = 'y';\n"));
+    expect(second).toBe(`tsc: 3 error(s): ${lost('m3')}\n  ${lost('m4')}\n  ${own}`);
+    expect(noteOf(await writeThenCheck(ctx, 'src/b.ts', "export const b: number = 'z';\n"))).toBe(`tsc: 1 error(s): ${own}`);
+    // The twin: a clean file leaves the whole window to the project errors; the one that does not fit comes next.
+    const clean = makeRepo({ 'tsconfig.json': missing, 'src/a.ts': 'export {};\n' });
+    const cleanCtx = await contextFor(clean);
+    expect(checkInPlace(clean.root, [path.join(clean.root, 'src', 'a.ts')], COLD)?.project).toHaveLength(4);
+    expect(noteOf(await writeThenCheck(cleanCtx, 'src/b.ts', 'export const b = 1;\n'))).toBe(`tsc: 4 error(s): ${lost('m1')}\n  ${lost('m2')}\n  ${lost('m3')} (+1 more)`);
+    expect(noteOf(await writeThenCheck(cleanCtx, 'src/b.ts', 'export const b = 2;\n'))).toBe(`tsc: 1 error(s): ${lost('m4')}`);
+    expect(await writeThenCheck(cleanCtx, 'src/b.ts', 'export const b = 3;\n')).toEqual({ decision: 'pass' });
+  });
+
   it('the twin: the package really missing records TS2688 once per run, and the error it causes in the file every time', async () => {
     const repo = makeRepo(SOLUTION_FILES, { packages: {} });
     const ctx = await contextFor(repo);
