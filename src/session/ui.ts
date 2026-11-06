@@ -13,9 +13,11 @@
  * not only for the model's newlines: when the width is known (a terminal's columns), the harness breaks
  * every row itself before the terminal would (sanitize.ts cellWidth counts a character at the most
  * columns any terminal gives it, tabs become spaces) and writes the gutter again, so padding a line to
- * the width cannot push text to column 0. A harness line that is too wide, or has a newline inside,
- * continues on an indented row, so agent text it carries (a file name, a gate line) never takes column
- * 0 either. Nothing reaches the terminal with an ESC sequence or a control character in it
+ * the width cannot push text to column 0. Rows break at word boundaries, as a terminal app wraps prose
+ * (only a word longer than a whole row is cut), and the model's rows come out the same however its
+ * stream was chunked. A harness line that is too wide, or has a newline inside, continues on an
+ * indented row, so agent text it carries (a file name, a gate line) never takes column 0 either.
+ * Nothing reaches the terminal with an ESC sequence or a control character in it
  * (sanitize.ts): not the model's prose, a tool summary, a hook or gate line, the proposal box or a diff;
  * on a colour terminal only the colours the harness painted itself (Ui.paint) survive in a line.
  * A pipe has no rows: there, lines are not broken.
@@ -89,47 +91,106 @@ export function cells(text: string): number {
 }
 
 /**
- * A rendered line (only the harness's colour sequences, newlines and tabs left in it) broken into rows
- * of at most `cols` columns: every row after the first starts with `indent`, so nothing the line carries
- * lands at column 0 when a terminal would otherwise wrap it. On a terminal (finite `cols`) a tab becomes
- * spaces up to the next tab stop; a row always takes at least one character.
+ * Where a line being broken into rows stands (fitRows; the model's stream, across its chunks): the
+ * columns the current row takes (its gutter or indent included), the column its text starts at, and the
+ * word held back since the last space, written once it is known whether it fits on this row.
  */
-export function fitRows(text: string, cols: number, indent: string): string {
-  const start = cells(indent);
+interface RowState {
+  col: number;
+  start: number;
+  word: string;
+  wordCells: number;
+}
+
+/** The word `r` holds, written where it stands (the end of a line, or of the stream). */
+function takeWord(r: RowState): string {
+  const w = r.word;
+  r.col += r.wordCells;
+  r.word = '';
+  r.wordCells = 0;
+  return w;
+}
+
+/**
+ * `text` (part of one line: no newline; the harness's colour sequences may be in it) appended where `r`
+ * stands, broken into rows of at most `cols` columns the way a terminal app wraps prose: at the last
+ * space that fits, so a word is never cut; only a word longer than a whole row is cut, where the row
+ * ends. Every row this starts begins with `lead` (`leadCells` columns). Nothing is dropped or doubled: a
+ * word moves to the next row together with the space after it, and a space that cannot fit after a word
+ * filling a whole row starts the next one. A tab becomes spaces up to its stop (counted from column
+ * `tabFrom`). The last word stays held in `r` (takeWord writes it): until a space, the line's end or the
+ * stream's end, nobody knows whether it fits, so the rows are the same however the text was chunked.
+ */
+function breakRows(r: RowState, text: string, cols: number, lead: string, leadCells: number, tabFrom: number): string {
   let out = '';
-  let col = 0;
+  const nextRow = (): void => {
+    out += `\n${lead}`;
+    r.col = leadCells;
+    r.start = leadCells;
+  };
   let i = 0;
   while (i < text.length) {
     if (text.charCodeAt(i) === 0x1b) {
       const m = SGR_AT.exec(text.slice(i));
       if (m !== null) {
-        out += m[0];
+        // No width: a colour code goes where the word it touches goes.
+        r.word += m[0];
         i += m[0].length;
         continue;
       }
     }
     const ch = String.fromCodePoint(text.codePointAt(i) ?? 0x20);
     i += ch.length;
-    if (ch === '\n') {
-      out += `\n${indent}`;
-      col = start;
-      continue;
-    }
-    if (ch === '\t' && cols === Infinity) {
-      out += ch;
-      continue;
-    }
-    for (const c of ch === '\t' ? ' '.repeat(TAB - (col % TAB)) : ch) {
-      const w = cellWidth(c);
-      if (col + w > cols && col > start) {
-        out += `\n${indent}`;
-        col = start;
+    if (ch === ' ' || ch === '\t') {
+      // The word and the space after it stay on this row when both fit; else the word starts the next
+      // row (unless it is all this row holds: then it fills the row, and the space starts the next one).
+      if (r.col + r.wordCells + 1 > cols && r.col > r.start) nextRow();
+      out += takeWord(r);
+      const n = ch === '\t' ? TAB - ((r.col - tabFrom) % TAB) : 1;
+      for (let k = 0; k < n; k += 1) {
+        if (r.col + 1 > cols && r.col > r.start) nextRow();
+        out += ' ';
+        r.col += 1;
       }
-      out += c;
-      col += w;
+      continue;
     }
+    const w = cellWidth(ch);
+    if (r.col + r.wordCells + w > cols) {
+      // The word does not fit after what the row holds: it moves to the next row whole.
+      if (r.col > r.start) nextRow();
+      // A word longer than a whole row: cut where the row ends (a row always takes at least one character).
+      if (r.col + r.wordCells + w > cols && r.wordCells > 0) {
+        out += takeWord(r);
+        nextRow();
+      }
+    }
+    r.word += ch;
+    r.wordCells += w;
   }
   return out;
+}
+
+/**
+ * A rendered line (only the harness's colour sequences, newlines and tabs left in it) broken into rows
+ * of at most `cols` columns at word boundaries (breakRows): every row after the first starts with
+ * `indent`, so nothing the line carries lands at column 0 when a terminal would otherwise wrap it. On a
+ * terminal (finite `cols`) a tab becomes spaces up to the next tab stop; a pipe (Infinity) has no rows,
+ * and only a newline inside the line starts an indented row.
+ */
+export function fitRows(text: string, cols: number, indent: string): string {
+  if (cols === Infinity) return text.replace(/\n/g, `\n${indent}`);
+  const start = cells(indent);
+  const r: RowState = { col: 0, start: 0, word: '', wordCells: 0 };
+  let out = '';
+  for (const [k, piece] of text.split('\n').entries()) {
+    if (k > 0) {
+      out += `${takeWord(r)}\n${indent}`;
+      r.col = start;
+      r.start = start;
+    }
+    out += breakRows(r, piece, cols, indent, start, 0);
+  }
+  return out + takeWord(r);
 }
 
 /** One-line text: control characters removed, whitespace collapsed, cut to `max` characters with an ellipsis. */
@@ -147,10 +208,12 @@ export interface ShownScript {
 
 export class Ui {
   private atLineStart = true;
-  /** The columns the model's current row takes (its gutter included). */
-  private modelCol = 0;
+  /** Where the model's current row stands (its gutter included), and the word it holds back (breakRows). */
+  private model: RowState = { col: 0, start: 0, word: '', wordCells: 0 };
   /** The tail of the model's stream that may be an unfinished ESC sequence (held until the next chunk). */
   private streamCarry = '';
+  /** A chunk that ended inside a surrogate pair: its first half, held until the second arrives. */
+  private halfPair = '';
   private spinnerTimer: NodeJS.Timeout | null = null;
   private spinnerFrame = 0;
   private spinnerShown = false;
@@ -203,41 +266,50 @@ export class Ui {
     this.stopSpinner();
     const { show, carry } = splitStreamChunk(this.streamCarry, text);
     this.streamCarry = carry;
-    this.writeModel(show);
+    let s = this.halfPair + show;
+    this.halfPair = '';
+    // A chunk may end inside a surrogate pair: the character is counted (and placed) once, when it is whole.
+    if (/[\uD800-\uDBFF]$/.test(s)) {
+      this.halfPair = s.slice(-1);
+      s = s.slice(0, -1);
+    }
+    this.writeModel(s);
   }
 
-  /** `show` (already stripped) in the gutter: a row is broken, and the gutter written again, before the terminal would wrap it. */
+  /**
+   * `show` (already stripped) in the gutter, broken into rows at word boundaries (breakRows) before the
+   * terminal would wrap it, the gutter written again on each. The word after the last space is held
+   * until it is known whether it fits; endStream, a harness line or the spinner writes it.
+   */
   private writeModel(show: string): void {
     if (show.length === 0) return;
     const cols = this.wrapAt;
     const gutter = this.render(this.paint('dim', MODEL_GUTTER));
     let out = '';
-    for (const ch of show) {
-      if (ch === '\n') {
-        out += '\n';
+    for (const piece of show.split(/(\n)/)) {
+      if (piece === '\n') {
+        out += `${takeWord(this.model)}\n`;
         this.atLineStart = true;
         continue;
       }
+      if (piece.length === 0) continue;
       if (this.atLineStart) {
         out += gutter;
-        this.modelCol = GUTTER_CELLS;
+        this.model = { col: GUTTER_CELLS, start: GUTTER_CELLS, word: '', wordCells: 0 };
         this.atLineStart = false;
       }
-      if (ch === '\t' && cols === Infinity) {
-        out += ch;
-        continue;
-      }
-      for (const c of ch === '\t' ? ' '.repeat(TAB - ((this.modelCol - GUTTER_CELLS) % TAB)) : ch) {
-        const w = cellWidth(c);
-        if (this.modelCol + w > cols && this.modelCol > GUTTER_CELLS) {
-          out += `\n${gutter}`;
-          this.modelCol = GUTTER_CELLS;
-        }
-        out += c;
-        this.modelCol += w;
-      }
+      // A pipe has no rows: the prose is written as it came.
+      out += cols === Infinity ? takeWord(this.model) + piece : breakRows(this.model, piece, cols, gutter, GUTTER_CELLS, GUTTER_CELLS);
     }
-    this.out.write(out);
+    if (out.length > 0) this.out.write(out);
+  }
+
+  /** The model's current line ended: its held word written, then a newline (when the line has anything on it). */
+  private endModelLine(): void {
+    const word = takeWord(this.model);
+    if (this.atLineStart) return;
+    this.out.write(`${word}\n`);
+    this.atLineStart = true;
   }
 
   /**
@@ -247,32 +319,27 @@ export class Ui {
    */
   line(text = ''): void {
     this.stopSpinner();
-    if (!this.atLineStart) this.out.write('\n');
+    this.endModelLine();
     this.out.write(`${fitRows(this.render(text), this.wrapAt, CONTINUE)}\n`);
     this.atLineStart = true;
   }
 
   /** End a streamed reply with a newline (if it did not end with one). */
   endStream(): void {
-    if (this.streamCarry.length > 0) {
-      const rest = stripControls(this.streamCarry);
+    if (this.streamCarry.length > 0 || this.halfPair.length > 0) {
+      const rest = this.halfPair + stripControls(this.streamCarry);
       this.streamCarry = '';
+      this.halfPair = '';
       this.writeModel(rest);
     }
-    if (!this.atLineStart) {
-      this.out.write('\n');
-      this.atLineStart = true;
-    }
+    this.endModelLine();
   }
 
   // ── spinner (TTY only) ──
 
   startSpinner(label: string): void {
     if (!this.out.isTTY || this.spinnerTimer !== null) return;
-    if (!this.atLineStart) {
-      this.out.write('\n');
-      this.atLineStart = true;
-    }
+    this.endModelLine();
     // One row only: "\r" returns to the start of the row, so a label the terminal wrapped would leave rows behind.
     const shown = clipCells(label, this.wrapAt - 3);
     const draw = (): void => {

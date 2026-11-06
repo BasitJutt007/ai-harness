@@ -282,6 +282,160 @@ describe('the terminal\'s rows: column 0 is the harness\'s', () => {
   });
 });
 
+/** What `chunks`, streamed as the model's prose to a terminal of `cols` columns (null: a pipe), puts on the screen. */
+function streamed(chunks: string[], cols: number | null, color = false): string {
+  const p = capture(color, cols);
+  const ui = new Ui(p.out, color);
+  for (const c of chunks) ui.write(c);
+  ui.endStream();
+  return p.text();
+}
+
+/** `text` cut into pieces of `size` UTF-16 units (a surrogate pair can be cut in two, as a stream may). */
+function units(text: string, size: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
+  return out;
+}
+
+/** `text` cut at uneven, fixed points (a pseudo-random but repeatable chunking). */
+function uneven(text: string): string[] {
+  const out: string[] = [];
+  let i = 0;
+  let k = 7;
+  while (i < text.length) {
+    k = (k * 31 + 11) % 13;
+    out.push(text.slice(i, i + k + 1));
+    i += k + 1;
+  }
+  return out;
+}
+
+describe('rows break at word boundaries, as a terminal app wraps prose', () => {
+  const PROSE = 'This repository is a React + Vite TypeScript admin frontend for managing example-widget functionality. It includes pages for orders, customer activity and settings, and a small test suite.';
+  /** Each word of `text` (split at spaces and newlines). */
+  const words = (text: string): string[] => text.split(/[ \n]+/).filter((w) => w.length > 0);
+
+  it('the model\'s prose: no word is cut, every row fits and starts with the gutter, nothing is lost or doubled', () => {
+    for (const cols of [80, 40, 23]) {
+      const out = streamed([PROSE], cols);
+      const rows = out.replace(/\n$/, '').split('\n');
+      expect(rows.length, `${cols}`).toBeGreaterThan(1);
+      for (const r of rows) {
+        expect(r.startsWith(MODEL_GUTTER), r).toBe(true);
+        expect(cells(r), r).toBeLessThanOrEqual(cols);
+        // Each row holds whole words of the prose only: a word cut in two would be a piece that is no word of it.
+        for (const w of words(r.slice(MODEL_GUTTER.length))) expect(words(PROSE), `${cols}: ${r}`).toContain(w);
+      }
+      expect(out.split(MODEL_GUTTER).join('').split('\n').join('')).toBe(PROSE);
+    }
+    expect(streamed(['the quick brown fox jumps over the lazy dog'], 20)).toBe(`${MODEL_GUTTER}the quick brown \n${MODEL_GUTTER}fox jumps over \n${MODEL_GUTTER}the lazy dog\n`);
+  });
+
+  it('only a word longer than a whole row is cut, where the row ends; a word that fits a row moves down whole (the twin)', () => {
+    const long = 'x'.repeat(50);
+    expect(streamed([`see ${long} end`], 20)).toBe(`${MODEL_GUTTER}see \n${MODEL_GUTTER}${'x'.repeat(18)}\n${MODEL_GUTTER}${'x'.repeat(18)}\n${MODEL_GUTTER}${'x'.repeat(14)} end\n`);
+    const fits = 'y'.repeat(18);
+    expect(streamed([`see ${fits} end`], 20)).toBe(`${MODEL_GUTTER}see \n${MODEL_GUTTER}${fits}\n${MODEL_GUTTER} end\n`);
+    // A wide character counts two columns (cellWidth): 9 of them fill an 18-column row.
+    expect(streamed([`ab ${'中'.repeat(9)} cd`], 20)).toBe(`${MODEL_GUTTER}ab \n${MODEL_GUTTER}${'中'.repeat(9)}\n${MODEL_GUTTER} cd\n`);
+  });
+
+  it('the same rows however the stream is chunked: whole, a UTF-16 unit at a time, a character at a time, uneven pieces', () => {
+    const ESC = '\u001b';
+    // Wide characters, an emoji (a surrogate pair) placed where counting it as two halves would move the
+    // break, a word longer than a row, a word filling a row exactly, runs of spaces, a tab, CRLF, colour
+    // codes the model sent (stripped), and blank lines.
+    const text = [
+      PROSE,
+      `${'a'.repeat(16)}😀 next word`,
+      `${'z'.repeat(45)} after the long one`,
+      `${'q'.repeat(18)} tail`,
+      `indented   by\tspaces and a tab, ${ESC}[31mred${ESC}[0m text 中文字符 mixed in`,
+      '',
+      'last line after a blank one\r\nand a CRLF',
+    ].join('\n');
+    for (const cols of [80, 40, 20]) {
+      const whole = streamed([text], cols);
+      const chunkings: Array<[string, string[]]> = [
+        ['one UTF-16 unit at a time', units(text, 1)],
+        ['one character at a time', [...text]],
+        ['three units', units(text, 3)],
+        ['seven units', units(text, 7)],
+        ['uneven', uneven(text)],
+        ['word by word', text.split(/(?<= )/)],
+      ];
+      for (const [how, chunks] of chunkings) expect(streamed(chunks, cols), `${cols} columns, ${how}`).toBe(whole);
+      expect(whole).not.toContain(ESC);
+      expect(screenRows(whole, cols).wrappedByTerminal).toBe(false);
+    }
+    // The emoji is one character of two columns: at 20 columns "a"x16 and it fill the row exactly.
+    expect(streamed(units(`${'a'.repeat(16)}😀 next`, 1), 20)).toBe(`${MODEL_GUTTER}${'a'.repeat(16)}😀\n${MODEL_GUTTER} next\n`);
+  });
+
+  it('a word the stream holds back is written before a harness line or the spinner, never lost or moved after it', () => {
+    const p = capture(false, 80);
+    const ui = new Ui(p.out, false);
+    ui.write('Let me run the te');
+    ui.write('sts');
+    ui.line('● run_tests tests: 1 passed');
+    ui.write('All gr');
+    ui.endStream();
+    expect(p.text()).toBe(`${MODEL_GUTTER}Let me run the tests\n● run_tests tests: 1 passed\n${MODEL_GUTTER}All gr\n`);
+    const t = capture(true, 80);
+    const tty = new Ui(t.out, false);
+    tty.write('Checking the fi');
+    tty.write('les');
+    tty.startSpinner('working');
+    tty.stopSpinner();
+    expect(t.text()).toMatch(new RegExp(`^${MODEL_GUTTER}Checking the files\\n\\r. working`));
+  });
+
+  it('a harness line breaks at a space too; its continuation rows are indented, and nothing is lost', () => {
+    const p = capture(false, 80);
+    const msg = "harness: typed at a terminal inside an AI agent's shell (AI_AGENT, CLAUDECODE, CLAUDE_CODE_ENTRYPOINT): approvals are refused here";
+    new Ui(p.out, false).line(msg);
+    expect(p.text()).toBe("harness: typed at a terminal inside an AI agent's shell (AI_AGENT, CLAUDECODE, \n  CLAUDE_CODE_ENTRYPOINT): approvals are refused here\n");
+    // A word longer than a row is cut where the row ends; rows after the first are indented.
+    const q = capture(false, 30);
+    new Ui(q.out, false).line(`path ${'d/'.repeat(30)}file.ts done`);
+    const rows = q.text().replace(/\n$/, '').split('\n');
+    expect(rows.every((r) => cells(r) <= 30)).toBe(true);
+    expect(rows.slice(1).every((r) => r.startsWith('  '))).toBe(true);
+    expect(rows.map((r, i) => (i === 0 ? r : r.slice(2))).join('')).toBe(`path ${'d/'.repeat(30)}file.ts done`);
+  });
+
+  it('on a colour terminal the harness\'s colours are kept and the rows are where they are in plain text', () => {
+    const msg = (ui: Ui): string => `${ui.paint('dim', 'gates')}  ${['scope', 'tests-green', 'observed-red', 'standards', 'secrets', 'orphans'].map((g) => `${g} ${ui.paint('green', 'pass')}`).join(ui.paint('dim', ' · '))}`;
+    const plain = capture(false, 40);
+    const p = new Ui(plain.out, false);
+    p.line(msg(p));
+    const colour = capture(true, 40);
+    const c = new Ui(colour.out, true);
+    c.line(msg(c));
+    expect(colour.text()).toContain('\u001b[32mpass\u001b[39m');
+    expect(colour.text().replace(/\u001b\[[0-9;]*m/g, '')).toBe(plain.text());
+    // "·" is outside printable ASCII: counted as two columns (cellWidth), it moves down with its space.
+    expect(plain.text()).toBe('gates  scope pass · tests-green pass \n  · observed-red pass · standards \n  pass · secrets pass · orphans pass\n');
+    // The model's prose too: the gutter's colour kept, the rows as in plain text.
+    expect(streamed([PROSE], 40, true).replace(/\u001b\[[0-9;]*m/g, '')).toBe(streamed([PROSE], 40));
+  });
+
+  it('twin: a pipe (no columns) breaks nothing: the prose and a harness line are written as they came', () => {
+    expect(streamed([PROSE], null)).toBe(`${MODEL_GUTTER}${PROSE}\n`);
+    const p = capture(false, null);
+    new Ui(p.out, false).line(PROSE);
+    expect(p.text()).toBe(`${PROSE}\n`);
+  });
+
+  it('the width rows break at: the terminal\'s columns; 80 on a terminal that reports none (a pty without a size reports 0); none on a pipe', () => {
+    expect(new Ui({ write: () => undefined, isTTY: true, columns: 120 }, false).wrapAt).toBe(120);
+    expect(new Ui({ write: () => undefined, isTTY: true, columns: 0 }, false).wrapAt).toBe(80);
+    expect(new Ui({ write: () => undefined, isTTY: true, columns: undefined }, false).wrapAt).toBe(80);
+    expect(new Ui({ write: () => undefined, isTTY: false, columns: undefined }, false).wrapAt).toBe(Infinity);
+  });
+});
+
 describe('on a colour terminal, colour is the harness\'s only', () => {
   const ESC = '\u001b';
 
