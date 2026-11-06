@@ -63,6 +63,16 @@ describe('projectsOf through a config host (the gate keeps ts.sys)', () => {
     expect(projectsOf(root, fenced(root)).problem).toMatch(/^referenced \.\.\/elsewhere\/tsconfig\.app\.json cannot be read$/);
   });
 
+  it('a referenced DIRECTORY outside the checkout does not exist through the fence (never looked into); the gate looks for its tsconfig.json', () => {
+    const { base, root } = repo({ 'tsconfig.json': JSON.stringify({ files: [], references: [{ path: '../elsewhere' }] }) });
+    mkdirSync(path.join(base, 'elsewhere', 'src'), { recursive: true });
+    writeFileSync(path.join(base, 'elsewhere', 'tsconfig.json'), APP);
+    writeFileSync(path.join(base, 'elsewhere', 'src', 'x.ts'), 'export const x = 1;\n');
+    expect(projectsOf(root).projects.map((p) => path.relative(base, p.config))).toEqual([path.join('elsewhere', 'tsconfig.json')]);
+    // Existence goes through the host too: the fenced host reports the directory absent, so its tsconfig.json is never probed.
+    expect(projectsOf(root, fenced(root)).problem).toBe('referenced ../elsewhere cannot be read');
+  });
+
   it('no tsconfig.json is the same problem through either host', () => {
     const { root } = repo({ 'src/a.ts': 'export const a = 1;\n' });
     expect(projectsOf(root).problem).toBe('no tsconfig.json at the repository root');
