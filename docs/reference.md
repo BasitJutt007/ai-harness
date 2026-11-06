@@ -26,7 +26,9 @@ content; content hooks judge that post-image and refuse a write tool without one
   `branch-guard` (in-place session runs only: before every write, HEAD must still be on the working
   branch the session started on, not protected, with no merge/rebase/cherry-pick/bisect in progress;
   it passes in a worktree run, where it has nothing to check). *Post-tool:*
-  `typecheck-feedback` records up to 3 type errors of the written files and never blocks.
+  `typecheck-feedback` records up to 3 type errors of the written files and never blocks (in place:
+  in the tsconfig projects that compile each file, with their own options, as the repository's type
+  check would; nothing for a file no project includes).
 - *Gates* (fresh at finish and at ship; finish needs no `fail`/`unproven` and one `pass`):
   `tests-green`, `observed-red` (red → green on the same case, plus a **revert check** per changed
   file: with that file alone put back at its run-start content the case fails again), `standards`, `scope`, `orphans` (every created
@@ -70,9 +72,10 @@ chain, the node install and four harness files (`package.json`, `probe-runtime.t
 credential stores refused; an env allow-list (`LANG`, `LC_*`, `TZ`, `CI` inherited; `PATH`, `HOME`,
 `XDG_*`, `TMPDIR` set by the harness; provider keys and everything else dropped); loopback-only
 network (none for contract extraction). In-process TypeScript programs over the agent's tsconfig
-and imports (the strict type check behind `tsc-strict`, Contract Lock's program) read through a
-fenced compiler host with the same allow-list (`src/core/ts-fence.ts`); `typecheck-feedback` does not
-(§5). The runner's JSON report travels over a pipe on its fd 3 that test workers do not inherit; the
+and imports (the strict type check behind `tsc-strict`, Contract Lock's program, `typecheck-feedback`'s
+language services and the tsconfig parses around them) read through a fenced compiler host with the
+same allow-list (`src/core/ts-fence.ts`). The runner's JSON report travels over a pipe on its fd 3
+that test workers do not inherit; the
 probe child only serves the app while the harness sends and judges every request. Without a working
 sandbox a run refuses to start; `HARNESS_SANDBOX=off` runs unconfined and records `isolation` as
 UNPROVEN. `harness doctor` self-tests the write, read, network and env boundaries.
