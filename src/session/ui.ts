@@ -27,7 +27,7 @@
 import { styleText } from 'node:util';
 import type { NamedGateResult } from '../core/gates.ts';
 import type { RunEvent, ToolEffect } from '../core/types.ts';
-import { brandSgr, cellWidth, keepBranded, SCRIPT_LINE_BREAK, splitStreamChunk, stripControls } from './sanitize.ts';
+import { brandSgr, cellWidth, keepBranded, SCRIPT_LINE_BREAK, StreamStripper, stripControls } from './sanitize.ts';
 
 export interface Output {
   write(text: string): void;
@@ -242,8 +242,8 @@ export class Ui {
   private atLineStart = true;
   /** Where the model's current row stands (its gutter included), and the word it holds back (breakRows). */
   private model: RowState = { col: 0, start: 0, word: '', wordCells: 0 };
-  /** The tail of the model's stream that may be an unfinished ESC sequence (held until the next chunk). */
-  private streamCarry = '';
+  /** Strips the model's stream as it arrives, an ESC sequence cut across chunks (of any length) included. */
+  private strip = new StreamStripper();
   /** A chunk that ended inside a surrogate pair: its first half, held until the second arrives. */
   private halfPair = '';
   private spinnerTimer: NodeJS.Timeout | null = null;
@@ -294,15 +294,14 @@ export class Ui {
   }
 
   /**
-   * The model's streamed prose: control characters and ESC sequences removed (one cut across two chunks
-   * included), and every row it starts gets MODEL_GUTTER in front, so it never begins at column 0.
+   * The model's streamed prose: control characters and ESC sequences removed (StreamStripper: what the
+   * whole text's strip removes, however it is chunked), and every row it starts gets MODEL_GUTTER in
+   * front, so it never begins at column 0.
    */
   write(text: string): void {
     if (text.length === 0) return;
     this.stopSpinner();
-    const { show, carry } = splitStreamChunk(this.streamCarry, text);
-    this.streamCarry = carry;
-    let s = this.halfPair + show;
+    let s = this.halfPair + this.strip.push(text);
     this.halfPair = '';
     // A chunk may end inside a surrogate pair: the character is counted (and placed) once, when it is whole.
     if (/[\uD800-\uDBFF]$/.test(s)) {
@@ -374,12 +373,10 @@ export class Ui {
 
   /** End a streamed reply with a newline (if it did not end with one). */
   endStream(): void {
-    if (this.streamCarry.length > 0 || this.halfPair.length > 0) {
-      const rest = this.halfPair + stripControls(this.streamCarry);
-      this.streamCarry = '';
-      this.halfPair = '';
-      this.writeModel(rest);
-    }
+    // Half a pair the stream ended on, then what a sequence it left open shows (a CSI's parameters).
+    const rest = this.halfPair + this.strip.end();
+    this.halfPair = '';
+    this.writeModel(rest);
     this.endModelLine();
   }
 

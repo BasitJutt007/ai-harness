@@ -86,16 +86,126 @@ export const SCRIPT_LINE_BREAK = /\r\n|\r|\n|\u2028|\u2029/;
 /** The control characters a text holds (items.ts: what parseContract and propose_contract refuse). */
 export { controlChars } from '../core/items.ts';
 
-/** The tail of a streamed chunk that may be the start of an ESC sequence the next chunk completes. */
-const OPEN_ESC = /\u001b(?:\[[0-?]*[ -/]*|\][^\u0007\u001b]*|[PX^_][^\u001b]*|[ -/]*)?$/;
+/**
+ * Where a stream stands inside ESC_SEQ's grammar: in text; after ESC; in a CSI's parameters or its
+ * intermediates (ESC [ or the single-byte CSI); in an nF escape's intermediates; inside an OSC string
+ * (ends at BEL or ST), a DCS/SOS/PM/APC string (ends at ST) or a single-byte OSC (ends at BEL or the
+ * single-byte ST); or just after an ESC inside an OSC or DCS-like string (ST if a backslash follows).
+ */
+type StreamState = 'text' | 'esc' | 'csi' | 'csi-inter' | 'c1csi' | 'c1csi-inter' | 'nf' | 'osc' | 'str' | 'str-esc' | 'c1osc';
+
+const isParam = (c: number): boolean => c >= 0x30 && c <= 0x3f; // [0-?]
+const isInter = (c: number): boolean => c >= 0x20 && c <= 0x2f; // [ -/]
+const isCsiFinal = (c: number): boolean => c >= 0x40 && c <= 0x7e; // [@-~]
+const isEscFinal = (c: number): boolean => c >= 0x30 && c <= 0x7e; // [0-~]
+const ONE_CONTROL = new RegExp(`^${CONTROL.source}$`);
 
 /**
- * Splits a streamed chunk into what can be shown now (stripped) and a held-back tail that may be an
- * unfinished ESC sequence (at most 256 characters; a longer one is shown, stripped, as it is).
+ * The model's stream stripped as it arrives: push each chunk, end() when the stream ends, and the
+ * pieces joined are exactly what stripControls gives the whole text, however it was chunked (a
+ * sequence cut anywhere across chunks, of any length). It reads ESC_SEQ's grammar one UTF-16 unit at a
+ * time: an OSC or DCS-like string is dropped as it arrives (whether it ends or not, all of it is
+ * removed), so nothing of it is held however long it runs; only a CSI's or nF escape's parameters are
+ * held (printable ASCII, shown if the sequence turns out not to complete). The harness's brand, which
+ * the model never sees, is removed from each chunk.
  */
-export function splitStreamChunk(carry: string, chunk: string): { show: string; carry: string } {
-  const text = carry + chunk;
-  const m = OPEN_ESC.exec(text);
-  if (m !== null && text.length - m.index <= 256) return { show: stripControls(text.slice(0, m.index)), carry: text.slice(m.index) };
-  return { show: stripControls(text), carry: '' };
+export class StreamStripper {
+  private state: StreamState = 'text';
+  /** The parameters and intermediates of a CSI or nF escape not yet known to complete. */
+  private held = '';
+
+  /** How many units are held back (tests: a string sequence holds none). */
+  get heldLength(): number {
+    return this.held.length;
+  }
+
+  /** What of `chunk` can be shown now, stripped. */
+  push(chunk: string): string {
+    let out = '';
+    for (let i = 0; i < chunk.length; i += 1) out += this.step(chunk[i] ?? '');
+    return out.replace(BRAND_RE, '');
+  }
+
+  /** The stream ended: what a sequence left open shows (the parameters of a CSI or nF escape that never completed). */
+  end(): string {
+    const out = this.state === 'csi' || this.state === 'csi-inter' || this.state === 'c1csi' || this.state === 'c1csi-inter' || this.state === 'nf' ? this.held : '';
+    this.state = 'text';
+    this.held = '';
+    return out;
+  }
+
+  /** One UTF-16 unit: what it shows (with whatever a sequence it ends turned out to hold). */
+  private step(ch: string): string {
+    const c = ch.charCodeAt(0);
+    switch (this.state) {
+      case 'esc':
+        if (ch === '[') return this.enter('csi');
+        if (ch === ']') return this.enter('osc');
+        if (ch === 'P' || ch === 'X' || ch === '^' || ch === '_') return this.enter('str');
+        if (isInter(c)) {
+          this.state = 'nf';
+          this.held = ch;
+          return '';
+        }
+        // A two-character escape is removed; any other character after ESC: the ESC alone is removed.
+        this.state = 'text';
+        return isEscFinal(c) ? '' : this.step(ch);
+      case 'csi':
+      case 'c1csi':
+        if (isParam(c)) return this.hold(ch);
+        if (isInter(c)) {
+          this.state = this.state === 'csi' ? 'csi-inter' : 'c1csi-inter';
+          return this.hold(ch);
+        }
+        return isCsiFinal(c) ? this.enter('text') : this.broken(ch);
+      case 'csi-inter':
+      case 'c1csi-inter':
+        if (isInter(c)) return this.hold(ch);
+        return isCsiFinal(c) ? this.enter('text') : this.broken(ch);
+      case 'nf':
+        if (isInter(c)) return this.hold(ch);
+        return isEscFinal(c) ? this.enter('text') : this.broken(ch);
+      case 'osc':
+        if (ch === '\u0007') return this.enter('text');
+        if (ch === '\u001b') return this.enter('str-esc');
+        return '';
+      case 'str':
+        return ch === '\u001b' ? this.enter('str-esc') : '';
+      case 'str-esc':
+        // ST ends the string; any other character: the string ended before this ESC, which starts anew.
+        if (ch === '\\') return this.enter('text');
+        this.state = 'esc';
+        return this.step(ch);
+      case 'c1osc':
+        return ch === '\u0007' || ch === '\u009c' ? this.enter('text') : '';
+      case 'text':
+        if (ch === '\u001b') return this.enter('esc');
+        if (ch === '\u009b') return this.enter('c1csi');
+        if (ch === '\u009d') return this.enter('c1osc');
+        return ONE_CONTROL.test(ch) ? '' : ch;
+    }
+  }
+
+  private enter(state: StreamState): string {
+    this.state = state;
+    this.held = '';
+    return '';
+  }
+
+  private hold(ch: string): string {
+    this.held += ch;
+    return '';
+  }
+
+  /**
+   * The sequence did not complete at `ch`: what it held is shown as text (its introducer is removed:
+   * "ESC [" as a two-character escape, a lone ESC or single-byte CSI as a control), and `ch` is read
+   * as text again.
+   */
+  private broken(ch: string): string {
+    const shown = this.held;
+    this.state = 'text';
+    this.held = '';
+    return shown + this.step(ch);
+  }
 }
