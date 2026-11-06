@@ -26,7 +26,9 @@
  * refusal the model cannot fix (the checkout, the branch, the sandbox, a missing tool) ends its turn.
  * A turn that ends without finish, changed the tree and got a NOT DONE the agent can act on (the
  * standards findings it introduced, its tests, its observed red) continues by itself with the verdict's
- * reasons, at most AUTO_CONTINUE_LIMIT times per owner message (autoContinue says when never).
+ * reasons, at most AUTO_CONTINUE_LIMIT times per owner message (autoContinue says when never). The same
+ * pre-tool refusal (hook, path, reason) STUCK_REFUSALS times within one owner message ends the model's
+ * turn too: the owner is told it is stuck and says what to do differently.
  * The session never commits or pushes; /ship does, when typed.
  */
 import { createHash, randomBytes } from 'node:crypto';
@@ -334,6 +336,50 @@ export function continueMessage(v: Pick<SessionVerdict, 'reasons' | 'gates'>, n:
   return lines.join('\n');
 }
 
+/** The same pre-tool refusal this many times within one owner message: the agent is stuck, and its turn ends. */
+export const STUCK_REFUSALS = 4;
+
+/** A hook's refusal of a tool call before it ran: which hook, the call's paths, and its reason as the hook gave it. */
+export interface Refusal {
+  hook: string;
+  /** The call's paths, joined ("(no path)" when it had none). */
+  path: string;
+  reason: string;
+}
+
+/** The pre-tool refusal a recorded event is (a hook's block of a call, before it ran), else null. */
+export function preToolRefusal(e: RunEvent): Refusal | null {
+  if (e.kind !== 'hook' || e.decision !== 'block') return null;
+  const data = e.data as { event?: unknown; paths?: unknown } | undefined;
+  if (data?.event !== 'pre_tool') return null;
+  const paths = Array.isArray(data.paths) ? data.paths.filter((p): p is string => typeof p === 'string') : [];
+  return { hook: e.source, path: paths.length > 0 ? paths.join(', ') : '(no path)', reason: e.message.replace(new RegExp(`^${e.source}: `), '') };
+}
+
+/**
+ * Counts refusals per key: the same hook, the same path, the same reason text. A refusal for another
+ * path or with another reason counts for its own key only, and resets nothing.
+ */
+export class RefusalCounter {
+  private readonly counts = new Map<string, number>();
+
+  /** Counts `r`; how many times this very refusal has happened now. */
+  add(r: Refusal): number {
+    const key = JSON.stringify([r.hook, r.path, r.reason]);
+    const n = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, n);
+    return n;
+  }
+
+  clear(): void {
+    this.counts.clear();
+  }
+}
+
+function firstLineOf(text: string): string {
+  return text.split('\n')[0] ?? '';
+}
+
 /** Remove the run-start copies (initial/) of every session but the newest `keep` (and `current`). */
 export function pruneSessionCopies(sessionsDir: string, current: string, keep: number = KEEP_SESSION_COPIES): string[] {
   let names: string[];
@@ -381,6 +427,10 @@ class Session {
   private interrupts = 0;
   /** A refusal the model cannot fix: its turn ends after the current tool turn. */
   private stop: string | null = null;
+  /** Pre-tool refusals of the current owner message, per hook, path and reason (the stuck detector). */
+  private readonly refusals = new RefusalCounter();
+  /** The same refusal STUCK_REFUSALS times: the agent is stuck, and its turn ends after the current tool turn. */
+  private stuck: (Refusal & { count: number }) | null = null;
   /** Files no gate judged when the session ended. */
   private unjudgedAtExit: string[] = [];
   /** Notes for the model, sent with the owner's next message. */
@@ -525,8 +575,13 @@ class Session {
   onEvent(e: RunEvent): void {
     if (e.kind === 'tool' && e.decision === 'pass' && this.effectOf(e.source) === 'write') this.lastVerdict = null;
     if (e.kind === 'hook' && e.decision === 'block' && ENVIRONMENT_HOOKS.has(e.source)) this.stop ??= e.message.replace(new RegExp(`^${e.source}: `), '');
+    const refused = preToolRefusal(e);
+    if (refused !== null && this.turnRunning) {
+      const count = this.refusals.add(refused);
+      if (count >= STUCK_REFUSALS) this.stuck ??= { ...refused, count };
+    }
     // Recorded for the evidence; the session prints these itself.
-    if (e.kind === 'note' && (e.source === 'propose_contract' || e.source === 'takeover' || e.source === 'auto-continue')) return;
+    if (e.kind === 'note' && (e.source === 'propose_contract' || e.source === 'takeover' || e.source === 'auto-continue' || e.source === 'stuck')) return;
     this.ui.event(e);
     if (this.turnRunning && (e.kind === 'tool' || e.kind === 'hook')) this.ui.startSpinner('working');
   }
@@ -594,6 +649,8 @@ class Session {
     let continues = 0;
     let previous: string | null = null;
     let next = message;
+    // The stuck detector counts within one owner message (its continues included).
+    this.refusals.clear();
     for (;;) {
       const { result, stopped } = await this.agentTurn(next, controller, s.maxTurns - used);
       used += result.turns;
@@ -638,6 +695,13 @@ class Session {
     this.writeRunJson('running');
   }
 
+  /** The stuck refusal of the turn that just ended (null: none), cleared. */
+  private takeStuck(): (Refusal & { count: number }) | null {
+    const k = this.stuck;
+    this.stuck = null;
+    return k;
+  }
+
   /** The input tokens of the last request sent (what the next one will be at least). */
   private lastInputTokens(): number {
     return this.ledger.report().turns.at(-1)?.actual_input_tokens ?? 0;
@@ -653,6 +717,7 @@ class Session {
     const off = this.input.onInterrupt(() => controller.abort());
     this.turnRunning = true;
     this.stop = null;
+    this.stuck = null;
     this.ui.startSpinner('thinking');
     let attempt = 1;
     let result: AgentResult;
@@ -675,7 +740,7 @@ class Session {
         yieldOnText: true,
         keepChat: true,
         skipShadowBaseline: true,
-        yieldAfterTurn: () => this.pending !== null || this.stop !== null,
+        yieldAfterTurn: () => this.pending !== null || this.stop !== null || this.stuck !== null,
         onText: (delta, info) => {
           if (info.attempt !== attempt) {
             attempt = info.attempt;
@@ -692,12 +757,20 @@ class Session {
     }
     this.turns += result.turns;
     s.store.writeJson('state.json', serializeState(s.ctx.state));
-    const stopped = this.stop !== null;
+    const k = this.takeStuck();
+    const stopped = this.stop !== null || k !== null;
     if (this.stop !== null) {
       // The model was told in the tool result; the harness ends its turn and says it to the owner itself.
       this.ui.warn(`⏹ the agent stopped: ${clip(this.stop, 400)} (it cannot fix this; you can)`);
       this.harnessNotes.push(`[harness] Your last turn was ended by the harness: ${this.stop}. Nothing you can do with tools fixes this; do not retry it. Tell the owner what is wrong and what they can do.`);
       this.stop = null;
+    }
+    if (k !== null) {
+      // The same refusal again and again: the owner decides what changes, not another retry.
+      const why = clip(firstLineOf(k.reason), 300).replace(/[.\s]+$/, '');
+      this.ui.warn(`⚠ the agent is stuck: ${k.hook} refused ${k.path} ${k.count} times: ${why}. Tell it what to do differently, or /exit.`);
+      this.harnessNotes.push(`[harness] Your last turn was ended by the harness: ${k.hook} refused ${k.path} ${k.count} times with the same reason (${why}). Repeating that call cannot succeed: do not retry it. Read what the owner says next and do something different.`);
+      s.ctx.emit({ kind: 'note', source: 'stuck', decision: 'block', message: `the agent is stuck: ${k.hook} refused ${k.path} ${k.count} times with the same reason; its turn was ended`, data: { hook: k.hook, path: k.path, reason: k.reason, count: k.count } });
     }
     switch (result.status) {
       case 'yielded':
