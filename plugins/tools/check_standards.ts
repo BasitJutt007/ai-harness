@@ -12,9 +12,14 @@
  * not block on, without listing them. With nothing introduced it says so plainly. Without a base report to
  * compare with, the compact report follows a line saying the comparison was unavailable. `all: true`
  * appends every failing line of the report. The full report stays the raw return (logged, never shorter).
+ *
+ * With `rules` (a subset) the same classification covers only those rules. The gate checks every rule, so
+ * such a call never states the gate's verdict: it says what blocks among the rules it checked and that the
+ * gate was not judged; `ok` is those rules' own result (as a subset's verdict is in strict mode), never the
+ * gate's. Only a call over every rule says "standards gate now", and its `ok` is the gate's own status.
  */
 import { z } from 'zod';
-import { defineTool, type CheckReport, type ToolResult } from '../../src/core/plugin-api.ts';
+import { defineTool, type CheckReport, type GateResult, type ToolResult } from '../../src/core/plugin-api.ts';
 import { baselineAssessment, preExistingByRule, preExistingCountText, type BaselineFindings } from '../gates/standards.ts';
 
 const Input = z.object({
@@ -33,20 +38,31 @@ function line(text: string): string {
   return t.length <= MAX_LINE ? t : `${t.slice(0, MAX_LINE - 1)}…`;
 }
 
-/** The baseline-mode lead: what blocks, the rules still UNPROVEN, and the pre-existing findings counted per rule. */
-function baselineLines(f: BaselineFindings, percent: number): string[] {
+/** A result's status as a line ends with it: FAIL, UNPROVEN with why, or pass. */
+function statusText(r: GateResult): string {
+  return r.status === 'fail' ? 'FAIL' : r.status === 'unproven' ? `UNPROVEN: ${line(r.summary)}` : r.status;
+}
+
+/**
+ * The baseline-mode lead: what blocks, the rules still UNPROVEN, and the pre-existing findings counted per
+ * rule. `subset`: the rules a call checked (null: every rule), named wherever a line would otherwise speak
+ * for the whole API.
+ */
+function baselineLines(f: BaselineFindings, percent: number, subset: string[] | null): string[] {
   const out: string[] = [];
   const pre = f.preExisting.length;
+  const within = subset !== null ? ' in the rules this call checked' : '';
   if (f.blocking.length > 0) {
-    out.push(`BLOCKING: ${f.blocking.length} introduced by this run (the standards gate fails until each is fixed):`);
+    out.push(`BLOCKING: ${f.blocking.length} introduced by this run${within} (the standards gate fails until each is fixed):`);
     for (const b of f.blocking.slice(0, MAX_BLOCKING)) out.push(`  ${line(b.detail)}`);
     if (f.blocking.length > MAX_BLOCKING) out.push(`  … ${f.blocking.length - MAX_BLOCKING} more (check_standards { "all": true } lists every failing line)`);
   } else {
-    out.push(`nothing this run introduced blocks; ${pre} pre-existing finding${pre === 1 ? ' is' : 's are'} not blocking`);
+    out.push(`nothing this run introduced${within} blocks; ${pre} pre-existing finding${pre === 1 ? ' is' : 's are'} not blocking`);
   }
   for (const u of f.unproven) out.push(`UNPROVEN (never green): ${line(u)}`);
   for (const c of preExistingByRule(f.preExisting)) out.push(`pre-existing, not blocking: ${preExistingCountText(c)}`);
-  out.push(`verdict ${percent}% over the whole API (base commit ${f.basePercent ?? '?'}%); only what this run introduced blocks (baseline mode)${pre > 0 ? '; { "all": true } lists every finding' : ''}`);
+  const over = subset === null ? `over the whole API (base commit ${f.basePercent ?? '?'}%)` : `over the rules this call checked (${subset.join(', ')})`;
+  out.push(`verdict ${percent}% ${over}; only what this run introduced blocks (baseline mode)${pre > 0 ? '; { "all": true } lists every finding' : ''}`);
   return out;
 }
 
@@ -56,25 +72,30 @@ export default defineTool({
   input: Input,
   effect: 'exec',
   async run(input, ctx): Promise<ToolResult> {
+    // An empty list selects every rule (selectChecks): only a non-empty one is a subset.
+    const subset = input.rules !== undefined && input.rules.length > 0 ? input.rules : null;
     const report: CheckReport = await ctx.services.runChecks(input.rules ? { rules: input.rules } : {});
     const full = report.text.length >= report.compact.length ? report.text : report.compact;
     const data = { verdict: report.verdict, rules: report.rules };
-    const assessed = await baselineAssessment(ctx, report);
+    const assessed = await baselineAssessment(ctx, report, { subset: subset !== null });
     // Greenfield and brownfield strict: the compact report, as always.
     if (assessed === null) return { ok: report.verdict.status === 'pass', summary: report.compact, raw: full, data };
 
     const { result, findings } = assessed;
-    // The gate's own status, never a green the gate would not give.
-    const gate = `standards gate now: ${result.status === 'fail' ? 'FAIL' : result.status === 'unproven' ? `UNPROVEN: ${line(result.summary)}` : result.status}`;
+    // Every rule: the gate's own status, never a green the gate would not give. A subset: what the gate's
+    // classification says of those rules, and plainly that the gate (every rule) was not judged.
+    const verdict = subset === null
+      ? `standards gate now: ${statusText(result)}`
+      : `the rules this call checked (${subset.join(', ')}): ${statusText(result)}. The standards gate checks every rule and was not judged by this call: check_standards without "rules" says what it blocks on`;
     const ok = result.status === 'pass';
     let summary: string;
     if (findings === null) {
-      // Decided before any comparison (every rule green, all n/a, or contradicted): the gate's verdict, then the report.
-      summary = `${gate}${result.status === 'unproven' ? '' : ` (${line(result.summary)})`}\n${report.compact}`;
+      // Decided before any comparison (every rule green, all n/a, or contradicted): the verdict, then the report.
+      summary = `${verdict}${result.status === 'unproven' ? '' : ` (${line(result.summary)})`}\n${report.compact}`;
     } else if (findings.unavailable !== null) {
-      summary = `the comparison with the base commit is unavailable (${line(findings.unavailable)}): violations in files this run changed block, and the others cannot be proven pre-existing. ${gate}\n${report.compact}`;
+      summary = `the comparison with the base commit is unavailable (${line(findings.unavailable)}): violations in files this run changed block, and the others cannot be proven pre-existing. ${verdict}\n${report.compact}`;
     } else {
-      const lead = [...baselineLines(findings, report.verdict.percent), gate].join('\n');
+      const lead = [...baselineLines(findings, report.verdict.percent, subset), verdict].join('\n');
       summary = input.all === true ? `${lead}\nevery failing line of the report (pre-existing included):\n${report.compact}` : lead;
     }
     return {
@@ -84,7 +105,8 @@ export default defineTool({
       raw: `${summary}\n\n${full}`,
       data: {
         ...data,
-        gate: { status: result.status, summary: result.summary },
+        // The gate's status only from a call over every rule; a subset records its own result instead.
+        ...(subset === null ? { gate: { status: result.status, summary: result.summary } } : { subset: { rules: subset, status: result.status, summary: result.summary } }),
         ...(findings !== null ? { blocking: findings.blocking.length, preExisting: findings.preExisting.length } : {}),
       },
     };

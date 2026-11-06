@@ -407,6 +407,53 @@ describe('check_standards says what the standards gate blocks on (baseline mode)
     expect((await run(standardsGate, h.ctx)).status).toBe('pass');
   });
 
+  it('a subset of the rules never states the gate\'s verdict: { rules: [no-console] } while the gate fails on zod-boundary', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: bad });
+    const r = await callTool(checkStandards, { rules: ['no-console'] }, h.ctx);
+    const lines = r.summary.split('\n');
+    expect(lines[0]).toBe('nothing this run introduced in the rules this call checked blocks; 2 pre-existing findings are not blocking');
+    expect(lines).toContain('pre-existing, not blocking: no-console 2 in 2 files');
+    expect(r.summary).not.toContain('standards gate now');
+    expect(r.summary).not.toContain('over the whole API');
+    expect(lines.at(-2)).toMatch(/^verdict \d+% over the rules this call checked \(no-console\); only what this run introduced blocks/);
+    expect(lines.at(-1)).toBe('the rules this call checked (no-console): pass. The standards gate checks every rule and was not judged by this call: check_standards without "rules" says what it blocks on');
+    // ok is those rules' own result (as a subset's verdict is in strict mode), never the gate's; the records say so too.
+    expect(r.ok).toBe(true);
+    expect(r.data).toMatchObject({ subset: { rules: ['no-console'], status: 'pass' } });
+    expect(r.data).not.toHaveProperty('gate');
+    expect((await run(standardsGate, h.ctx)).status).toBe('fail');
+    // The same tree over every rule: the gate's own verdict.
+    const every = await callTool(checkStandards, {}, h.ctx);
+    expect(every.ok).toBe(false);
+    expect(every.summary.split('\n').at(-1)).toBe('standards gate now: FAIL');
+  });
+
+  it('twin: a subset that holds the introduced finding lists it as blocking, ok false, and still does not speak for the gate', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: bad });
+    const r = await callTool(checkStandards, { rules: ['zod-boundary'] }, h.ctx);
+    const lines = r.summary.split('\n');
+    expect(lines.slice(0, 2)).toEqual([
+      'BLOCKING: 2 introduced by this run in the rules this call checked (the standards gate fails until each is fixed):',
+      `  introduced (in a file this run changed): zod-boundary ${layout.routes}:4:1  PATCH /v1/items/:id: request body is not parsed`,
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.summary).not.toContain('standards gate now');
+    expect(lines.at(-1)).toMatch(/^the rules this call checked \(zod-boundary\): FAIL\. The standards gate checks every rule and was not judged by this call/);
+    expect(r.data).toMatchObject({ subset: { rules: ['zod-boundary'], status: 'fail' }, blocking: 2 });
+  });
+
+  it('a subset on the web profile judges its own rules (the whole gate\'s "type check or lint counted" is not asked of it); twin: every rule is', async () => {
+    const h = await setup({ standards: 'baseline', base, edits: good, checks: [bodyRule] });
+    const web: RunContext = { ...h.ctx, stack: 'web' };
+    const every = await callTool(checkStandards, {}, web);
+    expect(every.ok).toBe(false);
+    expect(every.summary.split('\n').at(-1)).toMatch(/^standards gate now: UNPROVEN: /);
+    expect((await run(standardsGate, web)).status).toBe('unproven');
+    const sub = await callTool(checkStandards, { rules: ['zod-boundary'] }, web);
+    expect(sub.ok).toBe(true);
+    expect(sub.summary.split('\n').at(-1)).toMatch(/^the rules this call checked \(zod-boundary\): pass\. The standards gate checks every rule/);
+  });
+
   it('{ all: true } lists every failing line of the report after what blocks', async () => {
     const h = await setup({ standards: 'baseline', base, edits: bad });
     const r = await callTool(checkStandards, { all: true }, h.ctx);

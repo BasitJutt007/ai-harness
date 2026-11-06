@@ -38,7 +38,8 @@
  *   sees only the start of it sees what to fix. humanMustVerifyBrief counts the pre-existing findings
  *   per rule (a short view's form); humanMustVerify keeps one line per finding.
  * - The classification is exported (baselineAssessment): check_standards reports exactly what this gate
- *   decides in baseline mode, from the same code.
+ *   decides in baseline mode, from the same code (over a subset of the rules: what it decides for those
+ *   rules, never presented as the gate's verdict).
  *
  * Both: a skipped rule, an empty standards rule, or zero rules is UNPROVEN, and an n/a rule
  * (nothing to check) is never counted as green.
@@ -619,11 +620,14 @@ async function assessBaseline(ctx: RunContext, report: CheckReport, log: boolean
  * What the standards gate decides over `report` in baseline mode, and the lists that decision is made
  * of: the check_standards tool reports exactly this (one classification, never a copy of it). It writes
  * no log. Null when the task is not a brownfield task in baseline mode (`standards: baseline`).
+ * `subset`: the report covers only some of the rules (check_standards { rules }), so the result judges
+ * those rules alone and is never the gate's verdict; the web profile's whole-gate question (was the
+ * repository's type check or lint counted at all) is not asked of it.
  */
-export async function baselineAssessment(ctx: RunContext, report: CheckReport): Promise<{ result: GateResult; findings: BaselineFindings | null } | null> {
+export async function baselineAssessment(ctx: RunContext, report: CheckReport, opts: { subset?: boolean } = {}): Promise<{ result: GateResult; findings: BaselineFindings | null } | null> {
   if (ctx.task.kind !== 'brownfield' || ctx.task.standards !== 'baseline') return null;
   const a = await assessBaseline(ctx, report, false);
-  return { result: ctx.stack === 'web' ? webStandardsProven(ctx, report, a.result) : a.result, findings: a.findings };
+  return { result: ctx.stack === 'web' && opts.subset !== true ? webStandardsProven(ctx, report, a.result) : a.result, findings: a.findings };
 }
 
 /** The gate's verdict over the checks' report (see the module comment). */
