@@ -977,34 +977,48 @@ export function jestPathMapper(apiRoot: string, resolution: Pick<ResolutionConfi
     return rel === '' ? '<rootDir>' : `<rootDir>/${rel}`;
   };
   const derived: Record<string, string | string[]> = {};
-  for (const p of resolution.paths) {
-    const star = p.pattern.indexOf('*');
-    const pre = star < 0 ? p.pattern : p.pattern.slice(0, star);
-    const post = star < 0 ? '' : p.pattern.slice(star + 1);
-    if (covered(star < 0 ? p.pattern : `${pre}x${post}`)) continue;
-    const key = star < 0 ? `^${escapeRe(p.pattern)}$` : `^${escapeRe(pre)}(.*)${escapeRe(post)}$`;
-    const values = p.targets.map((t) => fromRoot(star < 0 ? t : t.replace('*', '$1')));
-    if (values.length > 0) derived[key] = values.length === 1 ? values[0] ?? '' : values;
-  }
-  if (resolution.baseUrl !== null && !facts.resolvesBare) {
-    // baseUrl-relative imports name a top-level directory under baseUrl; never shadow an installed package.
-    const base = join(apiRoot, resolution.baseUrl);
+  /**
+   * Imports that name a top-level directory under `dir` (relative to the API root): one key per directory,
+   * never node_modules, a dot-directory or an installed package's name, and never a Node builtin's subpath
+   * (`^fs/(.*)$` would capture fs/promises, so the key excludes exactly those: path/posix, util/types, ...;
+   * src/fs/x and src/constants/x are still mapped). Unlike tsc, jest does not fall back to node_modules when a
+   * mapped file is missing, so a catch-all key would break every package and relative import.
+   */
+  const topLevel = (dir: string): void => {
     let names: string[] = [];
     try {
-      names = readdirSync(base, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+      names = readdirSync(join(apiRoot, dir), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
     } catch {
       names = [];
     }
     for (const name of names) {
       if (name === 'node_modules' || name.startsWith('.') || exists(join(apiRoot, 'node_modules', name))) continue;
       if (covered(`${name}/x`)) continue;
-      // Never a Node builtin's subpath: `^fs/(.*)$` would capture fs/promises, so the key excludes exactly those
-      // (path/posix, util/types, ...); src/fs/x and src/constants/x are still mapped.
       const builtin = builtinSubpaths(name);
       const not = builtin.length > 0 ? `(?!(?:${builtin.map(escapeRe).join('|')})$)` : '';
-      derived[`^${escapeRe(name)}/${not}(.*)$`] = fromRoot(posix.join(resolution.baseUrl, name, '$1'));
+      derived[`^${escapeRe(name)}/${not}(.*)$`] = fromRoot(posix.join(dir, name, '$1'));
     }
+  };
+  for (const p of resolution.paths) {
+    const star = p.pattern.indexOf('*');
+    const pre = star < 0 ? p.pattern : p.pattern.slice(0, star);
+    const post = star < 0 ? '' : p.pattern.slice(star + 1);
+    // tsconfig paths apply to bare specifiers only: a key that could match "./x", "../x" or "/x" never is one.
+    if (/^[./]/.test(p.pattern)) continue;
+    if (star >= 0 && pre === '') {
+      // "*": ["dir/*"] (any bare specifier first tries dir/<specifier>): tsc falls back to node_modules when
+      // nothing is there, jest would not, so map only the top-level directories that exist, as for baseUrl.
+      const target = p.targets.length === 1 ? p.targets[0] ?? '' : '';
+      if (post === '' && !facts.resolvesBare && /^(?:[^*]*\/)?\*$/.test(target)) topLevel(target === '*' ? '.' : target.slice(0, -2));
+      continue;
+    }
+    if (covered(star < 0 ? p.pattern : `${pre}x${post}`)) continue;
+    const key = star < 0 ? `^${escapeRe(p.pattern)}$` : `^${escapeRe(pre)}(.*)${escapeRe(post)}$`;
+    const values = p.targets.map((t) => fromRoot(star < 0 ? t : t.replace('*', '$1')));
+    if (values.length > 0) derived[key] = values.length === 1 ? values[0] ?? '' : values;
   }
+  // baseUrl-relative imports name a top-level directory under baseUrl.
+  if (resolution.baseUrl !== null && !facts.resolvesBare) topLevel(resolution.baseUrl);
   const added = Object.keys(derived);
   return added.length === 0 ? null : { mapper: { ...existing, ...derived }, added };
 }

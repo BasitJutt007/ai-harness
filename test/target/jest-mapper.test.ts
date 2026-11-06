@@ -98,6 +98,46 @@ const FAKE_JEST = {
   'node_modules/jest/bin/jest.js': '',
 };
 
+describe('a wildcard-only tsconfig path ("*": ["./*"])', () => {
+  it('maps only the top-level directories that exist, never a catch-all that would capture relative and package imports; a prefixed pattern beside it still maps (the twin)', () => {
+    const root = join(tmp.dir, 'star');
+    writeTree(root, { 'src/common/x.ts': '', 'prisma/schema.prisma': '', 'node_modules/prisma/package.json': '{}', 'node_modules/lodash/package.json': '{}', '.github/x.yml': '' });
+    const r = jestPathMapper(root, { paths: [{ pattern: '@/*', targets: ['src/*'] }, { pattern: '*', targets: ['*'] }], baseUrl: null }, { ...ABSENT, rootDir: 'src' });
+    expect(r).toEqual({ mapper: { '^@/(.*)$': '<rootDir>/$1', '^src/(.*)$': '<rootDir>/$1' }, added: ['^@/(.*)$', '^src/(.*)$'] });
+    const keys = Object.keys(r !== null && 'mapper' in r ? r.mapper : {}).map((k) => new RegExp(k));
+    for (const spec of ['./normalizeImageUrl', '../x', '/abs/x', 'lodash', '@nestjs/common', 'prisma/x', 'fs/promises']) {
+      expect(keys.some((k) => k.test(spec)), spec).toBe(false);
+    }
+  });
+
+  it('"*": ["src/*"] maps the directories under src; a pattern that starts with "." or "/" maps nothing (tsconfig paths never apply to relative specifiers)', () => {
+    const root = join(tmp.dir, 'star-src');
+    writeTree(root, { 'src/common/x.ts': '', 'src/modules/y.ts': '' });
+    expect(jestPathMapper(root, { paths: [{ pattern: '*', targets: ['src/*'] }], baseUrl: null }, ABSENT)).toEqual({
+      mapper: { '^common/(.*)$': '<rootDir>/src/common/$1', '^modules/(.*)$': '<rootDir>/src/modules/$1' },
+      added: ['^common/(.*)$', '^modules/(.*)$'],
+    });
+    expect(jestPathMapper(root, { paths: [{ pattern: './*', targets: ['src/*'] }], baseUrl: null }, ABSENT)).toBeNull();
+  });
+
+  it('through the profile: a NestJS-style repository whose tsconfig has "*": ["./*"] and a jest config with its own aliases gets no catch-all on the jest command line', async () => {
+    const root = join(tmp.dir, 'nest-star');
+    writeTree(root, {
+      ...FAKE_JEST,
+      'package.json': JSON.stringify({ name: 'api', scripts: { test: 'jest' }, devDependencies: { jest: '29.7.0' }, jest: { rootDir: 'src', testRegex: '.*\\.spec\\.ts$', moduleFileExtensions: ['js', 'json', 'ts'], moduleNameMapper: { '^@common/(.*)$': '<rootDir>/common/$1' } } }),
+      'tsconfig.json': JSON.stringify({ compilerOptions: { module: 'commonjs', paths: { '@common/*': ['./src/common/*'], '*': ['./*'] } } }),
+      'src/common/url.ts': 'export const url = (p: string): string => p;\n',
+      'src/common/url.spec.ts': "import { url } from './url';\ndescribe('u', () => { it('x', () => { expect(url('a')).toBe('a'); }); });\n",
+    });
+    const p = await computeTargetProfile({ apiRoot: root, repoRoot: root, harnessRoot: HARNESS_ROOT });
+    expect(p.runner).toMatchObject({ kind: 'jest', supported: true });
+    const mapper = (p.runner as { moduleNameMapper?: Record<string, unknown> }).moduleNameMapper ?? {};
+    expect(Object.keys(mapper)).not.toContain('^(.*)$');
+    expect(mapper).toMatchObject({ '^@common/(.*)$': '<rootDir>/common/$1', '^src/(.*)$': '<rootDir>/$1' });
+    for (const k of Object.keys(mapper)) expect(new RegExp(k).test('./url'), k).toBe(false);
+  });
+});
+
 describe('the profile and the jest command line', () => {
   it("a NestJS-style config (rootDir src, no mapper) with baseUrl \".\": the harness's jest call carries the derived --moduleNameMapper", async () => {
     const root = join(tmp.dir, 'nest');
