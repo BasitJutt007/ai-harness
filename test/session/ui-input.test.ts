@@ -703,8 +703,9 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
       ['a note', (ui) => ui.event(ev({ kind: 'note', source: 'loop', message: wide })), 1],
       ['an error', (ui) => ui.event(ev({ kind: 'error', source: 'loop', message: wide })), 1],
       ['a gate line', (ui) => ui.gateLines([{ gate: 'tests-green', status: 'fail', summary: wide } as never]), 1],
-      // gates, standards, the NOT DONE head, one reason, "a human must verify:", one item to verify.
-      ['a verdict', (ui) => ui.verdict({ kind: 'NOT DONE', reasons: [wide], gates: [], standards: wide, humanMustVerify: [wide] }), 6],
+      // gates, standards, the NOT DONE head and "a human must verify:" take one row each; a reason wraps to at
+      // most 4 rows and an item to verify to at most 2 (what blocks must be readable), every row within the width.
+      ['a verdict', (ui) => ui.verdict({ kind: 'NOT DONE', reasons: [wide], gates: [], standards: wide, humanMustVerify: [wide] }), 4 + 4 + 2],
     ];
     const effect = (tool: string): 'read' | 'write' | 'exec' => (tool === 'write_file' ? 'write' : tool === 'run_tests' ? 'exec' : 'read');
     for (const columns of [0, 80, 120]) {
@@ -713,7 +714,10 @@ describe('rows break at word boundaries, as a terminal app wraps prose', () => {
         t.out.columns = columns;
         draw(new Ui(t.out, false, effect));
         const rows = t.text().replace(/\n$/, '').split('\n');
-        expect(rows, `${what} at ${columns} columns`).toHaveLength(count);
+        // The verdict's wrapped reason and item take as many rows as the width needs, within their row limits.
+        if (what === 'a verdict') expect(rows.length, `${what} at ${columns} columns`).toBeGreaterThanOrEqual(6);
+        if (what === 'a verdict') expect(rows.length, `${what} at ${columns} columns`).toBeLessThanOrEqual(count);
+        else expect(rows, `${what} at ${columns} columns`).toHaveLength(count);
         for (const r of rows) expect(cells(r), `${what} at ${columns}: ${r}`).toBeLessThanOrEqual(columns === 0 ? 80 : columns);
       }
     }
