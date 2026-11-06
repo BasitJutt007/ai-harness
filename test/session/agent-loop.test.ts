@@ -3,11 +3,18 @@
  * content-driven lint rules; every other required gate a stand-in). Each case with its twin:
  *   - the verdict block says what blocks first (the finding the run introduced, wrapped, never clipped
  *     away), and "a human must verify" counts the pre-existing findings per rule instead of listing them;
- *     with nothing introduced, no standards reason at all.
+ *     with nothing introduced, no standards reason at all;
+ *   - a turn that ends without finish on a NOT DONE the agent can act on continues by itself with the
+ *     verdict's reasons, and the agent's fix ends in "Work completed"; never on UNPROVEN, with a proposal
+ *     pending, without progress, past the limit (read-only, Ctrl-C, the budget and the spend cap: the
+ *     decision's own twins).
  */
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import standardsGate from '../../plugins/gates/standards.ts';
 import type { CheckFinding, CheckPlugin, GateStatus, RegistryView } from '../../src/core/types.ts';
+import { AUTO_CONTINUE_LIMIT, autoContinue, continueMessage, type ContinueState } from '../../src/session/session.ts';
 import { WORK_COMPLETED } from '../../src/session/ui.ts';
 import { calls, proposal, realRegistry, REQUIRED_STANDINS, gate, runScripted, TEST_BODY, text, webRepo, type WebRepo } from './helpers.ts';
 
@@ -103,5 +110,166 @@ describe('a verdict the owner can read', () => {
     expect(block).toContain('    · gate:standards: pre-existing (not blocking): no-todo 30 in 3 files');
     expect(block).not.toMatch(/pre-existing \(not blocking[^)]*\): no-todo src\/legacy/);
     expect(block).not.toContain(WORK_COMPLETED);
+  });
+});
+
+/** The model's requests, as text: what it was told. */
+const told = (requests: Array<{ messages: unknown }>, i: number): string => JSON.stringify(requests[i]?.messages ?? []);
+const CONTINUED = (n: number): string => `↻ the gates said NOT DONE: the agent continues (${n}/${AUTO_CONTINUE_LIMIT})`;
+
+describe('a bounded auto-continue', () => {
+  it('an introduced lint finding: the turn continues by itself with what blocks; the agent fixes it and calls finish: "Work completed"', async () => {
+    r = webRepo({ extra: DEBT });
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      calls(['write_file', { path: TEST_FILE, content: WITH_TODO }]),
+      text('Test written.'),
+      calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]),
+      calls(['finish', { summary: 'test added, TODO removed' }]),
+      text('never asked'),
+    ], ['fix the greeting', 'yes'], { registry: await registry() });
+    expect(ran.out).toContain(CONTINUED(1));
+    expect(ran.out.indexOf(CONTINUED(1))).toBeLessThan(ran.out.indexOf(WORK_COMPLETED));
+    expect(ran.out).toContain(WORK_COMPLETED);
+    expect(ran.driver.used).toBe(5);
+    // The model heard the verdict's reasons and the finding itself, in the same owner message (no new owner line).
+    const continued = told(ran.driver.requests, 3);
+    expect(continued).toContain('[harness] You ended your turn without calling finish, and the fresh run of every required gate says NOT DONE:');
+    expect(continued).toContain('- gate standards failed: 2 introduced by this run: no-todo test/greeting-name.test.ts:8:4 TODO comment');
+    expect(continued).toContain('  introduced (in a file this run changed): no-todo test/greeting-name.test.ts:8:4 TODO comment');
+    expect(continued).toContain('Fix these and call finish, or tell the owner plainly why you cannot.');
+    expect(continued).not.toMatch(/pre-existing \(not blocking[^)]*\): no-todo src\/legacy/);
+    const verdicts = ran.runJson['verdicts'] as Array<Record<string, unknown>>;
+    expect(verdicts.map((v) => [v['trigger'], v['kind']])).toEqual([['turn', 'NOT DONE'], ['finish', 'DONE']]);
+    expect(ran.runJson['lastVerdict']).toBe('DONE');
+  });
+
+  it('twin: an UNPROVEN verdict never continues (the prompt comes back)', async () => {
+    r = webRepo({ extra: DEBT });
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]),
+      text('Test written.'),
+      text('never asked'),
+    ], ['fix the greeting', 'yes'], { registry: await registry({ 'observed-red': 'unproven' }) });
+    expect(ran.out).toMatch(/\? UNPROVEN: the gates, not the model, decide/);
+    expect(ran.out).not.toContain('↻');
+    expect(ran.driver.used).toBe(3);
+  });
+
+  it('twin: a NOT DONE with a proposal awaiting its reply never continues; the reply prompt comes back', async () => {
+    r = webRepo({ extra: DEBT });
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      calls(['write_file', { path: TEST_FILE, content: WITH_TODO }], ['propose_contract', proposal({ problem: 'The greeting ignores names with spaces too.' })]),
+      text('never asked'),
+    ], ['fix the greeting', 'yes'], { registry: await registry() });
+    expect(ran.out).toMatch(/✗ NOT DONE/);
+    expect(ran.out).toContain('gate standards failed: 2 introduced by this run');
+    expect(ran.out).not.toContain('↻');
+    expect(ran.driver.used).toBe(2);
+    expect(ran.input.prompts.at(-1)).toBe('reply › ');
+  });
+
+  it('twin: the same reasons after a continue (no progress): it stops after one, and says why', async () => {
+    r = webRepo();
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]),
+      text('Test written.'),
+      calls(['write_file', { path: 'test/greeting-again.test.ts', content: TEST_BODY.replace('Ada by name', 'Ada again') }]),
+      text('Another test written.'),
+      text('never asked'),
+    ], ['fix the greeting', 'yes'], { registry: await registry({ 'tests-green': 'fail' }) });
+    expect(ran.out.split(CONTINUED(1))).toHaveLength(2);
+    expect(ran.out).not.toContain(CONTINUED(2));
+    expect(ran.out).toContain('↻ not continued: the gates give the same reasons as before the last continue (no progress); back to you');
+    expect(ran.driver.used).toBe(5);
+    expect(existsSync(join(r.repo, 'test/greeting-again.test.ts'))).toBe(true);
+  });
+
+  it(`twin: past ${AUTO_CONTINUE_LIMIT} continues it stops, though the reasons change each time; the prompt comes back with the verdict`, async () => {
+    r = webRepo();
+    const reg = await registry();
+    let runs = 0;
+    const moving = gate('tests-green');
+    moving.plugin.run = async () => ({ status: 'fail', summary: `${(runs += 1)} test(s) failing (test stand-in)` });
+    const ran = await runScripted(r, [
+      calls(['propose_contract', proposal()]),
+      calls(['write_file', { path: TEST_FILE, content: TEST_BODY }]),
+      text('Test written.'),
+      calls(['write_file', { path: 'test/a.test.ts', content: TEST_BODY }]),
+      text('Second try.'),
+      calls(['write_file', { path: 'test/b.test.ts', content: TEST_BODY }]),
+      text('Third try.'),
+      text('never asked'),
+    ], ['fix the greeting', 'yes'], { registry: { ...reg, gates: reg.gates.map((g) => (g.plugin.name === 'tests-green' ? moving : g)) } });
+    expect(ran.out).toContain(CONTINUED(1));
+    expect(ran.out).toContain(CONTINUED(2));
+    expect(ran.out).not.toContain('(3/2)');
+    expect(ran.out).toContain(`↻ not continued: the gates still say NOT DONE after ${AUTO_CONTINUE_LIMIT} automatic continues; back to you`);
+    expect(ran.driver.used).toBe(7);
+    expect((ran.runJson['verdicts'] as unknown[]).length).toBe(3);
+    expect(ran.runJson['lastVerdict']).toBe('NOT DONE');
+  });
+});
+
+describe('when a message continues by itself (the decision)', () => {
+  const failing = { gate: 'standards', status: 'fail' as const, summary: '1 introduced by this run: no-todo x.ts:1:1 TODO comment' };
+  const verdict: NonNullable<ContinueState['verdict']> = { kind: 'NOT DONE', trigger: 'turn', reasons: [`gate standards failed: ${failing.summary}`], gates: [failing, { gate: 'scope', status: 'pass', summary: 'ok' }] };
+  const go: ContinueState = { status: 'yielded', verdict, pending: false, writable: true, stopped: false, interrupted: false, done: 0, previous: null, turnsLeft: 30, spend: null };
+
+  it('an actionable NOT DONE after a turn that changed the tree continues', () => {
+    expect(autoContinue(go)).toEqual({ go: true, key: `gate standards failed: ${failing.summary}` });
+    expect(autoContinue({ ...go, done: AUTO_CONTINUE_LIMIT - 1, previous: 'other reasons' }).go).toBe(true);
+    for (const g of ['tests-green', 'observed-red']) {
+      expect(autoContinue({ ...go, verdict: { ...verdict, reasons: [`gate ${g} failed: x`], gates: [{ gate: g, status: 'fail', summary: 'x' }] } }).go, g).toBe(true);
+    }
+  });
+
+  it('each twin that must never continue', () => {
+    const twins: Array<[string, Partial<ContinueState>, RegExp, boolean]> = [
+      ['finish was called', { status: 'done' }, /turn ended done/, false],
+      ['the turn budget ran out in the loop', { status: 'max_turns' }, /turn ended max_turns/, false],
+      ['the spend cap stopped the loop', { status: 'spend_cap' }, /turn ended spend_cap/, false],
+      ['Ctrl-C', { status: 'aborted' }, /turn ended aborted/, false],
+      ['Ctrl-C during the gates', { interrupted: true }, /Ctrl-C/, false],
+      ['a proposal awaits its reply', { pending: true }, /proposal awaits/, false],
+      ['read-only', { writable: false }, /read-only/, false],
+      ['the harness ended the turn', { stopped: true }, /harness ended the turn/, false],
+      ['no verdict (nothing changed)', { verdict: null }, /changed nothing/, false],
+      ['a verdict the owner asked for', { verdict: { ...verdict, trigger: 'gates' } }, /changed nothing/, false],
+      ['UNPROVEN', { verdict: { ...verdict, kind: 'UNPROVEN', gates: [{ gate: 'standards', status: 'unproven', summary: 'x' }], reasons: ['gate standards UNPROVEN: x'] } }, /verdict is UNPROVEN/, false],
+      ['NOT DONE with an UNPROVEN gate too (a missing runner)', { verdict: { ...verdict, reasons: [...verdict.reasons, 'gate tests-green UNPROVEN: no runner'], gates: [failing, { gate: 'tests-green', status: 'unproven', summary: 'no runner' }] } }, /cannot act on/, false],
+      ['NOT DONE with the environment (no sandbox)', { verdict: { ...verdict, reasons: [...verdict.reasons, 'isolation: none'] } }, /cannot act on/, false],
+      ['a gate the agent does not fix by itself', { verdict: { ...verdict, reasons: ['gate scope failed: x'], gates: [{ gate: 'scope', status: 'fail', summary: 'x' }] } }, /gate scope failed/, false],
+      ['the limit', { done: AUTO_CONTINUE_LIMIT, previous: 'other' }, /after 2 automatic continues/, true],
+      ['no progress', { done: 1, previous: `gate standards failed: ${failing.summary}` }, /same reasons/, true],
+      ['no turn left', { turnsLeft: 0 }, /turn budget/, true],
+      ['the spend cap', { spend: 'spend cap: the next request could pass the cap' }, /spend cap/, true],
+    ];
+    for (const [what, over, why, tell] of twins) {
+      const d = autoContinue({ ...go, ...over });
+      expect(d.go, what).toBe(false);
+      if (d.go) continue;
+      expect(d.why, what).toMatch(why);
+      expect(d.tell, what).toBe(tell);
+    }
+  });
+
+  it('the message hands over the reasons and what blocks, never the pre-existing findings', () => {
+    const m = continueMessage({
+      reasons: ['gate standards failed: 1 introduced by this run: no-todo x.ts:1:1 TODO comment'],
+      gates: [
+        { gate: 'standards', status: 'fail', summary: 's', details: ['introduced (in a file this run changed): no-todo x.ts:1:1  TODO comment', 'pre-existing (not blocking): no-todo old.ts:1:1  TODO comment', '… 40 more (see the log)'] },
+        { gate: 'scope', status: 'pass', summary: 'ok', details: ['passing detail'] },
+      ],
+    }, 1);
+    expect(m).toContain('- gate standards failed: 1 introduced by this run');
+    expect(m).toContain('gate standards:\n  introduced (in a file this run changed): no-todo x.ts:1:1 TODO comment');
+    expect(m).not.toContain('old.ts');
+    expect(m).not.toContain('40 more');
+    expect(m).not.toContain('passing detail');
+    expect(m).toMatch(/Fix these and call finish, or tell the owner plainly why you cannot\. \(The harness continued this message by itself: 1 of at most 2\.\)$/);
   });
 });
