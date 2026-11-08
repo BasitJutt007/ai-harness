@@ -133,12 +133,64 @@ export function lineOf(text: string, offset: number): number {
   return line;
 }
 
-/** Apply an exact single-occurrence replacement; null unless `find` occurs exactly once. */
-export function applySingleEdit(text: string, find: string, replace: string): string | null {
+/** How a single edit applies: exactly, by a uniform indentation shift (`delta` spaces), or not at all. */
+export type EditMatch =
+  | { kind: 'exact'; result: string; at: number }
+  | { kind: 'indent'; result: string; line: number; delta: number }
+  | { kind: 'none'; exact: number; indent: number };
+
+const LEAD = /^[ ]*/;
+
+/**
+ * The single edit `find` -> `replace`. An exact, unique occurrence wins. With no exact occurrence, a
+ * block of whole lines that equals `find` line for line except for one uniform indentation shift (spaces
+ * only, the same number on every non-blank line) is accepted when it is the only such block; `replace` is
+ * re-indented by the same shift. Models copy indentation from numbered read_file output and are often one
+ * space off; a slip that leaves the text otherwise identical is not a different edit. Anything else (2+
+ * matches, mixed shifts, tabs) is no match: the caller refuses it.
+ */
+export function matchEdit(text: string, find: string, replace: string): EditMatch {
   const at = occurrences(text, find);
   const first = at[0];
-  if (at.length !== 1 || first === undefined) return null;
-  return text.slice(0, first) + replace + text.slice(first + find.length);
+  if (at.length === 1 && first !== undefined) return { kind: 'exact', result: text.slice(0, first) + replace + text.slice(first + find.length), at: first };
+  if (at.length > 1) return { kind: 'none', exact: at.length, indent: 0 };
+  const strip = (s: string): string => (s.endsWith('\n') ? s.slice(0, -1) : s);
+  const findLines = strip(find).split('\n');
+  if (findLines.every((l) => l.trim() === '') || findLines.some((l) => l.includes('\t')) || text.includes('\t')) return { kind: 'none', exact: 0, indent: 0 };
+  const lines = text.split('\n');
+  const hits: Array<{ line: number; delta: number }> = [];
+  for (let i = 0; i + findLines.length <= lines.length; i += 1) {
+    let delta: number | null = null;
+    let ok = true;
+    for (let j = 0; j < findLines.length && ok; j += 1) {
+      const want = findLines[j] ?? '';
+      const have = lines[i + j] ?? '';
+      if (want.trim() !== have.trim()) ok = false;
+      else if (want.trim() !== '') {
+        const d = (LEAD.exec(have)?.[0].length ?? 0) - (LEAD.exec(want)?.[0].length ?? 0);
+        if (delta === null) delta = d;
+        else if (d !== delta) ok = false;
+      }
+    }
+    if (ok && delta !== null && delta !== 0) hits.push({ line: i, delta });
+  }
+  const hit = hits[0];
+  if (hits.length !== 1 || hit === undefined) return { kind: 'none', exact: 0, indent: hits.length };
+  const shift = (l: string): string => {
+    if (l.trim() === '') return l;
+    if (hit.delta > 0) return ' '.repeat(hit.delta) + l;
+    const lead = LEAD.exec(l)?.[0].length ?? 0;
+    return l.slice(Math.min(lead, -hit.delta));
+  };
+  const replaceLines = strip(replace).split('\n').map(shift);
+  const out = [...lines.slice(0, hit.line), ...(strip(replace) === '' && replace === '' ? [] : replaceLines), ...lines.slice(hit.line + findLines.length)];
+  return { kind: 'indent', result: out.join('\n'), line: hit.line + 1, delta: hit.delta };
+}
+
+/** Apply a single replacement (exact and unique, or by one uniform indentation shift: matchEdit); null when it does not apply. */
+export function applySingleEdit(text: string, find: string, replace: string): string | null {
+  const m = matchEdit(text, find, replace);
+  return m.kind === 'none' ? null : m.result;
 }
 
 /** `wrote/edited` style stat: `+a −b`. */
