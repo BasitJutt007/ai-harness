@@ -12,8 +12,9 @@ opens the pull request.
 - **Any driver:** `--driver claude` and `--driver openai` run the identical task file, hooks, gates and
   checks.
 
-**Design note:** [docs/design.md](docs/design.md) (architecture, driver abstraction, token budget,
-extension points, honesty boundary). Detail: [docs/reference.md](docs/reference.md). Extending:
+**Design notes:** [docs/design-assign-2.md](docs/design-assign-2.md) (the whole structure after assignments 01
+and 02, and every run) and [docs/design.md](docs/design.md) (01: architecture, driver abstraction, token
+budget, extension points, honesty boundary). Detail: [docs/reference.md](docs/reference.md). Extending:
 [docs/extending.md](docs/extending.md). Task files: [docs/task-format.md](docs/task-format.md).
 
 **The core directory is [`src/core/`](src/core)**: the loop, hook bus, gate runner, items, ship and
