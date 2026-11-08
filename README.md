@@ -285,9 +285,9 @@ runs/ tokens/    run evidence and token reports
 
 Extensions never edit `src/core/`: dropping one file into `plugins/` registers it
 (`node scripts/simulate-extensions.mjs` proves it on three examples). `npm run verify` runs strict `tsc`
-and the test suite (2063 tests on 5 Nov 2026, including end-to-end runs and real sandbox tests);
+and the test suite (2092 tests on 8 Nov 2026, including end-to-end runs and real sandbox tests);
 `npm run audit:mutations` checks that 31 broken or unmodelled variants of a shipped API never read 100%,
-and that 51 mutated items never pass the 02 gates.
+and that 51 mutated items never pass the 02 gates (86 audit cases, all passing on 8 Nov).
 
 ## 02 The two governed APIs
 
@@ -308,7 +308,7 @@ human, governance hashes), `events.jsonl`, `transcript.jsonl`, `gates.json`, `lo
 | Evidence | Files |
 |---|---|
 | **Logs, openai driver** | `runs/users-api-openai-20261004-145143/`, `runs/projects-change-openai-20261004-145700/` (the two DONE runs above, official OpenAI API) |
-| **Logs, claude driver** | `runs/real-model/users-api-claude-20261003-163824/` and `…164131/`: two runs through OpenRouter's Anthropic-compatible endpoint on 3 Oct code, stopped before finishing. **No Claude run has reached DONE and none ran against `api.anthropic.com`** (no Anthropic key was available); the driver is covered by offline tests (`test/drivers/`) |
+| **Logs, claude driver** | `runs/real-model/users-api-claude-20261003-163824/` and `…164131/`: two runs through OpenRouter's Anthropic-compatible endpoint on 3 Oct code, stopped before finishing (no Anthropic key was available for 01); the driver is also covered by offline tests (`test/drivers/`). **Since 8 Nov it runs on `api.anthropic.com`** with claude-haiku-4-5: `runs/users-api-claude-20261108-072340/` and the two `labels-claude-20261108-*` runs, all NOT DONE (correct, refused by named gates) |
 | **Token report** | `tokens/users-api-openai-20261004-145143.json` and `tokens/projects-change-openai-20261004-145700.json` (per turn: actual vs baseline); the measured comparison `tokens/compare-users-api-openai-20261004-145143-vs-users-api-openai-20261004-145009.json`: **67.2% fewer input tokens per turn, 54.1% per run** against a real `--baseline` run (design note §3). The >90% target is not met |
 | **Standards check output** | `runs/users-api-openai-20261004-145143/check-generated-api.txt` and `runs/projects-change-openai-20261004-145700/check-existing-api.txt` (`harness check --api`, verdict 100%); `standards.txt` in each run |
 | **Pull requests** | [harness-demo#10](https://github.com/BasitJutt007/harness-demo/pull/10) (greenfield) and [harness-demo#11](https://github.com/BasitJutt007/harness-demo/pull/11) (brownfield), opened by `harness ship` after every gate re-ran fresh |
@@ -347,9 +347,9 @@ Further additions beyond a plain harness:
 - **Does not prove:** that the agent's tests test the intended behaviour; behaviours written only as free
   text; persistence, performance, security, concurrency. These are listed in each `run.json` for a human.
 - **Known limits:** spec coverage and Contract Lock model Express only. NestJS and React + Vite targets
-  get route, type, lint, build and query checks, not the live probes. No Claude run has reached DONE
-  yet: the claude driver has answered live requests on claude-haiku-4-5-20251001, and the full re-run
-  waits for the users-api contract's yes. The jest adapter (the backend's runner) has not yet run
+  get route, type, lint, build and query checks, not the live probes. No public Claude run has reached DONE:
+  on the Anthropic API, claude-haiku-4-5 ran users-api and labels to NOT DONE (correct). Its first DONE
+  was a private item on a work repository (6 runs, metric 4 to 0), kept out of this repository. The jest adapter (the backend's runner) has not yet run
   inside a governed run. The Linux sandbox is tested without a live Linux host. The ledger is tamper-evident against hand edits, not against someone who
   recomputes its hash chain: the operator is trusted. Prices in `models.prices` are upper bounds from
   public listings, not the provider's bill.
