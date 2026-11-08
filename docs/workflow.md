@@ -13,7 +13,7 @@ to a habit.
 - **People, not tickets.** Of 56 backend work conversations, 10 start with a task whose source I
   never named, 7 with a design (Figma image, HTML prototype), 6 with a pasted Jira ticket (relayed in
   Teams, often in Roman Urdu), 6 with a decision relayed from a meeting with the lead, and 5 with a QA
-  or bug report. Jira keys (`MYSF-####`) appear in 12 of 503 backend branch names, and in none of
+  or bug report. Jira keys (`PROJ-####`) appear in 12 of 503 backend branch names, and in none of
   my last 198 Admin PRs. The PR template's "Ticket #" line was left untouched on 495 of 503.
 - **Feedback batches.** Since October work arrives as dated feedback rounds (`16 oct feedback`,
   `badges-feedback-29-oct`), and each round becomes one branch bundling several unrelated fixes.

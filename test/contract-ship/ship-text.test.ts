@@ -149,8 +149,8 @@ describe('PR template', () => {
   });
 
   it('a Ticket line in the contract fills the ticket placeholder', () => {
-    const withTicket = parseContract(contractFor('members', { Ticket: 'MYSF-1234 | Members list refresh' }));
-    expect(ticketLine(withTicket, 'members')).toBe('MYSF-1234 | Members list refresh');
+    const withTicket = parseContract(contractFor('members', { Ticket: 'PROJ-1234 | Members list refresh' }));
+    expect(ticketLine(withTicket, 'members')).toBe('PROJ-1234 | Members list refresh');
   });
 });
 
