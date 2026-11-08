@@ -89,7 +89,7 @@ export function gatesOk(results: GateResult[]): boolean {
  * prove it: UNPROVEN, never DONE.
  */
 export function requiredGates(task: Task, phase: GatePhase, stack?: Stack): string[] {
-  const out = ['stakeholder-yes', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards'];
+  const out = ['stakeholder-yes', 'item-metric', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards'];
   if (task.kind === 'brownfield') {
     if (stack === 'nestjs') out.push('route-lock');
     else if (stack !== 'react-vite') out.push('contract-lock');

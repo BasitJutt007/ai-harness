@@ -4,9 +4,25 @@
  * terminal reader records when a person types). Tests never touch the committed docs/contracts/
  * and items/: the setup file points HARNESS_ITEMS_ROOT at a temp directory.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { itemPaths, proposeItem, recordReply } from '../../src/core/items.ts';
+import type { MetricReading } from '../../src/core/items.ts';
+
+const HARNESS = join(import.meta.dirname, '..', '..');
+
+/**
+ * The before value a fixture item records: 1, as if metrics/fixture-zero.mjs had read it at proposal
+ * (same script sha256, so the item-metric gate compares like with like). Run trees read 0: moved.
+ */
+export function fixtureBefore(value = 1): MetricReading {
+  const script = readFileSync(join(HARNESS, 'metrics', 'fixture-zero.mjs'), 'utf8');
+  return {
+    value, sha: 'f'.repeat(40), ref: 'origin/main', command: 'node metrics/fixture-zero.mjs',
+    scriptSha256: createHash('sha256').update(script).digest('hex'), stdoutSha256: '', excerpt: String(value), confinement: 'test fixture',
+  };
+}
 
 export function contractFor(slug: string, overrides: Record<string, string> = {}): string {
   const f = {
@@ -34,8 +50,8 @@ export function writeContract(root: string, slug: string, contract: string | nul
 }
 
 /** Contract + proposal + a typed "yes" on the terminal channel: an editable item. */
-export function approveForTest(root: string, slug: string, contract: string = contractFor(slug)): void {
+export function approveForTest(root: string, slug: string, contract: string = contractFor(slug), before: MetricReading | null = fixtureBefore()): void {
   writeContract(root, slug, contract);
-  proposeItem(root, slug, { session: 'test-setup', before: null });
+  proposeItem(root, slug, { session: 'test-setup', before });
   recordReply(root, slug, 'yes, approved', 'tty', 'test-setup');
 }

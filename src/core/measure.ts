@@ -75,32 +75,74 @@ export async function readMetric(opts: ReadMetricOptions): Promise<MeasureResult
     if (add.code !== 0) return { ok: false, reason: `cannot check out ${sha.slice(0, 12)}: ${(add.stderr || add.stdout).trim()}` };
     linkDependencies(repoTop, '.', tree);
 
-    const values: number[] = [];
-    let stdout = '';
-    let confinement = 'unknown';
-    for (let i = 0; i < 2; i += 1) {
-      const r = await run(process.execPath, [copy, ...opts.measure.args], {
-        cwd: tree,
-        timeoutMs: MEASURE_TIMEOUT_MS,
-        env: { TMPDIR: tmp, NODE_OPTIONS: '' },
-        sandbox: { writable: [tmp], network: 'none' },
-      });
-      confinement = r.sandbox ?? 'none';
-      if (r.timedOut) return { ok: false, reason: `Measure timed out after ${MEASURE_TIMEOUT_MS / 1000}s at ${sha.slice(0, 12)}` };
-      if (r.code !== 0) return { ok: false, reason: `Measure exited ${String(r.code)} at ${sha.slice(0, 12)}: ${(r.stderr || r.stdout).trim().split('\n').slice(-3).join(' | ')}` };
-      const n = lastNumber(r.stdout);
-      if (n === null) return { ok: false, reason: `Measure printed no number on its last line at ${sha.slice(0, 12)} (got "${r.stdout.trim().split('\n').at(-1) ?? ''}")` };
-      values.push(n);
-      stdout = r.stdout;
-    }
-    if (values[0] !== values[1]) return { ok: false, reason: `Measure is not deterministic at ${sha.slice(0, 12)}: two runs printed ${String(values[0])} and ${String(values[1])}` };
-    const excerpt = stdout.trim().split('\n').slice(-6).join('\n');
+    const twice = await measureTwice(run, copy, opts.measure, tree, tmp, sha.slice(0, 12));
+    if (!twice.ok) return twice;
     return {
       ok: true,
-      reading: { value: values[0] ?? Number.NaN, sha, ref: opts.ref, command: opts.measure.text, scriptSha256, stdoutSha256: sha256(stdout), excerpt, confinement },
+      reading: { value: twice.value, sha, ref: opts.ref, command: opts.measure.text, scriptSha256, stdoutSha256: sha256(twice.stdout), excerpt: twice.excerpt, confinement: twice.confinement },
     };
   } finally {
     await run('git', ['-C', repoTop, 'worktree', 'remove', '--force', tree], { cwd: repoTop }).catch(() => undefined);
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Runs the Measure copy twice from `cwd`, confined (no network, writes only to `tmp`). Both runs must exit 0
+ * and print the same number on their last stdout line; anything else is no reading, with the reason.
+ */
+async function measureTwice(
+  run: Exec, copy: string, measure: MeasureSpec, cwd: string, tmp: string, at: string,
+): Promise<{ ok: true; value: number; stdout: string; excerpt: string; confinement: string } | { ok: false; reason: string }> {
+  const values: number[] = [];
+  let stdout = '';
+  let confinement = 'unknown';
+  for (let i = 0; i < 2; i += 1) {
+    const r = await run(process.execPath, [copy, ...measure.args], {
+      cwd,
+      timeoutMs: MEASURE_TIMEOUT_MS,
+      env: { TMPDIR: tmp, NODE_OPTIONS: '' },
+      sandbox: { writable: [tmp], network: 'none' },
+    });
+    confinement = r.sandbox ?? 'none';
+    if (r.timedOut) return { ok: false, reason: `Measure timed out after ${MEASURE_TIMEOUT_MS / 1000}s at ${at}` };
+    if (r.code !== 0) return { ok: false, reason: `Measure exited ${String(r.code)} at ${at}: ${(r.stderr || r.stdout).trim().split('\n').slice(-3).join(' | ')}` };
+    const n = lastNumber(r.stdout);
+    if (n === null) return { ok: false, reason: `Measure printed no number on its last line at ${at} (got "${r.stdout.trim().split('\n').at(-1) ?? ''}")` };
+    values.push(n);
+    stdout = r.stdout;
+  }
+  if (values[0] !== values[1]) return { ok: false, reason: `Measure is not deterministic at ${at}: two runs printed ${String(values[0])} and ${String(values[1])}` };
+  return { ok: true, value: values[0] ?? Number.NaN, stdout, excerpt: stdout.trim().split('\n').slice(-6).join('\n'), confinement };
+}
+
+export interface ReadTreeMetricOptions {
+  harnessRoot: string;
+  /** A working tree to read in place (a run's worktree): its files as they are now, committed or not. */
+  treeDir: string;
+  measure: MeasureSpec;
+  exec?: Exec;
+  /** Label for the scratch directory (the item slug). */
+  label: string;
+}
+
+/** A metric reading of a working tree as it is (the item-metric gate reads the run's tree before DONE). */
+export async function readTreeMetric(opts: ReadTreeMetricOptions): Promise<{ ok: true; value: number; scriptSha256: string; excerpt: string } | { ok: false; reason: string }> {
+  const run = opts.exec ?? coreExec;
+  const script = resolve(opts.harnessRoot, opts.measure.script);
+  if (!script.startsWith(`${resolve(opts.harnessRoot, 'metrics')}/`)) return { ok: false, reason: `Measure script ${opts.measure.script} is outside metrics/` };
+  if (!existsSync(script) || !statSync(script).isFile()) return { ok: false, reason: `Measure script ${opts.measure.script} does not exist in the harness` };
+  const scratch = join(opts.harnessRoot, '.harness', 'measure', `${opts.label}-tree-${process.pid}-${Date.now()}`);
+  const tmp = join(scratch, 'tmp');
+  mkdirSync(tmp, { recursive: true });
+  const scriptSha256 = sha256(readFileSync(script, 'utf8'));
+  const copy = join(tmp, 'measure.mjs');
+  copyFileSync(script, copy);
+  try {
+    const twice = await measureTwice(run, copy, opts.measure, opts.treeDir, tmp, 'the run tree');
+    if (!twice.ok) return twice;
+    return { ok: true, value: twice.value, scriptSha256, excerpt: twice.excerpt };
+  } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
