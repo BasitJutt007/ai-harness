@@ -47,8 +47,12 @@ live input instead of the address the code went to. Its metric (cases mishandled
   had 17 spaces of indentation where the file has 16, copied from numbered read_file output.
   `edit_file` now accepts one uniform indentation shift when exactly one block matches that way, and
   re-indents the replacement to match; anything ambiguous is still refused.
-- Across five runs the model never called finish once: every verdict came from the fresh final gate
-  run. Each NOT DONE was right, and each said exactly what was missing.
+- **Run 6 was DONE: the metric read 4 before and 0 on the run's tree**, the login screen's change
+  moved it back when reverted alone, and the baseline type check found nothing new. I applied the
+  diff to a local branch for review (not committed) and signed in through the changed screen.
+- Across six runs the model never called finish once: every verdict came from the fresh final gate
+  run. Each NOT DONE was right, and each said exactly what was missing. Four of the six runs were
+  spent finding gaps in the harness, not in the model.
 
 ## What it got wrong (or I did)
 

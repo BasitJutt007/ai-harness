@@ -102,8 +102,9 @@ metric scripts and runs stay outside this repository, and none of them is pushed
 using the vendor app on a local stack: the login email step sent an untrimmed address, let a
 malformed one through, left Continue loading after an error, and showed the live input instead of the
 address the code went to. The harness read its metric (cases mishandled, of 4) at the base commit
-when it proposed the contract, and I typed the yes. Its runs are what produced the item-metric gate,
-the read-loop guard and measured files (see the learnings note).
+when it proposed the contract, and I typed the yes. Its sixth run was DONE (4 -> 0); the five before it
+produced the item-metric gate, the read-loop guard, measured files and the edit_file indentation fix
+(see the learnings note).
 
 The public items run the same lifecycle on `harness-demo` at `rubric-01` (the README lists them):
 the two 01 tasks (`users-api`, `projects-change`) and two new changes (`health-route`, `labels`).
