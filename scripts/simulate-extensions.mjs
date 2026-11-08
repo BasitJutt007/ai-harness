@@ -17,7 +17,8 @@
  * 3. After each: `harness plugins` must list it; checks must print their own line in
  *    `harness check --api samples/existing-api` (pass/FAIL with locations, or n/a when the
  *    API has nothing to check) and FAIL with file:line:col on test/fixtures/orm; the tool
- *    must be offered and called in a real (scripted, offline) run (skip with --no-run).
+ *    must be offered and called in a real (scripted, offline) run (skip with --no-run), bound to a
+ *    fresh item in a temp items root (test/support/items.ts), never the repository's real items.
  *    Then `git diff --stat` + `git status --porcelain` are printed and every changed path
  *    must be under plugins/ — nothing under src/core/ (also proven by sha256 of src/core/**).
  * 4. Cleans up (worktree remove + branch delete in the temp repo, rm -rf), unless --keep.
@@ -27,7 +28,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { register } from 'tsx/esm/api';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const flags = new Set(process.argv.slice(2));
@@ -39,10 +41,19 @@ const SKIP_PREFIXES = ['runs/', 'tokens/', 'node_modules/', '.harness/', '.git/'
 /**
  * The sandbox's evidence stays inside the sandbox: a parent HARNESS_RUNS_DIR / HARNESS_TOKENS_DIR
  * would send the child runs' runs/ and tokens/ elsewhere (and the checks below read them from
- * <sandbox>/runs), so every child gets an env without them.
+ * <sandbox>/runs), and a parent HARNESS_ITEMS_ROOT would bind the run to (and append to) another
+ * items root, so every child gets an env without them.
+ *
+ * The scripted run is bound to an item like any run, and this simulation proves extension plumbing,
+ * not anyone's approval: it never uses the repository's real items (their ledgers wait for the
+ * owner's own typed yes). It binds the run to a fresh item, SIM_ITEM, in a TEMP items root next to the
+ * sandbox (outside the copied repository), approved the way the unit tests approve their fixture items
+ * (test/support/items.ts). The sandbox repository gets an origin named like that contract's Repo, on
+ * its Base (main), as every run requires.
  */
-const CHILD_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'HARNESS_RUNS_DIR' && k !== 'HARNESS_TOKENS_DIR'));
+const CHILD_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'HARNESS_RUNS_DIR' && k !== 'HARNESS_TOKENS_DIR' && k !== 'HARNESS_ITEMS_ROOT'));
 const GIT_ENV = { ...CHILD_ENV, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' };
+const SIM_ITEM = 'simulate-extensions';
 
 const STEPS = [
   {
@@ -105,6 +116,21 @@ function harness(...args) {
   return sh(process.execPath, ['bin/harness.mjs', ...args], { env: CHILD_ENV });
 }
 
+/** The temp items root holding SIM_ITEM (set by makeItemsRoot). */
+let itemsRoot = '';
+
+/**
+ * A fresh approved item in a temp items root outside the sandbox repository, created by the test
+ * helper the unit tests use (contract, proposal, typed yes on the terminal channel): what a run needs,
+ * without touching any real item.
+ */
+async function makeItemsRoot() {
+  register();
+  const { approveForTest } = await import(pathToFileURL(join(ROOT, 'test', 'support', 'items.ts')).href);
+  itemsRoot = join(tmp, 'items-root');
+  approveForTest(itemsRoot, SIM_ITEM);
+}
+
 // ───────────────────────────── sandbox ─────────────────────────────
 
 /**
@@ -136,6 +162,8 @@ function makeSandbox() {
   writeFileSync(join(repo, '.git', 'info', 'exclude'), 'node_modules\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'base: harness before any extension');
+  // The run's item names Repo fixture/repo (test/support/items.ts): a local path that does not exist, never pushed to.
+  git('remote', 'add', 'origin', join(tmp, 'remotes', 'fixture', 'repo.git'));
   return files.length;
 }
 
@@ -220,7 +248,9 @@ function assertToolInRun(step) {
     description: 'One turn that calls the newly dropped-in tool.',
     turns: [{ text: `Call the new ${step.name} tool.`, calls: [{ name: step.name, input: {} }] }],
   }, null, 2));
-  const r = harness('run', 'tasks/projects-change.task.yaml', '--driver', 'scripted', '--driver-opt', `script=${script}`, '--max-turns', '1');
+  const r = sh(process.execPath, ['bin/harness.mjs', 'run', 'tasks/projects-change.task.yaml', '--driver', 'scripted', '--driver-opt', `script=${script}`, '--max-turns', '1', '--item', SIM_ITEM], {
+    env: { ...CHILD_ENV, HARNESS_ITEMS_ROOT: itemsRoot },
+  });
   const runsDir = join(repo, 'runs');
   const ids = existsSync(runsDir) ? readdirSync(runsDir).filter((d) => existsSync(join(runsDir, d, 'run.json'))) : [];
   const id = ids[0];
@@ -236,10 +266,13 @@ function assertToolInRun(step) {
   check(called, `turn 1 called ${step.name}`);
   check(content !== '' && !/unknown tool/.test(content), `${step.name} was offered and returned a result in the run`);
   say(indent(content.split('\n').slice(0, 6).join('\n'), 8));
-  // Run evidence (runs/, tokens/) is committed by design; it is not part of the extension.
+  // Run evidence (runs/, tokens/) is committed by design; it is not part of the extension. The run's line in
+  // its item's ledger goes to the temp items root, outside the repository, so items/ must not change at all.
   const porcelain = git('status', '--porcelain', '--untracked-files=all').split('\n').filter((l) => l !== '');
   const outside = porcelain.map((l) => l.slice(3)).filter((p) => !p.startsWith('plugins/') && !p.startsWith('runs/') && !p.startsWith('tokens/'));
-  check(outside.length === 0, `the run changed nothing outside plugins/, runs/, tokens/${outside.length > 0 ? `: ${outside.join(', ')}` : ''}`);
+  check(outside.length === 0, `the run changed nothing outside plugins/, runs/, tokens/ (the real items/ untouched)${outside.length > 0 ? `: ${outside.join(', ')}` : ''}`);
+  const simLedger = join(itemsRoot, 'items', SIM_ITEM, 'ledger.jsonl');
+  check(existsSync(simLedger) && readFileSync(simLedger, 'utf8').includes('"type":"run"'), `the run was recorded in the temp item ${SIM_ITEM}'s ledger, outside the repository`);
   // Remove the run's evidence, worktree and branch so the next step's diff is only the next plugin.
   if (typeof rec.worktreeRoot === 'string') sh('git', ['worktree', 'remove', '--force', rec.worktreeRoot]);
   if (typeof rec.branch === 'string') sh('git', ['branch', '-D', rec.branch]);
@@ -265,13 +298,14 @@ function assertDiff(step, baseCore, expected) {
 
 // ───────────────────────────── main ─────────────────────────────
 
-function main() {
+async function main() {
   for (const s of STEPS) {
     if (!existsSync(join(ROOT, s.src))) throw new Error(`missing example ${s.src}`);
     if (existsSync(join(ROOT, s.dest))) say(`note: ${s.dest} already exists in ${ROOT}; the sandbox starts without it and adds it fresh`);
   }
   say(`sandbox: copying sources of ${ROOT}`);
   const n = makeSandbox();
+  await makeItemsRoot();
   say(`sandbox: ${repo} (${n} files committed as "base")`);
   const baseCore = coreHash();
   const dropped = [];
@@ -298,7 +332,7 @@ function main() {
 
 let code = 0;
 try {
-  main();
+  await main();
   code = failures.length === 0 ? 0 : 1;
 } catch (e) {
   say(`RESULT  FAIL  ${e instanceof Error ? e.message : String(e)}`);

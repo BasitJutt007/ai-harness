@@ -1,0 +1,84 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "pass",
+      "summary": "contract preserved (4 → 4 endpoints, via runtime): no additive changes",
+      "logPath": "runs/labels-claude-20261108-073101/logs/022-contract-diff.txt"
+    },
+    {
+      "gate": "diff-budget",
+      "status": "pass",
+      "summary": "267 changed lines in 4 file(s), within the budget of 400",
+      "details": [
+        "samples/existing-api/test/labels.test.ts: 159 changed lines",
+        "samples/existing-api/test/labels.store.test.ts: 59 changed lines",
+        "samples/existing-api/src/modules/labels/schema.ts: 26 changed lines",
+        "samples/existing-api/src/modules/labels/store.ts: 23 changed lines"
+      ]
+    },
+    {
+      "gate": "observed-red",
+      "status": "unproven",
+      "summary": "1 of 2 changed source files not proven by their own revert: src/modules/labels/schema.ts",
+      "details": [
+        "src/modules/labels/schema.ts: test/labels.store.test.ts: \"Labels Store > creates a label with valid input\" also passes with src/modules/labels/schema.ts alone at its run-start content (revert check): no accepted case depends on src/modules/labels/schema.ts's own change",
+        "Each changed file must be proven on its own: some case that went red -> green must fail again when that file ALONE is back at its original content. A change no case depends on (e.g. a refactor) needs a case that observes it, or must be left out."
+      ],
+      "logPath": "runs/labels-claude-20261108-073101/logs/023-vitest.txt"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "2 created files, all imported by a test or by existing code"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "4 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "n/a",
+      "summary": "not applicable to brownfield tasks"
+    },
+    {
+      "gate": "stakeholder-yes",
+      "status": "pass",
+      "summary": "Abdul Basit approved proposal seq 1 in a typed turn (seq 3)"
+    },
+    {
+      "gate": "standards",
+      "status": "fail",
+      "summary": "verdict 94% over the whole API (brownfield, strict: the standards rules must be 100%): 2 standards violation(s) to fix",
+      "details": [
+        "must fix (in scope): tsc-strict test/labels.store.test.ts:33:31  TS2322: Type 'null' is not assignable to type 'string | undefined'.",
+        "must fix (in scope): tsc-strict test/labels.store.test.ts:50:33  TS2322: Type 'string | null' is not assignable to type 'string | undefined'."
+      ],
+      "logPath": "runs/labels-claude-20261108-073101/logs/032-standards-brownfield.txt",
+      "failing": 2
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "11 of 33 tests failed in 3 files",
+      "details": [
+        "tests: 11 failed, 22 passed (33) in 3 files",
+        "FAIL test/labels.store.test.ts > Labels Store > lists labels with pagination: HttpProblem: cursor: Invalid cursor",
+        "FAIL test/labels.store.test.ts > Labels Store > paginates through all labels: HttpProblem: cursor: Invalid cursor",
+        "FAIL test/labels.test.ts > Labels > POST /v1/labels with valid body returns 201, label, and Location header: expected 404 to be 201 // Object.is equality",
+        "FAIL test/labels.test.ts > Labels > POST /v1/labels with invalid name returns 422 problem: expected 404 to be 422 // Object.is equality",
+        "FAIL test/labels.test.ts > Labels > POST /v1/labels with name too long returns 422 problem: expected 404 to be 422 // Object.is equality",
+        "FAIL test/labels.test.ts > Labels > POST /v1/labels with invalid color returns 422 problem: expected 404 to be 422 // Object.is equality",
+        "FAIL test/labels.test.ts > Labels > POST /v1/labels with multiple invalid fields returns 422 naming each field: expected 404 to be 422 // Object.is equality",
+        "FAIL test/labels.test.ts > Labels > POST /v1/labels repeated with same Idempotency-Key replays response and creates no second label: expected 404 to be 201 // Object.is equality",
+        "FAIL test/labels.test.ts > Labels > GET /v1/labels lists labels with cursor pagination: expected 404 to be 201 // Object.is equality",
+        "FAIL test/labels.test.ts > Labels > GET /v1/labels/{labelId} returns the label: expected 404 to be 201 // Object.is equality",
+        "… 1 more"
+      ],
+      "logPath": "runs/labels-claude-20261108-073101/logs/033-vitest.txt"
+    }
+  ]
+}

@@ -66,7 +66,7 @@ export function createServices(opts: {
         exec,
         harnessRoot,
         logs,
-        ...(profile !== undefined ? { layout: profile } : {}),
+        ...(profile !== undefined ? { layout: profile, stack: profile.stack } : {}),
         ...(opts.taskKind !== undefined ? { taskKind: opts.taskKind } : {}),
         ...(base !== undefined ? { base } : {}),
         ...(o?.categories !== undefined ? { categories: o.categories } : {}),

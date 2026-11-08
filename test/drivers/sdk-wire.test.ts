@@ -140,7 +140,7 @@ describe('claude driver through the real SDK', () => {
     expect(JSON.stringify(counted?.body)).not.toContain('thinking');
   });
 
-  it('downgrades on a 400 naming an extra: plain endpoint, no beta header, minimal body', async () => {
+  it('downgrades on a 400 naming an extra: plain endpoint, no beta header, body keeps only automatic caching', async () => {
     const f = capture([
       { status: 400, json: { type: 'error', error: { type: 'invalid_request_error', message: 'thinking.block_binding: Extra inputs are not permitted' } } },
       { status: 200, json: claudeOk },
@@ -153,9 +153,27 @@ describe('claude driver through the real SDK', () => {
     expect(new URL(sent.url).pathname).toBe('/v1/messages');
     expect(new URL(sent.url).searchParams.has('beta')).toBe(false);
     expect(sent.headers.get('anthropic-beta')).toBeNull();
-    expect(Object.keys(sent.body).sort()).toEqual(['max_tokens', 'messages', 'model', 'system', 'tool_choice', 'tools']);
+    expect(Object.keys(sent.body).sort()).toEqual(['cache_control', 'max_tokens', 'messages', 'model', 'system', 'tool_choice', 'tools']);
+    expect(sent.body['cache_control']).toEqual({ type: 'ephemeral' });
     expect(JSON.stringify(sent.body['messages'])).not.toContain('thinking');
     expect(driver.model).toBe('claude-opus-5-5 (compat)');
+  });
+
+  it('steps down to the bare body when the cached plain request is rejected for cache_control', async () => {
+    const f = capture([
+      { status: 400, json: { type: 'error', error: { type: 'invalid_request_error', message: 'output_config.effort: Extra inputs are not permitted' } } },
+      { status: 400, json: { type: 'error', error: { type: 'invalid_request_error', message: 'cache_control: Extra inputs are not permitted' } } },
+      { status: 200, json: claudeOk },
+    ]);
+    const driver = createClaudeDriver({ options: {}, env: { ANTHROPIC_API_KEY: 'k' }, harnessRoot: '/x' }, (apiKey) => new Anthropic({ apiKey, ...CLAUDE_OPTIONS, fetch: f.fetch }));
+    await driver.complete({ ...req, maxOutputTokens: 4000 });
+    expect(f.calls).toHaveLength(3);
+    const sent = f.calls[2];
+    if (sent === undefined) throw new Error('no request');
+    expect(new URL(sent.url).pathname).toBe('/v1/messages');
+    expect(sent.headers.get('anthropic-beta')).toBeNull();
+    expect(Object.keys(sent.body).sort()).toEqual(['max_tokens', 'messages', 'model', 'system', 'tool_choice', 'tools']);
+    expect(driver.model).toBe('claude-opus-5-5 (compat, uncached)');
   });
 });
 

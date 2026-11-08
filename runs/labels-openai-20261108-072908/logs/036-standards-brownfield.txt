@@ -1,0 +1,2 @@
+verdict 100% over the whole API (brownfield: 0 pre-existing violation(s) in untouched files; base commit 100%)
+BLOCKING  rest-conventions: UNPROVEN now (skipped: src/modules/labels/routes.ts:14:1: POST /v1/labels: its replay looks right in the code, but it was not confirmed at runtime (no valid body can be generated from CreateLabelSchema), so its idempotency is unproven; add a valid request body for "POST /v1/labels" to harness.probe.json in the API root to let the replay probe run) but proven at the base commit (4/4 routes)

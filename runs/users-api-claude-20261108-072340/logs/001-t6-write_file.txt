@@ -1,0 +1,584 @@
+--- /dev/null
++++ b/test/users.test.ts
+@@ -0,0 +1,581 @@
++import request from 'supertest';
++import type { Response } from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { createApp } from '../src/app.ts';
++import { ProblemSchema } from '../src/lib/problem.ts';
++
++function expectProblem(res: Response, status: number, slug: string) {
++  expect(res.status).toBe(status);
++  expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
++  const problem = ProblemSchema.parse(res.body);
++  expect(problem.status).toBe(status);
++  expect(problem.type).toBe(`https://api.sf/problems/${slug}`);
++  return problem;
++}
++
++describe('Users API', () => {
++  it('POST /v1/users creates a user and returns 201 with Location header', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      email: 'alice@example.com',
++      name: 'Alice',
++    });
++    expect(res.status).toBe(201);
++    expect(res.headers['content-type']).toMatch(/^application\/json/);
++    expect(res.headers.location).toBeDefined();
++    expect(res.headers.location).toMatch(/^\/v1\/users\/[a-f0-9-]+$/);
++    expect(res.body).toHaveProperty('id');
++    expect(res.body).toHaveProperty('email', 'alice@example.com');
++    expect(res.body).toHaveProperty('name', 'Alice');
++    expect(res.body).toHaveProperty('role', 'member');
++    expect(res.body).toHaveProperty('createdAt');
++    expect(res.body).toHaveProperty('updatedAt');
++  });
++
++  it('POST /v1/users defaults role to member when omitted', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      email: 'bob@example.com',
++      name: 'Bob',
++    });
++    expect(res.status).toBe(201);
++    expect(res.body.role).toBe('member');
++  });
++
++  it('POST /v1/users accepts role when specified', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      email: 'charlie@example.com',
++      name: 'Charlie',
++      role: 'admin',
++    });
++    expect(res.status).toBe(201);
++    expect(res.body.role).toBe('admin');
++  });
++
++  it('POST /v1/users returns 409 when email already exists', async () => {
++    const app = createApp();
++    await request(app).post('/v1/users').send({
++      email: 'duplicate@example.com',
++      name: 'User One',
++    });
++    const res = await request(app).post('/v1/users').send({
++      email: 'duplicate@example.com',
++      name: 'User Two',
++    });
++    const problem = expectProblem(res, 409, 'conflict');
++    expect(problem.detail).toContain('duplicate@example.com');
++  });
++
++  it('POST /v1/users returns 422 when email is missing', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      name: 'Invalid User',
++    });
++    const problem = expectProblem(res, 422, 'validation');
++    expect(problem.detail).toContain('email');
++  });
++
++  it('POST /v1/users returns 422 when name is missing', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      email: 'nope@example.com',
++    });
++    const problem = expectProblem(res, 422, 'validation');
++    expect(problem.detail).toContain('name');
++  });
++
++  it('POST /v1/users returns 422 when email is invalid', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      email: 'not-an-email',
++      name: 'Bad Email',
++    });
++    const problem = expectProblem(res, 422, 'validation');
++    expect(problem.detail).toContain('email');
++  });
++
++  it('POST /v1/users returns 422 when name is empty', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      email: 'valid@example.com',
++      name: '',
++    });
++    const problem = expectProblem(res, 422, 'validation');
++    expect(problem.detail).toContain('name');
++  });
++
++  it('POST /v1/users returns 422 when name exceeds max length', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      email: 'valid@example.com',
++      name: 'a'.repeat(101),
++    });
++    const problem = expectProblem(res, 422, 'validation');
++    expect(problem.detail).toContain('name');
++  });
++
++  it('POST /v1/users returns 422 when role is invalid', async () => {
++    const app = createApp();
++    const res = await request(app).post('/v1/users').send({
++      email: 'valid@example.com',
++      name: 'Valid Name',
++      role: 'superuser',
++    });
++    const problem = expectProblem(res, 422, 'validation');
++    expect(problem.detail).toContain('role');
++  });
++
++  it('POST /v1/users returns 400 when JSON is malformed', async () => {
++    const app = createApp();
++    const res = await request(app)
++      .post('/v1/users')
++      .set('Content-Type', 'application/json')
++      .send('{"email":');
++    expectProblem(res, 400, 'malformed-json');
++  });
++
++  it('GET /v1/users returns paginated users', async () => {
++    const app = createApp();
++    await request(app).post('/v1/users').send({
++      email: 'user1@example.com',
++      name: 'User One',
++    });
++    await request(app).post('/v1/users').send({
++      email: 'user2@example.com',
++      name: 'User Two',
++    });
++
++    const res = await request(app).get('/v1/users');
++    expect(res.status).toBe(200);
++    expect(res.body).toHaveProperty('data');
++    expect(res.body).toHaveProperty('nextCursor');
++    expect(Array.isArray(res.body.data)).toBe(true);
++    expect(res.body.data.length).toBe(2);
++    expect(res.body.nextCursor).toBeNull();
++  });
++
++  it('GET /v1/users respects limit parameter', async () => {
++    const app = createApp();
++    for (let i = 0; i < 5; i++) {
++      await request(app).post('/v1/users').send({
++        email: `user${i}@example.com`,
++        name: `User ${i}`,
++      });
++    }
++
++    const res = await request(app).get('/v1/users?limit=2');
++    expect(res.status).toBe(200);
++    expect(res.body.data.length).toBe(2);
++    expect(res.body.nextCursor).toBeDefined();
++  });
++
++  it('GET /v1/users default limit is 20', async () => {
++    const app = createApp();
++    for (let i = 0; i < 5; i++) {
++      await request(app).post('/v1/users').send({
++        email: `user${i}@example.com`,
++        name: `User ${i}`,
++      });
++    }
++
++    const res = await request(app).get('/v1/users');
++    expect(res.status).toBe(200);
++    expect(res.body.data.length).toBe(5);
++  });
++
++  it('GET /v1/users follows nextCursor to visit every user exactly once', async () => {
++    const app = createApp();
++    const users: string[] = [];
++    for (let i = 0; i < 5; i++) {
++      const createRes = await request(app).post('/v1/users').send({
++        email: `user${i}@example.com`,
++        name: `User ${i}`,
++      });
++      users.push(createRes.body.id);
++    }
++
++    const allUsers: string[] = [];
++    let cursor: string | null = null;
++    let iterations = 0;
++    const maxIterations = 10;
++
++    do {
++      const query = cursor ? `?limit=2&cursor=${encodeURIComponent(cursor)}` : '?limit=2';
++      const res = await request(app).get(`/v1/users${query}`);
++      expect(res.status).toBe(200);
++
++      for (const user of res.body.data) {
++        expect(allUsers).not.toContain(user.id);
++        allUsers.push(user.id);
++      }
++
++      cursor = res.body.nextCursor;
++      iterations++;
++    } while (cursor !== null && iterations < maxIterations);
++
++    expect(allUsers).toHaveLength(5);
++    expect(allUsers).toEqual(expect.arrayContaining(users));
++  });
++
++  it('GET /v1/users returns 422 when limit is invalid', async () => {
++    const app = createApp();
++    const res = await request(app).get('/v1/users?limit=invalid');
++    expectProblem(res, 422, 'validation');
++  });
++
++  it('GET /v1/users returns 422 when limit exceeds max', async () => {
++    const app = createApp();
++    const res = await request(app).get('/v1/users?limit=101');
++    expectProblem(res, 422, 'validation');
++  });
++
++  it('GET /v1/users returns 422 when cursor is invalid', async () => {
++    const app = createApp();
++    const res = await request(app).get('/v1/users?cursor=invalid-cursor');
++    expectProblem(res, 422, 'validation');
++  });
++
++  it('GET /v1/users/{userId} returns the user', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'gettest@example.com',
++      name: 'Get Test',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).get(`/v1/users/${userId}`);
++    expect(res.status).toBe(200);
++    expect(res.body.id).toBe(userId);
++    expect(res.body.email).toBe('gettest@example.com');
++    expect(res.body.name).toBe('Get Test');
++  });
++
++  it('GET /v1/users/{userId} returns 404 when user not found', async () => {
++    const app = createApp();
++    const res = await request(app).get('/v1/users/00000000-0000-0000-0000-000000000000');
++    expectProblem(res, 404, 'not-found');
++  });
++
++  it('GET /v1/users/{userId} returns 404 for invalid UUID', async () => {
++    const app = createApp();
++    const res = await request(app).get('/v1/users/not-a-uuid');
++    expectProblem(res, 404, 'not-found');
++  });
++
++  it('PATCH /v1/users/{userId} updates email', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'original@example.com',
++      name: 'Original Name',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({
++      email: 'updated@example.com',
++    });
++    expect(res.status).toBe(200);
++    expect(res.body.email).toBe('updated@example.com');
++    expect(res.body.name).toBe('Original Name');
++  });
++
++  it('PATCH /v1/users/{userId} updates name', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'patchtest@example.com',
++      name: 'Original Name',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({
++      name: 'Updated Name',
++    });
++    expect(res.status).toBe(200);
++    expect(res.body.name).toBe('Updated Name');
++    expect(res.body.email).toBe('patchtest@example.com');
++  });
++
++  it('PATCH /v1/users/{userId} updates role', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'roletest@example.com',
++      name: 'Role Test',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({
++      role: 'admin',
++    });
++    expect(res.status).toBe(200);
++    expect(res.body.role).toBe('admin');
++  });
++
++  it('PATCH /v1/users/{userId} updates multiple fields', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'multi@example.com',
++      name: 'Multi Test',
++      role: 'member',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({
++      email: 'multi2@example.com',
++      name: 'Multi Test Updated',
++      role: 'admin',
++    });
++    expect(res.status).toBe(200);
++    expect(res.body.email).toBe('multi2@example.com');
++    expect(res.body.name).toBe('Multi Test Updated');
++    expect(res.body.role).toBe('admin');
++  });
++
++  it('PATCH /v1/users/{userId} returns 404 when user not found', async () => {
++    const app = createApp();
++    const res = await request(app).patch('/v1/users/00000000-0000-0000-0000-000000000000').send({
++      name: 'Updated',
++    });
++    expectProblem(res, 404, 'not-found');
++  });
++
++  it('PATCH /v1/users/{userId} returns 422 when empty patch', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'emptytest@example.com',
++      name: 'Empty Test',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({});
++    expectProblem(res, 422, 'validation');
++  });
++
++  it('PATCH /v1/users/{userId} returns 422 when name is empty string', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'patchvalidate@example.com',
++      name: 'Valid Name',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({
++      name: '',
++    });
++    expectProblem(res, 422, 'validation');
++  });
++
++  it('PATCH /v1/users/{userId} returns 422 when name exceeds max length', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'patchmax@example.com',
++      name: 'Valid Name',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({
++      name: 'a'.repeat(101),
++    });
++    expectProblem(res, 422, 'validation');
++  });
++
++  it('PATCH /v1/users/{userId} returns 422 when email is invalid', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'patchemail@example.com',
++      name: 'Email Test',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({
++      email: 'not-an-email',
++    });
++    expectProblem(res, 422, 'validation');
++  });
++
++  it('PATCH /v1/users/{userId} returns 409 when changing to duplicate email', async () => {
++    const app = createApp();
++    const res1 = await request(app).post('/v1/users').send({
++      email: 'user1@example.com',
++      name: 'User 1',
++    });
++    const userId1 = res1.body.id;
++
++    await request(app).post('/v1/users').send({
++      email: 'user2@example.com',
++      name: 'User 2',
++    });
++
++    const res = await request(app).patch(`/v1/users/${userId1}`).send({
++      email: 'user2@example.com',
++    });
++    expectProblem(res, 409, 'conflict');
++  });
++
++  it('PATCH /v1/users/{userId} returns 400 when JSON is malformed', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'malformed@example.com',
++      name: 'Malformed Test',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app)
++      .patch(`/v1/users/${userId}`)
++      .set('Content-Type', 'application/json')
++      .send('{"name":');
++    expectProblem(res, 400, 'malformed-json');
++  });
++
++  it('PATCH /v1/users/{userId} with invalid role', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'badrole@example.com',
++      name: 'Bad Role',
++    });
++    const userId = createRes.body.id;
++
++    const res = await request(app).patch(`/v1/users/${userId}`).send({
++      role: 'superuser',
++    });
++    expectProblem(res, 422, 'validation');
++  });
++
++  it('DELETE /v1/users/{userId} removes the user', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'deletetest@example.com',
++      name: 'Delete Test',
++    });
++    const userId = createRes.body.id;
++
++    const deleteRes = await request(app).delete(`/v1/users/${userId}`);
++    expect(deleteRes.status).toBe(204);
++    expect(deleteRes.body).toEqual({});
++
++    const getRes = await request(app).get(`/v1/users/${userId}`);
++    expectProblem(getRes, 404, 'not-found');
++  });
++
++  it('DELETE /v1/users/{userId} returns 404 when user not found', async () => {
++    const app = createApp();
++    const res = await request(app).delete('/v1/users/00000000-0000-0000-0000-000000000000');
++    expectProblem(res, 404, 'not-found');
++  });
++
++  it('POST /v1/users with Idempotency-Key replays the response for same body', async () => {
++    const app = createApp();
++    const body = {
++      email: 'idempotent@example.com',
++      name: 'Idempotent Test',
++    };
++
++    const res1 = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'key-123')
++      .send(body);
++    expect(res1.status).toBe(201);
++    const userId1 = res1.body.id;
++    const location1 = res1.headers.location;
++
++    const res2 = await request(app)
++      .post('/v1/users')
++      .set('Idempotency-Key', 'key-123')
++      .send(body);
++    expect(res2.status).toBe(201);
++    expect(res2.headers['idempotent-replayed']).toBe('true');
++    expect(res2.body.id).toBe(userId1);
++    expect(res2.headers.location).toBe(location1);
++  });
++
++  it('POST /v1/users with Idempotency-Key returns 422 for different body', async () => {
++    const app = createApp();
++    const key = 'key-different';
++
++    const res1 = await request(app).post('/v1/users').set('Idempotency-Key', key).send({
++      email: 'first@example.com',
++      name: 'First',
++    });
++    expect(res1.status).toBe(201);
++
++    const res2 = await request(app).post('/v1/users').set('Idempotency-Key', key).send({
++      email: 'second@example.com',
++      name: 'Second',
++    });
++    expectProblem(res2, 422, 'idempotency-key-reuse');
++  });
++
++  it('PATCH /v1/users/{userId} with Idempotency-Key replays the response for same body', async () => {
++    const app = createApp();
++    const createRes = await request(app).post('/v1/users').send({
++      email: 'patchidempotent@example.com',
++      name: 'Patch Idempotent',
++    });
++    const userId = createRes.body.id;
++
++    const patchBody = { name: 'Updated Name' };
++
++    const res1 = await request(app)
++      .patch(`/v1/users/${userId}`)
++      .set('Idempotency-Key', 'patch-key-123')
++      .send(patchBody);
++    expect(res1.status).toBe(200);
++    expect(res1.body.name).toBe('Updated Name');
++
++    const res2 = await request(app)
++      .patch(`/v1/users/${userId}`)
++      .set('Idempotency-Key', 'patch-key-123')
++      .send(patchBody);
++    expect(res2.status).toBe(200);
++    expect(res2.headers['idempotent-replayed']).toBe('true');
++    expect(res2.body.name).toBe('Updated Name');
++  });
++
++  it('POST /v1/users without Idempotency-Key is not replayed', async () => {
++    const app = createApp();
++    const body = {
++      email: 'nokey@example.com',
++      name: 'No Key',
++    };
++
++    const res1 = await request(app).post('/v1/users').send(body);
++    expect(res1.status).toBe(201);
++    const userId1 = res1.body.id;
++
++    const res2 = await request(app).post('/v1/users').send(body);
++    expect(res2.status).toBe(409);
++  });
++
++  it('Multiple users can be created and listed', async () => {
++    const app = createApp();
++    const emails = ['alice@test.com', 'bob@test.com', 'charlie@test.com'];
++
++    for (const email of emails) {
++      const res = await request(app).post('/v1/users').send({
++        email,
++        name: email.split('@')[0],
++      });
++      expect(res.status).toBe(201);
++    }
++
++    const listRes = await request(app).get('/v1/users');
++    expect(listRes.status).toBe(200);
++    expect(listRes.body.data.length).toBe(3);
++    const returnedEmails = listRes.body.data.map((u: {email: string}) => u.email);
++    expect(returnedEmails).toEqual(expect.arrayContaining(emails));
++  });
++
++  it('Each app instance has its own store', async () => {
++    const app1 = createApp();
++    const app2 = createApp();
++
++    const res1 = await request(app1).post('/v1/users').send({
++      email: 'store1@example.com',
++      name: 'Store 1',
++    });
++    expect(res1.status).toBe(201);
++
++    const res2 = await request(app2).get('/v1/users');
++    expect(res2.status).toBe(200);
++    expect(res2.body.data.length).toBe(0);
++  });
++});

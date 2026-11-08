@@ -1,0 +1,4 @@
+verdict 95% over the whole API (brownfield, strict: the standards rules must be 100%)
+must fix (in scope): rest-conventions src/modules/health/routes.ts:5:1  GET /v1/health: collection GET must parse req.query with a cursor schema that has cursor and limit
+must fix (in scope): rest-conventions src/modules/health/routes.ts:6:3  GET /v1/health: collection response must be a page schema with data (array) and nextCursor, e.g. pageSchema(ItemSchema).parse(...)
+must fix (in scope): zod-boundary src/modules/health/routes.ts:6:3  GET /v1/health: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)

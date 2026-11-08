@@ -1,0 +1,7 @@
+additive  GET /v1/labels  new route
+additive  POST /v1/labels  new route
+additive  GET /v1/labels/:labelId  new route
+
+warnings:
+  POST /v1/labels: 201 body is not parsed with a schema; tracked by source text only
+  GET /v1/labels/:labelId: 200 body is not parsed with a schema; tracked by source text only

@@ -1,0 +1,39 @@
+--- a/src/routes/users.ts
++++ b/src/routes/users.ts
+@@ -10,27 +10,14 @@
+ const PatchSchema = CreateSchema.partial().refine(value => Object.keys(value).length > 0, 'at least one field is required');
+ const IdSchema = z.object({ userId: z.string().uuid() });
+ type User = z.infer<typeof UserSchema>;
+-
+-function reject(next: NextFunction, result: { success: boolean; data?: unknown; error?: { issues: readonly { path: PropertyKey[]; message: string }[] } }): boolean {
+-  if (!result.success) { next(unprocessable(result.error?.issues.map(issue => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; ') ?? 'Invalid request')); return false; }
+-  return true;
+-}
+-
++type ParseResult = { success: boolean; data?: unknown; error?: { issues: readonly { path: PropertyKey[]; message: string }[] } };
++function reject(next: NextFunction, result: ParseResult): result is { success: true; data: unknown } { if (!result.success) { next(unprocessable(result.error?.issues.map(issue => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; ') ?? 'Invalid request')); return false; } return true; }
+ export function usersRouter(): Router {
+-  const router = Router();
+-  const users: User[] = [];
+-  const find = (request: Request): User => {
+-    const parsed = IdSchema.safeParse(request.params);
+-    if (!parsed.success) throw unprocessable(parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '));
+-    const params = parsed.data;
+-    const user = users.find(item => item.id === params.userId);
+-    if (!user) throw notFound('User not found');
+-    return user;
+-  };
+-  router.post('/', idempotency(), (request, response, next) => { try { const parsed = CreateSchema.safeParse(request.body); if (!parsed.success) { next(unprocessable(parsed.error.issues.map(issue => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '))); return; } const input = parsed.data; if (users.some(user => user.email === input.email)) throw conflict('email already exists'); const now = new Date().toISOString(); const user: User = { id: randomUUID(), ...input, createdAt: now, updatedAt: now }; users.push(user); response.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user)); } catch (error) { next(error); } });
+-  router.get('/', (request, response, next) => { try { const query = CursorQuerySchema.safeParse(request.query); if (!reject(next, query)) return; response.json(pageSchema(UserSchema).parse(paginate(users, query.data, user => user.id))); } catch (error) { next(error); } });
+-  router.get('/:userId', (request, response, next) => { try { response.json(UserSchema.parse(find(request))); } catch (error) { next(error); } });
+-  router.patch('/:userId', idempotency(), (request, response, next) => { try { const user = find(request); const parsed = PatchSchema.safeParse(request.body); if (!reject(next, parsed)) return; if (parsed.data.email && users.some(item => item.email === parsed.data.email && item.id !== user.id)) throw conflict('email already exists'); Object.assign(user, parsed.data, { updatedAt: new Date().toISOString() }); response.json(UserSchema.parse(user)); } catch (error) { next(error); } });
+-  router.delete('/:userId', (request, response, next) => { try { const user = find(request); users.splice(users.indexOf(user), 1); response.status(204).send(); } catch (error) { next(error); } });
+-  return router;
++ const router = Router(); const users: User[] = [];
++ const find = (request: Request): User => { const parsed = IdSchema.safeParse(request.params); if (!parsed.success) throw unprocessable(parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ')); const user = users.find(item => item.id === parsed.data.userId); if (!user) throw notFound('User not found'); return user; };
++ router.post('/', idempotency(), (request, response, next) => { try { const parsed = CreateSchema.safeParse(request.body); if (!reject(next, parsed)) return; const input = parsed.data as z.infer<typeof CreateSchema>; if (users.some(user => user.email === input.email)) throw conflict('email already exists'); const now = new Date().toISOString(); const user: User = { id: randomUUID(), ...input, createdAt: now, updatedAt: now }; users.push(user); response.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user)); } catch (error) { next(error); } });
++ router.get('/', (request, response, next) => { try { const query = CursorQuerySchema.safeParse(request.query); if (!reject(next, query)) return; const parsedQuery = query.data as z.infer<typeof CursorQuerySchema>; response.json(pageSchema(UserSchema).parse(paginate(users, parsedQuery, user => user.id))); } catch (error) { next(error); } });
++ router.get('/:userId', (request, response, next) => { try { response.json(UserSchema.parse(find(request))); } catch (error) { next(error); } });
++ router.patch('/:userId', idempotency(), (request, response, next) => { try { const user = find(request); const parsed = PatchSchema.safeParse(request.body); if (!reject(next, parsed)) return; const input = parsed.data as z.infer<typeof PatchSchema>; if (input.email && users.some(item => item.email === input.email && item.id !== user.id)) throw conflict('email already exists'); Object.assign(user, input, { updatedAt: new Date().toISOString() }); response.json(UserSchema.parse(user)); } catch (error) { next(error); } });
++ router.delete('/:userId', (request, response, next) => { try { const user = find(request); users.splice(users.indexOf(user), 1); response.status(204).send(); } catch (error) { next(error); } }); return router;
+ }

@@ -1,0 +1,75 @@
+{
+  "phase": "finish",
+  "ok": false,
+  "results": [
+    {
+      "gate": "contract-lock",
+      "status": "pass",
+      "summary": "contract preserved (4 → 7 endpoints, via runtime): 3 additive (GET /v1/labels: new route; POST /v1/labels: new route; GET /v1/labels/:labelId: new route)",
+      "logPath": "runs/labels-claude-20261108-073951/logs/029-contract-diff.txt"
+    },
+    {
+      "gate": "diff-budget",
+      "status": "pass",
+      "summary": "362 changed lines in 5 file(s), within the budget of 400",
+      "details": [
+        "samples/existing-api/test/labels.test.ts: 274 changed lines",
+        "samples/existing-api/src/modules/labels/routes.ts: 36 changed lines",
+        "samples/existing-api/src/modules/labels/schema.ts: 26 changed lines",
+        "samples/existing-api/src/modules/labels/store.ts: 24 changed lines",
+        "samples/existing-api/src/app.ts: 2 changed lines"
+      ]
+    },
+    {
+      "gate": "observed-red",
+      "status": "pass",
+      "summary": "6 red observations (1 test files); 4 changed source files went red -> green (4 on unchanged cases, 0 on edited cases by differential proof), red again with the original source (each file reverted alone)"
+    },
+    {
+      "gate": "orphans",
+      "status": "pass",
+      "summary": "3 created files, all imported by a test or by existing code"
+    },
+    {
+      "gate": "scope",
+      "status": "pass",
+      "summary": "5 changed files, all in scope"
+    },
+    {
+      "gate": "spec-coverage",
+      "status": "n/a",
+      "summary": "not applicable to brownfield tasks"
+    },
+    {
+      "gate": "stakeholder-yes",
+      "status": "pass",
+      "summary": "Abdul Basit approved proposal seq 1 in a typed turn (seq 3)"
+    },
+    {
+      "gate": "standards",
+      "status": "fail",
+      "summary": "verdict 96% over the whole API (brownfield, strict: the standards rules must be 100%): 2 standards violation(s) to fix",
+      "details": [
+        "must fix (in scope): zod-boundary src/modules/labels/routes.ts:23:3  POST /v1/labels: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)",
+        "must fix (in scope): zod-boundary src/modules/labels/routes.ts:35:3  GET /v1/labels/:labelId: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)"
+      ],
+      "logPath": "runs/labels-claude-20261108-073951/logs/043-standards-brownfield.txt",
+      "failing": 2
+    },
+    {
+      "gate": "tests-green",
+      "status": "fail",
+      "summary": "6 of 42 tests failed in 2 files",
+      "details": [
+        "tests: 6 failed, 36 passed (42) in 2 files",
+        "FAIL test/labels.test.ts > Labels > GET /v1/labels > returns empty list when no labels exist: expected [ { …(4) }, { …(4) }, { …(4) }, …(4) ] to deeply equal []",
+        "FAIL test/labels.test.ts > Labels > GET /v1/labels > lists all labels created: expected [ { …(4) }, { …(4) }, { …(4) }, …(6) ] to have a length of 2 but got 9",
+        "FAIL test/labels.test.ts > Labels > GET /v1/labels > supports cursor pagination with limit parameter: expected [ { …(4) }, { …(4) } ] to have a length of 1 but got 2",
+        "FAIL test/labels.test.ts > Labels > GET /v1/labels > following nextCursor visits every label exactly once: expected Set{ …(22) } to deeply equal Set{ …(10) }",
+        "FAIL test/labels.test.ts > Labels > GET /v1/labels > rejects invalid cursor with 422: expected 'https://api.sf/problems/invalid-cursor' to contain 'malformed-cursor'",
+        "FAIL test/labels.test.ts > Labels > GET /v1/labels/{labelId} > returns 422 application/problem+json for malformed UUID: expected 'https://api.sf/problems/validation' to contain 'malformed-id'"
+      ],
+      "logPath": "runs/labels-claude-20261108-073951/logs/044-vitest.txt"
+    }
+  ]
+}

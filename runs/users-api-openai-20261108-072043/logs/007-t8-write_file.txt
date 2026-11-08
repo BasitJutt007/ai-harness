@@ -1,0 +1,28 @@
+--- /dev/null
++++ b/src/routes/users.ts
+@@ -0,0 +1,25 @@
++import { randomUUID } from 'node:crypto';
++import { Router, type Request, type Response, type NextFunction } from 'express';
++import { z } from 'zod';
++import { CursorQuerySchema, paginate, pageSchema } from '../lib/pagination.ts';
++import { conflict, notFound, unprocessable } from '../lib/problem.ts';
++import { idempotency } from '../lib/idempotency.ts';
++
++const UserSchema = z.object({ id: z.string().uuid(), email: z.string().email(), name: z.string().min(1).max(100), role: z.enum(['admin','member']), createdAt: z.string().datetime(), updatedAt: z.string().datetime() });
++const CreateSchema = z.object({ email: z.string().email(), name: z.string().min(1).max(100), role: z.enum(['admin','member']).default('member') });
++const PatchSchema = CreateSchema.partial().refine(v => Object.keys(v).length > 0);
++const IdSchema = z.object({ userId: z.string().uuid() });
++const StoreSchema = UserSchema;
++type User = z.infer<typeof UserSchema>;
++
++function validation(next: NextFunction, result: z.SafeParseReturnType<unknown, unknown>): boolean { if (!result.success) { next(unprocessable(result.error.issues.map(i => `${i.path.join('.') || 'request'}: ${i.message}`).join('; '))); return false; } return true; }
++export function usersRouter(): Router {
++ const r=Router(); const users: User[]=[];
++ const find=(req: Request): User => { const p=IdSchema.safeParse(req.params); if(!p.success) throw unprocessable(p.error.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('; ')); const u=users.find(x=>x.id===p.data.userId); if(!u) throw notFound('User not found'); return u; };
++ r.post('/', idempotency(), (req,res,next)=>{ try { const p=CreateSchema.safeParse(req.body); if(!validation(next,p)) return; if(users.some(u=>u.email===p.data.email)) throw conflict('email already exists'); const now=new Date().toISOString(); const u:User={id:randomUUID(),...p.data,createdAt:now,updatedAt:now}; users.push(u); res.status(201).location(`/v1/users/${u.id}`).json(UserSchema.parse(u)); } catch(e){next(e);} });
++ r.get('/',(req,res,next)=>{try{const q=CursorQuerySchema.safeParse(req.query);if(!validation(next,q))return;res.json(pageSchema(UserSchema).parse(paginate(users,q.data,u=>u.id)));}catch(e){next(e);}});
++ r.get('/:userId',(req,res,next)=>{try{res.json(UserSchema.parse(find(req)));}catch(e){next(e);}});
++ r.patch('/:userId',idempotency(),(req,res,next)=>{try{const u=find(req);const p=PatchSchema.safeParse(req.body);if(!validation(next,p))return;if(p.data.email&&users.some(x=>x.email===p.data.email&&x.id!==u.id))throw conflict('email already exists');Object.assign(u,p.data,{updatedAt:new Date().toISOString()});res.json(UserSchema.parse(u));}catch(e){next(e);}});
++ r.delete('/:userId',(req,res,next)=>{try{const u=find(req);users.splice(users.indexOf(u),1);res.status(204).send();}catch(e){next(e);}});
++ return r;
++}

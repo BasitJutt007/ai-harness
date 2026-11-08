@@ -1,0 +1,11 @@
+--- a/src/routes/users.ts
++++ b/src/routes/users.ts
+@@ -27,7 +27,7 @@
+     if (!user) throw notFound('User not found');
+     return user;
+   };
+-  router.post('/', idempotency(), (request, response, next) => { try { const parsed = CreateSchema.safeParse(request.body); if (!reject(next, parsed)) return; if (users.some(user => user.email === parsed.data.email)) throw conflict('email already exists'); const now = new Date().toISOString(); const user: User = { id: randomUUID(), ...parsed.data, createdAt: now, updatedAt: now }; users.push(user); response.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user)); } catch (error) { next(error); } });
++  router.post('/', idempotency(), (request, response, next) => { try { const parsed = CreateSchema.safeParse(request.body); if (!reject(next, parsed)) return; const input = parsed.data; if (users.some(user => user.email === input.email)) throw conflict('email already exists'); const now = new Date().toISOString(); const user: User = { id: randomUUID(), ...input, createdAt: now, updatedAt: now }; users.push(user); response.status(201).location(`/v1/users/${user.id}`).json(UserSchema.parse(user)); } catch (error) { next(error); } });
+   router.get('/', (request, response, next) => { try { const query = CursorQuerySchema.safeParse(request.query); if (!reject(next, query)) return; response.json(pageSchema(UserSchema).parse(paginate(users, query.data, user => user.id))); } catch (error) { next(error); } });
+   router.get('/:userId', (request, response, next) => { try { response.json(UserSchema.parse(find(request))); } catch (error) { next(error); } });
+   router.patch('/:userId', idempotency(), (request, response, next) => { try { const user = find(request); const parsed = PatchSchema.safeParse(request.body); if (!reject(next, parsed)) return; if (parsed.data.email && users.some(item => item.email === parsed.data.email && item.id !== user.id)) throw conflict('email already exists'); Object.assign(user, parsed.data, { updatedAt: new Date().toISOString() }); response.json(UserSchema.parse(user)); } catch (error) { next(error); } });

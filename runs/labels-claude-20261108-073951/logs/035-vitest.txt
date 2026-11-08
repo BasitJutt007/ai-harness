@@ -1,0 +1,227 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/labels.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api
+
+ ❯ test/labels.test.ts (25 tests | 6 failed) 92ms
+   ❯ Labels (25)
+     ✓ POST /v1/labels (12)
+       ✓ creates a label with valid body and returns 201 with Location header 19ms
+       ✓ validates name length: rejects empty name with 422 4ms
+       ✓ validates name length: rejects name over 40 chars with 422 2ms
+       ✓ validates name length: accepts exactly 40 char name 1ms
+       ✓ validates color format: rejects invalid hex string with 422 1ms
+       ✓ validates color format: rejects missing # prefix with 422 1ms
+       ✓ validates color format: accepts valid 6-digit hex 1ms
+       ✓ validates color format: accepts uppercase hex 2ms
+       ✓ rejects multiple invalid fields with all named in 422 response 3ms
+       ✓ honours Idempotency-Key header: same key with same body replays first response 3ms
+       ✓ honours Idempotency-Key header: creates second label with different key 2ms
+       ✓ rejects malformed JSON with 400 application/problem+json 2ms
+     ❯ GET /v1/labels (7)
+       × returns empty list when no labels exist 14ms
+       × lists all labels created 4ms
+       × supports cursor pagination with limit parameter 4ms
+       × following nextCursor visits every label exactly once 14ms
+       × rejects invalid cursor with 422 2ms
+       ✓ rejects invalid limit with 422 1ms
+       ✓ rejects negative limit with 422 1ms
+     ❯ GET /v1/labels/{labelId} (4)
+       ✓ returns the label when it exists 2ms
+       ✓ returns 404 application/problem+json when label does not exist 1ms
+       × returns 422 application/problem+json for malformed UUID 1ms
+       ✓ returns 422 with detail naming the malformed field 1ms
+     ✓ existing projects routes unchanged (2)
+       ✓ POST /v1/projects still works 1ms
+       ✓ GET /v1/projects still works 2ms
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 19 passed (25)
+   Start at  12:43:28
+   Duration  313ms (import 40%, tests 40%, transform 20%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > returns empty list when no labels exist
+AssertionError: expected [ { …(4) }, { …(4) }, { …(4) }, …(4) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "color": "#ff0000",
++     "createdAt": "2026-11-08T07:43:28.453Z",
++     "id": "5c6fb230-6ba2-4fec-86a4-f936341aeb84",
++     "name": "Bug",
++   },
++   {
++     "color": "#ff0000",
++     "createdAt": "2026-11-08T07:43:28.463Z",
++     "id": "4e687e54-2960-409c-8e81-018756488cec",
++     "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++   },
++   {
++     "color": "#123abc",
++     "createdAt": "2026-11-08T07:43:28.467Z",
++     "id": "2b254777-b3c7-4b52-8904-84b31507f755",
++     "name": "Bug",
++   },
++   {
++     "color": "#AABBCC",
++     "createdAt": "2026-11-08T07:43:28.469Z",
++     "id": "e58521ba-d6e7-4be3-b710-9aef0e30f973",
++     "name": "Bug",
++   },
++   {
++     "color": "#00ff00",
++     "createdAt": "2026-11-08T07:43:28.474Z",
++     "id": "1b4ed578-80ae-4dc6-8c28-ff7b806c688d",
++     "name": "Feature",
++   },
++   {
++     "color": "#00ff00",
++     "createdAt": "2026-11-08T07:43:28.476Z",
++     "id": "9123a79e-eb22-4199-a0ca-f199fa5d430e",
++     "name": "Feature",
++   },
++   {
++     "color": "#00ff00",
++     "createdAt": "2026-11-08T07:43:28.477Z",
++     "id": "4994fcd7-2b65-4105-802e-a5e399b55a80",
++     "name": "Feature",
++   },
++ ]
+
+ ❯ test/labels.test.ts:140:29
+    138|       expect(res.body).toHaveProperty('data');
+    139|       expect(res.body).toHaveProperty('nextCursor');
+    140|       expect(res.body.data).toEqual([]);
+       |                             ^
+    141|       expect(res.body.nextCursor).toBeNull();
+    142|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > lists all labels created
+AssertionError: expected [ { …(4) }, { …(4) }, { …(4) }, …(6) ] to have a length of 2 but got 9
+
+- Expected
++ Received
+
+- 2
++ 9
+
+ ❯ test/labels.test.ts:151:29
+    149|
+    150|       expect(res.status).toBe(200);
+    151|       expect(res.body.data).toHaveLength(2);
+       |                             ^
+    152|       const ids = res.body.data.map((l: Label) => l.id);
+    153|       expect(ids).toContain(label1.body.id);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > supports cursor pagination with limit parameter
+AssertionError: expected [ { …(4) }, { …(4) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ test/labels.test.ts:170:31
+    168|       const page2 = await request(app).get(`/v1/labels?cursor=${page1.…
+    169|       expect(page2.status).toBe(200);
+    170|       expect(page2.body.data).toHaveLength(1);
+       |                               ^
+    171|       expect(page2.body.nextCursor).toBeNull();
+    172|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > following nextCursor visits every label exactly once
+AssertionError: expected Set{ …(22) } to deeply equal Set{ …(10) }
+
+- Expected
++ Received
+
+  Set {
++   "0279b2e7-f406-4a68-9739-dcda6e3659bd",
++   "13f28fda-476f-422a-a1d1-45fcebd89a1e",
++   "1b4ed578-80ae-4dc6-8c28-ff7b806c688d",
+    "1b5e8b95-315f-4d5b-8a0a-f1e02bd980d9",
++   "2b254777-b3c7-4b52-8904-84b31507f755",
++   "32579ffe-54e9-4fc0-9844-7f70a249b916",
+    "45352ace-53e7-4671-a132-282f22e484d9",
++   "4994fcd7-2b65-4105-802e-a5e399b55a80",
+    "4c8415e3-cc86-490e-bf3e-a759ee42120a",
++   "4e687e54-2960-409c-8e81-018756488cec",
++   "5c6fb230-6ba2-4fec-86a4-f936341aeb84",
+    "61326d80-0a62-4a5e-8f04-ca50d6417498",
+    "6ee726d9-8dba-4aad-bc67-0aea00adb7c2",
++   "71010602-21f6-4dbe-b833-7b07c89aff06",
+    "753d2d3d-6b9d-4d86-a8c3-d00281de1a15",
+    "7bc0c6e8-9734-463b-bd21-d18e1b769877",
++   "9123a79e-eb22-4199-a0ca-f199fa5d430e",
+    "c80fcdf2-cf47-45c4-8f8a-4aa3ed089f4b",
++   "e58521ba-d6e7-4be3-b710-9aef0e30f973",
++   "e6cb2a18-dba7-46d1-a664-8f2ab63e8d11",
+    "f0f0f9f6-64ad-4727-a80d-5eee03a279ed",
+    "fd0a682b-cd0c-49c1-b0e8-41c7ecd8aeb1",
+  }
+
+ ❯ test/labels.test.ts:205:26
+    203|       }
+    204|
+    205|       expect(visitedIds).toEqual(labelIds);
+       |                          ^
+    206|     });
+    207|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > rejects invalid cursor with 422
+AssertionError: expected 'https://api.sf/problems/invalid-cursor' to contain 'malformed-cursor'
+
+Expected: "malformed-cursor"
+Received: "https://api.sf/problems/invalid-cursor"
+
+ ❯ expectProblem test/labels.test.ts:28:25
+     26|     expect(body.status).toBe(expectedStatus);
+     27|     if (expectedType) {
+     28|       expect(body.type).toContain(expectedType);
+       |                         ^
+     29|     }
+     30|   }
+ ❯ test/labels.test.ts:210:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels/{labelId} > returns 422 application/problem+json for malformed UUID
+AssertionError: expected 'https://api.sf/problems/validation' to contain 'malformed-id'
+
+Expected: "malformed-id"
+Received: "https://api.sf/problems/validation"
+
+ ❯ expectProblem test/labels.test.ts:28:25
+     26|     expect(body.status).toBe(expectedStatus);
+     27|     if (expectedType) {
+     28|       expect(body.type).toContain(expectedType);
+       |                         ^
+     29|     }
+     30|   }
+ ❯ test/labels.test.ts:248:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+--- json ---
+{"numTotalTestSuites":6,"numPassedTestSuites":2,"numFailedTestSuites":4,"numPendingTestSuites":0,"numTotalTests":25,"numPassedTests":19,"numFailedTests":6,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794123808226,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels creates a label with valid body and returns 201 with Location header","status":"passed","title":"creates a label with valid body and returns 201 with Location header","duration":18.815334000000007,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels validates name length: rejects empty name with 422","status":"passed","title":"validates name length: rejects empty name with 422","duration":4.318958000000009,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels validates name length: rejects name over 40 chars with 422","status":"passed","title":"validates name length: rejects name over 40 chars with 422","duration":1.5709590000000162,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels validates name length: accepts exactly 40 char name","status":"passed","title":"validates name length: accepts exactly 40 char name","duration":1.2582500000000039,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels validates color format: rejects invalid hex string with 422","status":"passed","title":"validates color format: rejects invalid hex string with 422","duration":1.462582999999995,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels validates color format: rejects missing # prefix with 422","status":"passed","title":"validates color format: rejects missing # prefix with 422","duration":1.2324999999999875,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels validates color format: accepts valid 6-digit hex","status":"passed","title":"validates color format: accepts valid 6-digit hex","duration":1.0458329999999876,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels validates color format: accepts uppercase hex","status":"passed","title":"validates color format: accepts uppercase hex","duration":1.9375839999999869,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels rejects multiple invalid fields with all named in 422 response","status":"passed","title":"rejects multiple invalid fields with all named in 422 response","duration":2.6037919999999986,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels honours Idempotency-Key header: same key with same body replays first response","status":"passed","title":"honours Idempotency-Key header: same key with same body replays first response","duration":3.4091250000000173,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels honours Idempotency-Key header: creates second label with different key","status":"passed","title":"honours Idempotency-Key header: creates second label with different key","duration":2.162125000000003,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","POST /v1/labels"],"fullName":"Labels POST /v1/labels rejects malformed JSON with 400 application/problem+json","status":"passed","title":"rejects malformed JSON with 400 application/problem+json","duration":2.1789159999999868,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels"],"fullName":"Labels GET /v1/labels returns empty list when no labels exist","status":"failed","title":"returns empty list when no labels exist","duration":14.234125000000006,"failureMessages":["AssertionError: expected [ { …(4) }, { …(4) }, { …(4) }, …(4) ] to deeply equal []\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts:140:29\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels"],"fullName":"Labels GET /v1/labels lists all labels created","status":"failed","title":"lists all labels created","duration":4.237957999999992,"failureMessages":["AssertionError: expected [ { …(4) }, { …(4) }, { …(4) }, …(6) ] to have a length of 2 but got 9\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:2147:20)\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:1944:14)\n    at Proxy.methodWrapper (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/chai/index.js:1737:25)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts:151:29\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels"],"fullName":"Labels GET /v1/labels supports cursor pagination with limit parameter","status":"failed","title":"supports cursor pagination with limit parameter","duration":4.305250000000001,"failureMessages":["AssertionError: expected [ { …(4) }, { …(4) } ] to have a length of 1 but got 2\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:2147:20)\n    at Proxy.<anonymous> (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/index.C4tKZ0yW.js:1944:14)\n    at Proxy.methodWrapper (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/chai/index.js:1737:25)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts:170:31\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels"],"fullName":"Labels GET /v1/labels following nextCursor visits every label exactly once","status":"failed","title":"following nextCursor visits every label exactly once","duration":13.520375000000001,"failureMessages":["AssertionError: expected Set{ …(22) } to deeply equal Set{ …(10) }\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts:205:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels"],"fullName":"Labels GET /v1/labels rejects invalid cursor with 422","status":"failed","title":"rejects invalid cursor with 422","duration":1.984583999999984,"failureMessages":["AssertionError: expected 'https://api.sf/problems/invalid-cursor' to contain 'malformed-cursor'\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts:28:25)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts:210:7\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels"],"fullName":"Labels GET /v1/labels rejects invalid limit with 422","status":"passed","title":"rejects invalid limit with 422","duration":1.2483330000000024,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels"],"fullName":"Labels GET /v1/labels rejects negative limit with 422","status":"passed","title":"rejects negative limit with 422","duration":1.0215839999999616,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels/{labelId}"],"fullName":"Labels GET /v1/labels/{labelId} returns the label when it exists","status":"passed","title":"returns the label when it exists","duration":1.8264580000000024,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels/{labelId}"],"fullName":"Labels GET /v1/labels/{labelId} returns 404 application/problem+json when label does not exist","status":"passed","title":"returns 404 application/problem+json when label does not exist","duration":0.9297500000000127,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels/{labelId}"],"fullName":"Labels GET /v1/labels/{labelId} returns 422 application/problem+json for malformed UUID","status":"failed","title":"returns 422 application/problem+json for malformed UUID","duration":1.29362500000002,"failureMessages":["AssertionError: expected 'https://api.sf/problems/validation' to contain 'malformed-id'\n    at expectProblem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts:28:25)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts:248:7\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","GET /v1/labels/{labelId}"],"fullName":"Labels GET /v1/labels/{labelId} returns 422 with detail naming the malformed field","status":"passed","title":"returns 422 with detail naming the malformed field","duration":0.9755420000000186,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","existing projects routes unchanged"],"fullName":"Labels existing projects routes unchanged POST /v1/projects still works","status":"passed","title":"POST /v1/projects still works","duration":1.4926250000000323,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels","existing projects routes unchanged"],"fullName":"Labels existing projects routes unchanged GET /v1/projects still works","status":"passed","title":"GET /v1/projects still works","duration":1.691250000000025,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123808437,"endTime":1794123808528.6912,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-93647-686f70b3/1a1e6f14de38/samples/existing-api/test/labels.test.ts"}]}

@@ -1,0 +1,59 @@
+--- /dev/null
++++ b/test/labels.test.ts
+@@ -0,0 +1,56 @@
++import request from 'supertest';
++import { describe, expect, it } from 'vitest';
++import { z } from 'zod';
++import { createApp } from '../src/app.ts';
++import { ProblemSchema } from '../src/lib/problem.ts';
++
++const app = createApp();
++const Label = z.strictObject({ id: z.uuid(), name: z.string(), color: z.string(), createdAt: z.iso.datetime() });
++const Page = z.strictObject({ data: z.array(Label), nextCursor: z.string().nullable() });
++const unknownId = '00000000-0000-4000-8000-000000000000';
++const problem = async (res: request.Response, status: number) => {
++  expect(res.status).toBe(status);
++  expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
++  return ProblemSchema.parse(res.body);
++};
++
++describe('labels', () => {
++  it('creates labels with location', async () => {
++    const res = await request(app).post('/v1/labels').send({ name: 'urgent', color: '#1a2b3c' });
++    expect(res.status).toBe(201);
++    const label = Label.parse(res.body);
++    expect(res.headers.location).toBe(`/v1/labels/${label.id}`);
++  });
++  it('validates name and color', async () => {
++    const result = await problem(await request(app).post('/v1/labels').send({ name: '', color: 'red' }), 422);
++    expect(result.detail).toContain('name');
++    expect(result.detail).toContain('color');
++  });
++  it('replays idempotent creation', async () => {
++    const key = 'label-idempotency';
++    const body = { name: 'same', color: '#123456' };
++    const first = await request(app).post('/v1/labels').set('Idempotency-Key', key).send(body);
++    const second = await request(app).post('/v1/labels').set('Idempotency-Key', key).send(body);
++    expect(second.headers['idempotent-replayed']).toBe('true');
++    expect(Label.parse(second.body).id).toBe(Label.parse(first.body).id);
++  });
++  it('paginates all labels and retrieves one', async () => {
++    const created = await Promise.all([1, 2, 3].map((n) => request(app).post('/v1/labels').send({ name: `label${n}`, color: '#abcdef' })));
++    const expected = created.map((res) => Label.parse(res.body).id);
++    const seen: string[] = [];
++    let cursor: string | undefined;
++    do {
++      const res = await request(app).get('/v1/labels').query(cursor === undefined ? { limit: 2 } : { limit: 2, cursor });
++      const page = Page.parse(res.body);
++      seen.push(...page.data.map((label) => label.id));
++      cursor = page.nextCursor ?? undefined;
++    } while (cursor !== undefined);
++    expect(new Set(seen).size).toBe(seen.length);
++    expect(expected.every((id) => seen.includes(id))).toBe(true);
++    expect(Label.parse((await request(app).get(`/v1/labels/${expected[0]}`)).body).id).toBe(expected[0]);
++  });
++  it('reports unknown and malformed ids', async () => {
++    await problem(await request(app).get(`/v1/labels/${unknownId}`), 404);
++    await problem(await request(app).get('/v1/labels/not-a-uuid'), 422);
++  });
++});

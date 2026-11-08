@@ -1,0 +1,40 @@
+{
+  "file": "/Users/abdulbasit/Documents/GitHub/ai-harness/tasks/labels.task.yaml",
+  "format": "yaml",
+  "strict": false,
+  "sha256": "ddd3cfba84d612643e8c8299547f41a6097302d4ce3c3b73f29aafa990c70721",
+  "normalizedSha256": "4bea7da96d669b3b484adb79ee8a89888a354ec6c203cf01003e17c53c343275",
+  "warnings": [],
+  "scopeSource": "task",
+  "task": {
+    "kind": "brownfield",
+    "id": "labels",
+    "title": "A Labels resource for the Projects API",
+    "behaviours": [
+      "POST /v1/labels with a valid body returns 201, the created label and a Location header pointing at it.",
+      "POST /v1/labels with an invalid name or color returns 422 application/problem+json naming each failing field.",
+      "POST /v1/labels repeated with the same Idempotency-Key and body replays the first response and creates no second label.",
+      "GET /v1/labels is cursor-paginated: following nextCursor visits every label exactly once.",
+      "GET /v1/labels/{labelId} returns the label; an unknown id returns 404 and a malformed id 422, both application/problem+json.",
+      "All existing tests keep passing and the public contract only gains routes and properties."
+    ],
+    "limits": {
+      "maxTurns": 40,
+      "maxOutputTokens": 16000
+    },
+    "target": "samples/existing-api",
+    "change": "Add a Labels resource in its own module (src/modules/labels), registered on the app next\nto the projects routes, following the API's existing conventions exactly:\n\n1. POST /v1/labels creates a label { name, color }: name 1-40 characters, color a hex\n   string like \"#1a2b3c\". It answers 201 with the label (id, name, color, createdAt) and a\n   Location header, honours the Idempotency-Key header like the projects routes, and\n   answers 422 application/problem+json for an invalid body.\n2. GET /v1/labels lists labels with cursor pagination (cursor + limit, response\n   { data, nextCursor }), like GET /v1/projects.\n3. GET /v1/labels/{labelId} returns one label, 404 application/problem+json when it does\n   not exist, 422 for a malformed id.\n\nThe store is in memory, like the projects store. No existing route changes.",
+    "scope": {
+      "allow": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ],
+      "deny": [
+        "src/lib/**",
+        "src/server.ts",
+        "src/modules/projects/**"
+      ]
+    },
+    "allowBreaking": false
+  }
+}

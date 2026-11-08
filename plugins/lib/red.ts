@@ -21,8 +21,9 @@
  */
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
-import { activeLayout, isTestFile, isTestSupport, suggestTestPath } from '../../src/core/plugin-api.ts';
+import { activeLayout, isTestFile, isTestSupport, proposalBefore, suggestTestPath } from '../../src/core/plugin-api.ts';
 import type { RunContext, RunState, TestObservation } from '../../src/core/plugin-api.ts';
+import { isMeasured } from './path-policy.ts';
 
 /**
  * The core's single definition (per the API's layout): runnable test = *.test|spec.(c|m)?ts, or what the
@@ -133,7 +134,23 @@ export async function testRedStatus(ctx: RunContext, test: string, source?: stri
   return status;
 }
 
+/** What opens a measured file: the item's before value, read by the harness at proposal (null: nothing does). */
+export const MEASURED_BY = 'the item Measure (its before value, read by the harness at proposal, is the red; item-metric proves the change)';
+
+/**
+ * A file the task declares measured opens in a run bound to an item whose proposal recorded a before value:
+ * that reading is the observed red (the harness read it, not the agent), and the item-metric gate proves the
+ * change by reverting the file alone. Without an item or a before value it is locked like any other file.
+ */
+export function measuredOpen(ctx: RunContext, source: string): boolean {
+  if (!isMeasured(ctx.task, source) || ctx.item === undefined) return false;
+  return proposalBefore(ctx.item.root, ctx.item.slug, ctx.item.contractHash) !== null;
+}
+
 export async function lockState(ctx: RunContext, source: string): Promise<LockState> {
+  if (measuredOpen(ctx, source)) {
+    return { path: source, tests: [], unlocked: true, unlockedBy: [MEASURED_BY], existedAtStart: ctx.state.initialHashes.has(source) };
+  }
   const map = await ctx.services.testMap();
   const tests = await Promise.all(map.testsFor(source).map((t) => testRedStatus(ctx, t, source)));
   const sticky = unlockedSources(ctx.state).has(source);

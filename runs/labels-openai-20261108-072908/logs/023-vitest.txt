@@ -1,0 +1,48 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/labels.test.ts test/schema.test.ts test/store.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api
+
+ ❯ test/schema.test.ts (0 test)
+ ✓ test/store.test.ts (1 test) 3ms
+ ❯ test/labels.test.ts (0 test)
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  1 passed (1)
+   Start at  12:30:40
+   Duration  209ms (import 51%, transform 35%, worker 9%, tests 4%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/labels.test.ts [ test/labels.test.ts ]
+Error: Cannot find module './schema.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api/src/modules/labels/routes.ts
+ ❯ src/modules/labels/routes.ts:4:1
+      2| import { idempotency } from '../../lib/idempotency.ts';
+      3| import { notFound } from '../../lib/problem.ts';
+      4| import { CreateLabelSchema, LabelPageSchema, LabelParamsSchema, LabelS…
+       | ^
+      5| import { createLabel, getLabel, listLabels } from './store.ts';
+      6|
+ ❯ src/app.ts:5:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/schema.test.ts [ test/schema.test.ts ]
+Error: Cannot find module '../src/modules/labels/schema.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api/test/schema.test.ts
+ ❯ test/schema.test.ts:2:1
+      1| import { describe, expect, it } from 'vitest';
+      2| import { LabelSchema } from '../src/modules/labels/schema.ts';
+       | ^
+      3|
+      4| describe('label schema', () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+--- json ---
+{"numTotalTestSuites":4,"numPassedTestSuites":2,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":1,"numPassedTests":1,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794123040959,"success":false,"testResults":[{"assertionResults":[],"startTime":1794123040959,"endTime":1794123040959,"status":"failed","message":"Cannot find module './schema.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api/src/modules/labels/routes.ts","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api/test/labels.test.ts"},{"assertionResults":[],"startTime":1794123040959,"endTime":1794123040959,"status":"failed","message":"Cannot find module '../src/modules/labels/schema.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api/test/schema.test.ts","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api/test/schema.test.ts"},{"assertionResults":[{"ancestorTitles":["label store"],"fullName":"label store creates and retrieves labels","status":"passed","title":"creates and retrieves labels","duration":2.4189579999999893,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123041104,"endTime":1794123041106.419,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/120eb68832ef/samples/existing-api/test/store.test.ts"}]}

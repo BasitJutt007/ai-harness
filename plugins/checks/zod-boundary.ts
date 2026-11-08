@@ -299,6 +299,8 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
 
 export default defineCheck({
   id: RULE,
+  // An Express + Zod rule (assignment 01): not run on a NestJS or React target, never counted there.
+  stacks: ['express'],
   category: 'standards',
   description: 'Every request input is parsed by a Zod schema (handler or middleware chain), every 2xx body is Schema.parse(...), schemas constrain data, and types are z.infer (no hand-written DTOs).',
   unit: 'handlers',

@@ -1,0 +1,3 @@
+verdict 96% over the whole API (brownfield, strict: the standards rules must be 100%)
+must fix (in scope): zod-boundary src/modules/labels/routes.ts:23:3  POST /v1/labels: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)
+must fix (in scope): zod-boundary src/modules/labels/routes.ts:35:3  GET /v1/labels/:labelId: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)

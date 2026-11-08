@@ -1,0 +1,19 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261108-072043/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 0
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261108-072043/generated/users-api
+
+ ✓ test/users.test.ts (6 tests) 56ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  12:23:19
+   Duration  265ms (import 50%, tests 29%, transform 20%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":2,"numFailedTestSuites":0,"numPendingTestSuites":0,"numTotalTests":6,"numPassedTests":6,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794122599987,"success":true,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes users","status":"passed","title":"creates, gets, updates and deletes users","duration":27.77325000000002,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API defaults role and cursor paginates all users","status":"passed","title":"defaults role and cursor paginates all users","duration":9.276458999999988,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates fields, malformed JSON, missing resources and conflicts","status":"passed","title":"validates fields, malformed JSON, missing resources and conflicts","duration":9.468416999999988,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed bodies","status":"passed","title":"replays idempotent creates and rejects changed bodies","duration":5.03562500000001,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects empty patches and duplicate email changes","status":"passed","title":"rejects empty patches and duplicate email changes","duration":3.510165999999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":[],"fullName":"covers users router export","status":"passed","title":"covers users router export","duration":0.1038329999999803,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794122600197,"endTime":1794122600252.5103,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261108-072043/generated/users-api/test/users.test.ts"}]}

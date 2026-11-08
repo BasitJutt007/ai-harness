@@ -110,6 +110,8 @@ const common = {
       // No default: an absent maxTurns is scaled with the task's size at run time (loop.ts turnLimitFor).
       maxTurns: z.number().int().min(1).optional(),
       maxOutputTokens: z.number().int().min(256).max(128000).default(16000),
+      // Changed lines a brownfield change may have (the diff-budget gate; absent: its default).
+      maxDiffLines: z.number().int().min(1).optional(),
     })
     .strict()
     .default({ maxOutputTokens: 16000 }),
@@ -159,6 +161,8 @@ const BrownfieldSchema = z
     // opt-in to the base-commit comparison (below 100% allowed when this run introduces nothing).
     standards: z.enum(['strict', 'baseline']).optional(),
     resources: z.array(ResourceSchema).optional(),
+    // Files the bound item's Measure probes (types.ts BrownfieldTask.measured): their proof is the item-metric gate.
+    measured: z.array(z.string().min(1)).min(1).optional(),
   })
   .strict();
 

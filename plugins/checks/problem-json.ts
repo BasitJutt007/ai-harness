@@ -485,6 +485,8 @@ async function run(ctx: CheckContext): Promise<CheckFinding[]> {
 
 export default defineCheck({
   id: RULE,
+  // An Express + Zod rule (assignment 01): not run on a NestJS or React target, never counted there.
+  stacks: ['express'],
   category: 'standards',
   description: 'Errors are application/problem+json {type,title,status,detail,instance}: problem helpers only, error middleware + not-found handler, verified by runtime probes.',
   unit: 'error paths',

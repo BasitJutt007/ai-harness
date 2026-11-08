@@ -1,0 +1,270 @@
+--- /dev/null
++++ b/test/labels.test.ts
+@@ -0,0 +1,267 @@
++import { randomUUID } from 'node:crypto';
++import { describe, it, expect, beforeEach } from 'vitest';
++import request from 'supertest';
++import { createApp } from '../src/app.ts';
++import type { Label, Problem } from '../src/modules/labels/schema.ts';
++
++describe('Labels', () => {
++  let app: ReturnType<typeof createApp>;
++
++  beforeEach(() => {
++    app = createApp();
++  });
++
++  function expectProblem(res: { status: number; body: unknown }, expectedStatus: number, expectedType?: string): void {
++    expect(res.status).toBe(expectedStatus);
++    const body = res.body as Problem;
++    expect(body).toHaveProperty('type');
++    expect(body).toHaveProperty('title');
++    expect(body.status).toBe(expectedStatus);
++    if (expectedType) {
++      expect(body.type).toContain(expectedType);
++    }
++  }
++
++  // POST /v1/labels
++  describe('POST /v1/labels', () => {
++    it('creates a label with valid body and returns 201 with Location header', async () => {
++      const res = await request(app).post('/v1/labels').send({ name: 'Bug', color: '#ff0000' });
++
++      expect(res.status).toBe(201);
++      expect(res.body).toHaveProperty('id');
++      expect(res.body.name).toBe('Bug');
++      expect(res.body.color).toBe('#ff0000');
++      expect(res.body).toHaveProperty('createdAt');
++      expect(res.headers['location']).toBe(`/v1/labels/${res.body.id}`);
++    });
++
++    it('validates name length: rejects empty name with 422', async () => {
++      const res = await request(app).post('/v1/labels').send({ name: '', color: '#ff0000' });
++      expectProblem(res, 422, 'validation');
++      expect(res.body.detail).toContain('name');
++    });
++
++    it('validates name length: rejects name over 40 chars with 422', async () => {
++      const longName = 'a'.repeat(41);
++      const res = await request(app).post('/v1/labels').send({ name: longName, color: '#ff0000' });
++      expectProblem(res, 422, 'validation');
++      expect(res.body.detail).toContain('name');
++    });
++
++    it('validates name length: accepts exactly 40 char name', async () => {
++      const name40 = 'a'.repeat(40);
++      const res = await request(app).post('/v1/labels').send({ name: name40, color: '#ff0000' });
++      expect(res.status).toBe(201);
++      expect(res.body.name).toBe(name40);
++    });
++
++    it('validates color format: rejects invalid hex string with 422', async () => {
++      const res = await request(app).post('/v1/labels').send({ name: 'Bug', color: 'red' });
++      expectProblem(res, 422, 'validation');
++      expect(res.body.detail).toContain('color');
++    });
++
++    it('validates color format: rejects missing # prefix with 422', async () => {
++      const res = await request(app).post('/v1/labels').send({ name: 'Bug', color: 'ff0000' });
++      expectProblem(res, 422, 'validation');
++      expect(res.body.detail).toContain('color');
++    });
++
++    it('validates color format: accepts valid 6-digit hex', async () => {
++      const res = await request(app).post('/v1/labels').send({ name: 'Bug', color: '#123abc' });
++      expect(res.status).toBe(201);
++      expect(res.body.color).toBe('#123abc');
++    });
++
++    it('validates color format: accepts uppercase hex', async () => {
++      const res = await request(app).post('/v1/labels').send({ name: 'Bug', color: '#AABBCC' });
++      expect(res.status).toBe(201);
++      expect(res.body.color).toBe('#AABBCC');
++    });
++
++    it('rejects multiple invalid fields with all named in 422 response', async () => {
++      const res = await request(app).post('/v1/labels').send({ name: '', color: 'invalid' });
++      expectProblem(res, 422, 'validation');
++      const detail = res.body.detail as string;
++      expect(detail).toContain('name');
++      expect(detail).toContain('color');
++    });
++
++    it('honours Idempotency-Key header: same key with same body replays first response', async () => {
++      const key = randomUUID();
++      const body = { name: 'Feature', color: '#00ff00' };
++
++      const first = await request(app).post('/v1/labels').set('Idempotency-Key', key).send(body);
++      expect(first.status).toBe(201);
++      const firstId = first.body.id;
++
++      const second = await request(app).post('/v1/labels').set('Idempotency-Key', key).send(body);
++      expect(second.status).toBe(201);
++      expect(second.body.id).toBe(firstId);
++      expect(second.headers['idempotent-replayed']).toBe('true');
++    });
++
++    it('honours Idempotency-Key header: creates second label with different key', async () => {
++      const body = { name: 'Feature', color: '#00ff00' };
++
++      const first = await request(app).post('/v1/labels').set('Idempotency-Key', randomUUID()).send(body);
++      expect(first.status).toBe(201);
++      const firstId = first.body.id;
++
++      const second = await request(app).post('/v1/labels').set('Idempotency-Key', randomUUID()).send(body);
++      expect(second.status).toBe(201);
++      expect(second.body.id).not.toBe(firstId);
++    });
++
++    it('rejects malformed JSON with 400 application/problem+json', async () => {
++      const res = await request(app)
++        .post('/v1/labels')
++        .set('Content-Type', 'application/json')
++        .send('not valid json');
++      expectProblem(res, 400);
++    });
++  });
++
++  // GET /v1/labels
++  describe('GET /v1/labels', () => {
++    it('returns empty list when no labels exist', async () => {
++      const res = await request(app).get('/v1/labels');
++
++      expect(res.status).toBe(200);
++      expect(res.body).toHaveProperty('data');
++      expect(res.body).toHaveProperty('nextCursor');
++      expect(res.body.data).toEqual([]);
++      expect(res.body.nextCursor).toBeNull();
++    });
++
++    it('lists all labels created', async () => {
++      const label1 = await request(app).post('/v1/labels').send({ name: 'Bug', color: '#ff0000' });
++      const label2 = await request(app).post('/v1/labels').send({ name: 'Feature', color: '#00ff00' });
++
++      const res = await request(app).get('/v1/labels');
++
++      expect(res.status).toBe(200);
++      expect(res.body.data).toHaveLength(2);
++      const ids = res.body.data.map((l: Label) => l.id);
++      expect(ids).toContain(label1.body.id);
++      expect(ids).toContain(label2.body.id);
++    });
++
++    it('supports cursor pagination with limit parameter', async () => {
++      // Create 3 labels
++      await request(app).post('/v1/labels').send({ name: 'A', color: '#000001' });
++      await request(app).post('/v1/labels').send({ name: 'B', color: '#000002' });
++      await request(app).post('/v1/labels').send({ name: 'C', color: '#000003' });
++
++      const page1 = await request(app).get('/v1/labels?limit=2');
++      expect(page1.status).toBe(200);
++      expect(page1.body.data).toHaveLength(2);
++      expect(page1.body.nextCursor).not.toBeNull();
++
++      const page2 = await request(app).get(`/v1/labels?cursor=${page1.body.nextCursor}&limit=2`);
++      expect(page2.status).toBe(200);
++      expect(page2.body.data).toHaveLength(1);
++      expect(page2.body.nextCursor).toBeNull();
++    });
++
++    it('following nextCursor visits every label exactly once', async () => {
++      // Create many labels
++      const labelIds = new Set<string>();
++      for (let i = 0; i < 10; i++) {
++        const res = await request(app).post('/v1/labels').send({ name: `Label${i}`, color: `#00000${i}` });
++        labelIds.add(res.body.id);
++      }
++
++      const visitedIds = new Set<string>();
++      let cursor: string | null = null;
++      let pageCount = 0;
++
++      // eslint-disable-next-line no-constant-condition
++      while (true) {
++        pageCount++;
++        const url = cursor ? `/v1/labels?cursor=${cursor}&limit=3` : '/v1/labels?limit=3';
++        const res = await request(app).get(url);
++
++        expect(res.status).toBe(200);
++        for (const label of res.body.data) {
++          const id: string = label.id;
++          expect(visitedIds.has(id)).toBe(false); // No duplicates
++          visitedIds.add(id);
++        }
++
++        if (res.body.nextCursor === null) {
++          break;
++        }
++        cursor = res.body.nextCursor;
++      }
++
++      expect(visitedIds).toEqual(labelIds);
++    });
++
++    it('rejects invalid cursor with 422', async () => {
++      const res = await request(app).get('/v1/labels?cursor=invalid-cursor');
++      expectProblem(res, 422, 'malformed-cursor');
++    });
++
++    it('rejects invalid limit with 422', async () => {
++      const res = await request(app).get('/v1/labels?limit=invalid');
++      expectProblem(res, 422);
++    });
++
++    it('rejects negative limit with 422', async () => {
++      const res = await request(app).get('/v1/labels?limit=-1');
++      expectProblem(res, 422);
++    });
++  });
++
++  // GET /v1/labels/{labelId}
++  describe('GET /v1/labels/{labelId}', () => {
++    it('returns the label when it exists', async () => {
++      const created = await request(app).post('/v1/labels').send({ name: 'Bug', color: '#ff0000' });
++
++      const res = await request(app).get(`/v1/labels/${created.body.id}`);
++
++      expect(res.status).toBe(200);
++      expect(res.body.id).toBe(created.body.id);
++      expect(res.body.name).toBe('Bug');
++      expect(res.body.color).toBe('#ff0000');
++      expect(res.body.createdAt).toBe(created.body.createdAt);
++    });
++
++    it('returns 404 application/problem+json when label does not exist', async () => {
++      const unknownId = randomUUID();
++      const res = await request(app).get(`/v1/labels/${unknownId}`);
++
++      expectProblem(res, 404, 'not-found');
++    });
++
++    it('returns 422 application/problem+json for malformed UUID', async () => {
++      const res = await request(app).get('/v1/labels/not-a-uuid');
++
++      expectProblem(res, 422, 'malformed-id');
++    });
++
++    it('returns 422 with detail naming the malformed field', async () => {
++      const res = await request(app).get('/v1/labels/not-a-uuid');
++
++      expect(res.body.detail).toContain('labelId');
++    });
++  });
++
++  // Verify existing projects routes still work
++  describe('existing projects routes unchanged', () => {
++    it('POST /v1/projects still works', async () => {
++      const res = await request(app).post('/v1/projects').send({ name: 'Test Project' });
++      expect(res.status).toBe(201);
++      expect(res.body).toHaveProperty('id');
++      expect(res.body.name).toBe('Test Project');
++    });
++
++    it('GET /v1/projects still works', async () => {
++      await request(app).post('/v1/projects').send({ name: 'Test Project' });
++      const res = await request(app).get('/v1/projects');
++      expect(res.status).toBe(200);
++      expect(res.body).toHaveProperty('data');
++    });
++  });
++});

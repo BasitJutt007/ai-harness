@@ -7,14 +7,22 @@
  * explicit refspec (never force) and opens a PR when `gh` is installed and
  * authenticated. Anything it cannot do is reported honestly as 'committed'
  * with reasons. No shell is ever involved: every command is an argv array.
+ *
+ * The commit message and the PR come from the item's approved contract (ship-text.ts): the header is
+ * the contract's Commit line, checked by the built-in rules and by the repository's own commitlint;
+ * the PR body is the repository's PR template filled from the contract and the ship gates. A message
+ * that says nothing, an AI attribution trailer, a commitlint rejection, or template text left
+ * untouched refuses the ship before anything is staged.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { passThroughEnv } from './exec.ts';
 import { requiredGates, runGates } from './gates.ts';
+import { appendLedger, approvalVerdict, contractVerdict, itemPaths, readLedger, type ContractParse, type ItemPaths } from './items.ts';
+import { commitHeaderProblems, commitMessage, defaultPrBody, fillPrTemplate, findPrTemplate, parseHeader, prDescription, repoCommitlint, ticketLine, trailerProblems } from './ship-text.ts';
 import type { GateOutcome } from './gates.ts';
-import type { ExecResult, RegistryView, RunContext } from './types.ts';
+import type { ExecResult, ItemBinding, RegistryView, RunContext } from './types.ts';
 import { isProtectedBranch, normalizeBranch } from './workspace.ts';
 
 export interface ShipResult {
@@ -165,19 +173,6 @@ function tokenTotals(ctx: RunContext): string {
   return 'not recorded';
 }
 
-function commitMessage(ctx: RunContext, gates: GateOutcome): string {
-  return [
-    `harness(${ctx.task.id}): ${ctx.task.title}`,
-    '',
-    `run: ${ctx.run.id}`,
-    `task: ${ctx.task.id} (${ctx.task.kind})`,
-    `driver: ${ctx.run.driver} / ${ctx.run.model}`,
-    '',
-    'gates (re-run at ship):',
-    gates.text,
-  ].join('\n');
-}
-
 /** Run directory relative to the harness root (absolute when it lives outside it). */
 function evidencePath(ctx: RunContext): string {
   const rel = relative(ctx.run.harnessRoot, ctx.run.runDir);
@@ -185,11 +180,36 @@ function evidencePath(ctx: RunContext): string {
   return sep === '/' ? p : p.split(sep).join('/');
 }
 
+/** Where the approval of this contract text is recorded (the typed turn, quoted), for the PR. */
+function approvalLine(paths: ItemPaths, hash: string): string {
+  const v = approvalVerdict(readLedger(paths.ledger), hash);
+  const t = v.turn;
+  if (!v.ok || t === null || t.event.type !== 'human_turn') return `not approved: ${v.reason}`;
+  return `${v.stakeholder ?? 'the stakeholder'} typed "${t.event.text}" at a terminal on ${t.at.slice(0, 10)} (item ledger seq ${t.seq}, after proposal seq ${String(v.proposal)})`;
+}
+
+/** The before value the harness read when it proposed the contract (the ledger's latest before reading). */
+function beforeValue(paths: ItemPaths, c: ContractParse): string | null {
+  const reading = readLedger(paths.ledger).entries.filter((e) => e.event.type === 'metric' && e.event.phase === 'before').at(-1);
+  if (reading !== undefined && reading.event.type === 'metric') return String(reading.event.reading.value);
+  return c.metric?.before ?? null;
+}
+
+/** The evidence section of the PR: approval, gates re-run at ship, standards, tokens, run directory. */
 export function prBody(ctx: RunContext, gates: GateOutcome): string {
-  return [
-    `Opened by sf-harness for run \`${ctx.run.id}\`.`,
+  const item = ctx.item;
+  const lines = [
+    '## Evidence',
+    '',
+    `Opened by sf-harness for run \`${ctx.run.id}\` after every gate re-ran fresh; the agent never commits, pushes or opens a PR.`,
     '',
     `Task: **${ctx.task.id}** ${ctx.task.title} (${ctx.task.kind})`,
+  ];
+  if (item !== undefined) {
+    const paths = itemPaths(item.root, item.slug);
+    lines.push('', `Contract: \`docs/contracts/${item.slug}.md\` (hash ${item.contractHash.slice(0, 12)}) in the harness repository`, '', `Approval: ${approvalLine(paths, item.contractHash)}`);
+  }
+  lines.push(
     '',
     '### Gates (re-run fresh at ship)',
     '```',
@@ -203,7 +223,52 @@ export function prBody(ctx: RunContext, gates: GateOutcome): string {
     tokenTotals(ctx),
     '',
     `Run evidence: ${evidencePath(ctx)}/`,
-  ].join('\n');
+  );
+  return lines.join('\n');
+}
+
+export interface ShipText {
+  message: string;
+  title: string;
+  body: string;
+  /** What the commit and PR checks found (commitlint, template), for the ship report. */
+  notes: string[];
+}
+
+/**
+ * The commit message, PR title and PR body for a run, all from its item's approved contract, or the
+ * reasons the ship is refused (habit 5: commits and PRs that say nothing).
+ */
+export async function shipText(ctx: RunContext, gates: GateOutcome): Promise<ShipText | { refuse: string[] }> {
+  const item: ItemBinding | undefined = ctx.item;
+  if (item === undefined) return { refuse: ['this run is bound to no backlog item: there is no approved contract to take the commit message and the PR description from'] };
+  const paths = itemPaths(item.root, item.slug);
+  const v = contractVerdict(paths);
+  if (!v.ok || v.parse === null) return { refuse: [`the contract cannot be shipped from: ${v.reason}`] };
+  if (v.parse.hash !== item.contractHash) return { refuse: [`docs/contracts/${item.slug}.md changed after the run started (approved ${item.contractHash.slice(0, 12)}, now ${v.parse.hash.slice(0, 12)})`] };
+  const c = v.parse;
+  const header = (c.fields.Commit ?? '').trim();
+  const parsed = parseHeader(header);
+  const before = beforeValue(paths, c);
+  const message = commitMessage({ contract: c, slug: item.slug, runId: ctx.run.id, before });
+  const problems = [...commitHeaderProblems(header), ...trailerProblems(message)];
+  if (problems.length > 0 || parsed === null) return { refuse: ['the commit message would say nothing or carry attribution:', ...problems] };
+  const lint = await repoCommitlint(ctx.exec, ctx.workspace.repoRoot, message);
+  if (lint.status === 'fail' || lint.status === 'unproven') return { refuse: [`commit "${header}": ${lint.summary}`, ...lint.details] };
+  const fill = { description: prDescription(c, before, item.slug), ticket: ticketLine(c, item.slug), header: parsed, gates: new Map(gates.results.map((r) => [r.gate, r.status])) };
+  const notes = [`commit: "${header}" (from the approved contract; ${lint.summary})`];
+  const template = findPrTemplate(ctx.workspace.repoRoot);
+  let filled: string;
+  if (template !== null) {
+    const f = fillPrTemplate(template.text, fill);
+    if (f.untouched.length > 0) return { refuse: [`the repository's PR template (${template.path}) would ship with text nobody filled in:`, ...f.untouched.map((l) => `untouched: ${l}`)] };
+    filled = f.body;
+    notes.push(`PR body: ${template.path} filled from the contract; ${f.ticked.length} box(es) ticked from ship gates, ${f.forReviewer.length} left for the reviewer`);
+  } else {
+    filled = defaultPrBody(fill);
+    notes.push('PR body: the repository has no PR template, so the harness layout was used');
+  }
+  return { message, title: header, body: `${filled}\n\n---\n\n${prBody(ctx, gates)}`, notes };
 }
 
 export async function ship(opts: ShipOptions): Promise<ShipResult> {
@@ -245,15 +310,18 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
   // 2. Gates, fresh — over a tree we fingerprint first, so a change made while they run is caught.
   const before = await treeFingerprint(git, repo, [pathspec, ...excludes]);
   if (before === null) return refuse('cannot list the files under the API root (git ls-files failed)');
-  const gates = await runGates(opts.registry.gates, ctx, 'ship', { required: requiredGates(ctx.task, 'ship') });
+  const gates = await runGates(opts.registry.gates, ctx, 'ship', { required: requiredGates(ctx.task, 'ship', ctx.stack) });
   if (!gates.ok) return refuse('gates are not green (re-run fresh for ship):', ...gates.compact.split('\n'));
 
-  // 3. Plan.
+  // 3. The commit message and PR from the approved contract (refused here, before anything is staged).
+  const text = await shipText(ctx, gates);
+  if ('refuse' in text) return refuse(...text.refuse);
+
+  // 4. Plan.
   const addArgs = ['add', '--all', '--', pathspec, ...excludes];
-  const commitArgs = [...NO_HOOKS, '-c', 'user.name=sf-harness', '-c', 'user.email=harness@localhost', 'commit', '-q', '-m', commitMessage(ctx, gates)];
+  const commitArgs = [...NO_HOOKS, '-c', 'user.name=sf-harness', '-c', 'user.email=harness@localhost', 'commit', '-q', '-m', text.message];
   const pushArgs = [...NO_HOOKS, 'push', '--no-force', '-u', remote, `refs/heads/${branch}:refs/heads/${branch}`];
-  const title = `harness: ${ctx.task.title} (${ctx.task.id})`;
-  const prArgs = ['pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', prBody(ctx, gates)];
+  const prArgs = ['pr', 'create', '--base', base, '--head', branch, '--title', text.title, '--body', text.body];
 
   const hasRemote = (await git(['remote', 'get-url', remote], false)).code === 0;
 
@@ -265,14 +333,14 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
       formatCommand('git', ['-C', repo, ...pushArgs]),
       formatCommand('gh', prArgs),
     ];
-    const notes = ['dry run: nothing was staged, committed, pushed or opened'];
+    const notes = ['dry run: nothing was staged, committed, pushed or opened', ...text.notes];
     if (!hasRemote) notes.push(`remote "${remote}" does not exist: the push and PR steps would be skipped (status committed)`);
     notes.push('the PR step depends on gh (installed and authenticated); a dry run does not invoke gh, so it is not checked here');
     const short = plan.map((p) => `plan: ${p.length > 240 ? `${p.slice(0, 240)}… (${p.length} chars)` : p}`);
     return { status: 'dry-run', branch, reasons: [...notes, ...short], commands: plan, gates: { ok: gates.ok, text: gates.text } };
   }
 
-  // 4. Stage only the API root (refuse if anything outside it is already staged).
+  // 5. Stage only the API root (refuse if anything outside it is already staged).
   const pre = await git(['diff', '--cached', '--name-only', '-z'], false);
   if (pre.code !== 0) return refuse(`git diff --cached failed: ${firstLine(pre)}`);
   const outside = pre.stdout.split('\u0000').filter((p) => p !== '' && prefix !== '' && !p.startsWith(prefix));
@@ -290,7 +358,7 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
     return refuse('the API root changed while the ship gates were running (something modified files after they were checked); nothing was committed. Re-run ship.');
   }
 
-  // 5. Secret scan of the staged diff.
+  // 6. Secret scan of the staged diff.
   const diff = await git(['diff', '--cached', '--no-color', '-U0', '--', pathspec]);
   if (diff.code !== 0) {
     await git(['reset', '-q', '--', pathspec]);
@@ -302,24 +370,27 @@ export async function ship(opts: ShipOptions): Promise<ShipResult> {
     return refuse(`possible secrets in the staged diff (unstaged again):`, ...secrets.slice(0, 20));
   }
 
-  // 6. Commit as the harness.
+  // 7. Commit as the harness.
   const commit = await git(commitArgs);
   if (commit.code !== 0) return refuse(`git commit failed: ${firstLine(commit)}`);
   const sha = (await git(['rev-parse', 'HEAD'], false)).stdout.trim();
   const committed = (reasons: string[]): ShipResult => ({ status: 'committed', branch, commit: sha, reasons, commands });
 
-  // 7. Push the feature branch only, explicit refspec, never force.
+  // 8. Push the feature branch only, explicit refspec, never force.
   if (!hasRemote) return committed([`no remote "${remote}": committed ${sha.slice(0, 12)} on ${branch}, not pushed`]);
   const push = await git(pushArgs);
   if (push.code !== 0) return committed([`push to ${remote} failed: ${firstLine(push)}`]);
 
-  // 8. Pull request.
+  // 9. Pull request.
   const gh = await ghStatus((args) => run('gh', args, false));
   if (/^head$/i.test(base)) return committed([`pushed ${branch} to ${remote}; the run started from a detached HEAD, so there is no base branch for a PR`]);
   if (!gh.ok) return committed([`pushed ${branch} to ${remote}; ${gh.why}, so no PR was opened`]);
   const pr = await run('gh', prArgs);
   if (pr.code !== 0) return committed([`pushed ${branch} to ${remote}; gh pr create failed: ${firstLine(pr)}`]);
   const url = [...pr.stdout.matchAll(/https?:\/\/\S+/g)].map((m) => m[0]).pop();
+  if (ctx.item !== undefined) {
+    appendLedger(itemPaths(ctx.item.root, ctx.item.slug).ledger, { type: 'shipped', runId: ctx.run.id, branch, headSha: sha, base, prUrl: url ?? null });
+  }
   return {
     status: 'shipped',
     branch,

@@ -13,7 +13,7 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import picomatch from 'picomatch';
 import { templateManifest } from '../../src/core/plugin-api.ts';
-import type { Task, Workspace } from '../../src/core/plugin-api.ts';
+import type { Stack, Task, Workspace } from '../../src/core/plugin-api.ts';
 
 /** Files nobody but the harness may write, in any task kind (API-relative globs, matched case-insensitively). */
 export const BUILTIN_DENY = [
@@ -122,15 +122,20 @@ export interface PolicyDecision {
  * Deny lists match case-insensitively (a deny must not be dodged by `SRC/LIB/x.ts`);
  * allow lists match exactly (an allow must not be widened by letter case).
  */
-export function writePolicy(task: Task, rel: string): PolicyDecision {
+/** File kinds a write may target: TypeScript; on a React target (stack react-vite) also .tsx components. */
+export function writableKind(rel: string, stack?: Stack): boolean {
+  return rel.endsWith('.ts') || (stack === 'react-vite' && rel.endsWith('.tsx'));
+}
+
+export function writePolicy(task: Task, rel: string, stack?: Stack): PolicyDecision {
   if (matcher(BUILTIN_DENY, true)(rel)) {
     return {
       allowed: false,
       reason: `${rel} is harness-owned (built-in deny: config, dependencies, build output, git, env, dot-files, .d.ts, contract lock)`,
     };
   }
-  if (!rel.endsWith('.ts')) {
-    return { allowed: false, reason: `${rel} is not a .ts file; only TypeScript source and tests may be written` };
+  if (!writableKind(rel, stack)) {
+    return { allowed: false, reason: `${rel} is not a ${stack === 'react-vite' ? '.ts or .tsx' : '.ts'} file; only TypeScript source and tests may be written` };
   }
   if (task.kind === 'greenfield') {
     const readOnly = greenfieldReadOnly(task.template);
@@ -156,4 +161,9 @@ export function stringField(input: unknown, key: string): string | undefined {
   if (typeof input !== 'object' || input === null) return undefined;
   const value: unknown = Reflect.get(input, key);
   return typeof value === 'string' ? value : undefined;
+}
+
+/** A file the task declares the bound item's Measure probes (brownfield `measured`); never for greenfield. */
+export function isMeasured(task: Task, rel: string): boolean {
+  return task.kind === 'brownfield' && task.measured !== undefined && matcher(task.measured)(rel);
 }

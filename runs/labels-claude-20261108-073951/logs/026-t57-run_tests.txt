@@ -1,0 +1,220 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073951/samples/existing-api
+
+ ❯ test/labels.test.ts (25 tests | 6 failed) 95ms
+   ❯ Labels (25)
+     ✓ POST /v1/labels (12)
+       ✓ creates a label with valid body and returns 201 with Location header 21ms
+       ✓ validates name length: rejects empty name with 422 4ms
+       ✓ validates name length: rejects name over 40 chars with 422 1ms
+       ✓ validates name length: accepts exactly 40 char name 5ms
+       ✓ validates color format: rejects invalid hex string with 422 2ms
+       ✓ validates color format: rejects missing # prefix with 422 1ms
+       ✓ validates color format: accepts valid 6-digit hex 4ms
+       ✓ validates color format: accepts uppercase hex 1ms
+       ✓ rejects multiple invalid fields with all named in 422 response 1ms
+       ✓ honours Idempotency-Key header: same key with same body replays first response 3ms
+       ✓ honours Idempotency-Key header: creates second label with different key 2ms
+       ✓ rejects malformed JSON with 400 application/problem+json 2ms
+     ❯ GET /v1/labels (7)
+       × returns empty list when no labels exist 12ms
+       × lists all labels created 4ms
+       × supports cursor pagination with limit parameter 4ms
+       × following nextCursor visits every label exactly once 11ms
+       × rejects invalid cursor with 422 2ms
+       ✓ rejects invalid limit with 422 1ms
+       ✓ rejects negative limit with 422 2ms
+     ❯ GET /v1/labels/{labelId} (4)
+       ✓ returns the label when it exists 2ms
+       ✓ returns 404 application/problem+json when label does not exist 1ms
+       × returns 422 application/problem+json for malformed UUID 1ms
+       ✓ returns 422 with detail naming the malformed field 1ms
+     ✓ existing projects routes unchanged (2)
+       ✓ POST /v1/projects still works 1ms
+       ✓ GET /v1/projects still works 2ms
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 19 passed (25)
+   Start at  12:43:15
+   Duration  378ms (import 51%, tests 33%, transform 15%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > returns empty list when no labels exist
+AssertionError: expected [ { …(4) }, { …(4) }, { …(4) }, …(4) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "color": "#ff0000",
++     "createdAt": "2026-11-08T07:43:15.945Z",
++     "id": "494794b7-4b56-49f2-818e-6d07f1319139",
++     "name": "Bug",
++   },
++   {
++     "color": "#ff0000",
++     "createdAt": "2026-11-08T07:43:15.955Z",
++     "id": "b7aa8139-b34e-483a-9348-a7629ebac95a",
++     "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++   },
++   {
++     "color": "#123abc",
++     "createdAt": "2026-11-08T07:43:15.967Z",
++     "id": "22aaebb5-597b-4a94-956f-c19fee17794b",
++     "name": "Bug",
++   },
++   {
++     "color": "#AABBCC",
++     "createdAt": "2026-11-08T07:43:15.968Z",
++     "id": "0ec66906-0a4b-49fa-b9a2-31b5669a6661",
++     "name": "Bug",
++   },
++   {
++     "color": "#00ff00",
++     "createdAt": "2026-11-08T07:43:15.971Z",
++     "id": "9f384b10-1635-4f2b-8f78-5be1b0c14b97",
++     "name": "Feature",
++   },
++   {
++     "color": "#00ff00",
++     "createdAt": "2026-11-08T07:43:15.974Z",
++     "id": "d3d6a1f0-b76b-4196-8204-c89e61b2ee25",
++     "name": "Feature",
++   },
++   {
++     "color": "#00ff00",
++     "createdAt": "2026-11-08T07:43:15.974Z",
++     "id": "d4669e67-324e-40c7-a6d7-45bafa3a6363",
++     "name": "Feature",
++   },
++ ]
+
+ ❯ test/labels.test.ts:140:29
+    138|       expect(res.body).toHaveProperty('data');
+    139|       expect(res.body).toHaveProperty('nextCursor');
+    140|       expect(res.body.data).toEqual([]);
+       |                             ^
+    141|       expect(res.body.nextCursor).toBeNull();
+    142|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > lists all labels created
+AssertionError: expected [ { …(4) }, { …(4) }, { …(4) }, …(6) ] to have a length of 2 but got 9
+
+- Expected
++ Received
+
+- 2
++ 9
+
+ ❯ test/labels.test.ts:151:29
+    149|
+    150|       expect(res.status).toBe(200);
+    151|       expect(res.body.data).toHaveLength(2);
+       |                             ^
+    152|       const ids = res.body.data.map((l: Label) => l.id);
+    153|       expect(ids).toContain(label1.body.id);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > supports cursor pagination with limit parameter
+AssertionError: expected [ { …(4) }, { …(4) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ test/labels.test.ts:170:31
+    168|       const page2 = await request(app).get(`/v1/labels?cursor=${page1.…
+    169|       expect(page2.status).toBe(200);
+    170|       expect(page2.body.data).toHaveLength(1);
+       |                               ^
+    171|       expect(page2.body.nextCursor).toBeNull();
+    172|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > following nextCursor visits every label exactly once
+AssertionError: expected Set{ …(22) } to deeply equal Set{ …(10) }
+
+- Expected
++ Received
+
+  Set {
++   "0ec66906-0a4b-49fa-b9a2-31b5669a6661",
+    "11709fe1-ad09-408b-bc1b-53c3401a6d32",
+    "16b79019-d2c4-4cbd-8b53-e195c8ac0d80",
++   "22aaebb5-597b-4a94-956f-c19fee17794b",
+    "2a72a867-8d79-432a-a917-358bd949e47f",
+    "38f34b8d-cfbf-447a-b113-19e536c435a2",
++   "494794b7-4b56-49f2-818e-6d07f1319139",
+    "5788dbe8-36ea-44fc-af4b-5f313a08d19c",
++   "93891520-e097-4c5a-a85c-ba41db3ed904",
+    "9b1e48da-378c-48fe-856c-db82fd3fdd62",
++   "9f384b10-1635-4f2b-8f78-5be1b0c14b97",
+    "af372f12-20a5-42f0-b8d3-96789da7476c",
++   "b5d76793-8f62-4d89-9ab8-6c12d1463846",
++   "b7aa8139-b34e-483a-9348-a7629ebac95a",
++   "b7e5500c-d884-458b-b783-0942054e3c02",
++   "c9b08735-e7bc-4eaf-b0ed-03f942fd3e4c",
++   "d3d6a1f0-b76b-4196-8204-c89e61b2ee25",
++   "d4669e67-324e-40c7-a6d7-45bafa3a6363",
++   "e1710d14-7dd3-499d-9307-981e17d20a28",
+    "e17da212-f79b-4535-828a-48dfa6996d85",
+    "e53ec732-8e35-4282-8226-cfe1dc96867c",
+    "fc31db81-55c2-4a82-b9b9-0c2c2ea0d825",
+  }
+
+ ❯ test/labels.test.ts:205:26
+    203|       }
+    204|
+    205|       expect(visitedIds).toEqual(labelIds);
+       |                          ^
+    206|     });
+    207|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > rejects invalid cursor with 422
+AssertionError: expected 'https://api.sf/problems/invalid-cursor' to contain 'malformed-cursor'
+
+Expected: "malformed-cursor"
+Received: "https://api.sf/problems/invalid-cursor"
+
+ ❯ expectProblem test/labels.test.ts:28:25
+     26|     expect(body.status).toBe(expectedStatus);
+     27|     if (expectedType) {
+     28|       expect(body.type).toContain(expectedType);
+       |                         ^
+     29|     }
+     30|   }
+ ❯ test/labels.test.ts:210:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels/{labelId} > returns 422 application/problem+json for malformed UUID
+AssertionError: expected 'https://api.sf/problems/validation' to contain 'malformed-id'
+
+Expected: "malformed-id"
+Received: "https://api.sf/problems/validation"
+
+ ❯ expectProblem test/labels.test.ts:28:25
+     26|     expect(body.status).toBe(expectedStatus);
+     27|     if (expectedType) {
+     28|       expect(body.type).toContain(expectedType);
+       |                         ^
+     29|     }
+     30|   }
+ ❯ test/labels.test.ts:248:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+test/labels.test.ts > Labels > GET /v1/labels > returns empty list when no labels exist: passes when run alone, fails after the other tests in this file: it depends on test order (shared state, e.g. a module-level store, is not reset between tests). Do not assume an empty store; assert only on the records this test created.
+test/labels.test.ts > Labels > GET /v1/labels > lists all labels created: passes when run alone, fails after the other tests in this file: it depends on test order (shared state, e.g. a module-level store, is not reset between tests). Do not assume an empty store; assert only on the records this test created.
+observed red: test/labels.test.ts (source they cover is now writable)

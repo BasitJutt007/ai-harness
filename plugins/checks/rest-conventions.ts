@@ -301,6 +301,8 @@ async function replayEvidence(ctx: CheckContext, all: RouteInfo[]): Promise<{ no
 
 export default defineCheck({
   id: RULE,
+  // An Express + Zod rule (assignment 01): not run on a NestJS or React target, never counted there.
+  stacks: ['express'],
   category: 'standards',
   description: 'Routes are /v<N>/ + plural nouns, collections use cursor pagination, POST/PATCH are idempotent, statuses follow 201/204/404/422 rules.',
   unit: 'routes',

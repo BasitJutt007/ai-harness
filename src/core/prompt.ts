@@ -14,12 +14,23 @@
  */
 import { stringify as stringifyYaml } from 'yaml';
 import { DEFAULT_TEMPLATE, GENERIC_SIGNATURE_GLOBS, TEMPLATE_MANIFEST, templateManifest, type TemplateManifest } from './template.ts';
-import type { CheckPlugin, FieldSpec, ResourceSpec, Task, TestMap, ToolSpec, Workspace } from './types.ts';
+import type { ContractParse } from './items.ts';
+import type { CheckPlugin, FieldSpec, ResourceSpec, Stack, Task, TestMap, ToolSpec, Workspace } from './types.ts';
 
 const CONTEXT_TOOLS = ['list_files', 'read_file', 'outline', 'search_code', 'test_map', 'fetch_standard'];
 
+/** What the agent changes, per stack (assignment 02): the first line of the system prompt. */
+const ROLE: Record<Stack, string> = {
+  express: 'You implement TypeScript REST APIs (Express 5, Zod 4, Vitest) in a governed harness, acting only through tools; paths are relative to the API root.',
+  unknown: 'You implement TypeScript REST APIs (Express 5, Zod 4, Vitest) in a governed harness, acting only through tools; paths are relative to the API root.',
+  nestjs:
+    "You change a NestJS + Prisma backend (TypeScript, Jest specs named *.spec.ts) in a governed harness, acting only through tools; paths are relative to the repository root. Follow the repository's existing modules, controllers, services, DTOs and guards; never touch prisma/ or the database.",
+  'react-vite':
+    "You change a React + Vite frontend (TypeScript, RTK Query) in a governed harness, acting only through tools; paths are relative to the repository root. Tests run with node:test: put them under test/ as *.test.ts, use import { test } from 'node:test' and import assert from 'node:assert/strict', and import only .ts modules (no .tsx, no DOM); stub globals a module reads at import (window, fetch) before importing it. RTK Query tags never cross createApi slices: a mutation that changes data another slice caches must invalidate that slice's tags, after the request succeeds; a merge must replace a page that is fetched again, never append it twice.",
+};
+
 /** `preloaded`: the --baseline prompt (the repository and the standards follow it, no fetchers). */
-export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; preloaded?: boolean }): string {
+export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: ToolSpec[]; preloaded?: boolean; stack?: Stack }): string {
   const have = new Set(opts.tools.map((t) => t.name));
   const fetchers = CONTEXT_TOOLS.filter((n) => have.has(n)).map((n) => {
     if (n === 'read_file') return 'read_file (line ranges)';
@@ -27,11 +38,12 @@ export function systemPrompt(opts: { task: Task; checks: CheckPlugin[]; tools: T
     return n;
   });
   const lines = [
-    'You implement TypeScript REST APIs (Express 5, Zod 4, Vitest) in a governed harness, acting only through tools; paths are relative to the API root.',
+    ROLE[opts.stack ?? 'express'],
     '',
-    'You are done only when the deterministic gates (tests, observed red, standards, scope, contract) pass; finish runs them. If finish is refused, fix what the gate lines name and call finish again.',
+    'You are done only when the deterministic gates (the approved contract, tests, observed red, standards, scope, API lock) pass; finish runs them. If finish is refused, fix what the gate lines name and call finish again.',
     '',
     'Hooks block, with a reason (adapt, do not retry blindly):',
+    "- any edit before the item's contract is complete and approved by its stakeholder (you cannot approve it; do not try);",
     '- editing a src/ file before a test covering it ran and failed (red);',
     '- writes outside the allowed .ts files (config, package files, read-only helpers);',
     '- `any`, non-null assertions, ts-ignore / ts-expect-error / ts-nocheck;',
@@ -143,9 +155,18 @@ function templateLines(template: string, manifest: TemplateManifest | null): str
 
 export function taskBrief(
   task: Task,
-  extras: { tree: string; testMap?: string; scaffoldApi?: string; template?: TemplateManifest | null },
+  extras: { tree: string; testMap?: string; scaffoldApi?: string; template?: TemplateManifest | null; contract?: { slug: string; parse: ContractParse } },
 ): string {
   const out: string[] = [`Task ${task.id} (${task.kind}): ${task.title}`];
+  if (extras.contract !== undefined) {
+    // The approved contract is the source of truth: the stakeholder said yes to exactly this text.
+    const c = extras.contract.parse;
+    out.push('', `Contract docs/contracts/${extras.contract.slug}.md, approved by ${(c.fields.Stakeholder ?? '').trim()} (build exactly this):`);
+    out.push(`Problem: ${(c.fields.Problem ?? '').replace(/\s+/g, ' ').trim()}`);
+    out.push(...c.scenarios.map((sc) => `Scenario: WHEN ${sc.when} THEN ${sc.then}`));
+    out.push('Not included (do not build):', ...c.notIncluded.map((n) => `- ${n}`));
+    out.push(`Metric (read by the harness after the merge, not by you): ${c.metric?.name ?? ''}`);
+  }
   if (task.kind === 'greenfield') {
     if (task.brief !== undefined) out.push('', 'Brief (verbatim from the task file):', task.brief.trim(), '');
     out.push(`Base path: ${task.basePath}`, '');

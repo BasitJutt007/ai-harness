@@ -206,7 +206,7 @@ interface TaskCommon {
    * `maxTurns` absent: the task file named none, so the harness scales a default with the task's
    * size and may extend it while the gates make progress (loop.ts turnLimitFor). Present: a hard cap.
    */
-  limits: { maxTurns?: number | undefined; maxOutputTokens: number };
+  limits: { maxTurns?: number | undefined; maxOutputTokens: number; maxDiffLines?: number | undefined };
   /** Free-text description of the task, shown to the model verbatim. */
   brief?: string | undefined;
   /** Top-level task-file keys the harness has no slot for, carried to the model verbatim. */
@@ -248,6 +248,13 @@ export interface BrownfieldTask extends TaskCommon {
   standards?: 'strict' | 'baseline' | undefined;
   /** Resources the change adds or extends, when the task lists them. */
   resources?: ResourceSpec[] | undefined;
+  /**
+   * Globs (relative to the API root) of files the bound item's Measure probes: typically a screen no unit test
+   * can load. In a run bound to an item whose before value was read at proposal, such a file may be edited
+   * without an agent-written red test (that before value is its red), and the item-metric gate proves its
+   * change: the metric must move, and must move back with that file alone at its run-start content.
+   */
+  measured?: string[] | undefined;
 }
 
 export type Task = GreenfieldTask | BrownfieldTask;
@@ -487,6 +494,25 @@ export interface ExecOptions {
 /** Deterministic subprocess execution (provider keys are always stripped from the env). */
 export type Exec = (cmd: string, args: string[], opts: ExecOptions) => Promise<ExecResult>;
 
+/** USD per million tokens (an upper bound: the config names where each price comes from). */
+export interface ModelPrice {
+  input: number;
+  /** Input the provider reports as served from its cache. */
+  cachedInput: number;
+  output: number;
+  note?: string;
+}
+
+/** Which models a run may use and what it may spend (src/core/spend.ts). */
+export interface ModelPolicy {
+  /** Model ids, or prefixes ending in "*" (e.g. "scripted:*"); anything else is refused before the first turn. */
+  allow: string[];
+  /** Price per model id (or "*" prefix); an allowed model without one is refused (the cap could not be enforced). */
+  prices: Record<string, ModelPrice>;
+  /** USD cap per run: a request whose worst case would pass it is never sent. */
+  maxRunUsd: number;
+}
+
 export interface HarnessConfig {
   pluginDirs: string[];
   disabled: string[];
@@ -503,6 +529,8 @@ export interface HarnessConfig {
    * (recorded as UNPROVEN isolation in run evidence).
    */
   sandbox: 'auto' | 'off';
+  /** Model allowlist and spend cap. Default (no config): only the offline replay driver may run. */
+  models: ModelPolicy;
 }
 
 export interface TestRunReport {
@@ -608,10 +636,27 @@ export interface DifferentialRun {
   reverted: TestRunReport;
 }
 
+/**
+ * The backlog item a run is bound to (assignment 02). Every edit needs the item's contract
+ * (docs/contracts/<slug>.md) and the stakeholder's typed yes (items/<slug>/ledger.jsonl); the
+ * problem-gate and contract-gate hooks re-read both on every call.
+ */
+export interface ItemBinding {
+  slug: string;
+  /** Directory holding docs/contracts/ and items/ (the harness root unless HARNESS_ITEMS_ROOT). */
+  root: string;
+  /** Hash of the approved contract text the run started under. */
+  contractHash: string;
+}
+
 /** Everything a plugin can reach during a run. */
 export interface RunContext {
   run: RunInfo;
   task: Task;
+  /** The backlog item this run is bound to; absent = none, and then no edit is allowed (problem-gate). */
+  item?: ItemBinding;
+  /** The target's stack from preflight (absent: not computed, e.g. a hand-built context). */
+  stack?: Stack;
   workspace: Workspace;
   state: RunState;
   logs: LogStore;
@@ -764,6 +809,8 @@ export interface GatePlugin {
   description?: string;
   phases: GatePhase[];
   appliesTo?: TaskKind[];
+  /** Stacks this gate applies to (default: every stack); on another stack it reports n/a, unless required. */
+  stacks?: Stack[];
   run(ctx: RunContext, phase: GatePhase): Promise<GateResult>;
 }
 
@@ -786,6 +833,8 @@ export interface CheckFinding {
   violations: Violation[];
   /** Why the rule was skipped (status === 'skip'). Skipped = UNPROVEN. */
   skipReason?: string;
+  /** Why a rule found nothing to check (0 units): printed with its n/a line, never counted as proof. */
+  naReason?: string;
 }
 
 export interface CheckContext {
@@ -818,10 +867,20 @@ export interface CheckContext {
   base?: { repoRoot: string; rootRel: string; sha: string };
   /** Merged dependencies + devDependencies of <root>/package.json ({} if absent or unreadable). */
   dependencies(): Record<string, string>;
+  /** The target's stack, when known (the run's profile, or computed by `harness check`). */
+  stack?: Stack;
 }
+
+/**
+ * The target's stack (src/core/target.ts computes it from package.json): which checks and gates
+ * apply. A plugin that declares `stacks` runs only on those; one that declares none runs on all.
+ */
+export type Stack = 'express' | 'nestjs' | 'react-vite' | 'unknown';
 
 export interface CheckPlugin {
   kind: 'check';
+  /** Stacks this rule applies to (default: every stack). The 01 Express rules declare ['express']. */
+  stacks?: Stack[];
   /** Rule id printed in reports, e.g. "zod-boundary". */
   id: string;
   /** Grouping: "standards" (the graded four), "orm", "lint", or any custom label. */

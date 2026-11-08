@@ -1,12 +1,21 @@
 {
   "pluginDirs": ["plugins"],
   "disabled": [],
-  "protectedBranches": ["main", "master", "develop", "trunk", "release/*", "production"],
+  "protectedBranches": ["main", "master", "develop", "development", "staging", "trunk", "release/*", "production"],
   "worktreeDir": ".harness/worktrees",
   "runsDir": "runs",
   "tokensDir": "tokens",
   "templatesDir": "templates",
   "history": { "keepRecentTurns": 2 },
   "limits": { "maxReadLines": 160, "maxListEntries": 200, "maxSearchHits": 40 },
-  "sandbox": "auto"
+  "sandbox": "auto",
+  "models": {
+    "allow": ["gpt-5.6-luna", "claude-haiku-4-5-20251001", "scripted:*"],
+    "prices": {
+      "gpt-5.6-luna": { "input": 1.0, "cachedInput": 0.1, "output": 6.0, "note": "USD per million tokens: the pre-August-2026 list price, an upper bound (later listings show $0.20 / $0.02 / $1.20)" },
+      "claude-haiku-4-5-20251001": { "input": 1.25, "cachedInput": 0.1, "output": 5.0, "note": "USD per million tokens: uncached input at the 5-minute cache-write rate (1.25 x $1.00), an upper bound" },
+      "scripted:*": { "input": 0, "cachedInput": 0, "output": 0, "note": "offline replay: nothing is sent to a provider" }
+    },
+    "maxRunUsd": 2
+  }
 }

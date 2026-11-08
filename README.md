@@ -16,7 +16,122 @@ opens the pull request.
 extension points, honesty boundary). Detail: [docs/reference.md](docs/reference.md). Extending:
 [docs/extending.md](docs/extending.md). Task files: [docs/task-format.md](docs/task-format.md).
 
-## Deliverables
+**The core directory is [`src/core/`](src/core)**: the loop, hook bus, gate runner, items, ship and
+CLI. Everything else is a plugin that registers by being dropped into `plugins/`.
+
+## Assignment 02: my harness, my workflow
+
+Assignment 02 sits on top of the 01 harness (`git log main..feat/assignment-02`). It turns how I work
+into hooks and gates, adds the briefing's three gates, and runs backlog items through them.
+
+| Deliverable | Where |
+|---|---|
+| How I work, mapped gate by gate | [docs/workflow.md](docs/workflow.md) |
+| Backlog items | contracts in [docs/contracts/](docs/contracts), the harness's records in [items/](items) (`ledger.jsonl`: proposal, typed yes, metric readings, runs, ship, close), metric scripts in [metrics/](metrics), runs in [runs/](runs) |
+| Learnings note | [docs/learnings.md](docs/learnings.md) |
+| Setup | `npm run setup` (below); the repository holds no secrets |
+
+The public items target [harness-demo](https://github.com/BasitJutt007/harness-demo) at `rubric-01`.
+Each before value was read by the harness when it proposed the contract; each yes was typed by the
+stakeholder at a terminal.
+
+| Item | Metric (read by the harness) | Before | Runs | State |
+|---|---|---|---|---|
+| [projects-change](docs/contracts/projects-change.md) | routes the change adds that the app does not register | 1 | gpt-5.6-luna: DONE | shipped as a PR; closes on its after value once a person merges it |
+| [users-api](docs/contracts/users-api.md) | Users API routes the app does not register | 5 | gpt-5.6-luna, claude-haiku: NOT DONE | approved |
+| [health-route](docs/contracts/health-route.md) | health routes the app does not register | 1 | gpt-5.6-luna: NOT DONE | approved |
+| [labels](docs/contracts/labels.md) | Labels routes the app does not register | 3 | gpt-5.6-luna, claude-haiku (x2): NOT DONE | approved |
+
+Every NOT DONE names the gate that refused it (in `runs/<id>/run.json` and the run output). The same
+harness also runs items on private work repositories; those contracts and runs stay outside this
+repository, and what they taught is in the learnings note.
+
+`node bin/harness.mjs item status` prints each item's stage from its ledger.
+
+### The three gates (and the outcome inside a run)
+
+| Gate | What it blocks | Where |
+|---|---|---|
+| Problem statement | Every edit, until `docs/contracts/<slug>.md` names Problem, Owner, Stakeholder, Repo, Base, Commit, Metric (with before/after), Measure, WHEN/THEN Scenarios and Not included. The refusal names each missing field. A run without one is refused before its first model turn | `plugins/hooks/problem-gate.ts`, `bindItem` in `src/core/run.ts` |
+| Human yes | Every edit, and the Stop (`finish`), until the stakeholder types a plain yes at a terminal after the harness proposed this exact contract text. Assistant text, tool output, hook output, a piped reply, a reply to an older proposal and a hand-written Signed line never count | `plugins/hooks/contract-gate.ts`, `plugins/gates/stakeholder-yes.ts`, `approvalVerdict` in `src/core/items.ts` |
+| Outcome (during the run) | DONE, while the item's own metric, read by the harness on the run's tree, still reads its before value. Files only that metric can probe (`measured`) must each move it back when reverted alone | `plugins/gates/item-metric.ts` |
+| Outcome | Closing an item, until a person merged the PR the harness opened and the harness read the metric at that merge commit (same script, run twice, confined), writing it next to the before value | `src/core/close.ts` (`harness item close`) |
+
+The item lifecycle, each step a command:
+
+```bash
+node bin/harness.mjs item new <slug>                                     # contract template, every field a placeholder
+node bin/harness.mjs item propose <slug> --repo <clone>                  # reads the before value, records the proposal
+node bin/harness.mjs item reply <slug>                                   # the stakeholder types their reply (terminal only)
+node bin/harness.mjs run tasks/<slug>.md --repo <clone> --driver openai --model gpt-5.6-luna --ship
+node bin/harness.mjs item close <slug> --repo <clone>                    # after a person merged the PR
+node bin/harness.mjs item status                                         # each item's stage
+```
+
+### Try to skip them
+
+Each attempt is refused with the reason. The output below is real, captured against a copy of `items/`:
+
+```text
+$ node bin/harness.mjs run tasks/users-api.task.yaml --driver scripted --driver-opt script=fixtures/scripted/users-api.json --item no-contract-here
+error: refused before the first model turn (no tokens spent): item "no-contract-here" (no-contract)
+           problem-statement  REFUSE  no contract for item "no-contract-here": write docs/contracts/no-contract-here.md (Problem, Owner, Stakeholder, Repo, Base, Commit, Metric, Measure, Scenario, Not included) before any source edit
+
+$ echo yes | node bin/harness.mjs item reply users-api
+note: stdin is not a terminal, so this reply is recorded as piped and cannot approve (only a reply typed at a terminal counts)
+... recorded, not an approval: no typed yes from Abdul Basit after the proposal (seq 1); not counted: "yes" (seq 3) arrived on a pipe, not typed at a terminal
+
+$ node bin/harness.mjs item close users-api --repo ../harness-demo
+outcome  REFUSE  no stakeholder yes: no typed yes from Abdul Basit after the proposal (seq 1); ...
+$ node bin/harness.mjs item close users-api --repo ../harness-demo --after 0
+unknown option --after: no item command takes a value from the command line (the harness reads the metric and the reply itself)
+```
+
+Inside a run, a "yes" in tool output or assistant text is listed as "not counted" when the Stop is
+held. The skip attempts are tests ([test/items/skip-attempts.test.ts](test/items/skip-attempts.test.ts),
+[test/items/close.test.ts](test/items/close.test.ts)). `npm run audit:mutations` applies 51 mutations
+(23 to contracts, 12 to approvals, 16 to merges and readings) to items that pass each gate
+([test/audit/item-gates.audit.ts](test/audit/item-gates.audit.ts)), and every one must be refused.
+
+### What the harness enforces from my workflow
+
+Each row of [docs/workflow.md](docs/workflow.md) names its mechanism. The ones added for 02:
+
+- **Stacks I work in:** NestJS + Prisma + Jest and React + Vite are profiled next to Express. Each
+  check and gate declares its stacks, and the prompt names the stack and the approved contract.
+- **Routes without the access check** (`nest-route-guard`) and **removed or moved routes** (`route-lock`).
+- **Type checks that check nothing** (`repo-typecheck` expands solution-style tsconfigs), **lint that
+  lints no TypeScript** (`repo-lint`, n/a with the reason), and **builds broken only at deploy** (`vite-build`).
+- **Unbounded queries** (`prisma-unbounded`: every findMany has a take or selects by id).
+- **Large PRs that draw review round-trips** (`diff-budget`: a brownfield change over 400 changed lines,
+  or the task's `limits.maxDiffLines`, is refused; my blocked PRs had a median of 487).
+- **Commits and PRs that say nothing:** the contract's Commit header is checked at propose and at
+  ship. The repository's own commitlint runs confined, and a config that accepts "patch" is reported
+  as checking nothing. The repository's PR template is filled from the contract, and a box is ticked
+  only when a gate proved it.
+- **"Done" while the problem is not:** `item-metric` reads the item's own metric on the run's tree
+  before DONE, and `read-loop-guard` notes a model that keeps re-reading a file instead of editing it.
+- **Cost blow-ups:** `harness.config.json` `models` allows `gpt-5.6-luna` and
+  `claude-haiku-4-5-20251001` only, with upper-bound prices and a $2 cap per run. Any other model, a
+  driver's default included, is refused before the first turn. A request that could pass the cap is
+  never sent.
+
+### The 01 rubric under the 02 gates
+
+The 01 task files are items too ([docs/contracts/users-api.md](docs/contracts/users-api.md),
+[docs/contracts/projects-change.md](docs/contracts/projects-change.md)), so they run only once the
+stakeholder has approved their contracts. They target `harness-demo` at `rubric-01`, the commit
+before the 01 PRs merged:
+
+```bash
+git clone https://github.com/BasitJutt007/harness-demo.git ../harness-demo
+git -C ../harness-demo checkout rubric-01
+node bin/harness.mjs run tasks/users-api.task.yaml --repo ../harness-demo --driver openai --model gpt-5.6-luna
+node bin/harness.mjs run tasks/users-api.task.yaml --repo ../harness-demo --driver claude --model claude-haiku-4-5-20251001
+node bin/harness.mjs agnostic <openaiRunId> <claudeRunId>
+```
+
+## Assignment 01 deliverables
 
 | | Deliverable | Where |
 |---|---|---|
@@ -42,17 +157,21 @@ loopback network. Without a working sandbox a run refuses to start.
 
 ```bash
 export OPENAI_API_KEY=…   ANTHROPIC_API_KEY=…
-node bin/harness.mjs run tasks/users-api.task.yaml       --driver openai --ship   # greenfield → PR
-node bin/harness.mjs run tasks/users-api.task.yaml       --driver claude          # same task, other provider
+export HARNESS_OPENAI_MODEL=gpt-5.6-luna HARNESS_CLAUDE_MODEL=claude-haiku-4-5-20251001   # the allowlisted models
+git -C ../harness-demo checkout rubric-01                                         # the base before the 01 PRs merged
+node bin/harness.mjs run tasks/users-api.task.yaml       --repo ../harness-demo --driver openai --ship   # greenfield → PR
+node bin/harness.mjs run tasks/users-api.task.yaml       --repo ../harness-demo --driver claude          # same task, other provider
 node bin/harness.mjs agnostic <runA> <runB>                                       # zero governing diff between two runs
-node bin/harness.mjs run tasks/projects-change.task.yaml --driver openai --ship   # brownfield → PR
+node bin/harness.mjs run tasks/projects-change.task.yaml --repo ../harness-demo --driver openai --ship   # brownfield → PR
 node bin/harness.mjs check --api governed/users-api                               # the standards check: verdict 100%
-node bin/harness.mjs run tasks/users-api.task.yaml --driver openai --baseline     # measured token baseline
+node bin/harness.mjs run tasks/users-api.task.yaml --repo ../harness-demo --driver openai --baseline     # measured token baseline
 node bin/harness.mjs tokens compare <jitRun> <baselineRun>                        # baseline vs actual
 ```
 
 `--model <id>` picks the model (else `HARNESS_OPENAI_MODEL` / `HARNESS_CLAUDE_MODEL`); task files cannot
-name one. Each run works in a fresh git worktree on its own branch, so your checkout is never touched;
+name one, and since 02 it must be on `harness.config.json` `models.allow` (`gpt-5.6-luna`,
+`claude-haiku-4-5-20251001`). Since 02 every run is also bound to an item whose contract was approved
+in a typed turn: the task id names the item unless `--item <slug>` says otherwise (see above). Each run works in a fresh git worktree on its own branch, so your checkout is never touched;
 `--repo <dir>` targets another repository. Without keys, the offline `scripted` driver replays recorded
 tool calls through the real loop, hooks and gates (`fixtures/scripted/*.json`; harness demos, never
 model evidence).
@@ -152,19 +271,22 @@ verdict    DONE (all gates green)
 
 ```
 src/core/        the engine: loop, hook bus, gate runner, context and compaction, token ledger, check runner,
-                 test runner, target profile, import-graph test map, type check, sandbox, worktree, ship, CLI
-plugins/         drivers/ (claude, openai, scripted)   tools/ (15)   hooks/ (9)   gates/ (8)   checks/ (4)
+                 test runner, target profile, import-graph test map, type check, sandbox, worktree, ship, CLI;
+                 since 02: items (contract, ledger, typed yes), measure, close, ship text, spend
+plugins/         drivers/ (claude, openai, scripted)   tools/ (15)   hooks/ (11)   gates/ (11)   checks/ (9)
 templates/       the greenfield scaffold (express-zod)
 samples/         the brownfield sample API (existing-api)
-tasks/           the two task files
+tasks/           the two 01 task files and the three 02 item task files
 governed/        the two governed APIs
+docs/contracts/  one contract per item; items/ the harness's ledger per item; metrics/ the Measure scripts
 runs/ tokens/    run evidence and token reports
 ```
 
 Extensions never edit `src/core/`: dropping one file into `plugins/` registers it
 (`node scripts/simulate-extensions.mjs` proves it on three examples). `npm run verify` runs strict `tsc`
-and the test suite (1921 tests, including end-to-end runs and real sandbox tests);
-`npm run audit:mutations` checks that 31 broken or unmodelled variants of a shipped API never read 100%.
+and the test suite (2063 tests on 5 Nov 2026, including end-to-end runs and real sandbox tests);
+`npm run audit:mutations` checks that 31 broken or unmodelled variants of a shipped API never read 100%,
+and that 51 mutated items never pass the 02 gates.
 
 ## 02 The two governed APIs
 
@@ -223,5 +345,10 @@ Further additions beyond a plain harness:
   per their field specs (greenfield); no breaking contract change (brownfield); no secrets ship.
 - **Does not prove:** that the agent's tests test the intended behaviour; behaviours written only as free
   text; persistence, performance, security, concurrency. These are listed in each `run.json` for a human.
-- **Known limits:** Express only; the claude driver is unproven against Anthropic's API; the Linux
-  sandbox and the jest adapter are tested without a live Linux host or jest install.
+- **Known limits:** spec coverage and Contract Lock model Express only. NestJS and React + Vite targets
+  get route, type, lint, build and query checks, not the live probes. No Claude run has reached DONE
+  yet: the claude driver has answered live requests on claude-haiku-4-5-20251001, and the full re-run
+  waits for the users-api contract's yes. The jest adapter (the backend's runner) has not yet run
+  inside a governed run. The Linux sandbox is tested without a live Linux host. The ledger is tamper-evident against hand edits, not against someone who
+  recomputes its hash chain: the operator is trusted. Prices in `models.prices` are upper bounds from
+  public listings, not the provider's bill.

@@ -1,0 +1,19 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-59c2e168/874d2805d1a6/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/labels.test.ts
+exit: 0
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-59c2e168/874d2805d1a6/samples/existing-api
+
+ ✓ test/labels.test.ts (5 tests) 42ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  12:30:39
+   Duration  253ms (import 52%, transform 24%, tests 23%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":2,"numFailedTestSuites":0,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":5,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794123039494,"success":true,"testResults":[{"assertionResults":[{"ancestorTitles":["labels"],"fullName":"labels creates labels with location","status":"passed","title":"creates labels with location","duration":21.126499999999993,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels validates name and color","status":"passed","title":"validates name and color","duration":5.033916999999974,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels replays idempotent creation","status":"passed","title":"replays idempotent creation","duration":3.8599579999999776,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels paginates all labels and retrieves one","status":"passed","title":"paginates all labels and retrieves one","duration":8.572333999999984,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels reports unknown and malformed ids","status":"passed","title":"reports unknown and malformed ids","duration":2.2227499999999907,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123039707,"endTime":1794123039748.2227,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-59c2e168/874d2805d1a6/samples/existing-api/test/labels.test.ts"}]}

@@ -1,0 +1,155 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-openai-20261108-072908/samples/existing-api
+
+ ❯ test/labels.test.ts (5 tests | 5 failed) 46ms
+   ❯ labels (5)
+     × creates labels with location 31ms
+     × validates name and color 4ms
+     × replays idempotent creation 3ms
+     × paginates all labels and retrieves one 4ms
+     × reports unknown and malformed ids 3ms
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  12:29:25
+   Duration  436ms (import 60%, transform 24%, tests 14%, worker 3%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/labels.test.ts > labels > creates labels with location
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:20:24
+     18|   it('creates labels with location', async () => {
+     19|     const res = await request(app).post('/v1/labels').send({ name: 'ur…
+     20|     expect(res.status).toBe(201);
+       |                        ^
+     21|     const label = Label.parse(res.body);
+     22|     expect(res.headers.location).toBe(`/v1/labels/${label.id}`);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  test/labels.test.ts > labels > validates name and color
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ problem test/labels.test.ts:12:22
+     10| const unknownId = '00000000-0000-4000-8000-000000000000';
+     11| const problem = async (res: request.Response, status: number) => {
+     12|   expect(res.status).toBe(status);
+       |                      ^
+     13|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     14|   return ProblemSchema.parse(res.body);
+ ❯ test/labels.test.ts:25:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  test/labels.test.ts > labels > replays idempotent creation
+AssertionError: expected undefined to be 'true' // Object.is equality
+
+- Expected:
+"true"
+
++ Received:
+undefined
+
+ ❯ test/labels.test.ts:34:51
+     32|     const first = await request(app).post('/v1/labels').set('Idempoten…
+     33|     const second = await request(app).post('/v1/labels').set('Idempote…
+     34|     expect(second.headers['idempotent-replayed']).toBe('true');
+       |                                                   ^
+     35|     expect(Label.parse(second.body).id).toBe(Label.parse(first.body).i…
+     36|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  test/labels.test.ts > labels > paginates all labels and retrieves one
+ZodError: [
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "id"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "name"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "color"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "expected": "string",
+    "code": "invalid_type",
+    "path": [
+      "createdAt"
+    ],
+    "message": "Invalid input: expected string, received undefined"
+  },
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "type",
+      "title",
+      "status",
+      "detail",
+      "instance"
+    ],
+    "path": [],
+    "message": "Unrecognized keys: \"type\", \"title\", \"status\", \"detail\", \"instance\""
+  }
+]
+ ❯ test/labels.test.ts:39:49
+     37|   it('paginates all labels and retrieves one', async () => {
+     38|     const created = await Promise.all([1, 2, 3].map((n) => request(app…
+     39|     const expected = created.map((res) => Label.parse(res.body).id);
+       |                                                 ^
+     40|     const seen: string[] = [];
+     41|     let cursor: string | undefined;
+ ❯ test/labels.test.ts:39:30
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  test/labels.test.ts > labels > reports unknown and malformed ids
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ problem test/labels.test.ts:12:22
+     10| const unknownId = '00000000-0000-4000-8000-000000000000';
+     11| const problem = async (res: request.Response, status: number) => {
+     12|   expect(res.status).toBe(status);
+       |                      ^
+     13|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     14|   return ProblemSchema.parse(res.body);
+ ❯ test/labels.test.ts:54:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+observed red: test/labels.test.ts (source they cover is now writable)

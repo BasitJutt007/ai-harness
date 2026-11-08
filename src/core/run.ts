@@ -10,10 +10,14 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { z } from 'zod';
 import { evidenceDirs, HARNESS_ROOT, loadConfig } from './config.ts';
 import { exec } from './exec.ts';
+import { selectChecks } from './checks.ts';
 import { governanceRecord } from './governance.ts';
+import { missingRequiredHooks } from './hooks.ts';
+import { appendLedger, contractVerdict, itemPaths, itemsRoot, itemStatus } from './items.ts';
 import { formatGates, requiredGates, runGates, type GateOutcome, type NamedGateResult } from './gates.ts';
 import { withoutFetchers } from './context.ts';
 import { runAgent, turnLimitFor, type AgentResult, type AgentStatus, type TurnLimit, type TurnLimitRecord } from './loop.ts';
+import { modelAllowed, modelPolicyVerdict, normalizeModel, SpendMeter, spendLine } from './spend.ts';
 import { compactTree, frontLoad, scaffoldApiOf, systemPrompt, taskBrief, testMapSummary } from './prompt.ts';
 import { loadRegistry, pluginFingerprint, toolSpecs } from './registry.ts';
 import { deserializeState, newRunId, newRunState, RunStore, serializeState } from './run-store.ts';
@@ -34,6 +38,7 @@ import type {
   DriverPlugin,
   Exec,
   HarnessConfig,
+  ItemBinding,
   LoadedTask,
   RegistryView,
   RunContext,
@@ -110,6 +115,8 @@ export function buildContext(opts: {
   exec?: Exec;
   /** The API's profile (layout, runner) from preflight. */
   profile?: TargetProfile;
+  /** The backlog item the run is bound to. */
+  item?: ItemBinding;
 }): RunContext {
   const { state, store } = opts;
   const run = opts.exec ?? exec;
@@ -128,6 +135,8 @@ export function buildContext(opts: {
   return {
     run: opts.run,
     task: opts.task,
+    ...(opts.item !== undefined ? { item: opts.item } : {}),
+    ...(opts.profile !== undefined ? { stack: opts.profile.stack } : {}),
     workspace: opts.ws,
     state,
     logs: store.logs,
@@ -468,6 +477,25 @@ export interface ExecuteRunOptions {
   /** --target / --output: override the task's API location (and decide a missing kind). */
   target?: string;
   output?: string;
+  /** --item <slug>: the backlog item the run works on (default: the task id). */
+  item?: string;
+}
+
+/**
+ * The item a run is bound to, checked before the first model turn: the required item hooks are
+ * registered, the contract names every field, and its text is approved in a typed turn. Throws the
+ * refusal (no worktree, no tokens) naming what is missing.
+ */
+export function bindItem(slug: string, registry: RegistryView, root: string = itemsRoot(HARNESS_ROOT)): ItemBinding {
+  const missing = missingRequiredHooks(registry.hooks);
+  if (missing.length > 0) {
+    throw new Error(`refused before the first model turn: required hook(s) ${missing.join(', ')} not registered (disabled in harness.config.json or failed to load), so nothing would stop an edit without a contract or a stakeholder yes`);
+  }
+  const status = itemStatus(root, slug);
+  if (!status.editable || status.contract.parse === null) {
+    throw new Error(`refused before the first model turn (no tokens spent): item "${slug}" (${status.stage})\n${status.lines.map((l) => `           ${l}`).join('\n')}`);
+  }
+  return { slug, root, contractHash: status.contract.parse.hash };
 }
 
 /** Config whose runsDir/tokensDir point at the resolved evidence dirs (harness-relative when possible). */
@@ -496,6 +524,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     log(`task       ${loaded.warnings.length} note(s) normalizing ${loaded.file} ('harness task check' prints the canonical task):`);
     for (const w of loaded.warnings) log(`           - ${w}`);
   }
+  // Assignment 02: no run edits anything without its item's contract and the stakeholder's typed yes.
+  const item = bindItem(opts.item ?? task.id, registry);
+  log(`item       ${item.slug}: contract complete and approved in a typed turn (${harnessRel(itemPaths(item.root, item.slug).contract)})`);
 
   const driverPlugins = [...(opts.extraDrivers ?? []), ...registry.drivers.map((d) => d.plugin)];
   const driverPlugin = driverPlugins.find((d) => d.name === opts.driver);
@@ -514,6 +545,10 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   } catch (e) {
     throw new Error(`driver "${opts.driver}" could not start: ${errMsg(e)}`);
   }
+  // Habit 9: only an allowed, priced model runs, under the run's spend cap (src/core/spend.ts).
+  const policy = modelPolicyVerdict(config.models, driver.name, driver.model);
+  if (!policy.ok) throw new Error(`refused before the first model turn (no tokens spent): ${policy.reason}`);
+  const meter = new SpendMeter(config.models.maxRunUsd, policy.price, normalizeModel(driver.model));
 
   // ── workspace: a fresh worktree of the target repository; the target checkout itself is never touched.
   const startedAt = new Date();
@@ -578,6 +613,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     config,
     registry,
     exec: run,
+    item,
     ...(target.profile !== undefined ? { profile: target.profile } : {}),
   });
 
@@ -611,6 +647,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     model: driver.model,
     tokenCounter: driver.tokenCounter,
     mode,
+    item: { slug: item.slug, contractHash: item.contractHash, contract: harnessRel(itemPaths(item.root, item.slug).contract) },
     startedAt: startedAt.toISOString(),
     targetRepo: repoDir,
     worktreeRoot: wt.worktreeRoot,
@@ -678,8 +715,9 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   try {
     if (offered === undefined) throw new Error(`tool schemas could not be built: ${offerError}`);
     const tools = offered;
-    const checks = registry.checks.map((r) => r.plugin);
-    const system = systemPrompt({ task, checks, tools });
+    // Only the rules written for this stack: the agent is never told to meet another stack's standards.
+    const checks = selectChecks(registry.checks.map((r) => r.plugin), undefined, undefined, ctx.stack);
+    const system = systemPrompt({ task, checks, tools, ...(ctx.stack !== undefined ? { stack: ctx.stack } : {}) });
     const baselineSystem = baselineSystemRenderer({ task, checks, tools: withoutFetchers(tools, toolPlugins), ws });
     const tree = compactTree(await ws.list(['**/*']));
     let testMapText: string | undefined;
@@ -691,11 +729,13 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       }
     }
     const api = task.kind === 'greenfield' ? await scaffoldApiOf(ws, manifest) : undefined;
+    const contract = contractVerdict(itemPaths(item.root, item.slug)).parse;
     const brief = taskBrief(task, {
       tree,
       template: manifest,
       ...(testMapText !== undefined ? { testMap: testMapText } : {}),
       ...(api !== undefined ? { scaffoldApi: api } : {}),
+      ...(contract !== null ? { contract: { slug: item.slug, parse: contract } } : {}),
     });
     const first = { role: 'user' as const, parts: [{ type: 'text' as const, text: brief }] };
     agent = await runAgent({
@@ -710,6 +750,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       maxTurns: turnLimit.max,
       ...(turnLimit.extension !== undefined ? { turnExtension: turnLimit.extension } : {}),
       maxOutputTokens: task.limits.maxOutputTokens,
+      spend: { meter, allowed: (m) => modelAllowed(config.models, m) },
       ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
     });
   } catch (e) {
@@ -733,7 +774,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   // Fresh final gate run: never trust what the loop saw. Skipped (and reported UNPROVEN) after an abort.
   const final: GateOutcome = abortedRun
     ? { ok: false, results: [], text: 'gates     not run: the run was aborted (UNPROVEN)', compact: '' }
-    : await runGates(registry.gates, ctx, 'finish', { required: requiredGates(task, 'finish') });
+    : await runGates(registry.gates, ctx, 'finish', { required: requiredGates(task, 'finish', ctx.stack) });
   abortedRun ||= stopRequested();
   let report: CheckReport | null = null;
   if (abortedRun) {
@@ -833,6 +874,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
     },
     evidence,
     honesty: h,
+    spend: { model: meter.model, spentUsd: Number(meter.spentUsd.toFixed(6)), capUsd: meter.capUsd, price: meter.price },
     ...(shipped !== undefined ? { ship: shipped } : {}),
   });
 
@@ -852,6 +894,7 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
       : `           baseline is a shadow estimate (never sent); measured: harness run <task> --baseline, then harness tokens compare ${runId} <baselineRunId>`,
     `evidence   ${harnessRel(runDir)}/{run.json,events.jsonl,transcript.jsonl,gates.json,standards.txt,state.json,logs/}`,
     `           ${evidence.tokens}`,
+    `spend      ${spendLine(meter)}`,
     `worktree   ${wt.worktreeRoot}  branch ${branch}  (base ${wt.baseBranch} @ ${wt.baseSha.slice(0, 12)}; ${repoDir} untouched)`,
     ...formatHonesty(h),
     ...(shipped !== undefined ? [`ship       ${shipped.status}${shipped.commit !== undefined ? ` ${shipped.commit.slice(0, 12)}` : ''}${shipped.prUrl !== undefined ? ` ${shipped.prUrl}` : ''}${shipped.reasons.length > 0 ? `: ${shipped.reasons.join('; ')}` : ''}`] : []),
@@ -860,6 +903,12 @@ export async function executeRun(opts: ExecuteRunOptions): Promise<RunSummary> {
   ];
   const text = lines.join('\n');
   log(text);
+  // The item's own record of the run (its job-store entry: red run, gates, verdict live in runs/<id>/).
+  try {
+    appendLedger(itemPaths(item.root, item.slug).ledger, { type: 'run', runId, status, verdict: ok && !gatesDecided ? 'DONE' : verdictText, contractHash: item.contractHash });
+  } catch (e) {
+    log(`item       could not record the run in the item ledger: ${errMsg(e)}`);
+  }
 
   return {
     runId,
@@ -901,6 +950,9 @@ const RunRecordSchema = z.looseObject({
 });
 export type RunRecord = z.infer<typeof RunRecordSchema>;
 
+/** run.json `item`: the backlog item a run was bound to (absent on runs before assignment 02: such a run cannot ship). */
+const RecordedItem = z.object({ slug: z.string(), contractHash: z.string() });
+
 /**
  * Rebuild a RunContext for an earlier run from runs/<id>/{run.json,state.json}.
  * `ref` is a run id (looked up in the evidence runs dir) or a path to a run directory.
@@ -930,7 +982,9 @@ export async function openRun(
   const target = await targetProfile(ws);
   const savedState = store.readJson<unknown>('state.json');
   const state = savedState === null ? newRunState() : deserializeState(savedState);
+  const recordedItem = RecordedItem.safeParse(record['item']);
   const ctx = buildContext({
+    ...(recordedItem.success ? { item: { slug: recordedItem.data.slug, root: itemsRoot(HARNESS_ROOT), contractHash: recordedItem.data.contractHash } } : {}),
     run: {
       id: record.runId,
       driver: record.driver,

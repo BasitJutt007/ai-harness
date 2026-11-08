@@ -1,0 +1,21 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/469136dd5467/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/labels.test.ts test/schema.test.ts test/store.test.ts
+exit: 0
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/469136dd5467/samples/existing-api
+
+ ✓ test/store.test.ts (1 test) 3ms
+ ✓ test/schema.test.ts (1 test) 4ms
+ ✓ test/labels.test.ts (5 tests) 41ms
+
+ Test Files  3 passed (3)
+      Tests  7 passed (7)
+   Start at  12:30:41
+   Duration  251ms (import 60%, transform 21%, tests 16%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+--- json ---
+{"numTotalTestSuites":6,"numPassedTestSuites":6,"numFailedTestSuites":0,"numPendingTestSuites":0,"numTotalTests":7,"numPassedTests":7,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794123041456,"success":true,"testResults":[{"assertionResults":[{"ancestorTitles":["labels"],"fullName":"labels creates labels with location","status":"passed","title":"creates labels with location","duration":22.62812500000001,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels validates name and color","status":"passed","title":"validates name and color","duration":4.391582999999997,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels replays idempotent creation","status":"passed","title":"replays idempotent creation","duration":3.7086669999999913,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels paginates all labels and retrieves one","status":"passed","title":"paginates all labels and retrieves one","duration":7.641458999999998,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels reports unknown and malformed ids","status":"passed","title":"reports unknown and malformed ids","duration":1.839790999999991,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123041668,"endTime":1794123041708.8398,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/469136dd5467/samples/existing-api/test/labels.test.ts"},{"assertionResults":[{"ancestorTitles":["label schema"],"fullName":"label schema accepts valid labels and rejects invalid color","status":"passed","title":"accepts valid labels and rejects invalid color","duration":3.144041999999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123041593,"endTime":1794123041596.144,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/469136dd5467/samples/existing-api/test/schema.test.ts"},{"assertionResults":[{"ancestorTitles":["label store"],"fullName":"label store creates and retrieves labels","status":"passed","title":"creates and retrieves labels","duration":2.1557499999999976,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123041593,"endTime":1794123041595.1558,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-0ddb4e64/469136dd5467/samples/existing-api/test/store.test.ts"}]}

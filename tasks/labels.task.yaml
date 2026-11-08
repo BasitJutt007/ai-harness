@@ -1,0 +1,34 @@
+# Brownfield: a Labels resource next to the existing Projects API in samples/existing-api.
+# Provider-neutral: choose the model with `harness run ... --driver <name> [--model <id>]`.
+kind: brownfield
+id: labels
+title: A Labels resource for the Projects API
+target: samples/existing-api
+change: |
+  Add a Labels resource in its own module (src/modules/labels), registered on the app next
+  to the projects routes, following the API's existing conventions exactly:
+
+  1. POST /v1/labels creates a label { name, color }: name 1-40 characters, color a hex
+     string like "#1a2b3c". It answers 201 with the label (id, name, color, createdAt) and a
+     Location header, honours the Idempotency-Key header like the projects routes, and
+     answers 422 application/problem+json for an invalid body.
+  2. GET /v1/labels lists labels with cursor pagination (cursor + limit, response
+     { data, nextCursor }), like GET /v1/projects.
+  3. GET /v1/labels/{labelId} returns one label, 404 application/problem+json when it does
+     not exist, 422 for a malformed id.
+
+  The store is in memory, like the projects store. No existing route changes.
+behaviours:
+  - "POST /v1/labels with a valid body returns 201, the created label and a Location header pointing at it."
+  - "POST /v1/labels with an invalid name or color returns 422 application/problem+json naming each failing field."
+  - "POST /v1/labels repeated with the same Idempotency-Key and body replays the first response and creates no second label."
+  - "GET /v1/labels is cursor-paginated: following nextCursor visits every label exactly once."
+  - "GET /v1/labels/{labelId} returns the label; an unknown id returns 404 and a malformed id 422, both application/problem+json."
+  - "All existing tests keep passing and the public contract only gains routes and properties."
+scope:
+  allow: ["src/**/*.ts", "test/**/*.ts"]
+  deny: ["src/lib/**", "src/server.ts", "src/modules/projects/**"]
+allowBreaking: false
+limits:
+  maxTurns: 60
+  maxOutputTokens: 16000

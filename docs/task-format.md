@@ -61,9 +61,12 @@ Keys are matched ignoring case, `-`, `_`, `.` and spaces. The canonical name is 
 | `basePath` | `prefix`, `apiPrefix`, `baseUrl` | `/v1` |
 | `template`, `scope`, `allowBreaking`, `limits` | `scaffold`; `allow_breaking` | defaults |
 | `specCoverage` | `spec_coverage` | absent (see below) |
+| `measured` | `measured_files` | absent (see below) |
 
-**Limits** are `maxTurns` (also `turns`, `maxSteps`) and `maxOutputTokens` (also `maxTokens`,
-default 16,000); any other key under `limits` is ignored with a note. A `maxTurns` in the task (or
+**Limits** are `maxTurns` (also `turns`, `maxSteps`), `maxOutputTokens` (also `maxTokens`,
+default 16,000) and `maxDiffLines` (also `diffLines`, `maxDiff`: the changed lines a brownfield change
+may have, default 400, enforced by the `diff-budget` gate); any other key under `limits` is ignored
+with a note. A `maxTurns` in the task (or
 `--max-turns`) is a hard cap. Without one the limit scales with the task: 40 turns, plus 20 per
 resource (a brief-only task or a change counts as one), plus 2 per behaviour, at most 150; when a run
 reaches it while the gates are making progress (the latest refused finish had fewer failing units
@@ -74,6 +77,14 @@ against the task's resources. A task with only a brief lists none, so nothing co
 what the brief asks for, and the gate is UNPROVEN: such a run is never DONE. `specCoverage: human`
 is the explicit opt-out: the gate is then `n/a` and the run lists behaviour coverage under "human
 must verify". It is an error on a task that lists resources, and has no effect on a brownfield task.
+
+**measured** (brownfield): glob(s) of files the bound item's Measure probes, typically a screen
+that no unit test can load. In a run bound to an item whose proposal recorded a before value, such a
+file may be edited without an agent-written red test: the before value the harness read is its red.
+Its proof moves to the `item-metric` gate, which reads the metric on the run's tree (it must have
+moved) and again with each changed measured file alone back at its run-start content (it must read
+differently), so a measured file whose own change moves nothing fails. Without an item or a before
+value, a measured file is locked like any other. It has no effect on a greenfield task.
 
 Any other top-level key is **carried**: the model sees it verbatim under "Additional details from the
 task file". It is never dropped.

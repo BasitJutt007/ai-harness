@@ -1,0 +1,162 @@
+--- /dev/null
++++ b/test/labels.test.ts
+@@ -0,0 +1,159 @@
++import { randomUUID } from 'node:crypto';
++import { describe, it, expect, beforeEach } from 'vitest';
++import request from 'supertest';
++import type { Express } from 'express';
++import { createApp } from '../src/app.ts';
++import type { Label } from '../src/modules/labels/schema.ts';
++import type { Problem } from '../src/lib/problem.ts';
++
++let app: Express;
++
++beforeEach(() => {
++  app = createApp();
++});
++
++function isProblem(obj: unknown): obj is Problem {
++  return (
++    typeof obj === 'object' &&
++    obj !== null &&
++    'type' in obj &&
++    'title' in obj &&
++    'status' in obj &&
++    typeof (obj as Record<string, unknown>).type === 'string' &&
++    typeof (obj as Record<string, unknown>).title === 'string' &&
++    typeof (obj as Record<string, unknown>).status === 'number'
++  );
++}
++
++function expectProblem(response: { body: unknown }, status: number): void {
++  expect(response.body).toSatisfy((body: unknown) => isProblem(body));
++  const prob = response.body as Problem;
++  expect(prob.status).toBe(status);
++}
++
++async function createLabel(body: { name: string; color: string }): Promise<Label> {
++  const res = await request(app).post('/v1/labels').send(body);
++  expect(res.status).toBe(201);
++  const label = res.body as Label;
++  expect(label.id).toBeDefined();
++  expect(label.name).toBe(body.name);
++  expect(label.color).toBe(body.color);
++  expect(label.createdAt).toBeDefined();
++  return label;
++}
++
++describe('Labels', () => {
++  it('POST /v1/labels with valid body returns 201, label, and Location header', async () => {
++    const res = await request(app).post('/v1/labels').send({ name: 'bug', color: '#ff0000' });
++    expect(res.status).toBe(201);
++    const label = res.body as Label;
++    expect(label).toHaveProperty('id');
++    expect(label).toHaveProperty('name', 'bug');
++    expect(label).toHaveProperty('color', '#ff0000');
++    expect(label).toHaveProperty('createdAt');
++    expect(res.headers.location).toBe(`/v1/labels/${label.id}`);
++  });
++
++  it('POST /v1/labels with invalid name returns 422 problem', async () => {
++    const res = await request(app).post('/v1/labels').send({ name: '', color: '#ff0000' });
++    expect(res.status).toBe(422);
++    expectProblem(res, 422);
++    const prob = res.body as Problem;
++    expect(prob.detail).toContain('name');
++  });
++
++  it('POST /v1/labels with name too long returns 422 problem', async () => {
++    const res = await request(app).post('/v1/labels').send({ name: 'x'.repeat(41), color: '#ff0000' });
++    expect(res.status).toBe(422);
++    expectProblem(res, 422);
++    const prob = res.body as Problem;
++    expect(prob.detail).toContain('name');
++  });
++
++  it('POST /v1/labels with invalid color returns 422 problem', async () => {
++    const res = await request(app).post('/v1/labels').send({ name: 'bug', color: 'red' });
++    expect(res.status).toBe(422);
++    expectProblem(res, 422);
++    const prob = res.body as Problem;
++    expect(prob.detail).toContain('color');
++  });
++
++  it('POST /v1/labels with multiple invalid fields returns 422 naming each field', async () => {
++    const res = await request(app).post('/v1/labels').send({ name: '', color: 'invalid' });
++    expect(res.status).toBe(422);
++    expectProblem(res, 422);
++    const prob = res.body as Problem;
++    expect(prob.detail).toContain('name');
++    expect(prob.detail).toContain('color');
++  });
++
++  it('POST /v1/labels repeated with same Idempotency-Key replays response and creates no second label', async () => {
++    const key = randomUUID();
++    const first = await request(app).post('/v1/labels').set('Idempotency-Key', key).send({ name: 'bug', color: '#ff0000' });
++    expect(first.status).toBe(201);
++    const firstLabel = first.body as Label;
++
++    const second = await request(app).post('/v1/labels').set('Idempotency-Key', key).send({ name: 'bug', color: '#ff0000' });
++    expect(second.status).toBe(201);
++    expect(second.headers['idempotent-replayed']).toBe('true');
++    expect(second.body).toEqual(first.body);
++
++    // Verify only one label was created
++    const list = await request(app).get('/v1/labels');
++    const data = (list.body as { data: Label[] }).data;
++    const bugsCount = data.filter((l) => l.name === 'bug').length;
++    expect(bugsCount).toBe(1);
++  });
++
++  it('GET /v1/labels lists labels with cursor pagination', async () => {
++    const label1 = await createLabel({ name: 'bug', color: '#ff0000' });
++    const label2 = await createLabel({ name: 'feature', color: '#00ff00' });
++    const label3 = await createLabel({ name: 'docs', color: '#0000ff' });
++
++    const page1 = await request(app).get('/v1/labels?limit=2');
++    expect(page1.status).toBe(200);
++    const body1 = page1.body as { data: Label[]; nextCursor: string | null };
++    expect(body1.data).toHaveLength(2);
++    expect(body1.nextCursor).toBeDefined();
++
++    const page2 = await request(app).get(`/v1/labels?cursor=${body1.nextCursor as string}&limit=2`);
++    expect(page2.status).toBe(200);
++    const body2 = page2.body as { data: Label[]; nextCursor: string | null };
++    expect(body2.data).toHaveLength(1);
++    expect(body2.nextCursor).toBeNull();
++
++    const allIds = new Set([...body1.data, ...body2.data].map((l) => l.id));
++    expect(allIds.size).toBe(3);
++    expect(allIds.has(label1.id)).toBe(true);
++    expect(allIds.has(label2.id)).toBe(true);
++    expect(allIds.has(label3.id)).toBe(true);
++  });
++
++  it('GET /v1/labels/{labelId} returns the label', async () => {
++    const label = await createLabel({ name: 'bug', color: '#ff0000' });
++    const res = await request(app).get(`/v1/labels/${label.id}`);
++    expect(res.status).toBe(200);
++    expect(res.body).toEqual(label);
++  });
++
++  it('GET /v1/labels/{labelId} with unknown id returns 404 problem', async () => {
++    const unknownId = randomUUID();
++    const res = await request(app).get(`/v1/labels/${unknownId}`);
++    expect(res.status).toBe(404);
++    expectProblem(res, 404);
++  });
++
++  it('GET /v1/labels/{labelId} with malformed id returns 422 problem', async () => {
++    const res = await request(app).get('/v1/labels/not-a-uuid');
++    expect(res.status).toBe(422);
++    expectProblem(res, 422);
++  });
++
++  it('existing project routes still work', async () => {
++    const projRes = await request(app).post('/v1/projects').send({ name: 'My Project' });
++    expect(projRes.status).toBe(201);
++    const project = projRes.body as Record<string, unknown>;
++    expect(project).toHaveProperty('id');
++    expect(project).toHaveProperty('name', 'My Project');
++  });
++});

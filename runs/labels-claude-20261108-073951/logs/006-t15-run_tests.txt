@@ -1,0 +1,448 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073951/samples/existing-api
+
+ ❯ test/labels.test.ts (25 tests | 21 failed) 76ms
+   ❯ Labels (25)
+     ❯ POST /v1/labels (12)
+       × creates a label with valid body and returns 201 with Location header 25ms
+       × validates name length: rejects empty name with 422 4ms
+       × validates name length: rejects name over 40 chars with 422 2ms
+       × validates name length: accepts exactly 40 char name 1ms
+       × validates color format: rejects invalid hex string with 422 1ms
+       × validates color format: rejects missing # prefix with 422 1ms
+       × validates color format: accepts valid 6-digit hex 2ms
+       × validates color format: accepts uppercase hex 4ms
+       × rejects multiple invalid fields with all named in 422 response 2ms
+       × honours Idempotency-Key header: same key with same body replays first response 2ms
+       × honours Idempotency-Key header: creates second label with different key 1ms
+       ✓ rejects malformed JSON with 400 application/problem+json 2ms
+     ❯ GET /v1/labels (7)
+       × returns empty list when no labels exist 1ms
+       × lists all labels created 3ms
+       × supports cursor pagination with limit parameter 3ms
+       × following nextCursor visits every label exactly once 7ms
+       × rejects invalid cursor with 422 1ms
+       × rejects invalid limit with 422 1ms
+       × rejects negative limit with 422 1ms
+     ❯ GET /v1/labels/{labelId} (4)
+       × returns the label when it exists 2ms
+       ✓ returns 404 application/problem+json when label does not exist 1ms
+       × returns 422 application/problem+json for malformed UUID 1ms
+       × returns 422 with detail naming the malformed field 2ms
+     ✓ existing projects routes unchanged (2)
+       ✓ POST /v1/projects still works 3ms
+       ✓ GET /v1/projects still works 2ms
+
+ Test Files  1 failed (1)
+      Tests  21 failed | 4 passed (25)
+   Start at  12:40:50
+   Duration  358ms (import 54%, tests 29%, transform 17%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 21 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > creates a label with valid body and returns 201 with Location header
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:30:26
+     28|       const res = await request(app).post('/v1/labels').send({ name: '…
+     29|
+     30|       expect(res.status).toBe(201);
+       |                          ^
+     31|       expect(res.body).toHaveProperty('id');
+     32|       expect(res.body.name).toBe('Bug');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > validates name length: rejects empty name with 422
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:40:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > validates name length: rejects name over 40 chars with 422
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:47:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > validates name length: accepts exactly 40 char name
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:54:26
+     52|       const name40 = 'a'.repeat(40);
+     53|       const res = await request(app).post('/v1/labels').send({ name: n…
+     54|       expect(res.status).toBe(201);
+       |                          ^
+     55|       expect(res.body.name).toBe(name40);
+     56|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > validates color format: rejects invalid hex string with 422
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:60:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > validates color format: rejects missing # prefix with 422
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:66:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > validates color format: accepts valid 6-digit hex
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:72:26
+     70|     it('validates color format: accepts valid 6-digit hex', async () =…
+     71|       const res = await request(app).post('/v1/labels').send({ name: '…
+     72|       expect(res.status).toBe(201);
+       |                          ^
+     73|       expect(res.body.color).toBe('#123abc');
+     74|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > validates color format: accepts uppercase hex
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:78:26
+     76|     it('validates color format: accepts uppercase hex', async () => {
+     77|       const res = await request(app).post('/v1/labels').send({ name: '…
+     78|       expect(res.status).toBe(201);
+       |                          ^
+     79|       expect(res.body.color).toBe('#AABBCC');
+     80|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > rejects multiple invalid fields with all named in 422 response
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:84:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > honours Idempotency-Key header: same key with same body replays first response
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:95:28
+     93|
+     94|       const first = await request(app).post('/v1/labels').set('Idempot…
+     95|       expect(first.status).toBe(201);
+       |                            ^
+     96|       const firstId = first.body.id;
+     97|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels > honours Idempotency-Key header: creates second label with different key
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:108:28
+    106|
+    107|       const first = await request(app).post('/v1/labels').set('Idempot…
+    108|       expect(first.status).toBe(201);
+       |                            ^
+    109|       const firstId = first.body.id;
+    110|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > returns empty list when no labels exist
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/labels.test.ts:130:26
+    128|       const res = await request(app).get('/v1/labels');
+    129|
+    130|       expect(res.status).toBe(200);
+       |                          ^
+    131|       expect(res.body).toHaveProperty('data');
+    132|       expect(res.body).toHaveProperty('nextCursor');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > lists all labels created
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/labels.test.ts:143:26
+    141|       const res = await request(app).get('/v1/labels');
+    142|
+    143|       expect(res.status).toBe(200);
+       |                          ^
+    144|       expect(res.body.data).toHaveLength(2);
+    145|       const ids = res.body.data.map((l: Label) => l.id);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > supports cursor pagination with limit parameter
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/labels.test.ts:157:28
+    155|
+    156|       const page1 = await request(app).get('/v1/labels?limit=2');
+    157|       expect(page1.status).toBe(200);
+       |                            ^
+    158|       expect(page1.body.data).toHaveLength(2);
+    159|       expect(page1.body.nextCursor).not.toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > following nextCursor visits every label exactly once
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/labels.test.ts:185:28
+    183|         const res = await request(app).get(url);
+    184|
+    185|         expect(res.status).toBe(200);
+       |                            ^
+    186|         for (const label of res.body.data) {
+    187|           const id: string = label.id;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > rejects invalid cursor with 422
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:203:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > rejects invalid limit with 422
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:208:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels > rejects negative limit with 422
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:213:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels/{labelId} > returns the label when it exists
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/labels.test.ts:224:26
+    222|       const res = await request(app).get(`/v1/labels/${created.body.id…
+    223|
+    224|       expect(res.status).toBe(200);
+       |                          ^
+    225|       expect(res.body.id).toBe(created.body.id);
+    226|       expect(res.body.name).toBe('Bug');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels/{labelId} > returns 422 application/problem+json for malformed UUID
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ expectProblem test/labels.test.ts:15:24
+     13|
+     14|   function expectProblem(res: { status: number; body: unknown }, expec…
+     15|     expect(res.status).toBe(expectedStatus);
+       |                        ^
+     16|     const body = res.body as Problem;
+     17|     expect(body).toHaveProperty('type');
+ ❯ test/labels.test.ts:241:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/21]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels/{labelId} > returns 422 with detail naming the malformed field
+AssertionError: expected 'No route matches GET /v1/labels/not-a…' to contain 'labelId'
+
+Expected: "labelId"
+Received: "No route matches GET /v1/labels/not-a-uuid."
+
+ ❯ test/labels.test.ts:247:31
+    245|       const res = await request(app).get('/v1/labels/not-a-uuid');
+    246|
+    247|       expect(res.body.detail).toContain('labelId');
+       |                               ^
+    248|     });
+    249|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/21]⎯
+observed red: test/labels.test.ts (source they cover is now writable)

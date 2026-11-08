@@ -1,0 +1,161 @@
+--- /dev/null
++++ b/src/routes/users.ts
+@@ -0,0 +1,158 @@
++import { randomUUID } from 'node:crypto';
++import express, { type RequestHandler, type Router } from 'express';
++import { z } from 'zod';
++import { conflict, notFound, unprocessable, sendProblem } from '../lib/problem.ts';
++import { idempotency, type CursorQuery, CursorQuerySchema, paginate, pageSchema } from '../lib/idempotency.ts';
++import { toHttpProblem } from '../lib/errors.ts';
++
++// User schema
++const UserRoleSchema = z.enum(['admin', 'member']);
++const CreateUserSchema = z.object({
++  email: z.string().email('Invalid email format'),
++  name: z.string().min(1, 'Name must not be empty').max(100, 'Name must be at most 100 characters'),
++  role: UserRoleSchema.default('member'),
++});
++
++const UserSchema = z.object({
++  id: z.string().uuid(),
++  email: z.string().email(),
++  name: z.string(),
++  role: UserRoleSchema,
++  createdAt: z.string().datetime(),
++  updatedAt: z.string().datetime(),
++});
++
++const UpdateUserSchema = z.object({
++  email: z.string().email('Invalid email format').optional(),
++  name: z.string().min(1, 'Name must not be empty').max(100, 'Name must be at most 100 characters').optional(),
++  role: UserRoleSchema.optional(),
++}).refine(data => Object.keys(data).length > 0, { message: 'At least one field must be provided' });
++
++type User = z.infer<typeof UserSchema>;
++type CreateUserPayload = z.infer<typeof CreateUserSchema>;
++type UpdateUserPayload = z.infer<typeof UpdateUserSchema>;
++
++export function createUsersRouter(): Router {
++  const router = express.Router();
++  
++  // In-memory store - created per app instance
++  const users = new Map<string, User>();
++
++  // POST /v1/users - Create user with idempotency
++  router.post(
++    '/v1/users',
++    idempotency(),
++    (req, res, next) => {
++      try {
++        const payload = CreateUserSchema.parse(req.body);
++        
++        // Check if email already exists
++        const existingUser = Array.from(users.values()).find(u => u.email === payload.email);
++        if (existingUser) {
++          throw conflict(`Email ${payload.email} is already in use.`, 'conflict');
++        }
++
++        const now = new Date().toISOString();
++        const user: User = {
++          id: randomUUID(),
++          email: payload.email,
++          name: payload.name,
++          role: payload.role,
++          createdAt: now,
++          updatedAt: now,
++        };
++
++        users.set(user.id, user);
++
++        res.status(201);
++        res.setHeader('Location', `/v1/users/${user.id}`);
++        res.json(UserSchema.parse(user));
++      } catch (err) {
++        next(err);
++      }
++    }
++  );
++
++  // GET /v1/users - List users with cursor pagination
++  router.get('/v1/users', (req, res, next) => {
++    try {
++      const query = CursorQuerySchema.parse(req.query);
++      const allUsers = Array.from(users.values());
++      const page = paginate(allUsers, query, (u) => u.id);
++      
++      const PageSchema = pageSchema(UserSchema);
++      const result = PageSchema.parse(page);
++      res.json(result);
++    } catch (err) {
++      next(err);
++    }
++  });
++
++  // GET /v1/users/:userId - Get single user
++  router.get('/v1/users/:userId', (req, res, next) => {
++    try {
++      const userId = req.params.userId;
++      const user = users.get(userId);
++      
++      if (!user) {
++        throw notFound(`User ${userId} not found.`, 'not-found');
++      }
++
++      res.json(UserSchema.parse(user));
++    } catch (err) {
++      next(err);
++    }
++  });
++
++  // PATCH /v1/users/:userId - Update user
++  router.patch('/v1/users/:userId', (req, res, next) => {
++    try {
++      const userId = req.params.userId;
++      const user = users.get(userId);
++      
++      if (!user) {
++        throw notFound(`User ${userId} not found.`, 'not-found');
++      }
++
++      const payload = UpdateUserSchema.parse(req.body);
++
++      // Check if new email conflicts with another user
++      if (payload.email && payload.email !== user.email) {
++        const existingUser = Array.from(users.values()).find(u => u.email === payload.email);
++        if (existingUser) {
++          throw conflict(`Email ${payload.email} is already in use.`, 'conflict');
++        }
++      }
++
++      const updatedUser: User = {
++        ...user,
++        ...payload,
++        updatedAt: new Date().toISOString(),
++      };
++
++      users.set(userId, updatedUser);
++      res.json(UserSchema.parse(updatedUser));
++    } catch (err) {
++      next(err);
++    }
++  });
++
++  // DELETE /v1/users/:userId - Delete user
++  router.delete('/v1/users/:userId', (req, res, next) => {
++    try {
++      const userId = req.params.userId;
++      const user = users.get(userId);
++      
++      if (!user) {
++        throw notFound(`User ${userId} not found.`, 'not-found');
++      }
++
++      users.delete(userId);
++      res.status(204).send();
++    } catch (err) {
++      next(err);
++    }
++  });
++
++  return router;
++}

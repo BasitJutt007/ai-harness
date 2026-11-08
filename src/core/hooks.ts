@@ -16,6 +16,18 @@ import type {
   ToolResult,
 } from './types.ts';
 
+/**
+ * Hooks every run needs (assignment 02): without them an edit could happen with no contract or no
+ * stakeholder yes, so a run whose registry lacks one (disabled in harness.config.json, failed to
+ * load) is refused before the first model turn.
+ */
+export const REQUIRED_HOOKS = ['problem-gate', 'contract-gate'] as const;
+
+/** The required hooks the registry lacks (empty = all present). */
+export function missingRequiredHooks(hooks: ReadonlyArray<PluginRecord<HookPlugin>>): string[] {
+  return REQUIRED_HOOKS.filter((name) => !hooks.some((h) => h.plugin.name === name));
+}
+
 export interface HookOutcome {
   blocked: { hook: string; reason: string } | null;
   notes: Array<{ hook: string; note: string }>;

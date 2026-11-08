@@ -17,6 +17,7 @@ import { serializeState } from './run-store.ts';
 import { baselineView, fetcherNames, jitView, messageChars, repeatPointer, type RepeatRef, type TranscriptTurn } from './context.ts';
 import { failingUnits, runGates, type GateOutcome } from './gates.ts';
 import { runPostHooks, runPreHooks } from './hooks.ts';
+import type { SpendMeter } from './spend.ts';
 import type { TokenLedger, TurnTokens } from './tokens.ts';
 import type {
   Driver,
@@ -44,7 +45,7 @@ export interface AgentStore {
 }
 
 /** `aborted` = stopped by the operator (Ctrl-C / AbortSignal); evidence is still written. */
-export type AgentStatus = 'done' | 'max_turns' | 'refused' | 'stalled' | 'error' | 'aborted';
+export type AgentStatus = 'done' | 'max_turns' | 'refused' | 'stalled' | 'error' | 'aborted' | 'spend_cap' | 'model_refused';
 
 export interface AgentResult {
   status: AgentStatus;
@@ -75,6 +76,11 @@ export interface RunAgentOptions {
   /** How the loop may extend `maxTurns` while the gates make progress (turnLimitFor); absent: a hard cap. */
   turnExtension?: TurnExtension;
   maxOutputTokens: number;
+  /**
+   * Habit 9 (src/core/spend.ts): the run's spend meter, checked before every request (a request whose
+   * worst case would pass the cap is never sent), and the allowlist every served model must be on.
+   */
+  spend?: { meter: SpendMeter; allowed: (model: string) => boolean };
   /** Backoff before each retry of driver.complete (default 1s, 4s, 10s). */
   retryDelaysMs?: number[];
   /** Operator abort: checked before every turn and every tool call, and passed to driver.complete. */
@@ -680,6 +686,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       let response: ModelResponse | undefined;
       let failure: string | undefined;
       let shrunk = false;
+      const overCap = opts.spend?.meter.refuseNext(actual, opts.maxOutputTokens) ?? null;
+      if (overCap !== null) {
+        ctx.emit({ kind: 'note', source: 'loop', message: overCap });
+        store.writeJson('state.json', serializeState(ctx.state));
+        return withFinish({ status: 'spend_cap', turns: turn - 1, error: overCap });
+      }
       try {
         response = await send(actualReq);
       } catch (e) {
@@ -739,9 +751,21 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         ...(estimated ? { estimated: true } : {}),
       });
 
+      if (reported) opts.spend?.meter.add({ input: response.usage.inputTokens, cached: response.usage.cachedInputTokens ?? 0, output: response.usage.outputTokens });
+
       const assistant: Message = { role: 'assistant', parts: response.parts };
       const meta = { stop: response.stop, model: response.model, usage: response.usage, tokens: { actual, baseline }, ...(shrunk ? { contextShrunk: true } : {}) };
       const calls = response.parts.filter((p): p is ToolCallPart => p.type === 'tool_call');
+
+      // A provider that serves a model off the allowlist (a fallback, a silent upgrade): nothing it said is acted on.
+      if (opts.spend !== undefined && !opts.spend.allowed(response.model)) {
+        const t: TranscriptTurn = { turn, assistant, results: null, raw: {} };
+        turns.push(t);
+        persist(t, meta, {});
+        const error = `the provider served model "${response.model}", which is not on the allowlist (harness.config.json models.allow): its ${calls.length} tool call(s) were not run`;
+        ctx.emit({ kind: 'error', source: 'loop', message: error });
+        return withFinish({ status: 'model_refused', turns: turn, error });
+      }
 
       if (response.stop === 'refusal' && calls.length === 0) {
         const t: TranscriptTurn = { turn, assistant, results: null, raw: {} };

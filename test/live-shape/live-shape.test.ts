@@ -98,6 +98,8 @@ async function run(plugin: DriverPlugin, maxTurns: number): Promise<{ summary: R
   const summary = await executeRun({
     taskFile: USERS_TASK,
     driver: plugin.name,
+    // Only allowlisted models run (harness.config.json models.allow); the drivers' own defaults are refused.
+    model: plugin.name.startsWith('claude') ? 'claude-haiku-4-5-20251001' : 'gpt-5.6-luna',
     driverOptions: {},
     baseline: false,
     ship: false,
@@ -242,7 +244,7 @@ describe('claude driver: real harness loop through the real SDK', () => {
 
   it('the harness behaved as with any driver (hooks, tools, tokens, evidence)', () => {
     expectHarnessBehaviour(claudeRun.summary, 'claude');
-    expect(claudeRun.summary.model).toBe('claude-opus-5-5');
+    expect(claudeRun.summary.model).toBe('claude-haiku-4-5-20251001');
   });
 
   it('every completion went to the beta endpoint with both betas, full extras and replayed thinking', () => {
@@ -253,7 +255,7 @@ describe('claude driver: real harness loop through the real SDK', () => {
       const betas = (r.headers.get('anthropic-beta') ?? '').split(',');
       expect(betas).toEqual(expect.arrayContaining([CLAUDE_EXPECTED_BETAS.fallbacks, CLAUDE_EXPECTED_BETAS.blockBinding]));
       expect(r.body).toMatchObject({
-        model: 'claude-opus-5-5',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 16000,
         fallbacks: 'default',
         thinking: { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
@@ -305,14 +307,14 @@ describe('openai driver: real harness loop through the real SDK', () => {
 
   it('the harness behaved as with any driver (hooks, tools, tokens, evidence)', () => {
     expectHarnessBehaviour(openaiRun.summary, 'openai');
-    expect(openaiRun.summary.model).toBe('gpt-5.5');
+    expect(openaiRun.summary.model).toBe('gpt-5.6-luna');
   });
 
   it('requests carry system first, function tools, max_completion_tokens and role:tool answers', () => {
     const reqs = createRequests(openai, '/v1/chat/completions');
     expect(reqs).toHaveLength(TOTAL_TURNS);
     for (const r of reqs) {
-      expect(r.body).toMatchObject({ model: 'gpt-5.5', max_completion_tokens: 16000, tool_choice: 'auto' });
+      expect(r.body).toMatchObject({ model: 'gpt-5.6-luna', max_completion_tokens: 16000, tool_choice: 'auto' });
       expect(r.body['messages']).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'system' })]));
     }
     const third = reqs[2]?.body['messages'];
@@ -349,7 +351,7 @@ describe('model agnosticism across the two real drivers', () => {
 });
 
 describe('400 downgrade through the real SDK', () => {
-  it('claude: a 400 naming an optional extra switches to the plain endpoint and the run continues', () => {
+  it('claude: a 400 naming an optional extra switches to the plain endpoint (caching kept) and the run continues', () => {
     expect(claudeCompat.rejections).toEqual([]);
     expect(claudeCompat.injected).toHaveLength(1);
     expect(claudeCompat.injected[0]?.url.searchParams.get('beta')).toBe('true');
@@ -358,13 +360,14 @@ describe('400 downgrade through the real SDK', () => {
     for (const r of creates.slice(1)) {
       expect(r.url.searchParams.has('beta')).toBe(false);
       expect(r.headers.get('anthropic-beta')).toBeNull();
-      expect(Object.keys(r.body).sort()).toEqual(['max_tokens', 'messages', 'model', 'system', 'tool_choice', 'tools']);
+      expect(Object.keys(r.body).sort()).toEqual(['cache_control', 'max_tokens', 'messages', 'model', 'system', 'tool_choice', 'tools']);
+      expect(r.body['cache_control']).toEqual({ type: 'ephemeral' });
     }
     const s = claudeCompatRun.summary;
     expect(s.status).toBe('max_turns');
     expect(s.turns).toBe(TOOL_TURNS);
-    expect(s.model).toBe('claude-opus-5-5 (compat)');
-    expect(readRunJson(s.runDir)).toMatchObject({ model: 'claude-opus-5-5 (compat)', initialModel: 'claude-opus-5-5' });
+    expect(s.model).toBe('claude-haiku-4-5-20251001 (compat)');
+    expect(readRunJson(s.runDir)).toMatchObject({ model: 'claude-haiku-4-5-20251001 (compat)', initialModel: 'claude-haiku-4-5-20251001' });
     const events = readEvents(s.runDir);
     expect(driverErrors(events)).toEqual([]); // the driver absorbed the 400; the loop never retried
     expect(hookBlocks(events).map((e) => e.source)).toEqual(['observed-red']);
@@ -383,10 +386,10 @@ describe('400 downgrade through the real SDK', () => {
     }
     const s = claudeLateRun.summary;
     expect(s.status).toBe('max_turns');
-    expect(s.model).toBe('claude-opus-5-5 (compat)');
+    expect(s.model).toBe('claude-haiku-4-5-20251001 (compat)');
     expect(driverErrors(readEvents(s.runDir))).toEqual([]);
     const rows = transcript(s.runDir);
-    expect(rows.map((r) => r.model)).toEqual(['claude-opus-5-5', 'claude-opus-5-5', 'claude-opus-5-5', 'claude-opus-5-5']);
+    expect(rows.map((r) => r.model)).toEqual(['claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001', 'claude-haiku-4-5-20251001']);
     expect(rows[3]?.results?.map((r) => r.isError)).toEqual([false]);
   });
 
@@ -402,7 +405,7 @@ describe('400 downgrade through the real SDK', () => {
     const s = openaiCompatRun.summary;
     expect(s.status).toBe('max_turns');
     expect(s.turns).toBe(TOOL_TURNS);
-    expect(s.model).toBe('gpt-5.5 (compat)');
+    expect(s.model).toBe('gpt-5.6-luna (compat)');
     const events = readEvents(s.runDir);
     expect(driverErrors(events)).toEqual([]);
     expect(hookBlocks(events).map((e) => e.source)).toEqual(['observed-red']);

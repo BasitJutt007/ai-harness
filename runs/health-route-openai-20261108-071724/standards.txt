@@ -1,0 +1,22 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                6/6 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               6/6 error paths
+problem-json      pass  src/modules/projects/routes.ts   2/2 error paths
+problem-json      pass  (runtime)                        11/11 error paths
+rest-conventions  FAIL  src/modules/health/routes.ts     0/1 routes
+    src/modules/health/routes.ts:5:1  GET /v1/health: collection GET must parse req.query with a cursor schema that has cursor and limit
+    src/modules/health/routes.ts:6:3  GET /v1/health: collection response must be a page schema with data (array) and nextCursor, e.g. pageSchema(ItemSchema).parse(...)
+rest-conventions  pass  src/modules/projects/routes.ts   4/4 routes
+tsc-strict        pass  (project)                        0 errors
+zod-boundary      FAIL  src/modules/health/routes.ts     0/1 handlers
+    src/modules/health/routes.ts:6:3  GET /v1/health: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)
+zod-boundary      pass  src/modules/projects/routes.ts   4/4 handlers
+────────────────────────────────────────────────────────────
+problem-json      pass    30/30 error paths
+rest-conventions  FAIL     4/5 routes
+tsc-strict        pass     0 errors
+zod-boundary      FAIL     4/5 handlers
+verdict           95%     → failing: rest-conventions, zod-boundary
+other stacks  not run on express: nest-route-guard (nestjs), prisma-unbounded (nestjs), repo-lint (nestjs, react-vite), repo-typecheck (nestjs, react-vite), vite-build (react-vite)

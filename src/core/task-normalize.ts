@@ -117,6 +117,8 @@ const TOP = {
   standards: ['standards', 'standardsmode', 'standardspolicy', 'standardsgate'],
   /** Free-text greenfield only: 'human' opts out of the spec-coverage gate (a human verifies behaviour coverage). */
   specCoverage: ['speccoverage'],
+  /** Brownfield only: files the bound item's Measure probes (proven by item-metric, not by an agent-written red). */
+  measured: ['measured', 'measuredfiles', 'measuredby'],
   limits: ['limits'],
 };
 
@@ -892,9 +894,11 @@ function limitsOf(v: unknown, warn: (s: string) => void): Obj | undefined {
       ? 'maxTurns'
       : ['maxoutputtokens', 'maxtokens', 'outputtokens', 'maxoutput'].includes(n)
         ? 'maxOutputTokens'
-        : undefined;
+        : ['maxdifflines', 'difflines', 'maxdiff'].includes(n)
+          ? 'maxDiffLines'
+          : undefined;
     if (isProviderKey(k, x)) continue; // reported as an error already
-    if (key === undefined) warn(`limits.${k}: ignored (known limits: maxTurns, maxOutputTokens)`);
+    if (key === undefined) warn(`limits.${k}: ignored (known limits: maxTurns, maxOutputTokens, maxDiffLines)`);
     else out[key] = numberOf(x) ?? x;
   }
   return out;
@@ -1069,6 +1073,7 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
   const breakingHit = pickOne(root, TOP.allowBreaking, used);
   const standardsHit = pickOne(root, TOP.standards, used);
   const specCoverageHit = pickOne(root, TOP.specCoverage, used);
+  const measuredHit = pickOne(root, TOP.measured, used);
   const limitsHit = pickOne(root, TOP.limits, used);
 
   const carried: Obj = {};
@@ -1104,6 +1109,7 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
     if (standardsHit !== undefined) carry(standardsHit[0], standardsHit[1], 'has no effect on a greenfield task (its standards are always 100% over the whole API)');
     // Passed through as given: the schema accepts only 'human' (and only without resources), never a guess.
     if (specCoverageHit !== undefined) candidate.specCoverage = typeof specCoverageHit[1] === 'string' ? specCoverageHit[1].trim().toLowerCase() : specCoverageHit[1];
+    if (measuredHit !== undefined) carry(measuredHit[0], measuredHit[1], 'has no effect on a greenfield task (it changes no existing file)');
   } else {
     const tgt = target !== undefined ? cleanPath(target) : '.';
     if (target === undefined) warn('target inferred: "." (the --repo directory)');
@@ -1121,6 +1127,8 @@ export function normalizeTaskData(data: unknown, opts: NormalizeOptions): Normal
     if (breakingHit !== undefined) candidate.allowBreaking = boolOf(breakingHit[1]) ?? breakingHit[1];
     if (standardsHit !== undefined) candidate.standards = standardsModeOf(standardsHit[1], warn);
     if (resourceSpecs.length > 0) candidate.resources = resourceSpecs;
+    // A single glob is a one-item list; anything else is left for the schema to reject.
+    if (measuredHit !== undefined) candidate.measured = typeof measuredHit[1] === 'string' ? [measuredHit[1].trim()] : measuredHit[1];
     if (templateHit !== undefined) carry(templateHit[0], templateHit[1], 'has no effect on a brownfield task');
     if (basePathHit !== undefined) carry(basePathHit[0], basePathHit[1], 'has no effect on a brownfield task');
     if (specCoverageHit !== undefined) carry(specCoverageHit[0], specCoverageHit[1], 'has no effect on a brownfield task (contract-lock covers its contract)');

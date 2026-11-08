@@ -9,7 +9,7 @@
  * DONE run and ship): a required gate that is not registered (disabled in harness.config.json, failed to load)
  * or that reports n/a where it applies is UNPROVEN, so switching a gate off can never make a run green.
  */
-import type { GatePhase, GatePlugin, GateResult, GateStatus, PluginRecord, RunContext, Task } from './types.ts';
+import type { GatePhase, GatePlugin, GateResult, GateStatus, PluginRecord, RunContext, Stack, Task } from './types.ts';
 
 export type NamedGateResult = GateResult & { gate: string };
 
@@ -82,11 +82,18 @@ export function gatesOk(results: GateResult[]): boolean {
   return !bad && results.some((r) => r.status === 'pass');
 }
 
-/** The harness's own gates every task needs at `phase`; a greenfield task needs spec-coverage unless it opted out. */
-export function requiredGates(task: Task, phase: GatePhase): string[] {
-  const out = ['tests-green', 'observed-red', 'scope', 'orphans', 'standards'];
-  if (task.kind === 'brownfield') out.push('contract-lock');
-  else if (!specCoverageOptedOut(task)) out.push('spec-coverage');
+/**
+ * The harness's own gates every task needs at `phase`; a greenfield task needs spec-coverage unless it opted out.
+ * The API lock a brownfield change needs follows the stack: contract-lock (Express), route-lock (NestJS); a
+ * react-vite target serves no API, so it needs neither. An unknown stack needs contract-lock, which cannot
+ * prove it: UNPROVEN, never DONE.
+ */
+export function requiredGates(task: Task, phase: GatePhase, stack?: Stack): string[] {
+  const out = ['stakeholder-yes', 'item-metric', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards'];
+  if (task.kind === 'brownfield') {
+    if (stack === 'nestjs') out.push('route-lock');
+    else if (stack !== 'react-vite') out.push('contract-lock');
+  } else if (!specCoverageOptedOut(task)) out.push('spec-coverage');
   if (phase === 'ship') out.push('secrets');
   return out;
 }
@@ -118,6 +125,12 @@ export async function runGates(
   for (const rec of gates) {
     const g = rec.plugin;
     if (!g.phases.includes(phase)) continue;
+    // A gate written for another stack never runs on a known stack and is not reported (never required there:
+    // requiredGates follows the stack). With no profile it runs and must prove itself.
+    if (g.stacks !== undefined && ctx.stack !== undefined && !g.stacks.includes(ctx.stack)) {
+      ctx.emit({ kind: 'gate', source: g.name, message: `${phase}: not run: applies to ${g.stacks.join(', ')}; this target is ${ctx.stack}` });
+      continue;
+    }
     let r: GateResult;
     if (g.appliesTo !== undefined && !g.appliesTo.includes(ctx.task.kind)) {
       r = { status: 'n/a', summary: `not applicable to ${ctx.task.kind} tasks` };

@@ -17,11 +17,12 @@
  * Without a computed profile every predicate falls back to LEGACY_LAYOUT (src/ + test/), the
  * behaviour of the harness's own template.
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import picomatch from 'picomatch';
 import { glob } from 'tinyglobby';
 import ts from 'typescript';
+import type { Stack } from './types.ts';
 
 // ───────────────────────────── types ─────────────────────────────
 
@@ -90,8 +91,18 @@ export interface TestRunnerInfo {
   patterns?: string[];
 }
 
+/**
+ * What kind of codebase the target is, which decides the gates that apply (assignment 02):
+ *   express     the 01 stack: route extraction, zod-boundary, rest-conventions, problem+json, contract lock;
+ *   nestjs      NestJS + Jest: the repository's own tsc/ESLint/Prettier, nest-route-guard, the Nest route lock;
+ *   react-vite  React + Vite: the repository's own tsc and ESLint, the Vite build; no served API to lock;
+ *   unknown     none of these: every stack-specific gate is UNPROVEN (never another stack's rules).
+ */
+export type { Stack } from './types.ts';
+
 export interface TargetProfile extends TargetLayout {
   apiRoot: string;
+  stack: Stack;
   framework: { name: string; version: string | null; supported: boolean };
   runner: TestRunnerInfo;
   /** Likely app entry files (package.json main/exports/bin/scripts, then common names). */
@@ -300,6 +311,44 @@ export function linkDependencies(srcTop: string, apiRel: string, destTop: string
     made.push(top);
   }
   return made;
+}
+
+/**
+ * Prisma clients a target imports but does not commit (assignment 02, NestJS + Prisma): every
+ * `generator ... { output = "..." }` in the repository's Prisma schema files, resolved against the schema
+ * file, kept when it lies inside the repository, exists in the source checkout and is not tracked
+ * (`tracked` answers that, e.g. from `git ls-files`). The result is repository-relative.
+ */
+export function prismaClientOutputs(srcTop: string, tracked: (rel: string) => boolean): string[] {
+  const schemas: string[] = [];
+  const visit = (dir: string, depth: number): void => {
+    if (depth > 3 || !isDir(dir)) return;
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      if (isDir(p)) visit(p, depth + 1);
+      else if (name.endsWith('.prisma')) schemas.push(p);
+    }
+  };
+  visit(join(srcTop, 'prisma'), 0);
+  const out: string[] = [];
+  for (const file of schemas) {
+    let text = '';
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const m of text.matchAll(/generator\s+\w+\s*\{([^}]*)\}/g)) {
+      const o = /\boutput\s*=\s*"([^"]+)"/.exec(m[1] ?? '');
+      if (o?.[1] === undefined) continue;
+      const abs = resolve(dirname(file), o[1]);
+      const rel = toPosix(relative(srcTop, abs));
+      if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || rel.split('/').includes('node_modules')) continue;
+      if (isDir(abs) && !tracked(rel) && !out.includes(rel)) out.push(rel);
+    }
+  }
+  return out;
 }
 
 function exists(p: string): boolean {
@@ -763,6 +812,8 @@ interface RunnerChoice {
   kind: RunnerKind | 'unknown';
   name: string;
   evidence: string;
+  /** node:test: load tsx (extensionless relative imports, .tsx) even where node strips types itself. */
+  tsxLoader?: boolean;
 }
 
 function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: string[]): RunnerChoice {
@@ -796,6 +847,13 @@ function chooseRunner(apiRoot: string, pkg: PackageJson | null, testFiles: strin
   }
   if (seen.node > seen.vitest && seen.node >= seen.jest) return { kind: 'node-test', name: 'node:test', evidence: 'test files import node:test' };
   if (seen.jest > seen.vitest) return { kind: 'jest', name: 'jest', evidence: 'test files use jest APIs' };
+  // A React + Vite app with no runner at all (assignment 02): node:test, Node's own runner. Adding a runner would
+  // change package.json and the lockfile (which no run may write), and the harness's vitest would load the app's
+  // vite.config (which the sandbox refuses to let it bundle into node_modules). The team runs the tests with `node --test`.
+  if (seen.vitest === 0 && deps['react'] !== undefined && deps['vite'] !== undefined) {
+    // With tsx as the loader: Vite apps import extensionless relative paths, which Node's own type stripping cannot resolve.
+    return { kind: 'node-test', name: 'node:test', evidence: "no runner declared: a React + Vite app gets node:test with tsx (no dependency to add, no Vite config to load; run with npx tsx --test)", tsxLoader: true };
+  }
   return { kind: 'vitest', name: 'vitest', evidence: seen.vitest > 0 ? 'test files import vitest' : 'no runner declared (harness default)' };
 }
 
@@ -809,7 +867,7 @@ function runnerInfo(choice: RunnerChoice, apiRoot: string, pkg: PackageJson | nu
     const nodeArgs = [...(parsed?.nodeArgs ?? [])];
     const needsTs = testFiles.some((f) => TS_SOURCE_RE.test(f)) || (parsed?.globs ?? []).some((g) => /ts/.test(g));
     const native = Boolean((process.features as { typescript?: unknown }).typescript);
-    if ((parsed?.tsx === true || (needsTs && !native)) && !nodeArgs.some((a) => a.includes('tsx'))) {
+    if ((parsed?.tsx === true || choice.tsxLoader === true || (needsTs && !native)) && !nodeArgs.some((a) => a.includes('tsx'))) {
       const loader = packageEntry(resolvePackage('tsx', apiRoot, { ...ctx, declared }));
       if (loader === null) {
         return { kind: 'node-test', name: 'node:test', supported: false, reason: 'node:test with TypeScript needs tsx (or a node with type stripping); neither is available', evidence: choice.evidence };
@@ -1136,11 +1194,24 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   const declaredFw = FRAMEWORKS.filter((f) => pkg?.deps[f] !== undefined);
   const importedFw = FRAMEWORKS.filter((f) => analysis.bareImports.includes(f));
   const pick = (list: string[]): string | undefined => (list.includes('express') ? 'express' : list[0]);
-  const fwName = pick(declaredFw) ?? pick(importedFw) ?? 'unknown';
+  const declaredFwName = pick(declaredFw) ?? pick(importedFw) ?? 'unknown';
+  const deps = pkg?.deps ?? {};
+  const stack: Stack = deps['@nestjs/core'] !== undefined
+    ? 'nestjs'
+    : declaredFwName === 'express'
+      ? 'express'
+      : deps['react'] !== undefined && deps['vite'] !== undefined
+        ? 'react-vite'
+        : 'unknown';
+  const fwName = stack === 'nestjs' ? '@nestjs/core' : stack === 'react-vite' ? 'react' : declaredFwName;
   const fwPkg = fwName === 'unknown' ? null : resolvePackage(fwName, apiRoot, ctx);
-  const framework = { name: fwName, version: fwPkg?.version ?? null, supported: fwName === 'express' };
+  const framework = { name: fwName, version: fwPkg?.version ?? null, supported: stack !== 'unknown' };
   if (!framework.supported) {
-    unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: route extraction, zod-boundary, rest-conventions, problem+json probes and the contract lock understand Express only and will report UNPROVEN`);
+    unsupported.push(`framework ${fwName === 'unknown' ? '(none declared)' : fwName}: no stack profile (express, nestjs, react-vite) applies, so route extraction, the standards and the contract lock report UNPROVEN`);
+  } else if (stack === 'nestjs') {
+    notes.push("stack nestjs: standards are the repository's own (tsc with its tsconfig, its ESLint and Prettier on changed files) plus nest-route-guard; the Nest route lock compares controller routes (method and path), not DTO shapes");
+  } else if (stack === 'react-vite') {
+    notes.push("stack react-vite: standards are the repository's own tsc and ESLint plus the Vite build; a frontend serves no API, so there is no route lock");
   }
 
   const runner = runnerInfo(analysis.runner, apiRoot, pkg, ctx, analysis.testFiles);
@@ -1155,6 +1226,7 @@ export async function computeTargetProfile(opts: { apiRoot: string; repoRoot?: s
   return {
     apiRoot,
     ...layout,
+    stack,
     framework,
     runner,
     entryCandidates: analysis.entries,
@@ -1173,7 +1245,7 @@ export function formatProfile(p: TargetProfile): string[] {
   };
   const roots = (r: string[]): string => (r.length === 0 ? '(none)' : r.map((x) => (x === '.' ? './' : `${x}/`)).join(' '));
   const lines = [
-    `target     framework ${p.framework.name}${p.framework.version !== null ? ` ${p.framework.version}` : ''}${p.framework.supported ? '' : ' (UNSUPPORTED)'}  runner ${p.runner.name}${p.runner.origin !== undefined ? ` (${p.runner.origin})` : ''}${p.runner.supported ? '' : ' (UNSUPPORTED)'}`,
+    `target     stack ${p.stack}  framework ${p.framework.name}${p.framework.version !== null ? ` ${p.framework.version}` : ''}${p.framework.supported ? '' : ' (UNSUPPORTED)'}  runner ${p.runner.name}${p.runner.origin !== undefined ? ` (${p.runner.origin})` : ''}${p.runner.supported ? '' : ' (UNSUPPORTED)'}`,
     `           source ${roots(p.sourceRoots)}  tests ${roots(p.testRoots)} [${p.testGlobs.join(', ')}${p.testRegex.length > 0 ? `; regex ${p.testRegex.join(', ')}` : ''}]  test dirs ${roots(p.testSupportRoots)}`,
     `           entry ${p.entryCandidates.slice(0, 3).join(', ') || '(none found)'}  zod ${p.zod.version ?? '-'} → ${p.zod.converter}`,
     `           deps ${TRACKED_DEPENDENCIES.slice(0, 4).map(dep).join(', ')}`,
@@ -1186,6 +1258,7 @@ export function formatProfile(p: TargetProfile): string[] {
 /** JSON-safe record of the profile for run.json (no compiler options blob). */
 export function profileRecord(p: TargetProfile): Record<string, unknown> {
   return {
+    stack: p.stack,
     framework: p.framework,
     runner: { kind: p.runner.kind, name: p.runner.name, supported: p.runner.supported, origin: p.runner.origin ?? null, bin: p.runner.bin ?? null, evidence: p.runner.evidence, ...(p.runner.reason !== undefined ? { reason: p.runner.reason } : {}) },
     sourceRoots: p.sourceRoots,

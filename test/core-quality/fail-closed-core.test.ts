@@ -129,9 +129,21 @@ describe('required gates: a missing or n/a required gate is unproven', () => {
   }
 
   it('per task kind and phase', () => {
-    expect(requiredGates(brownfieldTask(), 'finish')).toEqual(['tests-green', 'observed-red', 'scope', 'orphans', 'standards', 'contract-lock']);
-    expect(requiredGates(greenfieldTask(), 'ship')).toEqual(['tests-green', 'observed-red', 'scope', 'orphans', 'standards', 'spec-coverage', 'secrets']);
+    // stakeholder-yes (assignment 02) is required in every phase: no run finishes or ships without the item's typed yes;
+    // item-metric with it: no run is DONE while the item's own metric reads what it read at proposal.
+    expect(requiredGates(brownfieldTask(), 'finish')).toEqual(['stakeholder-yes', 'item-metric', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards', 'contract-lock']);
+    expect(requiredGates(greenfieldTask(), 'ship')).toEqual(['stakeholder-yes', 'item-metric', 'tests-green', 'observed-red', 'scope', 'orphans', 'standards', 'spec-coverage', 'secrets']);
     expect(requiredGates({ ...greenfieldTask(), brief: 'b', specCoverage: 'human' }, 'finish')).not.toContain('spec-coverage');
+  });
+
+  it('the API lock a brownfield change needs follows the stack; an unknown stack still needs the Express lock (UNPROVEN)', () => {
+    expect(requiredGates(brownfieldTask(), 'finish', 'express')).toContain('contract-lock');
+    expect(requiredGates(brownfieldTask(), 'finish', 'nestjs')).toEqual(expect.arrayContaining(['route-lock', 'standards', 'stakeholder-yes']));
+    expect(requiredGates(brownfieldTask(), 'finish', 'nestjs')).not.toContain('contract-lock');
+    expect(requiredGates(brownfieldTask(), 'finish', 'react-vite')).not.toEqual(expect.arrayContaining(['contract-lock']));
+    expect(requiredGates(brownfieldTask(), 'finish', 'react-vite')).not.toContain('route-lock');
+    expect(requiredGates(brownfieldTask(), 'finish', 'unknown')).toContain('contract-lock');
+    expect(requiredGates(brownfieldTask(), 'finish')).toContain('contract-lock');
   });
 
   it('a disabled (unregistered) required gate and a required gate saying n/a make the run not ok', async () => {

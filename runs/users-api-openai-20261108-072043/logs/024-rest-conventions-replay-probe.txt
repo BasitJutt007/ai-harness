@@ -1,0 +1,15 @@
+$ tsx probe-runtime.ts /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261108-072043/generated/users-api (port 64149)
+exit=0 timedOut=false served=true
+candidates: src/app.ts (conventional entry file), src/server.ts (conventional entry file)
+app (as reported by the runtime): src/app.ts: export createApp()
+control /__harness_probe__/control -> {"status":200,"contentType":"text/plain; charset=utf-8","body":"harness-probe-control-33890ec7d055"} injected=true
+POST /v1/users: POST /v1/users {"email":"probe-0ce6031@example.com","name":"probe0ce6031","role":"admin"} (Idempotency-Key 2b8460a6-063e-4414-8958-b4858fb0fedf)
+  first  -> {"status":201,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"2a1fc34b-95aa-4d1b-ba10-c5c9d5ac53c4\",\"email\":\"probe-0ce6031@example.com\",\"name\":\"probe0ce6031\",\"role\":\"admin\",\"createdAt\":\"2026-11-08T07:23:23.401Z\",\"updatedAt\":\"2026-11-08T07:23:23.401Z\"}","location":"/v1/users/2a1fc34b-95aa-4d1b-ba10-c5c9d5ac53c4"}
+  second -> {"status":201,"contentType":"application/json; charset=utf-8","body":"{\"id\":\"2a1fc34b-95aa-4d1b-ba10-c5c9d5ac53c4\",\"email\":\"probe-0ce6031@example.com\",\"name\":\"probe0ce6031\",\"role\":\"admin\",\"createdAt\":\"2026-11-08T07:23:23.401Z\",\"updatedAt\":\"2026-11-08T07:23:23.401Z\"}","location":"/v1/users/2a1fc34b-95aa-4d1b-ba10-c5c9d5ac53c4"}
+POST /: POST  {"email":"probe-0ce6032@example.com","name":"probe0ce6032","role":"admin"} (Idempotency-Key 26b7f6fd-96e6-45f4-a7cd-f7e4218dc626)
+  first  -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"No route matches POST /.\",\"instance\":\"/\"}"}
+  second -> {"status":404,"contentType":"application/problem+json; charset=utf-8","body":"{\"type\":\"https://api.sf/problems/not-found\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"No route matches POST /.\",\"instance\":\"/\"}"}
+--- stdout
+
+--- stderr
+probe runtime: serving src/app.ts: export createApp(); probe routes injected
