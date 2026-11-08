@@ -21,31 +21,40 @@ CLI. Everything else is a plugin that registers by being dropped into `plugins/`
 
 ## Assignment 02: my harness, my workflow
 
-Assignment 02 sits on top of the 01 harness: `git log main..feat/assignment-02` starts at `f24e226`,
-after the 01 merge (`85fe886`). It encodes how I work as hooks and checks, adds the briefing's three
-gates, and runs items from my own backlog through them.
+Assignment 02 sits on top of the 01 harness (`git log main..feat/assignment-02`). It turns how I work
+into hooks and gates, adds the briefing's three gates, and runs backlog items through them.
 
 | Deliverable | Where |
 |---|---|
 | How I work, mapped gate by gate | [docs/workflow.md](docs/workflow.md) |
-| Three backlog items | contracts in [docs/contracts/](docs/contracts), the harness's records in [items/](items) (`ledger.jsonl`: proposal, typed yes, metric readings, runs, ship, close), metric scripts in [metrics/](metrics), runs in [runs/](runs) |
+| Backlog items | contracts in [docs/contracts/](docs/contracts), the harness's records in [items/](items) (`ledger.jsonl`: proposal, typed yes, metric readings, runs, ship, close), metric scripts in [metrics/](metrics), runs in [runs/](runs) |
 | Learnings note | [docs/learnings.md](docs/learnings.md) |
 | Setup | `npm run setup` (below); the repository holds no secrets |
 
-| Item | Repository | Metric (read by the harness) | Before | After | State |
-|---|---|---|---|---|---|
-| [admin-only-sweep](docs/contracts/admin-only-sweep.md) | api-backend | admin routes without the admin guard | 10 | not read yet | proposed; awaiting the typed yes |
-| [members-list-stale-after-add](docs/contracts/members-list-stale-after-add.md) | admin-app | Members lists left stale after a member mutation (failed checks of 3) | 1 | not read yet | proposed; awaiting the typed yes |
-| [signals-paged-merge-dedupe](docs/contracts/signals-paged-merge-dedupe.md) | web-app | duplicate rows after a refresh at page 2 | 50 | not read yet | proposed; awaiting the typed yes |
+The public items target [harness-demo](https://github.com/BasitJutt007/harness-demo) at `rubric-01`.
+Each before value was read by the harness when it proposed the contract; each yes was typed by the
+stakeholder at a terminal.
+
+| Item | Metric (read by the harness) | Before | Runs | State |
+|---|---|---|---|---|
+| [projects-change](docs/contracts/projects-change.md) | routes the change adds that the app does not register | 1 | gpt-5.6-luna: DONE | shipped as a PR; closes on its after value once a person merges it |
+| [users-api](docs/contracts/users-api.md) | Users API routes the app does not register | 5 | gpt-5.6-luna, claude-haiku: NOT DONE | approved |
+| [health-route](docs/contracts/health-route.md) | health routes the app does not register | 1 | gpt-5.6-luna: NOT DONE | approved |
+| [labels](docs/contracts/labels.md) | Labels routes the app does not register | 3 | gpt-5.6-luna, claude-haiku (x2): NOT DONE | approved |
+
+Every NOT DONE names the gate that refused it (in `runs/<id>/run.json` and the run output). The same
+harness also runs items on private work repositories; those contracts and runs stay outside this
+repository, and what they taught is in the learnings note.
 
 `node bin/harness.mjs item status` prints each item's stage from its ledger.
 
-### The three gates
+### The three gates (and the outcome inside a run)
 
 | Gate | What it blocks | Where |
 |---|---|---|
 | Problem statement | Every edit, until `docs/contracts/<slug>.md` names Problem, Owner, Stakeholder, Repo, Base, Commit, Metric (with before/after), Measure, WHEN/THEN Scenarios and Not included. The refusal names each missing field. A run without one is refused before its first model turn | `plugins/hooks/problem-gate.ts`, `bindItem` in `src/core/run.ts` |
 | Human yes | Every edit, and the Stop (`finish`), until the stakeholder types a plain yes at a terminal after the harness proposed this exact contract text. Assistant text, tool output, hook output, a piped reply, a reply to an older proposal and a hand-written Signed line never count | `plugins/hooks/contract-gate.ts`, `plugins/gates/stakeholder-yes.ts`, `approvalVerdict` in `src/core/items.ts` |
+| Outcome (during the run) | DONE, while the item's own metric, read by the harness on the run's tree, still reads its before value. Files only that metric can probe (`measured`) must each move it back when reverted alone | `plugins/gates/item-metric.ts` |
 | Outcome | Closing an item, until a person merged the PR the harness opened and the harness read the metric at that merge commit (same script, run twice, confined), writing it next to the before value | `src/core/close.ts` (`harness item close`) |
 
 The item lifecycle, each step a command:
@@ -100,6 +109,8 @@ Each row of [docs/workflow.md](docs/workflow.md) names its mechanism. The ones a
   ship. The repository's own commitlint runs confined, and a config that accepts "patch" is reported
   as checking nothing. The repository's PR template is filled from the contract, and a box is ticked
   only when a gate proved it.
+- **"Done" while the problem is not:** `item-metric` reads the item's own metric on the run's tree
+  before DONE, and `read-loop-guard` notes a model that keeps re-reading a file instead of editing it.
 - **Cost blow-ups:** `harness.config.json` `models` allows `gpt-5.6-luna` and
   `claude-haiku-4-5-20251001` only, with upper-bound prices and a $2 cap per run. Any other model, a
   driver's default included, is refused before the first turn. A request that could pass the cap is

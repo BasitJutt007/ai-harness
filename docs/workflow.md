@@ -95,24 +95,21 @@ The mistakes I have made more than once. Each one has a check or a rule in the l
     (13 comments). Pagination and merge bugs were flagged on 6 of my React PRs. Two of the three
     items are this class.
 
-## The three backlog items
+## Backlog items
 
-Found by mining the three repositories for real defects in code I own, then adversarially verified:
-each defect was reproduced at `harness-test`, its metric script was attacked with lazy fixes that
-must not move it, and the hardened script is what `metrics/` holds. The before values were read by
-the harness at `origin/harness-test` when it proposed each contract.
+Items from my own backlog run on private copies of the work repositories: their contracts, ledgers,
+metric scripts and runs stay outside this repository, and none of them is pushed. One was found by
+using the vendor app on a local stack: the login email step sent an untrimmed address, let a
+malformed one through, left Continue loading after an error, and showed the live input instead of the
+address the code went to. The harness read its metric (cases mishandled, of 4) at the base commit
+when it proposed the contract, and I typed the yes. Its runs are what produced the item-metric gate,
+the read-loop guard and measured files (see the learnings note).
 
-- `admin-only-sweep` — owner: web product backend (me) — metric: admin-only routes open to vendor
-  tokens, harness-test HEAD (before 10)
-- `members-list-stale-after-add` — owner: web product admin app (me) — metric: Members lists left
-  stale after a member mutation, failed checks of 3, harness-test HEAD (before 1)
-- `signals-paged-merge-dedupe` — owner: web product vendor app, analytics (me) — metric:
-  duplicate rows in the Tech Stack and Headquarters caches after a refresh at page 2, harness-test
-  HEAD (before 50)
+The public items run the same lifecycle on `harness-demo` at `rubric-01` (the README lists them):
+the two 01 tasks (`users-api`, `projects-change`) and two new changes (`health-route`, `labels`).
 
-I am the stakeholder for all three. The team lead is on vacation, so the yes is mine, typed at a
-terminal after the harness proposed each contract (`items/<slug>/ledger.jsonl`); the learnings note
-says so. Each contract is in `docs/contracts/<slug>.md`.
+I am the stakeholder for all of them. The team lead is on vacation, so the yes is mine, typed at a
+terminal after the harness proposed each contract (`items/<slug>/ledger.jsonl`).
 
 ## Gate by gate
 
@@ -123,6 +120,9 @@ says so. Each contract is in `docs/contracts/<slug>.md`.
 | Problem statement before any edit ("understand first, I'll give the go-ahead") | hook | `plugins/hooks/problem-gate.ts` |
 | My yes, typed by me, after the proposal; the Stop holds without it | hook + gate | `plugins/hooks/contract-gate.ts`, `plugins/gates/stakeholder-yes.ts` |
 | Metric read after the merge, next to its before value, before an item closes | check | `src/core/close.ts` (`harness item close`) |
+| "Done" when the problem is not (a helper written and tested, never called from the screen) | gate | `plugins/gates/item-metric.ts`: the item's metric read on the run's tree must have moved |
+| A screen no unit test can load still has to be proven | task field + gate | `measured` in the task (`docs/task-format.md`); `item-metric` reverts each such file alone and re-reads the metric |
+| An agent re-reading a long file instead of editing it | hook | `plugins/hooks/read-loop-guard.ts` |
 | Mid-flight changes (a decision relayed while the code is half built) | hook | `plugins/hooks/problem-gate.ts`: a contract changed mid-run stops every edit until it is proposed again and approved |
 | Re-briefing the agent every session | context | `src/core/prompt.ts` (`taskBrief`): the approved contract opens every run's brief; `items/<slug>/ledger.jsonl` is the item's record |
 | Work that arrives without a ticket | check at ship | `src/core/ship-text.ts`: the contract's optional Ticket fills the template's ticket line; without one the PR says the approved contract is the ticket |

@@ -1,8 +1,9 @@
 # Learnings: assignment 02
 
-State on 5 November: three backlog items and the two 01 tasks have contracts that the harness proposed,
-with before values it read itself (10, 1, 50; and 5, 1 for the 01 tasks). None is approved yet, so none
-has run. This note will gain what the runs show; until then it says only what already happened.
+State on 8 November. Every item has a contract the harness proposed, a before value it read itself and
+a yes I typed at a terminal. Of the public items, `projects-change` ran DONE and shipped as a PR; the
+other runs ended NOT DONE, each refused by a named gate (REST conventions, strict types, Zod at the
+boundary). A private item on a real React app taught the most, below.
 
 **Stakeholder.** I am the stakeholder for all three items, because the team lead is on vacation. The
 gate still holds: each contract was proposed by the harness, and only a reply I type at a terminal after
@@ -23,6 +24,32 @@ cannot, and nobody else read these contracts before they ran.
 - **336 of 450 per-request `findMany` calls in the backend have no bound.** They are pre-existing, so
   they do not block; a new one does.
 
+## What a real item taught (the login email step)
+
+The harness ran one private item end to end on a production React app: a login screen that sent an
+untrimmed email, let a malformed one through, left its button loading after an error and showed the
+live input instead of the address the code went to. Its metric (cases mishandled, of 4) read 4.
+
+- **Run 1 said DONE and fixed nothing.** The model wrote a correct helper and tests for it and never
+  called it from the screen. Every gate looked only at the tests the model wrote, and `item close`
+  records the after value without judging it. The `item-metric` gate now reads the item's own metric
+  on the run's tree: a run is not DONE while it still reads its before value.
+- **Run 2 was refused correctly, and showed a read loop.** The model read the 443-line screen 45 times
+  in 60 turns and never edited it: history keeps only the latest turns in full, so the file never
+  stayed in view. `read-loop-guard` now notes the third re-read of a file since the last write.
+- **Run 3 showed the real block: my own rule.** Observed-red locks a file until a test that imports it
+  is seen failing, and a node:test file cannot load that screen. The task was impossible as written. A
+  task may now name such files `measured`: their red is the before value the harness read, and
+  `item-metric` proves each change by reverting the file alone and reading the metric again.
+- **Run 4 moved the metric from 4 to 1** and was still refused: one case left, and two unused variables
+  the baseline type check would not let in.
+- **Run 5 (90 turns) stalled on one line.** Its last edit failed seven times: the model's find text
+  had 17 spaces of indentation where the file has 16, copied from numbered read_file output.
+  `edit_file` now accepts one uniform indentation shift when exactly one block matches that way, and
+  re-indents the replacement to match; anything ambiguous is still refused.
+- Across five runs the model never called finish once: every verdict came from the fresh final gate
+  run. Each NOT DONE was right, and each said exactly what was missing.
+
 ## What it got wrong (or I did)
 
 - The first ledger hashed only the link to the previous line, so editing the last entry went unnoticed
@@ -37,9 +64,9 @@ cannot, and nobody else read these contracts before they ran.
   node_modules), and backend specs could not load until a jest path mapping existed. No run may write
   package.json, so that one line has to be landed by a person first.
 - Observed-red needs a covering test the harness can run. Under node:test that means plain importable
-  `.ts` modules, which narrowed which React and Admin items I could pick.
-- I nearly pushed company details (contract text, a live security gap) to a public repository. The push
-  was blocked, and the repository is private now.
+  `.ts` modules, which narrowed which React items I could pick, until measured files (above).
+- I nearly pushed work details (contract text, a live security gap) to a public repository. The push
+  was blocked; those items now live outside this repository and their history was rewritten.
 
 ## What I removed
 
