@@ -30,5 +30,5 @@ scope:
   deny: ["src/lib/**", "src/server.ts", "src/modules/projects/**"]
 allowBreaking: false
 limits:
-  maxTurns: 40
+  maxTurns: 60
   maxOutputTokens: 16000
