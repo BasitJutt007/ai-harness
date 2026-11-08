@@ -15,3 +15,4 @@ Not included:
 - attaching labels to projects (a later item)
 - updating or deleting labels
 - persistence beyond the process (the store is in memory, as for projects)
+Signed: Abdul Basit, 2026-11-08 (recorded by the harness from the typed reply at ledger seq 3; the human-yes gate reads the ledger, not this line)

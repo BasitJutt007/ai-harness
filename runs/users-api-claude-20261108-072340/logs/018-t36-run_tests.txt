@@ -1,0 +1,91 @@
+RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-claude-20261108-072340/generated/users-api
+
+ ❯ test/users.test.ts (41 tests | 2 failed) 115ms
+   ❯ Users API (41)
+     ✓ POST /v1/users creates a user and returns 201 with Location header 25ms
+     ✓ POST /v1/users defaults role to member when omitted 4ms
+     ✓ POST /v1/users accepts role when specified 3ms
+     ✓ POST /v1/users returns 409 when email already exists 4ms
+     ✓ POST /v1/users returns 422 when email is missing 2ms
+     ✓ POST /v1/users returns 422 when name is missing 1ms
+     ✓ POST /v1/users returns 422 when email is invalid 4ms
+     ✓ POST /v1/users returns 422 when name is empty 2ms
+     ✓ POST /v1/users returns 422 when name exceeds max length 1ms
+     ✓ POST /v1/users returns 422 when role is invalid 1ms
+     ✓ POST /v1/users returns 400 when JSON is malformed 2ms
+     ✓ GET /v1/users returns paginated users 4ms
+     ✓ GET /v1/users respects limit parameter 5ms
+     ✓ GET /v1/users default limit is 20 4ms
+     ✓ GET /v1/users follows nextCursor to visit every user exactly once 6ms
+     ✓ GET /v1/users returns 422 when limit is invalid 1ms
+     ✓ GET /v1/users returns 422 when limit exceeds max 1ms
+     × GET /v1/users returns 422 when cursor is invalid 4ms
+     ✓ GET /v1/users/{userId} returns the user 2ms
+     ✓ GET /v1/users/{userId} returns 404 when user not found 1ms
+     ✓ GET /v1/users/{userId} returns 404 for invalid UUID 1ms
+     ✓ PATCH /v1/users/{userId} updates email 2ms
+     ✓ PATCH /v1/users/{userId} updates name 2ms
+     ✓ PATCH /v1/users/{userId} updates role 2ms
+     ✓ PATCH /v1/users/{userId} updates multiple fields 2ms
+     ✓ PATCH /v1/users/{userId} returns 404 when user not found 1ms
+     ✓ PATCH /v1/users/{userId} returns 422 when empty patch 2ms
+     ✓ PATCH /v1/users/{userId} returns 422 when name is empty string 2ms
+     ✓ PATCH /v1/users/{userId} returns 422 when name exceeds max length 1ms
+     ✓ PATCH /v1/users/{userId} returns 422 when email is invalid 1ms
+     ✓ PATCH /v1/users/{userId} returns 409 when changing to duplicate email 2ms
+     ✓ PATCH /v1/users/{userId} returns 400 when JSON is malformed 2ms
+     ✓ PATCH /v1/users/{userId} with invalid role 1ms
+     ✓ DELETE /v1/users/{userId} removes the user 2ms
+     ✓ DELETE /v1/users/{userId} returns 404 when user not found 1ms
+     ✓ POST /v1/users with Idempotency-Key replays the response for same body 3ms
+     ✓ POST /v1/users with Idempotency-Key returns 422 for different body 3ms
+     × PATCH /v1/users/{userId} with Idempotency-Key replays the response for same body 3ms
+     ✓ POST /v1/users without Idempotency-Key is not replayed 2ms
+     ✓ Multiple users can be created and listed 3ms
+     ✓ Each app instance has its own store 2ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 39 passed (41)
+   Start at  12:26:34
+   Duration  397ms (import 48%, tests 36%, transform 14%, worker 1%)
+
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > Users API > GET /v1/users returns 422 when cursor is invalid
+AssertionError: expected 'https://api.sf/problems/invalid-cursor' to be 'https://api.sf/problems/validation' // Object.is equality
+
+Expected: "https://api.sf/problems/validation"
+Received: "https://api.sf/problems/invalid-cursor"
+
+ ❯ expectProblem test/users.test.ts:14:24
+     12|   const problem = ProblemSchema.parse(res.body);
+     13|   expect(problem.status).toBe(status);
+     14|   expect(problem.type).toBe(`https://api.sf/problems/${slug}`);
+       |                        ^
+     15|   return problem;
+     16| }
+ ❯ test/users.test.ts:238:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/users.test.ts > Users API > PATCH /v1/users/{userId} with Idempotency-Key replays the response for same body
+AssertionError: expected undefined to be 'true' // Object.is equality
+
+- Expected:
+"true"
+
++ Received:
+undefined
+
+ ❯ test/users.test.ts:531:49
+    529|       .send(patchBody);
+    530|     expect(res2.status).toBe(200);
+    531|     expect(res2.headers['idempotent-replayed']).toBe('true');
+       |                                                 ^
+    532|     expect(res2.body.name).toBe('Updated Name');
+    533|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+observed red: test/users.test.ts (source they cover is now writable)

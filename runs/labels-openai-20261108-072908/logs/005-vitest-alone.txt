@@ -1,0 +1,48 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-openai-20261108-072908/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 --testNamePattern=^ ?labels(?: > | )validates name and color$ test/labels.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-openai-20261108-072908/samples/existing-api
+
+ ❯ test/labels.test.ts (5 tests | 1 failed | 4 skipped) 25ms
+   ❯ labels (5)
+     ↓ creates labels with location
+     × validates name and color 24ms
+     ↓ replays idempotent creation
+     ↓ paginates all labels and retrieves one
+     ↓ reports unknown and malformed ids
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  12:29:26
+   Duration  256ms (import 61%, transform 24%, tests 14%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/labels.test.ts > labels > validates name and color
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ problem test/labels.test.ts:12:22
+     10| const unknownId = '00000000-0000-4000-8000-000000000000';
+     11| const problem = async (res: request.Response, status: number) => {
+     12|   expect(res.status).toBe(status);
+       |                      ^
+     13|   expect(res.headers['content-type']).toMatch(/^application\/problem\+…
+     14|   return ProblemSchema.parse(res.body);
+ ❯ test/labels.test.ts:25:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":5,"numPassedTests":0,"numFailedTests":1,"numPendingTests":4,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794122966715,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["labels"],"fullName":"labels creates labels with location","status":"skipped","title":"creates labels with location","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels validates name and color","status":"failed","title":"validates name and color","duration":23.92666700000001,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at problem (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-openai-20261108-072908/samples/existing-api/test/labels.test.ts:12:22)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-openai-20261108-072908/samples/existing-api/test/labels.test.ts:25:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels replays idempotent creation","status":"skipped","title":"replays idempotent creation","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels paginates all labels and retrieves one","status":"skipped","title":"paginates all labels and retrieves one","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["labels"],"fullName":"labels reports unknown and malformed ids","status":"skipped","title":"reports unknown and malformed ids","failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794122966946,"endTime":1794122966969.9268,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-openai-20261108-072908/samples/existing-api/test/labels.test.ts"}]}

@@ -1,0 +1,247 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api
+
+ ❯ test/labels.store.test.ts (5 tests | 2 failed) 7ms
+   ❯ Labels Store (5)
+     ✓ creates a label with valid input 2ms
+     ✓ retrieves a label by id 0ms
+     ✓ returns undefined for non-existent label 0ms
+     × lists labels with pagination 2ms
+     × paginates through all labels 0ms
+ ❯ test/labels.test.ts (11 tests | 9 failed) 44ms
+   ❯ Labels (11)
+     × POST /v1/labels with valid body returns 201, label, and Location header 22ms
+     × POST /v1/labels with invalid name returns 422 problem 4ms
+     × POST /v1/labels with name too long returns 422 problem 2ms
+     × POST /v1/labels with invalid color returns 422 problem 1ms
+     × POST /v1/labels with multiple invalid fields returns 422 naming each field 2ms
+     × POST /v1/labels repeated with same Idempotency-Key replays response and creates no second label 2ms
+     × GET /v1/labels lists labels with cursor pagination 2ms
+     × GET /v1/labels/{labelId} returns the label 2ms
+     ✓ GET /v1/labels/{labelId} with unknown id returns 404 problem 2ms
+     × GET /v1/labels/{labelId} with malformed id returns 422 problem 2ms
+     ✓ existing project routes still work 3ms
+ ✓ test/projects.test.ts (17 tests) 80ms
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  11 failed | 22 passed (33)
+   Start at  12:34:05
+   Duration  311ms (import 54%, tests 26%, transform 19%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/labels.store.test.ts > Labels Store > lists labels with pagination
+HttpProblem: cursor: Invalid cursor
+ ❯ unprocessable src/lib/problem.ts:63:10
+     61|
+     62| export function unprocessable(detail: string, slug = 'validation'): Ht…
+     63|   return new HttpProblem({ type: typeUri(slug), title: 'Unprocessable …
+       |          ^
+     64| }
+     65|
+ ❯ decodeCursor src/lib/pagination.ts:27:11
+ ❯ paginate src/lib/pagination.ts:37:58
+ ❯ listLabels src/modules/labels/store.ts:11:10
+ ❯ test/labels.store.test.ts:33:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  test/labels.store.test.ts > Labels Store > paginates through all labels
+HttpProblem: cursor: Invalid cursor
+ ❯ unprocessable src/lib/problem.ts:63:10
+     61|
+     62| export function unprocessable(detail: string, slug = 'validation'): Ht…
+     63|   return new HttpProblem({ type: typeUri(slug), title: 'Unprocessable …
+       |          ^
+     64| }
+     65|
+ ❯ decodeCursor src/lib/pagination.ts:27:11
+ ❯ paginate src/lib/pagination.ts:37:58
+ ❯ listLabels src/modules/labels/store.ts:11:10
+ ❯ test/labels.store.test.ts:50:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels with valid body returns 201, label, and Location header
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:48:24
+     46|   it('POST /v1/labels with valid body returns 201, label, and Location…
+     47|     const res = await request(app).post('/v1/labels').send({ name: 'bu…
+     48|     expect(res.status).toBe(201);
+       |                        ^
+     49|     const label = res.body as Label;
+     50|     expect(label).toHaveProperty('id');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels with invalid name returns 422 problem
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/labels.test.ts:59:24
+     57|   it('POST /v1/labels with invalid name returns 422 problem', async ()…
+     58|     const res = await request(app).post('/v1/labels').send({ name: '',…
+     59|     expect(res.status).toBe(422);
+       |                        ^
+     60|     expectProblem(res, 422);
+     61|     const prob = res.body as Problem;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels with name too long returns 422 problem
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/labels.test.ts:67:24
+     65|   it('POST /v1/labels with name too long returns 422 problem', async (…
+     66|     const res = await request(app).post('/v1/labels').send({ name: 'x'…
+     67|     expect(res.status).toBe(422);
+       |                        ^
+     68|     expectProblem(res, 422);
+     69|     const prob = res.body as Problem;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels with invalid color returns 422 problem
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/labels.test.ts:75:24
+     73|   it('POST /v1/labels with invalid color returns 422 problem', async (…
+     74|     const res = await request(app).post('/v1/labels').send({ name: 'bu…
+     75|     expect(res.status).toBe(422);
+       |                        ^
+     76|     expectProblem(res, 422);
+     77|     const prob = res.body as Problem;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels with multiple invalid fields returns 422 naming each field
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/labels.test.ts:83:24
+     81|   it('POST /v1/labels with multiple invalid fields returns 422 naming …
+     82|     const res = await request(app).post('/v1/labels').send({ name: '',…
+     83|     expect(res.status).toBe(422);
+       |                        ^
+     84|     expectProblem(res, 422);
+     85|     const prob = res.body as Problem;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > POST /v1/labels repeated with same Idempotency-Key replays response and creates no second label
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ test/labels.test.ts:93:26
+     91|     const key = randomUUID();
+     92|     const first = await request(app).post('/v1/labels').set('Idempoten…
+     93|     expect(first.status).toBe(201);
+       |                          ^
+     94|     const firstLabel = first.body as Label;
+     95|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels lists labels with cursor pagination
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createLabel test/labels.test.ts:36:22
+     34| async function createLabel(body: { name: string; color: string }): Pro…
+     35|   const res = await request(app).post('/v1/labels').send(body);
+     36|   expect(res.status).toBe(201);
+       |                      ^
+     37|   const label = res.body as Label;
+     38|   expect(label.id).toBeDefined();
+ ❯ test/labels.test.ts:109:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels/{labelId} returns the label
+AssertionError: expected 404 to be 201 // Object.is equality
+
+- Expected
++ Received
+
+- 201
++ 404
+
+ ❯ createLabel test/labels.test.ts:36:22
+     34| async function createLabel(body: { name: string; color: string }): Pro…
+     35|   const res = await request(app).post('/v1/labels').send(body);
+     36|   expect(res.status).toBe(201);
+       |                      ^
+     37|   const label = res.body as Label;
+     38|   expect(label.id).toBeDefined();
+ ❯ test/labels.test.ts:133:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  test/labels.test.ts > Labels > GET /v1/labels/{labelId} with malformed id returns 422 problem
+AssertionError: expected 404 to be 422 // Object.is equality
+
+- Expected
++ Received
+
+- 422
++ 404
+
+ ❯ test/labels.test.ts:148:24
+    146|   it('GET /v1/labels/{labelId} with malformed id returns 422 problem',…
+    147|     const res = await request(app).get('/v1/labels/not-a-uuid');
+    148|     expect(res.status).toBe(422);
+       |                        ^
+    149|     expectProblem(res, 422);
+    150|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+--- json ---
+{"numTotalTestSuites":9,"numPassedTestSuites":5,"numFailedTestSuites":4,"numPendingTestSuites":0,"numTotalTests":33,"numPassedTests":22,"numFailedTests":11,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794123245223,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["Labels Store"],"fullName":"Labels Store creates a label with valid input","status":"passed","title":"creates a label with valid input","duration":2.409665999999987,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels Store"],"fullName":"Labels Store retrieves a label by id","status":"passed","title":"retrieves a label by id","duration":0.4909579999999778,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels Store"],"fullName":"Labels Store returns undefined for non-existent label","status":"passed","title":"returns undefined for non-existent label","duration":0.12670800000000781,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels Store"],"fullName":"Labels Store lists labels with pagination","status":"failed","title":"lists labels with pagination","duration":2.2767499999999927,"failureMessages":["HttpProblem: cursor: Invalid cursor\n    at unprocessable (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/src/lib/problem.ts:63:10)\n    at decodeCursor (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/src/lib/pagination.ts:27:11)\n    at paginate (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/src/lib/pagination.ts:37:58)\n    at listLabels (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/src/modules/labels/store.ts:11:10)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.store.test.ts:33:18\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels Store"],"fullName":"Labels Store paginates through all labels","status":"failed","title":"paginates through all labels","duration":0.3433330000000012,"failureMessages":["HttpProblem: cursor: Invalid cursor\n    at unprocessable (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/src/lib/problem.ts:63:10)\n    at decodeCursor (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/src/lib/pagination.ts:27:11)\n    at paginate (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/src/lib/pagination.ts:37:58)\n    at listLabels (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/src/modules/labels/store.ts:11:10)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.store.test.ts:50:20\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123245386,"endTime":1794123245392.3433,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.store.test.ts"},{"assertionResults":[{"ancestorTitles":["Labels"],"fullName":"Labels POST /v1/labels with valid body returns 201, label, and Location header","status":"failed","title":"POST /v1/labels with valid body returns 201, label, and Location header","duration":22.415708999999993,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:48:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels POST /v1/labels with invalid name returns 422 problem","status":"failed","title":"POST /v1/labels with invalid name returns 422 problem","duration":4.351249999999993,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:59:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels POST /v1/labels with name too long returns 422 problem","status":"failed","title":"POST /v1/labels with name too long returns 422 problem","duration":1.901584000000014,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:67:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels POST /v1/labels with invalid color returns 422 problem","status":"failed","title":"POST /v1/labels with invalid color returns 422 problem","duration":1.485416999999984,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:75:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels POST /v1/labels with multiple invalid fields returns 422 naming each field","status":"failed","title":"POST /v1/labels with multiple invalid fields returns 422 naming each field","duration":1.7295000000000016,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:83:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels POST /v1/labels repeated with same Idempotency-Key replays response and creates no second label","status":"failed","title":"POST /v1/labels repeated with same Idempotency-Key replays response and creates no second label","duration":1.612290999999999,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:93:26\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels GET /v1/labels lists labels with cursor pagination","status":"failed","title":"GET /v1/labels lists labels with cursor pagination","duration":1.6377919999999904,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createLabel (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:36:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:109:20\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels GET /v1/labels/{labelId} returns the label","status":"failed","title":"GET /v1/labels/{labelId} returns the label","duration":1.5395000000000039,"failureMessages":["AssertionError: expected 404 to be 201 // Object.is equality\n    at createLabel (/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:36:22)\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:133:19\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels GET /v1/labels/{labelId} with unknown id returns 404 problem","status":"passed","title":"GET /v1/labels/{labelId} with unknown id returns 404 problem","duration":1.7396249999999895,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels GET /v1/labels/{labelId} with malformed id returns 422 problem","status":"failed","title":"GET /v1/labels/{labelId} with malformed id returns 422 problem","duration":1.7854579999999771,"failureMessages":["AssertionError: expected 404 to be 422 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts:148:24\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["Labels"],"fullName":"Labels existing project routes still work","status":"passed","title":"existing project routes still work","duration":2.9737499999999955,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123245454,"endTime":1794123245497.9736,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/labels.test.ts"},{"assertionResults":[{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects creates a project: 201, Location header, status defaults to active","status":"passed","title":"creates a project: 201, Location header, status defaults to active","duration":20.33016699999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects an invalid body with a 422 problem","status":"passed","title":"rejects an invalid body with a 422 problem","duration":5.19874999999999,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects unknown properties with a 422 problem","status":"passed","title":"rejects unknown properties with a 422 problem","duration":1.374291999999997,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects malformed JSON with a 400 problem","status":"passed","title":"rejects malformed JSON with a 400 problem","duration":2.518166000000008,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects honours Idempotency-Key: same key and body replays the first response","status":"passed","title":"honours Idempotency-Key: same key and body replays the first response","duration":5.9762079999999855,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["POST /v1/projects"],"fullName":"POST /v1/projects rejects reuse of an Idempotency-Key with a different body (422)","status":"passed","title":"rejects reuse of an Idempotency-Key with a different body (422)","duration":4.178833999999995,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects pages through every project with an opaque cursor","status":"passed","title":"pages through every project with an opaque cursor","duration":6.373290999999995,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects returns at most `limit` items and a nextCursor while more remain","status":"passed","title":"returns at most `limit` items and a nextCursor while more remain","duration":2.989334000000042,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects defaults to 20 items per page","status":"passed","title":"defaults to 20 items per page","duration":15.910166000000004,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects"],"fullName":"GET /v1/projects rejects limit outside 1..100 and foreign cursors with a 422 problem","status":"passed","title":"rejects limit outside 1..100 and foreign cursors with a 422 problem","duration":2.3498330000000465,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId returns the project","status":"passed","title":"returns the project","duration":1.7924999999999613,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":0.8725420000000099,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["GET /v1/projects/:projectId"],"fullName":"GET /v1/projects/:projectId answers a malformed id with a 422 problem","status":"passed","title":"answers a malformed id with a 422 problem","duration":0.9074170000000095,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId updates the given fields only","status":"passed","title":"updates the given fields only","duration":1.9991249999999923,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId rejects an empty or invalid patch with a 422 problem","status":"passed","title":"rejects an empty or invalid patch with a 422 problem","duration":3.0342919999999935,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId answers an unknown id with a 404 problem","status":"passed","title":"answers an unknown id with a 404 problem","duration":0.8223750000000223,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["PATCH /v1/projects/:projectId"],"fullName":"PATCH /v1/projects/:projectId honours Idempotency-Key on PATCH","status":"passed","title":"honours Idempotency-Key on PATCH","duration":2.4349169999999845,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794123245455,"endTime":1794123245534.4348,"status":"passed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/labels-claude-20261108-073101/samples/existing-api/test/projects.test.ts"}]}

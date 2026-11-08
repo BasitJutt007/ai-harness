@@ -1,0 +1,4 @@
+additive  GET /v1/health  new route
+
+warnings:
+  GET /v1/health: 200 body is not parsed with a schema; tracked by source text only

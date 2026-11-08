@@ -1,0 +1,49 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-74681-7239bd6b/d513c42306e2/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/health-routes.test.ts test/projects.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-74681-7239bd6b/d513c42306e2/samples/existing-api
+
+ ❯ test/health-routes.test.ts (0 test)
+ ❯ test/projects.test.ts (0 test)
+
+ Test Files  2 failed (2)
+      Tests  no tests
+   Start at  12:18:20
+   Duration  213ms (worker 96%, environment 4%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/health-routes.test.ts [ test/health-routes.test.ts ]
+Error: Cannot find module './modules/health/routes.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-74681-7239bd6b/d513c42306e2/samples/existing-api/src/app.ts
+ ❯ src/app.ts:5:1
+      3| import { errorHandler, notFoundHandler } from './lib/errors.ts';
+      4| import { projectsRouter } from './modules/projects/routes.ts';
+      5| import { healthRouter } from './modules/health/routes.ts';
+       | ^
+      6|
+      7| export function createApp(): Express {
+ ❯ test/health-routes.test.ts:3:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/projects.test.ts [ test/projects.test.ts ]
+Error: Cannot find module './modules/health/routes.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-74681-7239bd6b/d513c42306e2/samples/existing-api/src/app.ts
+ ❯ src/app.ts:5:1
+      3| import { errorHandler, notFoundHandler } from './lib/errors.ts';
+      4| import { projectsRouter } from './modules/projects/routes.ts';
+      5| import { healthRouter } from './modules/health/routes.ts';
+       | ^
+      6|
+      7| export function createApp(): Express {
+ ❯ test/projects.test.ts:6:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":0,"numPassedTests":0,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794122300834,"success":false,"testResults":[{"assertionResults":[],"startTime":1794122300834,"endTime":1794122300834,"status":"failed","message":"Cannot find module './modules/health/routes.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-74681-7239bd6b/d513c42306e2/samples/existing-api/src/app.ts","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-74681-7239bd6b/d513c42306e2/samples/existing-api/test/health-routes.test.ts"},{"assertionResults":[],"startTime":1794122300834,"endTime":1794122300834,"status":"failed","message":"Cannot find module './modules/health/routes.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-74681-7239bd6b/d513c42306e2/samples/existing-api/src/app.ts","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-74681-7239bd6b/d513c42306e2/samples/existing-api/test/projects.test.ts"}]}

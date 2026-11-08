@@ -1,0 +1,4 @@
+replay probe (transcript: runs/users-api-openai-20261108-072043/logs/036-rest-conventions-replay-probe.txt)
+PATCH /:userId: inconclusive: no POST  to create the resource for :userId
+POST /v1/users: replayed: the retry replayed 201
+POST /: inconclusive: the first keyed request answered 404 (not a 2xx), so the replay could not be judged

@@ -1,0 +1,38 @@
+{
+  "file": "/Users/abdulbasit/Documents/GitHub/ai-harness/tasks/health-route.task.yaml",
+  "format": "yaml",
+  "strict": false,
+  "sha256": "8ee193461cf3680c2e0f5ca38c5c04ef28e128f81100df743dee0fee8d0bfffb",
+  "normalizedSha256": "e51acff5af515c5e5d14c28d85b2a30a7adebe96da2055a7e82b03e069668af1",
+  "warnings": [],
+  "scopeSource": "task",
+  "task": {
+    "kind": "brownfield",
+    "id": "health-route",
+    "title": "A health check route for the Projects API",
+    "behaviours": [
+      "GET /v1/health returns 200 application/json with the body { \"status\": \"ok\" }.",
+      "GET /v1/health ignores query parameters and still returns 200 with { \"status\": \"ok\" }.",
+      "An unknown method on /v1/health (e.g. POST) does not return 200.",
+      "All existing tests keep passing and the public contract only gains routes and properties."
+    ],
+    "limits": {
+      "maxTurns": 30,
+      "maxOutputTokens": 16000
+    },
+    "target": "samples/existing-api",
+    "change": "Add GET /v1/health so a load balancer or a deploy check can tell the API is up.\nIt answers 200 application/json { \"status\": \"ok\" } and needs no request body or\nparameters. It lives in its own module and is registered on the app next to the\nprojects routes. No existing route, request schema or response schema changes.",
+    "scope": {
+      "allow": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ],
+      "deny": [
+        "src/lib/**",
+        "src/server.ts",
+        "src/modules/projects/**"
+      ]
+    },
+    "allowBreaking": false
+  }
+}

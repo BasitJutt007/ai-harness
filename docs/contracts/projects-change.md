@@ -15,3 +15,4 @@ Not included:
 - the status filter in the metric: the run's tests and the contract lock prove it; the metric counts routes only
 - bulk delete and soft delete
 - merging into main: main already holds the 01 result (harness-demo #11); a re-run's PR targets rubric-01
+Signed: Abdul Basit, 2026-11-08 (recorded by the harness from the typed reply at ledger seq 3; the human-yes gate reads the ledger, not this line)

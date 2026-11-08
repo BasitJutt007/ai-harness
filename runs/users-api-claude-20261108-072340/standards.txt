@@ -1,0 +1,26 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                6/6 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               6/6 error paths
+problem-json      pass  src/routes/users.ts              5/5 error paths
+problem-json      pass  (runtime)                        11/11 error paths
+rest-conventions  pass  src/routes/users.ts              5/5 routes
+tsc-strict        FAIL  src/routes/users.ts              2 errors
+    src/routes/users.ts:112:30  TS2345: Argument of type 'string | string[] | undefined' is not assignable to parameter of type 'string'.
+    src/routes/users.ts:134:17  TS2345: Argument of type 'string | string[] | undefined' is not assignable to parameter of type 'string'.
+tsc-strict        FAIL  (project)                        2 errors
+zod-boundary      FAIL  src/routes/users.ts              2/5 handlers
+    src/routes/users.ts:95:22  GET /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:93:35  GET /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/users.ts:111:22  PATCH /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:109:52  PATCH /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+    src/routes/users.ts:144:22  DELETE /v1/users/:userId: req.params is read without <ZodSchema>.parse(); parse it directly, e.g. XSchema.parse(req.params)
+    src/routes/users.ts:142:38  DELETE /v1/users/:userId: path parameters are not parsed; add const { … } = ParamsSchema.parse(req.params)
+────────────────────────────────────────────────────────────
+problem-json      pass    33/33 error paths
+rest-conventions  pass     5/5 routes
+tsc-strict        FAIL     2 errors
+zod-boundary      FAIL     2/5 handlers
+verdict           88%     → failing: tsc-strict, zod-boundary
+other stacks  not run on express: nest-route-guard (nestjs), prisma-unbounded (nestjs), repo-lint (nestjs, react-vite), repo-typecheck (nestjs, react-vite), vite-build (react-vite)

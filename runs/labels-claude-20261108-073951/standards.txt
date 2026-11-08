@@ -1,0 +1,23 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                6/6 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               6/6 error paths
+problem-json      pass  src/modules/labels/routes.ts     2/2 error paths
+problem-json      pass  src/modules/projects/routes.ts   2/2 error paths
+problem-json      pass  (runtime)                        15/15 error paths
+rest-conventions  UNPROVEN  src/modules/labels/routes.ts     skipped: src/modules/labels/routes.ts:20:1: POST /v1/labels: its replay looks right in the code, but it was not confirmed at runtime (no valid body can be generated from CreateLabelSchema), so its idempotency…
+rest-conventions  pass  src/modules/labels/routes.ts     2/2 routes
+rest-conventions  pass  src/modules/projects/routes.ts   4/4 routes
+tsc-strict        pass  (project)                        0 errors
+zod-boundary      FAIL  src/modules/labels/routes.ts     1/3 handlers
+    src/modules/labels/routes.ts:23:3  POST /v1/labels: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)
+    src/modules/labels/routes.ts:35:3  GET /v1/labels/:labelId: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)
+zod-boundary      pass  src/modules/projects/routes.ts   4/4 handlers
+────────────────────────────────────────────────────────────
+problem-json      pass    36/36 error paths
+rest-conventions  unproven 6/6 routes
+tsc-strict        pass     0 errors
+zod-boundary      FAIL     5/7 handlers
+verdict           UNPROVEN → not proven: rest-conventions (skipped); failing: zod-boundary
+other stacks  not run on express: nest-route-guard (nestjs), prisma-unbounded (nestjs), repo-lint (nestjs, react-vite), repo-typecheck (nestjs, react-vite), vite-build (react-vite)

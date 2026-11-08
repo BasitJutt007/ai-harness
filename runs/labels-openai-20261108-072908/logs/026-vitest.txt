@@ -1,0 +1,47 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-09c6226d/ea704877f1f7/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/labels.test.ts test/store.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-09c6226d/ea704877f1f7/samples/existing-api
+
+ ❯ test/store.test.ts (0 test)
+ ❯ test/labels.test.ts (0 test)
+
+ Test Files  2 failed (2)
+      Tests  no tests
+   Start at  12:30:42
+   Duration  213ms (worker 95%, environment 5%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/labels.test.ts [ test/labels.test.ts ]
+Error: Cannot find module './store.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-09c6226d/ea704877f1f7/samples/existing-api/src/modules/labels/routes.ts
+ ❯ src/modules/labels/routes.ts:5:1
+      3| import { notFound } from '../../lib/problem.ts';
+      4| import { CreateLabelSchema, LabelPageSchema, LabelParamsSchema, LabelS…
+      5| import { createLabel, getLabel, listLabels } from './store.ts';
+       | ^
+      6|
+      7| export const labelsRouter = Router();
+ ❯ src/app.ts:5:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  test/store.test.ts [ test/store.test.ts ]
+Error: Cannot find module '../src/modules/labels/store.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-09c6226d/ea704877f1f7/samples/existing-api/test/store.test.ts
+ ❯ test/store.test.ts:2:1
+      1| import { describe, expect, it } from 'vitest';
+      2| import { createLabel, getLabel, listLabels } from '../src/modules/labe…
+       | ^
+      3|
+      4| describe('label store', () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":0,"numPassedTests":0,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794123042392,"success":false,"testResults":[{"assertionResults":[],"startTime":1794123042392,"endTime":1794123042392,"status":"failed","message":"Cannot find module './store.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-09c6226d/ea704877f1f7/samples/existing-api/src/modules/labels/routes.ts","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-09c6226d/ea704877f1f7/samples/existing-api/test/labels.test.ts"},{"assertionResults":[],"startTime":1794123042392,"endTime":1794123042392,"status":"failed","message":"Cannot find module '../src/modules/labels/store.ts' imported from /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-09c6226d/ea704877f1f7/samples/existing-api/test/store.test.ts","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/tmp/diff-77789-09c6226d/ea704877f1f7/samples/existing-api/test/store.test.ts"}]}

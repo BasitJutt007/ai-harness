@@ -1,0 +1,3995 @@
+{
+  "turn": 30,
+  "tests": [
+    {
+      "file": "test/projects.test.ts",
+      "hash": "c52ec5aa2a8c22ed32c4643dc3d9a7cb16503d0b7890c2ff293282f842ca1710",
+      "collected": 20,
+      "failed": 2,
+      "turn": 5,
+      "at": "2026-11-08T07:17:38.413Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "GET /v1/health > returns the healthy status as JSON",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5308bc4dd6f9b2aeaf3aa2225a8aace86683ebcc5c33b3a107f4a821068de2ca"
+        },
+        {
+          "name": "GET /v1/health > ignores query parameters",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8d24925919d1efdaf31c3e28f0b01f96786849ef5834bc023a264ec801b0bdb3"
+        },
+        {
+          "name": "GET /v1/health > does not accept unknown methods",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e02ff896c1a7c072408dd6415ff133f77262bcbb66eefc17537b038d750d740"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "2 of 20 tests failed"
+    },
+    {
+      "file": "test/health-routes.test.ts",
+      "hash": "757ef15c985a76bfd90b7e283bc477179118d6070732899f3ce08a6cc24945ab",
+      "collected": 0,
+      "failed": 0,
+      "turn": 8,
+      "at": "2026-11-08T07:17:45.359Z",
+      "cases": [
+        {
+          "name": "healthRouter > provides health status",
+          "status": "error",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "beb8c5fa14a4c81ab4d647835a7618693ce52d90d606da170df6a0b70ce62fa8"
+        }
+      ],
+      "status": "error",
+      "validRed": true,
+      "reason": "imports src/modules/health/routes.ts, which does not exist yet"
+    },
+    {
+      "file": "test/health-routes.test.ts",
+      "hash": "fafd1d61843013b088f2fd606913f145996926c1d0bf8e700a03c41da8222dfb",
+      "collected": 2,
+      "failed": 1,
+      "turn": 25,
+      "at": "2026-11-08T07:18:09.479Z",
+      "cases": [
+        {
+          "name": "healthRouter > provides health status",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ec1caf321c924044490db38d87f4e94182f9fc32ffb2a83c7c379dc4b57b0d4"
+        },
+        {
+          "name": "healthRouter > does not accept unknown methods",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5552e70b2cd0508ae5314450994093724a89df25bcaed95ff8982546d2235e32"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 2 tests failed"
+    },
+    {
+      "file": "test/health-routes.test.ts",
+      "hash": "fafd1d61843013b088f2fd606913f145996926c1d0bf8e700a03c41da8222dfb",
+      "collected": 2,
+      "failed": 1,
+      "turn": 29,
+      "at": "2026-11-08T07:18:15.187Z",
+      "cases": [
+        {
+          "name": "healthRouter > provides health status",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ec1caf321c924044490db38d87f4e94182f9fc32ffb2a83c7c379dc4b57b0d4"
+        },
+        {
+          "name": "healthRouter > does not accept unknown methods",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5552e70b2cd0508ae5314450994093724a89df25bcaed95ff8982546d2235e32"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "1 of 2 tests failed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "c52ec5aa2a8c22ed32c4643dc3d9a7cb16503d0b7890c2ff293282f842ca1710",
+      "collected": 20,
+      "failed": 2,
+      "turn": 29,
+      "at": "2026-11-08T07:18:15.187Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "GET /v1/health > returns the healthy status as JSON",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5308bc4dd6f9b2aeaf3aa2225a8aace86683ebcc5c33b3a107f4a821068de2ca"
+        },
+        {
+          "name": "GET /v1/health > ignores query parameters",
+          "status": "fail",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8d24925919d1efdaf31c3e28f0b01f96786849ef5834bc023a264ec801b0bdb3"
+        },
+        {
+          "name": "GET /v1/health > does not accept unknown methods",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e02ff896c1a7c072408dd6415ff133f77262bcbb66eefc17537b038d750d740"
+        }
+      ],
+      "status": "fail",
+      "validRed": true,
+      "reason": "2 of 20 tests failed"
+    },
+    {
+      "file": "test/health-routes.test.ts",
+      "hash": "fafd1d61843013b088f2fd606913f145996926c1d0bf8e700a03c41da8222dfb",
+      "collected": 2,
+      "failed": 0,
+      "turn": 30,
+      "at": "2026-11-08T07:18:19.545Z",
+      "cases": [
+        {
+          "name": "healthRouter > provides health status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ec1caf321c924044490db38d87f4e94182f9fc32ffb2a83c7c379dc4b57b0d4"
+        },
+        {
+          "name": "healthRouter > does not accept unknown methods",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5552e70b2cd0508ae5314450994093724a89df25bcaed95ff8982546d2235e32"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "2 tests passed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "c52ec5aa2a8c22ed32c4643dc3d9a7cb16503d0b7890c2ff293282f842ca1710",
+      "collected": 20,
+      "failed": 0,
+      "turn": 30,
+      "at": "2026-11-08T07:18:19.545Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "GET /v1/health > returns the healthy status as JSON",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5308bc4dd6f9b2aeaf3aa2225a8aace86683ebcc5c33b3a107f4a821068de2ca"
+        },
+        {
+          "name": "GET /v1/health > ignores query parameters",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8d24925919d1efdaf31c3e28f0b01f96786849ef5834bc023a264ec801b0bdb3"
+        },
+        {
+          "name": "GET /v1/health > does not accept unknown methods",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e02ff896c1a7c072408dd6415ff133f77262bcbb66eefc17537b038d750d740"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "20 tests passed"
+    },
+    {
+      "file": "test/health-routes.test.ts",
+      "hash": "fafd1d61843013b088f2fd606913f145996926c1d0bf8e700a03c41da8222dfb",
+      "collected": 2,
+      "failed": 0,
+      "turn": 30,
+      "at": "2026-11-08T07:18:23.903Z",
+      "cases": [
+        {
+          "name": "healthRouter > provides health status",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4ec1caf321c924044490db38d87f4e94182f9fc32ffb2a83c7c379dc4b57b0d4"
+        },
+        {
+          "name": "healthRouter > does not accept unknown methods",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5552e70b2cd0508ae5314450994093724a89df25bcaed95ff8982546d2235e32"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "2 tests passed"
+    },
+    {
+      "file": "test/projects.test.ts",
+      "hash": "c52ec5aa2a8c22ed32c4643dc3d9a7cb16503d0b7890c2ff293282f842ca1710",
+      "collected": 20,
+      "failed": 0,
+      "turn": 30,
+      "at": "2026-11-08T07:18:23.903Z",
+      "cases": [
+        {
+          "name": "POST /v1/projects > creates a project: 201, Location header, status defaults to active",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "4b2f97f6717423d20c719797812a2a3e9794a0f7d4b654443e9599c5b0655e5b"
+        },
+        {
+          "name": "POST /v1/projects > rejects an invalid body with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "43a45fc1745b441fcc12fec55410269c6f8990777f14a26db100ee4b89551ef1"
+        },
+        {
+          "name": "POST /v1/projects > rejects unknown properties with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "c68be175bc50dbc798d0f696127edb4ffe184fe8465ea5b485f77f8cbee6c883"
+        },
+        {
+          "name": "POST /v1/projects > rejects malformed JSON with a 400 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "39a56cf3e0ad6d1b55606f485b8e944814f3efd93c33133696ac391c636b8336"
+        },
+        {
+          "name": "POST /v1/projects > honours Idempotency-Key: same key and body replays the first response",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "712897e5d0a3f195ed72dddfde77a45a26603089526c89a978a2698a3adbf78a"
+        },
+        {
+          "name": "POST /v1/projects > rejects reuse of an Idempotency-Key with a different body (422)",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "ae27566a54ab3e35abb41e188c347fd9ab98e04023ce2bdaad25c0e386372c6b"
+        },
+        {
+          "name": "GET /v1/projects > pages through every project with an opaque cursor",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "9657d8aa7ddc4cc7fc6560de0d91a90ff71e61b0df1f14a7f82a2213d33c55cf"
+        },
+        {
+          "name": "GET /v1/projects > returns at most `limit` items and a nextCursor while more remain",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bbf59be8b673dfa79f63edcdcea0c7d1977de0714f169ad184d25c632035ef22"
+        },
+        {
+          "name": "GET /v1/projects > defaults to 20 items per page",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "bd051ca13158b6ac3ba82aaae0185704ed2a4b1739cf7165a6c36d2113378ff3"
+        },
+        {
+          "name": "GET /v1/projects > rejects limit outside 1..100 and foreign cursors with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "f15519823c7db9a49541347b34ee7d66eda8f8b44fdb9f9d6991d86991eab6ca"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > returns the project",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "6122039470e5b7878ac139f3a48c89c3b5d3beea73fa77cfbe71a027fe009089"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "7cbcaf5eafa01303876bca34916b20f70f0bcb26091203bd60ac5af729360db6"
+        },
+        {
+          "name": "GET /v1/projects/:projectId > answers a malformed id with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e59d52a4bdbdc0fe8fd29079aca44ab4ddfca5e2e3135bb6497a02bbdeb9956"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > updates the given fields only",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "cd8aa9f7f09898eaaf94bd05c39c188995a38e54e698cf9e01b4c0f4c20f46bf"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > rejects an empty or invalid patch with a 422 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "88f7601928d4f9c78a5a45ec798bef85d31a7810697e152b818118f615d389a1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > answers an unknown id with a 404 problem",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "fed22ff3dca0277f363f2ddb66a30b61e524faf36a1c14847be47faf777b4ae1"
+        },
+        {
+          "name": "PATCH /v1/projects/:projectId > honours Idempotency-Key on PATCH",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "d5324a9c9318853dfd331d557bb57f70288dc19e6b98f7451741f970297ab961"
+        },
+        {
+          "name": "GET /v1/health > returns the healthy status as JSON",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5308bc4dd6f9b2aeaf3aa2225a8aace86683ebcc5c33b3a107f4a821068de2ca"
+        },
+        {
+          "name": "GET /v1/health > ignores query parameters",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "8d24925919d1efdaf31c3e28f0b01f96786849ef5834bc023a264ec801b0bdb3"
+        },
+        {
+          "name": "GET /v1/health > does not accept unknown methods",
+          "status": "pass",
+          "exercisesSource": true,
+          "constantOnly": false,
+          "bodyHash": "5e02ff896c1a7c072408dd6415ff133f77262bcbb66eefc17537b038d750d740"
+        }
+      ],
+      "status": "pass",
+      "validRed": false,
+      "reason": "20 tests passed"
+    }
+  ],
+  "written": [
+    "src/app.ts",
+    "src/modules/health/routes.ts",
+    "test/health-routes.test.ts",
+    "test/projects.test.ts"
+  ],
+  "initialHashes": [
+    [
+      "package.json",
+      "3dee9d365c84a8f182206d79599678da95325c5fc0ade4c6c6984f27ded4ceb9"
+    ],
+    [
+      "src/app.ts",
+      "835bf5ae43c1665f84b7c59242e4987b8007ce3c303272356a74b1d78e651f34"
+    ],
+    [
+      "src/lib/errors.ts",
+      "bce991cc5bd1bc681160921a1659305140ed410b64385a68c90bdbc3a79f212b"
+    ],
+    [
+      "src/lib/idempotency.ts",
+      "40002911e5c28904b0dcd7e597b9105710a257037026c89483c932700454d0c1"
+    ],
+    [
+      "src/lib/pagination.ts",
+      "f1c2475d67fac9c192856971a7ff739ab4aae17ceccadce4b2b29f658cfd0f7b"
+    ],
+    [
+      "src/lib/problem.ts",
+      "b78071a0ec3d77f4694630176ccdade5a31c14e6873089d4b58793ed3fc333b9"
+    ],
+    [
+      "src/modules/projects/routes.ts",
+      "02dd6cf354a47d8d64c73b4fb97ed22d2dfcf2cd9214418a1af38d8e44950f13"
+    ],
+    [
+      "src/modules/projects/schema.ts",
+      "2125f39e0f2425b001ce52a6a23e9c47f800e11cdc37e726f84bfbf39f8aaa7e"
+    ],
+    [
+      "src/modules/projects/store.ts",
+      "0ecaa716009bf91391c36d7f681c0f801b6c195516d9037f100675499a6433c7"
+    ],
+    [
+      "src/server.ts",
+      "3322918a60dedb7b17737ac0a22e9352d1558c55d4cd1a64ffd8d70160200b5e"
+    ],
+    [
+      "test/projects.test.ts",
+      "988512f4691f9ed602362500b5bb7e4f92ccdda2363f47312384d167824c7b5e"
+    ],
+    [
+      "tsconfig.json",
+      "a86c3e105465e1256eb624e94222f2031f7faf83bad0680101b5207acd8dd882"
+    ],
+    [
+      "vitest.config.ts",
+      "0651404096ec7c71a24635adb6bf78321e361d023e97b4b8ee2b775404bc6ad5"
+    ]
+  ],
+  "testBaseline": {
+    "at": "2026-11-08T07:17:24.526Z",
+    "totals": {
+      "files": 1,
+      "tests": 17,
+      "passed": 17,
+      "failed": 0
+    },
+    "logPath": "runs/health-route-openai-20261108-071724/logs/001-vitest.txt",
+    "skipped": [],
+    "failed": [],
+    "loadErrors": [],
+    "files": [
+      "test/projects.test.ts"
+    ]
+  },
+  "plan": [
+    "Read the approved contract and existing app/test structure; fetch required standards.",
+    "Add health-route tests covering all acceptance criteria and run them to observe red.",
+    "Implement the health module and register it without touching denied paths.",
+    "Run all tests, standards, contract diff, then finish."
+  ],
+  "events": [
+    {
+      "kind": "note",
+      "source": "tests",
+      "message": "test baseline at run start: 17/17 tests passed in 1 files",
+      "turn": 0,
+      "at": "2026-11-08T07:17:25.204Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool plan",
+      "data": {
+        "event": "pre_tool",
+        "tool": "plan",
+        "callId": "call_RmpuSzjhaIodWuRL2klzVngk",
+        "paths": []
+      },
+      "turn": 1,
+      "at": "2026-11-08T07:17:29.608Z"
+    },
+    {
+      "kind": "tool",
+      "source": "plan",
+      "decision": "pass",
+      "message": "plan recorded (4 steps)",
+      "data": {
+        "callId": "call_RmpuSzjhaIodWuRL2klzVngk",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 1,
+      "at": "2026-11-08T07:17:29.608Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_h5nFT0aWHDCw3Sic0lUrXOuu",
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.894Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "block",
+      "message": "read_file: docs/contracts/health-route.md does not exist (use list_files to find paths)",
+      "data": {
+        "callId": "call_h5nFT0aWHDCw3Sic0lUrXOuu",
+        "ok": false,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.897Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_gUnJXXjkMAGfmXU0mNoXtfa6",
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.897Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/app.ts (lines 1-14 of 14)",
+      "data": {
+        "callId": "call_gUnJXXjkMAGfmXU0mNoXtfa6",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.898Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_emsqIzvAfgYScR5BFxK4kUdr",
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.899Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/projects.test.ts (lines 1-160 of 177)",
+      "data": {
+        "callId": "call_emsqIzvAfgYScR5BFxK4kUdr",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.900Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool fetch_standard",
+      "data": {
+        "event": "pre_tool",
+        "tool": "fetch_standard",
+        "callId": "call_rVXSpNNlpMrJ6pR7m1Lpo2kl",
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.900Z"
+    },
+    {
+      "kind": "tool",
+      "source": "fetch_standard",
+      "decision": "pass",
+      "message": "problem-json (standards, unit: error paths)",
+      "data": {
+        "callId": "call_rVXSpNNlpMrJ6pR7m1Lpo2kl",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.900Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool fetch_standard",
+      "data": {
+        "event": "pre_tool",
+        "tool": "fetch_standard",
+        "callId": "call_xJ99nRolmmQ9Nil55j1oKjPY",
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.901Z"
+    },
+    {
+      "kind": "tool",
+      "source": "fetch_standard",
+      "decision": "pass",
+      "message": "rest-conventions (standards, unit: routes)",
+      "data": {
+        "callId": "call_xJ99nRolmmQ9Nil55j1oKjPY",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.901Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool fetch_standard",
+      "data": {
+        "event": "pre_tool",
+        "tool": "fetch_standard",
+        "callId": "call_SuRiFBbDv8WKUBrHo7uDt3kJ",
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.901Z"
+    },
+    {
+      "kind": "tool",
+      "source": "fetch_standard",
+      "decision": "pass",
+      "message": "tsc-strict (standards, unit: errors)",
+      "data": {
+        "callId": "call_SuRiFBbDv8WKUBrHo7uDt3kJ",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.901Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool fetch_standard",
+      "data": {
+        "event": "pre_tool",
+        "tool": "fetch_standard",
+        "callId": "call_oC1Cr4jYT7iGqhV66bkO4kmN",
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.901Z"
+    },
+    {
+      "kind": "tool",
+      "source": "fetch_standard",
+      "decision": "pass",
+      "message": "zod-boundary (standards, unit: handlers)",
+      "data": {
+        "callId": "call_oC1Cr4jYT7iGqhV66bkO4kmN",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.901Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool test_map",
+      "data": {
+        "event": "pre_tool",
+        "tool": "test_map",
+        "callId": "call_dMuPjk1fo3dsrILsifqEschf",
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.902Z"
+    },
+    {
+      "kind": "tool",
+      "source": "test_map",
+      "decision": "pass",
+      "message": "1 test files",
+      "data": {
+        "callId": "call_dMuPjk1fo3dsrILsifqEschf",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 2,
+      "at": "2026-11-08T07:17:31.917Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool list_files",
+      "data": {
+        "event": "pre_tool",
+        "tool": "list_files",
+        "callId": "call_e81TMd7N9dGaGHZdEr6J8Ofo",
+        "paths": []
+      },
+      "turn": 3,
+      "at": "2026-11-08T07:17:33.472Z"
+    },
+    {
+      "kind": "tool",
+      "source": "list_files",
+      "decision": "pass",
+      "message": "13 files under . matching **/*",
+      "data": {
+        "callId": "call_e81TMd7N9dGaGHZdEr6J8Ofo",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 3,
+      "at": "2026-11-08T07:17:33.473Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.320Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.331Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.333Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.335Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.336Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.337Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.338Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.338Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.358Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool append_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.364Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool append_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "append_file",
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.870Z"
+    },
+    {
+      "kind": "tool",
+      "source": "append_file",
+      "decision": "pass",
+      "message": "appended to test/projects.test.ts (+21 −0 lines)",
+      "data": {
+        "callId": "call_WCvLWr8dc4BaV2nkN5ML1qeC",
+        "ok": true,
+        "paths": [
+          "test/projects.test.ts"
+        ]
+      },
+      "turn": 4,
+      "at": "2026-11-08T07:17:36.871Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool run_tests",
+      "data": {
+        "event": "pre_tool",
+        "tool": "run_tests",
+        "callId": "call_SI2mCBmQhrw4NF2xN4sf5Kef",
+        "paths": []
+      },
+      "turn": 5,
+      "at": "2026-11-08T07:17:37.879Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 2 failed, 18 passed (20) in 1 files",
+      "data": {
+        "callId": "call_SI2mCBmQhrw4NF2xN4sf5Kef",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/health-route-openai-20261108-071724/logs/005-t5-run_tests.txt"
+      },
+      "turn": 5,
+      "at": "2026-11-08T07:17:39.340Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_y7Ep9QQblTCZdIryfv3Zq6rS",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-11-08T07:17:41.071Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_y7Ep9QQblTCZdIryfv3Zq6rS",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-11-08T07:17:41.074Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_y7Ep9QQblTCZdIryfv3Zq6rS",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-11-08T07:17:41.076Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "block",
+      "message": "observed-red: src/modules/health/routes.ts is locked: no test covers it. Write test/routes.test.ts that imports what it tests (e.g. import { … } from '../src/modules/health/routes.ts'; a side-effect import does not count), run it with run_tests and observe a case that uses it fail on a real assertion, then edit src/modules/health/routes.ts.",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_y7Ep9QQblTCZdIryfv3Zq6rS",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 6,
+      "at": "2026-11-08T07:17:41.093Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.397Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.398Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.399Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.399Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.400Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.400Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.400Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.401Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.401Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.402Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "record",
+      "message": "tsc: 1 error(s): test/health-routes.test.ts:3:30 TS2307 Cannot find module '../src/modules/health/routes.ts' or its corresponding type declarations.",
+      "data": {
+        "event": "post_tool",
+        "tool": "write_file",
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.452Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote test/health-routes.test.ts (new, 11 lines)",
+      "data": {
+        "callId": "call_JmPl0Dt7Kr2BWxARaJmRNEMM",
+        "ok": true,
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 7,
+      "at": "2026-11-08T07:17:43.453Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool run_tests",
+      "data": {
+        "event": "pre_tool",
+        "tool": "run_tests",
+        "callId": "call_o88z8nIotQ7lqN0H8PJ1MS6D",
+        "paths": []
+      },
+      "turn": 8,
+      "at": "2026-11-08T07:17:44.973Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 0 failed, 0 passed (0) in 1 files, 1 failed to load",
+      "data": {
+        "callId": "call_o88z8nIotQ7lqN0H8PJ1MS6D",
+        "ok": false,
+        "paths": []
+      },
+      "turn": 8,
+      "at": "2026-11-08T07:17:45.367Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.184Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.186Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.186Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.201Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.202Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.203Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.203Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.205Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.205Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool write_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.206Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool write_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "write_file",
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.273Z"
+    },
+    {
+      "kind": "tool",
+      "source": "write_file",
+      "decision": "pass",
+      "message": "wrote src/modules/health/routes.ts (new, 7 lines)",
+      "data": {
+        "callId": "call_HkWH5gGdDsh9ijnDg3hhAz8n",
+        "ok": true,
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 9,
+      "at": "2026-11-08T07:17:47.273Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_zU4GOgAAbCocpb5Y3xjRMY31",
+        "paths": []
+      },
+      "turn": 10,
+      "at": "2026-11-08T07:17:48.236Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/app.ts (lines 1-14 of 14)",
+      "data": {
+        "callId": "call_zU4GOgAAbCocpb5Y3xjRMY31",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 10,
+      "at": "2026-11-08T07:17:48.237Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_YjRLWu7JGwRwYZ2eXvKi44B6",
+        "paths": []
+      },
+      "turn": 11,
+      "at": "2026-11-08T07:17:49.391Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/health-routes.test.ts (lines 1-11 of 11)",
+      "data": {
+        "callId": "call_YjRLWu7JGwRwYZ2eXvKi44B6",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 11,
+      "at": "2026-11-08T07:17:49.393Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.778Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.780Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.783Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.793Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.793Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.794Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.794Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.795Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.796Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.796Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.874Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/app.ts (+1 −0)",
+      "data": {
+        "callId": "call_BJyLQWaeS64sCDdFCzSdz7RA",
+        "ok": true,
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 12,
+      "at": "2026-11-08T07:17:50.875Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_scqTYks2kyOfum2S5zgd3h1C",
+        "paths": []
+      },
+      "turn": 13,
+      "at": "2026-11-08T07:17:52.013Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/app.ts (lines 1-15 of 15)",
+      "data": {
+        "callId": "call_scqTYks2kyOfum2S5zgd3h1C",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 13,
+      "at": "2026-11-08T07:17:52.014Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.352Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.353Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.354Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.362Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.363Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.363Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.363Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.364Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.365Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.365Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.400Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/app.ts (+1 −0)",
+      "data": {
+        "callId": "call_AvZzswoE9KxIeAlI17xVnQWI",
+        "ok": true,
+        "paths": [
+          "src/app.ts"
+        ]
+      },
+      "turn": 14,
+      "at": "2026-11-08T07:17:53.401Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.012Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.014Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.015Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.016Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.017Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.017Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.018Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.019Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.019Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.021Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "record",
+      "message": "tsc: 2 error(s): test/health-routes.test.ts:7:36 TS2345 Argument of type 'Router' is not assignable to parameter of type 'App'. Type 'IRouter' is not assignable to type 'RequestListener<typeof IncomingMessage, typeo…\n  test/health-routes.test.ts:14:36 TS2345 Argument of type 'Router' is not assignable to parameter of type 'App'. Type 'IRouter' is not assignable to type 'RequestListener<typeof IncomingMessage, typeo…",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.111Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited test/health-routes.test.ts (+7 −1)",
+      "data": {
+        "callId": "call_bPd4ZJp4w97d1uJyRoiN9fo5",
+        "ok": true,
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 15,
+      "at": "2026-11-08T07:17:56.111Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_4sCwOyOeCWCqKR63cDh4Mbif",
+        "paths": []
+      },
+      "turn": 16,
+      "at": "2026-11-08T07:17:57.378Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/health-routes.test.ts (lines 1-17 of 17)",
+      "data": {
+        "callId": "call_4sCwOyOeCWCqKR63cDh4Mbif",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 16,
+      "at": "2026-11-08T07:17:57.379Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.650Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.652Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.653Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.654Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.654Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.654Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.655Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.655Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.656Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.657Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "record",
+      "message": "tsc: 3 error(s): test/health-routes.test.ts:3:10 TS2305 Module '\"../src/app.ts\"' has no exported member 'app'.\n  test/health-routes.test.ts:7:36 TS2304 Cannot find name 'healthRouter'.\n  test/health-routes.test.ts:14:36 TS2304 Cannot find name 'healthRouter'.",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.755Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited test/health-routes.test.ts (+1 −1)",
+      "data": {
+        "callId": "call_0rKpwlOpEGaJzv2Dx2PnvbPq",
+        "ok": true,
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 17,
+      "at": "2026-11-08T07:17:58.755Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_y5XdWCLagK6kVcfCqHTTeFY6",
+        "paths": []
+      },
+      "turn": 18,
+      "at": "2026-11-08T07:17:59.863Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/app.ts (lines 1-16 of 16)",
+      "data": {
+        "callId": "call_y5XdWCLagK6kVcfCqHTTeFY6",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 18,
+      "at": "2026-11-08T07:17:59.865Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_iExpfbLTdqxvNX2JE0VdacqY",
+        "paths": []
+      },
+      "turn": 19,
+      "at": "2026-11-08T07:18:01.044Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/health-routes.test.ts (lines 1-17 of 17)",
+      "data": {
+        "callId": "call_iExpfbLTdqxvNX2JE0VdacqY",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 19,
+      "at": "2026-11-08T07:18:01.046Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.549Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.550Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.551Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.551Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.552Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.552Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.553Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.553Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.553Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.554Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.555Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "block",
+      "message": "edit_file: find text matches 2 times in test/health-routes.test.ts (lines 7, 14); include more surrounding context to make it unique",
+      "data": {
+        "callId": "call_NkxnNKR7nCaRukwTCBPKtlJb",
+        "ok": false,
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 20,
+      "at": "2026-11-08T07:18:02.555Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.913Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.914Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.915Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.915Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.915Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.915Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.916Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.916Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.916Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.917Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "record",
+      "message": "tsc: 2 error(s): test/health-routes.test.ts:3:10 TS2305 Module '\"../src/app.ts\"' has no exported member 'app'.\n  test/health-routes.test.ts:14:36 TS2304 Cannot find name 'healthRouter'.",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.962Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited test/health-routes.test.ts (+1 −1)",
+      "data": {
+        "callId": "call_q4WG9jaxTZDeZvQSl3LN8ZR6",
+        "ok": true,
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 21,
+      "at": "2026-11-08T07:18:03.963Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_EnIfUdYwvIiyWDYKqwsssFnT",
+        "paths": []
+      },
+      "turn": 22,
+      "at": "2026-11-08T07:18:05.022Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/health-routes.test.ts (lines 1-17 of 17)",
+      "data": {
+        "callId": "call_EnIfUdYwvIiyWDYKqwsssFnT",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 22,
+      "at": "2026-11-08T07:18:05.024Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.304Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.306Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.306Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.306Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.306Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.307Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.307Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.307Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.307Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.308Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "record",
+      "message": "tsc: 1 error(s): test/health-routes.test.ts:16:36 TS2304 Cannot find name 'healthRouter'.",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.340Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited test/health-routes.test.ts (+3 −1)",
+      "data": {
+        "callId": "call_0BTq4QPbzmXg60q3pdKjVf23",
+        "ok": true,
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 23,
+      "at": "2026-11-08T07:18:06.340Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.768Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.770Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.771Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.772Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.772Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.772Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.773Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.773Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.773Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.774Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.814Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited test/health-routes.test.ts (+1 −1)",
+      "data": {
+        "callId": "call_VuevZI5vGtkZcsGwFXbxGlOV",
+        "ok": true,
+        "paths": [
+          "test/health-routes.test.ts"
+        ]
+      },
+      "turn": 24,
+      "at": "2026-11-08T07:18:07.814Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool run_tests",
+      "data": {
+        "event": "pre_tool",
+        "tool": "run_tests",
+        "callId": "call_PMAbx8Rz5yfINrSK8zpiW6mO",
+        "paths": []
+      },
+      "turn": 25,
+      "at": "2026-11-08T07:18:09.009Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 1 failed, 1 passed (2) in 1 files",
+      "data": {
+        "callId": "call_PMAbx8Rz5yfINrSK8zpiW6mO",
+        "ok": false,
+        "paths": []
+      },
+      "turn": 25,
+      "at": "2026-11-08T07:18:09.938Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_i2KSmfX2R9xizNsfih8JDmMk",
+        "paths": []
+      },
+      "turn": 26,
+      "at": "2026-11-08T07:18:10.999Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/modules/health/routes.ts (lines 1-7 of 7)",
+      "data": {
+        "callId": "call_i2KSmfX2R9xizNsfih8JDmMk",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 26,
+      "at": "2026-11-08T07:18:11.001Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_h7T770t1MfeCwLtEajRbMHFN",
+        "paths": []
+      },
+      "turn": 27,
+      "at": "2026-11-08T07:18:12.224Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "src/app.ts (lines 1-16 of 16)",
+      "data": {
+        "callId": "call_h7T770t1MfeCwLtEajRbMHFN",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 27,
+      "at": "2026-11-08T07:18:12.225Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool read_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "read_file",
+        "callId": "call_5y3miiqqbBoUIGkwg48zlNgv",
+        "paths": []
+      },
+      "turn": 28,
+      "at": "2026-11-08T07:18:13.562Z"
+    },
+    {
+      "kind": "tool",
+      "source": "read_file",
+      "decision": "pass",
+      "message": "test/health-routes.test.ts (lines 1-19 of 19)",
+      "data": {
+        "callId": "call_5y3miiqqbBoUIGkwg48zlNgv",
+        "ok": true,
+        "paths": []
+      },
+      "turn": 28,
+      "at": "2026-11-08T07:18:13.564Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool run_tests",
+      "data": {
+        "event": "pre_tool",
+        "tool": "run_tests",
+        "callId": "call_5qsouzBWMF4KAyOu2KhRuW5h",
+        "paths": []
+      },
+      "turn": 29,
+      "at": "2026-11-08T07:18:14.647Z"
+    },
+    {
+      "kind": "tool",
+      "source": "run_tests",
+      "decision": "block",
+      "message": "tests: 3 failed, 19 passed (22) in 2 files",
+      "data": {
+        "callId": "call_5qsouzBWMF4KAyOu2KhRuW5h",
+        "ok": false,
+        "paths": [],
+        "logPath": "runs/health-route-openai-20261108-071724/logs/012-t29-run_tests.txt"
+      },
+      "turn": 29,
+      "at": "2026-11-08T07:18:16.115Z"
+    },
+    {
+      "kind": "hook",
+      "source": "contract-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.597Z"
+    },
+    {
+      "kind": "hook",
+      "source": "dependency-policy",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.598Z"
+    },
+    {
+      "kind": "hook",
+      "source": "elision-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.600Z"
+    },
+    {
+      "kind": "hook",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.615Z"
+    },
+    {
+      "kind": "hook",
+      "source": "path-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.616Z"
+    },
+    {
+      "kind": "hook",
+      "source": "problem-gate",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.617Z"
+    },
+    {
+      "kind": "hook",
+      "source": "secret-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.617Z"
+    },
+    {
+      "kind": "hook",
+      "source": "source-boundary",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.620Z"
+    },
+    {
+      "kind": "hook",
+      "source": "test-preservation",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.620Z"
+    },
+    {
+      "kind": "hook",
+      "source": "unsafe-code-guard",
+      "decision": "pass",
+      "message": "pre_tool edit_file",
+      "data": {
+        "event": "pre_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.621Z"
+    },
+    {
+      "kind": "hook",
+      "source": "typecheck-feedback",
+      "decision": "pass",
+      "message": "post_tool edit_file",
+      "data": {
+        "event": "post_tool",
+        "tool": "edit_file",
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.666Z"
+    },
+    {
+      "kind": "tool",
+      "source": "edit_file",
+      "decision": "pass",
+      "message": "edited src/modules/health/routes.ts (+1 −1)",
+      "data": {
+        "callId": "call_PaicSruIcW0SirziPq8NP3IZ",
+        "ok": true,
+        "paths": [
+          "src/modules/health/routes.ts"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:17.666Z"
+    },
+    {
+      "kind": "gate",
+      "source": "contract-lock",
+      "decision": "pass",
+      "message": "finish: pass contract preserved (4 → 5 endpoints, via runtime): 1 additive (GET /v1/health: new route)",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "logPath": "runs/health-route-openai-20261108-071724/logs/015-contract-diff.txt"
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:18.969Z"
+    },
+    {
+      "kind": "gate",
+      "source": "diff-budget",
+      "decision": "pass",
+      "message": "finish: pass 49 changed lines in 4 file(s), within the budget of 400",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "details": [
+          "samples/existing-api/test/projects.test.ts: 21 changed lines",
+          "samples/existing-api/test/health-routes.test.ts: 19 changed lines",
+          "samples/existing-api/src/modules/health/routes.ts: 7 changed lines",
+          "samples/existing-api/src/app.ts: 2 changed lines"
+        ]
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:19.006Z"
+    },
+    {
+      "kind": "gate",
+      "source": "observed-red",
+      "decision": "pass",
+      "message": "finish: pass 5 red observations (2 test files); 2 changed source files went red -> green (2 on unchanged cases, 0 on edited cases by differential proof), red again with the original source (each file reverted alone)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:21.614Z"
+    },
+    {
+      "kind": "gate",
+      "source": "orphans",
+      "decision": "pass",
+      "message": "finish: pass 1 created files, all imported by a test or by existing code",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:21.623Z"
+    },
+    {
+      "kind": "gate",
+      "source": "route-lock",
+      "message": "finish: not run: applies to nestjs; this target is express",
+      "turn": 30,
+      "at": "2026-11-08T07:18:21.623Z"
+    },
+    {
+      "kind": "gate",
+      "source": "scope",
+      "decision": "pass",
+      "message": "finish: pass 4 changed files, all in scope",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:21.658Z"
+    },
+    {
+      "kind": "gate",
+      "source": "spec-coverage",
+      "decision": "pass",
+      "message": "finish: n/a not applicable to brownfield tasks",
+      "data": {
+        "phase": "finish",
+        "status": "n/a"
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:21.659Z"
+    },
+    {
+      "kind": "gate",
+      "source": "stakeholder-yes",
+      "decision": "pass",
+      "message": "finish: pass Abdul Basit approved proposal seq 1 in a typed turn (seq 3)",
+      "data": {
+        "phase": "finish",
+        "status": "pass"
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:21.659Z"
+    },
+    {
+      "kind": "gate",
+      "source": "standards",
+      "decision": "block",
+      "message": "finish: fail verdict 95% over the whole API (brownfield, strict: the standards rules must be 100%): 3 standards violation(s) to fix",
+      "data": {
+        "phase": "finish",
+        "status": "fail",
+        "details": [
+          "must fix (in scope): rest-conventions src/modules/health/routes.ts:5:1  GET /v1/health: collection GET must parse req.query with a cursor schema that has cursor and limit",
+          "must fix (in scope): rest-conventions src/modules/health/routes.ts:6:3  GET /v1/health: collection response must be a page schema with data (array) and nextCursor, e.g. pageSchema(ItemSchema).parse(...)",
+          "must fix (in scope): zod-boundary src/modules/health/routes.ts:6:3  GET /v1/health: response body is not parsed with a Zod schema; send ResponseSchema.parse(value)"
+        ],
+        "logPath": "runs/health-route-openai-20261108-071724/logs/025-standards-brownfield.txt"
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:23.361Z"
+    },
+    {
+      "kind": "gate",
+      "source": "tests-green",
+      "decision": "pass",
+      "message": "finish: pass 22/22 tests passed in 2 files",
+      "data": {
+        "phase": "finish",
+        "status": "pass",
+        "details": [
+          "tests: 0 failed, 22 passed (22) in 2 files"
+        ],
+        "logPath": "runs/health-route-openai-20261108-071724/logs/026-vitest.txt"
+      },
+      "turn": 30,
+      "at": "2026-11-08T07:18:23.912Z"
+    }
+  ],
+  "scratch": [
+    [
+      "test-preservation.base",
+      {
+        "$map": [
+          [
+            "test/projects.test.ts",
+            "import { randomUUID } from 'node:crypto';\nimport request from 'supertest';\nimport type { Response } from 'supertest';\nimport { describe, expect, it } from 'vitest';\nimport { z } from 'zod';\nimport { createApp } from '../src/app.ts';\nimport { ProblemSchema } from '../src/lib/problem.ts';\n\nconst app = createApp();\n\n/** The public contract, restated independently of the implementation. */\nconst ProjectBody = z.strictObject({\n  id: z.uuid(),\n  name: z.string(),\n  description: z.string().optional(),\n  status: z.enum(['active', 'archived']),\n  createdAt: z.iso.datetime(),\n  updatedAt: z.iso.datetime(),\n});\nconst PageBody = z.strictObject({ data: z.array(ProjectBody), nextCursor: z.string().nullable() });\n\nconst UNKNOWN_ID = '00000000-0000-4000-8000-000000000000';\n\nfunction expectProblem(res: Response, status: number) {\n  expect(res.status).toBe(status);\n  expect(res.headers['content-type']).toMatch(/^application\\/problem\\+json/);\n  const problem = ProblemSchema.parse(res.body);\n  expect(problem.status).toBe(status);\n  return problem;\n}\n\nasync function createProject(body: Record<string, unknown> = {}) {\n  const res = await request(app)\n    .post('/v1/projects')\n    .send({ name: `project ${randomUUID()}`, ...body });\n  expect(res.status).toBe(201);\n  return ProjectBody.parse(res.body);\n}\n\nasync function listAll(query: Record<string, string>) {\n  const ids: string[] = [];\n  let cursor: string | null = null;\n  do {\n    const res = await request(app)\n      .get('/v1/projects')\n      .query(cursor === null ? query : { ...query, cursor });\n    expect(res.status).toBe(200);\n    const page = PageBody.parse(res.body);\n    ids.push(...page.data.map((p) => p.id));\n    cursor = page.nextCursor;\n  } while (cursor !== null);\n  return ids;\n}\n\ndescribe('POST /v1/projects', () => {\n  it('creates a project: 201, Location header, status defaults to active', async () => {\n    const res = await request(app).post('/v1/projects').send({ name: 'Apollo', description: 'moon' });\n    expect(res.status).toBe(201);\n    const project = ProjectBody.parse(res.body);\n    expect(res.headers['location']).toBe(`/v1/projects/${project.id}`);\n    expect(project).toMatchObject({ name: 'Apollo', description: 'moon', status: 'active' });\n    expect(project.createdAt).toBe(project.updatedAt);\n  });\n\n  it('rejects an invalid body with a 422 problem', async () => {\n    const problem = expectProblem(await request(app).post('/v1/projects').send({ name: '', status: 'deleted' }), 422);\n    expect(problem.detail).toContain('name');\n    expect(problem.detail).toContain('status');\n  });\n\n  it('rejects unknown properties with a 422 problem', async () => {\n    expectProblem(await request(app).post('/v1/projects').send({ name: 'x', owner: 'me' }), 422);\n  });\n\n  it('rejects malformed JSON with a 400 problem', async () => {\n    expectProblem(await request(app).post('/v1/projects').set('Content-Type', 'application/json').send('{\"name\"'), 400);\n  });\n\n  it('honours Idempotency-Key: same key and body replays the first response', async () => {\n    const key = randomUUID();\n    const body = { name: `idem ${key}` };\n    const first = await request(app).post('/v1/projects').set('Idempotency-Key', key).send(body);\n    const second = await request(app).post('/v1/projects').set('Idempotency-Key', key).send(body);\n    expect(first.status).toBe(201);\n    expect(second.status).toBe(201);\n    expect(second.headers['idempotent-replayed']).toBe('true');\n    expect(ProjectBody.parse(second.body).id).toBe(ProjectBody.parse(first.body).id);\n    const all = await listAll({ limit: '100' });\n    expect(all.filter((id) => id === ProjectBody.parse(first.body).id)).toHaveLength(1);\n  });\n\n  it('rejects reuse of an Idempotency-Key with a different body (422)', async () => {\n    const key = randomUUID();\n    await request(app).post('/v1/projects').set('Idempotency-Key', key).send({ name: 'one' }).expect(201);\n    expectProblem(await request(app).post('/v1/projects').set('Idempotency-Key', key).send({ name: 'two' }), 422);\n  });\n});\n\ndescribe('GET /v1/projects', () => {\n  it('pages through every project with an opaque cursor', async () => {\n    const created = [await createProject(), await createProject(), await createProject()];\n    const ids = await listAll({ limit: '2' });\n    expect(new Set(ids).size).toBe(ids.length);\n    for (const project of created) expect(ids).toContain(project.id);\n  });\n\n  it('returns at most `limit` items and a nextCursor while more remain', async () => {\n    await createProject();\n    await createProject();\n    const res = await request(app).get('/v1/projects').query({ limit: '1' });\n    const page = PageBody.parse(res.body);\n    expect(page.data).toHaveLength(1);\n    expect(page.nextCursor).not.toBeNull();\n  });\n\n  it('defaults to 20 items per page', async () => {\n    for (let i = 0; i < 21; i += 1) await createProject();\n    const page = PageBody.parse((await request(app).get('/v1/projects')).body);\n    expect(page.data).toHaveLength(20);\n    expect(page.nextCursor).not.toBeNull();\n  });\n\n  it('rejects limit outside 1..100 and foreign cursors with a 422 problem', async () => {\n    expectProblem(await request(app).get('/v1/projects').query({ limit: '0' }), 422);\n    expectProblem(await request(app).get('/v1/projects').query({ limit: '101' }), 422);\n    expectProblem(await request(app).get('/v1/projects').query({ cursor: 'nope' }), 422);\n  });\n});\n\ndescribe('GET /v1/projects/:projectId', () => {\n  it('returns the project', async () => {\n    const project = await createProject({ description: 'details' });\n    const res = await request(app).get(`/v1/projects/${project.id}`);\n    expect(res.status).toBe(200);\n    expect(ProjectBody.parse(res.body)).toEqual(project);\n  });\n\n  it('answers an unknown id with a 404 problem', async () => {\n    const problem = expectProblem(await request(app).get(`/v1/projects/${UNKNOWN_ID}`), 404);\n    expect(problem.instance).toBe(`/v1/projects/${UNKNOWN_ID}`);\n  });\n\n  it('answers a malformed id with a 422 problem', async () => {\n    expectProblem(await request(app).get('/v1/projects/not-a-uuid'), 422);\n  });\n});\n\ndescribe('PATCH /v1/projects/:projectId', () => {\n  it('updates the given fields only', async () => {\n    const project = await createProject({ description: 'keep me' });\n    const res = await request(app).patch(`/v1/projects/${project.id}`).send({ status: 'archived' });\n    expect(res.status).toBe(200);\n    const updated = ProjectBody.parse(res.body);\n    expect(updated).toMatchObject({ id: project.id, name: project.name, description: 'keep me', status: 'archived' });\n    expect(updated.createdAt).toBe(project.createdAt);\n  });\n\n  it('rejects an empty or invalid patch with a 422 problem', async () => {\n    const project = await createProject();\n    expectProblem(await request(app).patch(`/v1/projects/${project.id}`).send({}), 422);\n    expectProblem(await request(app).patch(`/v1/projects/${project.id}`).send({ status: 'gone' }), 422);\n  });\n\n  it('answers an unknown id with a 404 problem', async () => {\n    expectProblem(await request(app).patch(`/v1/projects/${UNKNOWN_ID}`).send({ name: 'x' }), 404);\n  });\n\n  it('honours Idempotency-Key on PATCH', async () => {\n    const project = await createProject();\n    const key = randomUUID();\n    const first = await request(app).patch(`/v1/projects/${project.id}`).set('Idempotency-Key', key).send({ name: 'renamed' });\n    const second = await request(app).patch(`/v1/projects/${project.id}`).set('Idempotency-Key', key).send({ name: 'renamed' });\n    expect(first.status).toBe(200);\n    expect(second.headers['idempotent-replayed']).toBe('true');\n    expect(second.body).toEqual(first.body);\n  });\n});\n"
+          ]
+        ]
+      }
+    ],
+    [
+      "observed-red.unlocked",
+      [
+        "src/app.ts",
+        "src/modules/health/routes.ts"
+      ]
+    ]
+  ],
+  "finishAttempts": 0
+}

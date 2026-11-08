@@ -1,0 +1,20 @@
+problem-json      pass  src/app.ts                       2/2 error paths
+problem-json      pass  src/lib/errors.ts                6/6 error paths
+problem-json      pass  src/lib/idempotency.ts           2/2 error paths
+problem-json      pass  src/lib/pagination.ts            1/1 error paths
+problem-json      pass  src/lib/problem.ts               6/6 error paths
+problem-json      pass  src/modules/projects/routes.ts   2/2 error paths
+problem-json      pass  (runtime)                        10/10 error paths
+rest-conventions  pass  src/modules/projects/routes.ts   4/4 routes
+tsc-strict        FAIL  test/labels.store.test.ts        2 errors
+    test/labels.store.test.ts:33:31  TS2322: Type 'null' is not assignable to type 'string | undefined'.
+    test/labels.store.test.ts:50:33  TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+tsc-strict        FAIL  (project)                        2 errors
+zod-boundary      pass  src/modules/projects/routes.ts   4/4 handlers
+────────────────────────────────────────────────────────────
+problem-json      pass    29/29 error paths
+rest-conventions  pass     4/4 routes
+tsc-strict        FAIL     2 errors
+zod-boundary      pass     4/4 handlers
+verdict           94%     → failing: tsc-strict
+other stacks  not run on express: nest-route-guard (nestjs), prisma-unbounded (nestjs), repo-lint (nestjs, react-vite), repo-typecheck (nestjs, react-vite), vite-build (react-vite)

@@ -1,0 +1,40 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261108-072043/generated/users-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/users.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261108-072043/generated/users-api
+
+ ❯ test/users.test.ts (6 tests | 1 failed) 62ms
+   ✓ users API (5)
+     ✓ creates, gets, updates and deletes users 30ms
+     ✓ defaults role and cursor paginates all users 11ms
+     ✓ validates fields, malformed JSON, missing resources and conflicts 10ms
+     ✓ replays idempotent creates and rejects changed bodies 5ms
+     ✓ rejects empty patches and duplicate email changes 3ms
+   × covers users router export 2ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  12:21:32
+   Duration  276ms (import 49%, tests 31%, transform 19%, worker 1%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/users.test.ts > covers users router export
+AssertionError: expected undefined to be defined
+ ❯ test/users.test.ts:76:68
+     74|
+     75| import { createUsersRouter } from '../src/routes/users.ts';
+     76| it('covers users router export', () => { expect(createUsersRouter).toB…
+       |                                                                    ^
+     77|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":1,"numFailedTestSuites":1,"numPendingTestSuites":0,"numTotalTests":6,"numPassedTests":5,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794122492647,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["users API"],"fullName":"users API creates, gets, updates and deletes users","status":"passed","title":"creates, gets, updates and deletes users","duration":29.951459,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API defaults role and cursor paginates all users","status":"passed","title":"defaults role and cursor paginates all users","duration":11.024208999999985,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API validates fields, malformed JSON, missing resources and conflicts","status":"passed","title":"validates fields, malformed JSON, missing resources and conflicts","duration":9.98945900000001,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API replays idempotent creates and rejects changed bodies","status":"passed","title":"replays idempotent creates and rejects changed bodies","duration":4.621959000000004,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["users API"],"fullName":"users API rejects empty patches and duplicate email changes","status":"passed","title":"rejects empty patches and duplicate email changes","duration":3.2244169999999883,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":[],"fullName":"covers users router export","status":"failed","title":"covers users router export","duration":1.866500000000002,"failureMessages":["AssertionError: expected undefined to be defined\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261108-072043/generated/users-api/test/users.test.ts:76:68\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:1628:35\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:26\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3321:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3316:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3301:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3259:10)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:3882:64"],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794122492858,"endTime":1794122492918.8665,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/users-api-openai-20261108-072043/generated/users-api/test/users.test.ts"}]}

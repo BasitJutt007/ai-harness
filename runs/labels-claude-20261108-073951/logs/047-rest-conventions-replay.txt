@@ -1,0 +1,4 @@
+replay probe (transcript: runs/labels-claude-20261108-073951/logs/046-rest-conventions-replay-probe.txt)
+POST /v1/labels: inconclusive: no valid body can be generated from CreateLabelSchema
+POST /v1/projects: replayed: the retry replayed 201
+PATCH /v1/projects/:projectId: replayed: the retry replayed 200

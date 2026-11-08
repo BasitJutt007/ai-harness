@@ -1,0 +1,3 @@
+verdict 94% over the whole API (brownfield, strict: the standards rules must be 100%)
+must fix (in scope): tsc-strict test/labels.store.test.ts:33:31  TS2322: Type 'null' is not assignable to type 'string | undefined'.
+must fix (in scope): tsc-strict test/labels.store.test.ts:50:33  TS2322: Type 'string | null' is not assignable to type 'string | undefined'.

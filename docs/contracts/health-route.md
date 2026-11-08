@@ -14,3 +14,4 @@ Not included:
 - checks of dependencies (the store is in memory; there is nothing to probe)
 - authentication on the health route
 - merging into main: a re-run's PR targets rubric-01, as the other demo items do
+Signed: Abdul Basit, 2026-11-08 (recorded by the harness from the typed reply at ledger seq 3; the human-yes gate reads the ledger, not this line)

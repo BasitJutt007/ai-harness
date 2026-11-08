@@ -1,0 +1,44 @@
+$ vitest /Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/vitest.mjs run --root /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/health-route-openai-20261108-071724/samples/existing-api --configLoader runner --pool=forks --reporter=default --reporter=json --outputFile.json=/dev/fd/3 test/health-routes.test.ts
+exit: 1
+--- stdout ---
+
+ RUN  v5.0.3 /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/health-route-openai-20261108-071724/samples/existing-api
+
+ ❯ test/health-routes.test.ts (2 tests | 1 failed) 22ms
+   ❯ healthRouter (2)
+     × provides health status 18ms
+     ✓ does not accept unknown methods 3ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  12:18:09
+   Duration  230ms (import 60%, transform 24%, tests 14%, worker 2%)
+
+JSON report written to /dev/fd/3
+
+--- stderr ---
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/health-routes.test.ts > healthRouter > provides health status
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ test/health-routes.test.ts:10:29
+      8|   it('provides health status', async () => {
+      9|     const response = await request(app).get('/v1/health?probe=1');
+     10|     expect(response.status).toBe(200);
+       |                             ^
+     11|     expect(response.headers['content-type']).toMatch(/application\/jso…
+     12|     expect(response.body).toEqual({ status: 'ok' });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+--- json ---
+{"numTotalTestSuites":2,"numPassedTestSuites":0,"numFailedTestSuites":2,"numPendingTestSuites":0,"numTotalTests":2,"numPassedTests":1,"numFailedTests":1,"numPendingTests":0,"numTodoTests":0,"snapshot":{"added":0,"failure":false,"filesAdded":0,"filesRemoved":0,"filesRemovedList":[],"filesUnmatched":0,"filesUpdated":0,"matched":0,"total":0,"unchecked":0,"uncheckedKeysByFile":[],"unmatched":0,"updated":0,"didUpdate":false},"startTime":1794122289218,"success":false,"testResults":[{"assertionResults":[{"ancestorTitles":["healthRouter"],"fullName":"healthRouter provides health status","status":"failed","title":"provides health status","duration":17.5565,"failureMessages":["AssertionError: expected 404 to be 200 // Object.is equality\n    at /Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/health-route-openai-20261108-071724/samples/existing-api/test/health-routes.test.ts:10:29\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/abdulbasit/Documents/GitHub/ai-harness/node_modules/vitest/dist/chunks/run.BTlFXlnv.js:2783:20"],"meta":{},"tags":[],"benchmarks":[]},{"ancestorTitles":["healthRouter"],"fullName":"healthRouter does not accept unknown methods","status":"passed","title":"does not accept unknown methods","duration":3.461250000000007,"failureMessages":[],"meta":{},"tags":[],"benchmarks":[]}],"startTime":1794122289425,"endTime":1794122289446.4612,"status":"failed","message":"","name":"/Users/abdulbasit/Documents/GitHub/ai-harness/.harness/worktrees/health-route-openai-20261108-071724/samples/existing-api/test/health-routes.test.ts"}]}

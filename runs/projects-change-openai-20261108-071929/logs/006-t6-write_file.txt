@@ -1,0 +1,45 @@
+--- a/src/modules/projects/schema.ts
++++ b/src/modules/projects/schema.ts
+@@ -2,37 +2,17 @@
+ import { CursorQuerySchema, pageSchema } from '../../lib/pagination.ts';
+ 
+ export const ProjectStatusSchema = z.enum(['active', 'archived']);
+-
+ export const ProjectSchema = z.object({
+-  id: z.uuid(),
+-  name: z.string().min(1).max(100),
+-  description: z.string().max(500).optional(),
+-  status: ProjectStatusSchema,
+-  createdAt: z.iso.datetime(),
+-  updatedAt: z.iso.datetime(),
++  id: z.uuid(), name: z.string().min(1).max(100), description: z.string().max(500).optional(),
++  status: ProjectStatusSchema, createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(),
+ });
+ export type Project = z.infer<typeof ProjectSchema>;
+-
+ export const ProjectParamsSchema = z.object({ projectId: z.uuid() });
+-
+-export const CreateProjectSchema = z.strictObject({
+-  name: z.string().min(1).max(100),
+-  description: z.string().max(500).optional(),
+-  status: ProjectStatusSchema.default('active'),
+-});
++export const CreateProjectSchema = z.strictObject({ name: z.string().min(1).max(100), description: z.string().max(500).optional(), status: ProjectStatusSchema.default('active') });
+ export type CreateProject = z.infer<typeof CreateProjectSchema>;
+-
+-export const UpdateProjectSchema = z
+-  .strictObject({
+-    name: z.string().min(1).max(100).optional(),
+-    description: z.string().max(500).optional(),
+-    status: ProjectStatusSchema.optional(),
+-  })
+-  .refine((patch) => Object.keys(patch).length > 0, { message: 'at least one field is required' });
++export const UpdateProjectSchema = z.strictObject({ name: z.string().min(1).max(100).optional(), description: z.string().max(500).optional(), status: ProjectStatusSchema.optional() }).refine((patch) => Object.keys(patch).length > 0, { message: 'at least one field is required' });
+ export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
+-
+-export const ListProjectsQuerySchema = CursorQuerySchema;
++export const ListProjectsQuerySchema = CursorQuerySchema.extend({ status: ProjectStatusSchema.optional() });
+ export type ListProjectsQuery = z.infer<typeof ListProjectsQuerySchema>;
+-
+ export const ProjectPageSchema = pageSchema(ProjectSchema);
+ export type ProjectPage = z.infer<typeof ProjectPageSchema>;
