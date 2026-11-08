@@ -6,7 +6,7 @@ Stakeholder: Abdul Basit
 Repo: BasitJutt007/harness-demo
 Base: rubric-01
 Commit: feat(projects): delete projects and filter the project list by status
-Metric: Projects API routes the change adds that the demo app does not register, rubric-01 HEAD before: 1 after: ____
+Metric: Projects API routes the change adds that the demo app does not register, rubric-01 HEAD before: 1 after: 0
 Measure: node metrics/demo-routes.mjs samples/existing-api DELETE:/v1/projects/:projectId
 Scenario: WHEN a client deletes an existing project THEN the API answers 204 and a later GET of it answers 404
 Scenario: WHEN a client lists projects with status=archived THEN only archived projects are returned, still cursor-paginated
