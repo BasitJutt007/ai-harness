@@ -161,6 +161,8 @@ const BrownfieldSchema = z
     // opt-in to the base-commit comparison (below 100% allowed when this run introduces nothing).
     standards: z.enum(['strict', 'baseline']).optional(),
     resources: z.array(ResourceSchema).optional(),
+    // Files the bound item's Measure probes (types.ts BrownfieldTask.measured): their proof is the item-metric gate.
+    measured: z.array(z.string().min(1)).min(1).optional(),
   })
   .strict();
 

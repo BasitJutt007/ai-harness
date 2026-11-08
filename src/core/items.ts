@@ -610,3 +610,14 @@ export function writeMetricValues(contract: string, before: string | null, after
   lines[i] = `${m[1] ?? ''}${before ?? m[2] ?? '____'}${m[3] ?? ' after: '}${after ?? m[4] ?? '____'}`;
   writeFileSync(contract, lines.join('\n'));
 }
+
+/**
+ * The before value recorded with the latest proposal of this exact contract text (null: none, or the
+ * ledger is broken, or that proposal recorded no reading). Run-time gates and locks compare with it.
+ */
+export function proposalBefore(root: string, slug: string, contractHash: string): MetricReading | null {
+  const ledger = readLedger(itemPaths(root, slug).ledger);
+  if (ledger.problems.length > 0) return null;
+  const p = ledger.entries.filter((e) => e.event.type === 'proposed' && e.event.contractHash === contractHash).at(-1);
+  return p !== undefined && p.event.type === 'proposed' ? p.event.before : null;
+}

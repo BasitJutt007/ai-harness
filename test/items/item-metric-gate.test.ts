@@ -36,6 +36,7 @@ function setup(beforeValue: MetricReading | null, treeValue: string): RunContext
   writeFileSync(join(tree, 'value.txt'), treeValue);
   return {
     run: { harnessRoot: harness },
+    task: { kind: 'brownfield' },
     workspace: { repoRoot: tree },
     item: { slug: SLUG, root: items, contractHash: parseContract(contract).hash },
     exec,

@@ -34,7 +34,7 @@
 import ts from 'typescript';
 import { defineGate, sourceRootsLabel } from '../../src/core/plugin-api.ts';
 import type { DifferentialRun, TestCaseObservation, TestMap, TestObservation, TestRunReport } from '../../src/core/plugin-api.ts';
-import { isGovernedSource, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
+import { isGovernedSource, measuredOpen, sha256, suggestedTest, unlockedSources } from '../lib/red.ts';
 
 /** What is missing for one covering test, from least to most progress (the gate reports the most advanced one). */
 const RANK = ['never red', 'only a missing-module red (the file existed at run start)', 'only a missing-module red on presence-only assertions (toBeDefined, toBeTruthy, ...): assert a value', 'red only on constants', 'red only in cases that use nothing from the source', 'edited after red', 'still failing'] as const;
@@ -169,6 +169,20 @@ export default defineGate({
       map = await ctx.services.testMap();
     } catch (e) {
       return { status: 'unproven', summary: `could not inspect changes: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    // Measured files (task `measured`, in a run bound to an item with a before value) are proven by the
+    // required item-metric gate: the metric moved, and moves back with each such file alone reverted. They
+    // still had to pass the hook; every other changed file needs its own red -> green case as below.
+    const measured = changed.filter((f) => measuredOpen(ctx, f));
+    const unlockedNow = unlockedSources(ctx.state);
+    const sneaked = measured.filter((f) => !unlockedNow.has(f));
+    if (sneaked.length > 0) {
+      return { status: 'fail', summary: `${sneaked.length} measured file(s) changed without passing the observed-red hook`, details: sneaked.map((f) => `${f}: not written by a write tool`) };
+    }
+    const delegated = measured.length > 0 ? `; ${measured.length} measured file(s) left to item-metric (${measured.join(', ')})` : '';
+    changed = changed.filter((f) => !measured.includes(f));
+    if (changed.length === 0 && measured.length > 0) {
+      return { status: 'pass', summary: `every changed source file is measured: their red is the item's before value and item-metric proves each change${delegated}` };
     }
     if (reds.length === 0) {
       return {
@@ -309,7 +323,7 @@ export default defineGate({
     }
     return {
       status: 'pass',
-      summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)`,
+      summary: `${reds.length} red observations (${new Set(reds.map((o) => o.file)).size} test files); ${changed.length} changed source files went red -> green (${unchangedProofs.size} on unchanged cases, ${editedProofs.size} on edited cases by differential proof), red again with the original source (each file reverted alone)${delegated}`,
     };
   },
 });

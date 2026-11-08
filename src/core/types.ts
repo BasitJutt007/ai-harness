@@ -248,6 +248,13 @@ export interface BrownfieldTask extends TaskCommon {
   standards?: 'strict' | 'baseline' | undefined;
   /** Resources the change adds or extends, when the task lists them. */
   resources?: ResourceSpec[] | undefined;
+  /**
+   * Globs (relative to the API root) of files the bound item's Measure probes: typically a screen no unit test
+   * can load. In a run bound to an item whose before value was read at proposal, such a file may be edited
+   * without an agent-written red test (that before value is its red), and the item-metric gate proves its
+   * change: the metric must move, and must move back with that file alone at its run-start content.
+   */
+  measured?: string[] | undefined;
 }
 
 export type Task = GreenfieldTask | BrownfieldTask;

@@ -162,3 +162,8 @@ export function stringField(input: unknown, key: string): string | undefined {
   const value: unknown = Reflect.get(input, key);
   return typeof value === 'string' ? value : undefined;
 }
+
+/** A file the task declares the bound item's Measure probes (brownfield `measured`); never for greenfield. */
+export function isMeasured(task: Task, rel: string): boolean {
+  return task.kind === 'brownfield' && task.measured !== undefined && matcher(task.measured)(rel);
+}

@@ -35,7 +35,7 @@ export type { TsFence } from './ts-fence.ts';
 export { graphFiles, importGraph, importSpecifiers, resolveImport } from './testmap.ts';
 
 /** Backlog items (assignment 02): the contract, the stakeholder's typed yes, and their verdicts (see items.ts). */
-export { approvalVerdict, classifyReply, contractVerdict, itemPaths, itemStatus, parseContract, readLedger } from './items.ts';
+export { approvalVerdict, classifyReply, contractVerdict, itemPaths, itemStatus, parseContract, proposalBefore, readLedger } from './items.ts';
 export { readTreeMetric } from './measure.ts';
 export type { ApprovalVerdict, ContractParse, ContractVerdict, ItemStatus, Ledger, LedgerEntry, LedgerEvent } from './items.ts';
 
