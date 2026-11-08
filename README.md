@@ -37,7 +37,7 @@ stakeholder at a terminal.
 
 | Item | Metric (read by the harness) | Before | Runs | State |
 |---|---|---|---|---|
-| [projects-change](docs/contracts/projects-change.md) | routes the change adds that the app does not register | 1 | gpt-5.6-luna: DONE | shipped as a PR; closes on its after value once a person merges it |
+| [projects-change](docs/contracts/projects-change.md) | routes the change adds that the app does not register | 1 | gpt-5.6-luna: DONE | **closed**: the harness opened [harness-demo#12](https://github.com/BasitJutt007/harness-demo/pull/12), a person merged it, and the harness read **after 0** at the merge commit |
 | [users-api](docs/contracts/users-api.md) | Users API routes the app does not register | 5 | gpt-5.6-luna, claude-haiku: NOT DONE | approved |
 | [health-route](docs/contracts/health-route.md) | health routes the app does not register | 1 | gpt-5.6-luna: NOT DONE | approved |
 | [labels](docs/contracts/labels.md) | Labels routes the app does not register | 3 | gpt-5.6-luna, claude-haiku (x2): NOT DONE | approved |

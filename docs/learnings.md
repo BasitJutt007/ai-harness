@@ -1,8 +1,8 @@
 # Learnings: assignment 02
 
 State on 8 November. Every item has a contract the harness proposed, a before value it read itself and
-a yes I typed at a terminal. Of the public items, `projects-change` ran DONE and shipped as a PR; the
-other runs ended NOT DONE, each refused by a named gate (REST conventions, strict types, Zod at the
+a yes I typed at a terminal. Of the public items, `projects-change` ran DONE, shipped as a PR, was merged
+and closed by the harness at after 0 (before 1); the other runs ended NOT DONE, each refused by a named gate (REST conventions, strict types, Zod at the
 boundary). A private item on a real React app taught the most, below.
 
 **Stakeholder.** I am the stakeholder for all three items, because the team lead is on vacation. The
