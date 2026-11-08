@@ -1,0 +1,23 @@
+# Brownfield: a health check for the existing Projects API in samples/existing-api.
+# Provider-neutral: choose the model with `harness run ... --driver <name> [--model <id>]`.
+kind: brownfield
+id: health-route
+title: A health check route for the Projects API
+target: samples/existing-api
+change: |
+  Add GET /v1/health so a load balancer or a deploy check can tell the API is up.
+  It answers 200 application/json { "status": "ok" } and needs no request body or
+  parameters. It lives in its own module and is registered on the app next to the
+  projects routes. No existing route, request schema or response schema changes.
+behaviours:
+  - "GET /v1/health returns 200 application/json with the body { \"status\": \"ok\" }."
+  - "GET /v1/health ignores query parameters and still returns 200 with { \"status\": \"ok\" }."
+  - "An unknown method on /v1/health (e.g. POST) does not return 200."
+  - "All existing tests keep passing and the public contract only gains routes and properties."
+scope:
+  allow: ["src/**/*.ts", "test/**/*.ts"]
+  deny: ["src/lib/**", "src/server.ts", "src/modules/projects/**"]
+allowBreaking: false
+limits:
+  maxTurns: 30
+  maxOutputTokens: 16000
