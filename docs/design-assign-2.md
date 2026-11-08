@@ -144,14 +144,17 @@ pass, a breaking change) were refused by `observed-red`, `standards` and `contra
 
 Public items, on `harness-demo` at `rubric-01` (the base before the 01 PRs):
 
+"NOT DONE (correct)" means the model said it had finished, but a gate found the work short, so the
+harness refused it and opened no PR: the refusal is the harness working, not the harness failing.
+
 | Item | Driver, model | Verdict | Refused by | Spend |
 |---|---|---|---|---|
 | projects-change | openai, gpt-5.6-luna | **DONE**, shipped as harness-demo#12 | | $0.07 |
-| health-route | openai, gpt-5.6-luna | NOT DONE | standards (REST rules) | $0.08 |
-| users-api | openai, gpt-5.6-luna | NOT DONE | standards | $0.37 |
-| users-api | claude, claude-haiku-4-5 | NOT DONE | standards, tests-green | $0.48 |
-| labels | openai, gpt-5.6-luna | NOT DONE | standards | $0.20 |
-| labels | claude, claude-haiku-4-5 (40, then 60 turns) | NOT DONE | observed-red, standards, tests-green | $0.47, $0.68 |
+| health-route | openai, gpt-5.6-luna | NOT DONE (correct) | standards (REST rules) | $0.08 |
+| users-api | openai, gpt-5.6-luna | NOT DONE (correct) | standards | $0.37 |
+| users-api | claude, claude-haiku-4-5 | NOT DONE (correct) | standards, tests-green | $0.48 |
+| labels | openai, gpt-5.6-luna | NOT DONE (correct) | standards | $0.20 |
+| labels | claude, claude-haiku-4-5 (40, then 60 turns) | NOT DONE (correct) | observed-red, standards, tests-green | $0.47, $0.68 |
 
 `projects-change` then went the whole way: harness-demo#12 merged by a person, and `item close` read
 **before 1, after 0** at the merge commit. It is the item with every record the brief asks for.
