@@ -19,7 +19,7 @@ import { createInterface } from 'node:readline';
 import { closeItem } from './close.ts';
 import { HARNESS_ROOT } from './config.ts';
 import { exec as coreExec, passThroughEnv } from './exec.ts';
-import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, proposeItem, readLedger, recordReply, type ItemStatus, type MetricReading } from './items.ts';
+import { classifyReply, CONTRACTS_DIR, itemPaths, itemsRoot, itemStatus, parseContract, proposeItem, readLedger, recordReply, type ContractParse, type ItemStatus, type MetricReading } from './items.ts';
 import { readMetric } from './measure.ts';
 import { repoCommitlint } from './ship-text.ts';
 import type { Exec } from './types.ts';
@@ -90,7 +90,21 @@ async function checkOrigin(repoDir: string, repo: string, run: Exec): Promise<st
   return new RegExp(`[/:]${repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(url) ? null : `${repoDir}'s origin is ${url}, not ${repo}`;
 }
 
-async function askReply(root: string, slug: string, reader: ReplyReader, out: Out, session: string): Promise<number> {
+/** The lines a stakeholder reads before replying: what the contract asks, and the before value the harness read. */
+export function contractSummary(c: ContractParse, before: MetricReading | null, commitNote = ''): string[] {
+  const lines = [
+    `  Problem   ${(c.fields.Problem ?? '').split('\n')[0] ?? ''}`,
+    `  Owner     ${(c.fields.Owner ?? '').trim()}`,
+    `  Repo      ${(c.fields.Repo ?? '').trim()} (base ${(c.fields.Base ?? '').trim()})`,
+    `  Commit    ${(c.fields.Commit ?? '').trim()}${commitNote}`,
+    `  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: before ${before === null ? 'not read' : `${before.value} (read at ${before.ref} ${before.sha.slice(0, 12)})`}`,
+  ];
+  for (const sc of c.scenarios) lines.push(`  Scenario  WHEN ${sc.when} THEN ${sc.then}`);
+  lines.push(`  Not incl. ${c.notIncluded.join('; ')}`);
+  return lines;
+}
+
+async function askReply(root: string, slug: string, reader: ReplyReader, out: Out, session: string, showSummary = true): Promise<number> {
   const s = itemStatus(root, slug);
   const proposal = s.approval?.proposal ?? null;
   if (proposal === null) {
@@ -98,6 +112,19 @@ async function askReply(root: string, slug: string, reader: ReplyReader, out: Ou
     return 1;
   }
   const stakeholder = s.approval?.stakeholder ?? 'stakeholder';
+  if (showSummary) {
+    // What a yes approves is the text the harness proposed (recorded in the ledger), so that is what is shown.
+    const entry = s.ledger.entries.find((e) => e.seq === proposal);
+    if (entry !== undefined && entry.event.type === 'proposed') {
+      const proposed = parseContract(entry.event.text);
+      out(`${slug}: proposal ${proposal} to ${stakeholder}, proposed ${entry.at.slice(0, 16).replace('T', ' ')} UTC. You are approving:`);
+      for (const l of contractSummary(proposed, entry.event.before)) out(l);
+      out(`  Full text ${CONTRACTS_DIR}/${slug}.md`);
+      if (s.contract.parse !== null && s.contract.parse.hash !== entry.event.contractHash) {
+        out(`note: ${CONTRACTS_DIR}/${slug}.md changed after this proposal; a yes answers the text above, and the changed file needs a new proposal (harness item propose ${slug} --repo <dir>)`);
+      }
+    }
+  }
   if (!reader.isTTY) out(`note: stdin is not a terminal, so this reply is recorded as piped and cannot approve (only a reply typed at a terminal counts)`);
   const text = await reader.ask(`${stakeholder}, reply to proposal ${proposal} in your own words (approve it, or say what to change): `);
   if (text === null || text.trim().length === 0) {
@@ -107,6 +134,10 @@ async function askReply(root: string, slug: string, reader: ReplyReader, out: Ou
   const { entry, verdict } = recordReply(root, slug, text.trim(), reader.isTTY ? 'tty' : 'pipe', session);
   if (verdict.ok && verdict.turn?.seq === entry.seq) {
     out(`approved: ${verdict.reason}; the harness wrote the Signed line in ${CONTRACTS_DIR}/${slug}.md`);
+    return 0;
+  }
+  if (verdict.ok) {
+    out(`recorded; nothing changes: this proposal was already approved (${verdict.reason})`);
     return 0;
   }
   const kind = classifyReply(text).kind;
@@ -198,17 +229,12 @@ export async function cmdItem(a: ItemArgs, out: Out, opts: { reader?: ReplyReade
         const reading: MetricReading = before.reading;
         const p = proposeItem(root, slug, { session, before: reading });
         out(`proposed ${slug} (ledger seq ${p.seq}, contract ${c.hash.slice(0, 12)}) to ${(c.fields.Stakeholder ?? '').trim()}`);
-        out(`  Problem   ${(c.fields.Problem ?? '').split('\n')[0] ?? ''}`);
-        out(`  Owner     ${(c.fields.Owner ?? '').trim()}`);
-        out(`  Commit    ${header}  (${lint.summary})`);
-        out(`  Metric    ${c.metric?.name ?? ''}, ${c.metric?.window ?? ''}: before ${reading.value} (read at origin/${base} ${reading.sha.slice(0, 12)})`);
-        for (const sc of c.scenarios) out(`  Scenario  WHEN ${sc.when} THEN ${sc.then}`);
-        out(`  Not incl. ${c.notIncluded.join('; ')}`);
+        for (const l of contractSummary(c, reading, `  (${lint.summary})`)) out(l);
         if (!reader.isTTY) {
           out(`waiting for ${(c.fields.Stakeholder ?? '').trim()}'s reply, typed at a terminal: harness item reply ${slug}`);
           return 0;
         }
-        return await askReply(root, slug, reader, out, session);
+        return await askReply(root, slug, reader, out, session, false);
       }
       case 'reply':
         if (slug === undefined) break;
